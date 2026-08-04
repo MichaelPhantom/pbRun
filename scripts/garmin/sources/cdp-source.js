@@ -19,21 +19,22 @@ const BASE = 'https://connect.garmin.cn';
 const LIST_API = '/gc-api/activitylist-service/activities/search/activities';
 const DOWNLOAD_API = '/gc-api/download-service/files/activity/';
 
-/** 页面内执行的 fetch 包装: 带 CSRF + NK 头, 返回 {s, b | b64}; 网络异常返回 {s:0} */
-const FETCH_SCRIPT = (url, asBase64 = false) => `(async () => {
+/**
+ * 页面内 fetch 包装: 统一用 arrayBuffer + base64 传输, 避免 CDP returnByValue
+ * 传输中文文本时的 UTF-8 编码损坏 (U+FFFD)。与 cft/garmin/cdp_client.py 对齐。
+ * 网络异常返回 {s:0, b:String(e)}。
+ */
+const FETCH_SCRIPT = (url) => `(async () => {
   try {
     const csrf = (document.querySelector('meta[name=csrf-token]') || {}).content || '';
     const r = await fetch('${url}', {
       credentials: 'include',
       headers: { 'NK': 'NT', 'Connect-Csrf-Token': csrf }
     });
-    ${asBase64
-      ? `const buf = new Uint8Array(await r.arrayBuffer());
-        let bin = ''; const CH = 0x8000;
-        for (let i = 0; i < buf.length; i += CH) bin += String.fromCharCode.apply(null, buf.subarray(i, i + CH));
-        return JSON.stringify({ s: r.status, b64: btoa(bin) });`
-      : `const txt = await r.text();
-        return JSON.stringify({ s: r.status, b: txt });`}
+    const buf = new Uint8Array(await r.arrayBuffer());
+    let bin = ''; const CH = 0x8000;
+    for (let i = 0; i < buf.length; i += CH) bin += String.fromCharCode.apply(null, buf.subarray(i, i + CH));
+    return JSON.stringify({ s: r.status, ct: (r.headers.get('content-type') || ''), b64: btoa(bin) });
   } catch (e) {
     return JSON.stringify({ s: 0, b: String(e) });
   }
@@ -119,26 +120,28 @@ class CDPClient {
     return result.result && result.result.value;
   }
 
-  /** 浏览器上下文 GET + 可选 JSON 解析 */
+  /** 浏览器上下文 GET JSON (base64 传输, 安全解码 UTF-8) */
   async fetchJson(url, params = {}, timeoutMs = 120000) {
     const qs = new URLSearchParams(params).toString();
     const full = `${url}${qs ? `?${qs}` : ''}`;
-    const raw = await this.evalAsync(FETCH_SCRIPT(full, false), timeoutMs);
-    const { s, b } = JSON.parse(raw || '{}');
-    if (s !== 200) return { ok: false, status: s };
+    const raw = await this.evalAsync(FETCH_SCRIPT(full), timeoutMs);
+    const parsed = JSON.parse(raw || '{}');
+    if (parsed.s !== 200) return { ok: false, status: parsed.s };
+    const text = parsed.b64 ? Buffer.from(parsed.b64, 'base64').toString('utf-8') : (parsed.b || '');
     try {
-      return { ok: true, status: s, data: JSON.parse(b) };
+      return { ok: true, status: parsed.s, data: JSON.parse(text) };
     } catch {
-      return { ok: true, status: s, data: null, raw: b };
+      return { ok: true, status: parsed.s, data: null, raw: text };
     }
   }
 
-  /** 浏览器上下文下载 → 裸 Buffer (页面内 b64, 传输安全) */
+  /** 浏览器上下文下载 → 裸 Buffer (base64 传输, 传输安全) */
   async download(url, timeoutMs = 120000) {
-    const raw = await this.evalAsync(FETCH_SCRIPT(url, true), timeoutMs);
-    const { s, b64 } = JSON.parse(raw || '{}');
-    if (s !== 200) return { ok: false, status: s };
-    return { ok: true, status: s, buffer: Buffer.from(b64, 'base64') };
+    const raw = await this.evalAsync(FETCH_SCRIPT(url), timeoutMs);
+    const parsed = JSON.parse(raw || '{}');
+    if (parsed.s !== 200) return { ok: false, status: parsed.s };
+    const buf = parsed.b64 ? Buffer.from(parsed.b64, 'base64') : Buffer.alloc(0);
+    return { ok: true, status: parsed.s, buffer: buf };
   }
 
   close() {
