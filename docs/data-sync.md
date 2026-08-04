@@ -17,10 +17,46 @@
 
 ### 数据来源
 
-本项目从 **Garmin Connect 国际区** 同步运动数据。Garmin Connect 提供了以下数据：
+本项目支持三种 Garmin 数据获取方式，通过统一的数据源抽象层 (`scripts/garmin/sources/`) 实现，`sync.js` 无差别消费：
+
+| 数据源 | 适用场景 | 依赖 | 环境变量 |
+|--------|---------|------|---------|
+| **`api`** | 国际区 Garmin Connect | OAuth Token (garth) | `GARMIN_SECRET_STRING` |
+| **`local`** | 国区，已有 CDP 导出目录 | 本地 `fit/*.fit` + `activities.json` | `GARMIN_CN_EXPORT_DIR` |
+| **`cdp`** | 国区，直连浏览器在线下载 | 已登录 garmin.cn 的 Chrome CDP | `GARMIN_CN_CDP` |
+
+> 国际区与国区账号无法互通 API（国区 garminconnect 库不可用），故国区用户需使用 `local` 或 `cdp` 源。
+
+#### 国际区 API (`api`)
+
+从 **Garmin Connect 国际区** 同步运动数据。Garmin Connect 提供了以下数据：
 
 1. **活动列表 API**: 获取所有活动的元数据（ID、日期、距离、时间等）
 2. **FIT 文件 API**: 下载每个活动的原始 FIT 文件（包含详细的记录点数据）
+
+#### 国区本地目录 (`local`，国区推荐)
+
+读取 cft/garmin 管线 (`cn_export.py`) 已导出的目录，离线、幂等、零网络依赖：
+
+```
+<导出目录>/
+├── fit/<activityId>.fit    # cn_export.py 下载的 FIT 文件
+├── activities.json         # 活动元数据 (ID/名称/时间/类型)
+└── state.json              # 断点状态 (done_ids + latest_start)
+```
+
+`cn_export.py` 通过 ZSXF 上已登录 garmin.cn 的 Chrome CDP，在浏览器上下文内 fetch `gc-api`（带 CSRF + cookie），绕过 Cloudflare 与 CSRF 校验。pbRun 直接复用其导出产物，职责分离：**导出归 cft/garmin，分析归 pbRun**。
+
+#### 国区 CDP 直连 (`cdp`)
+
+零依赖 Node CDP 客户端（Node >= 22 原生 `fetch` + `WebSocket`），直连已登录 garmin.cn 的 Chrome，实时拉取活动列表与下载 FIT。拓扑：
+
+```
+u2 (127.0.0.1:9995) ──反向隧道──► ZSXF (192.168.196.99:13923)
+                                    └─ Chrome 已登录 garmin.cn
+```
+
+会话失效（重定向到 `sso.garmin.cn`）时，脚本会明确提示，需在 ZSXF 上运行 `cft/garmin/ws_login.py` 重登。
 
 ### FIT 文件格式
 

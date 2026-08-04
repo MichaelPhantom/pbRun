@@ -9,7 +9,7 @@ const fs = require('fs').promises;
 const path = require('path');
 const os = require('os');
 
-const GarminClient = require('./client');
+const { createSource } = require('./sources');
 const GarminFITParser = require('./fit-parser');
 const VDOTCalculator = require('../common/vdot-calculator');
 const DatabaseManager = require('../common/db-manager');
@@ -140,12 +140,9 @@ class GarminSync {
     this.limit = options.limit || null;
     this.dbPath = options.dbPath || 'app/data/activities.db';
 
-    if (!this.secretString) {
-      throw new Error('GARMIN_SECRET_STRING environment variable not set');
-    }
-
     // Initialize components
-    this.client = new GarminClient(this.secretString);
+    this.source = createSource(options.source, options);
+    this.sourceLabel = this.source.label;
     this.fitParser = new GarminFITParser();
     this.db = new DatabaseManager(this.dbPath);
 
@@ -167,22 +164,21 @@ class GarminSync {
       await fs.mkdir(FIT_CACHE_DIR, { recursive: true });
 
       // Check authentication
-      log('检查 Garmin 认证...', 'cyan');
-      const authValid = await this.client.checkAuth();
+      log(`检查数据源 [${this.sourceLabel}]...`, 'cyan');
+      const authValid = await this.source.checkAuth();
       if (!authValid) {
         throw new Error(
-          'Garmin authentication failed. Please check your token.\n' +
-          '若 token 已过期，可运行 python scripts/get_garmin_token.py 重新获取并更新 .env 中的 GARMIN_SECRET_STRING。'
+          `数据源 [${this.sourceLabel}] 不可用。请检查配置 (详见 README 或 docs/data-sync.md)。`
         );
       }
-      log('✓ 认证成功\n', 'green');
+      log('✓ 数据源就绪\n', 'green');
 
       // Get existing activity IDs
       const existingIds = new Set(this.db.getAllActivityIds());
       log(`发现 ${existingIds.size} 个现有活动\n`, 'cyan');
 
       // Fetch activities from Garmin
-      log('从 Garmin Connect 获取活动列表...', 'yellow');
+      log(`从 ${this.sourceLabel} 获取活动列表...`, 'yellow');
       const allActivities = await this._fetchAllActivities();
       log(`✓ 找到 ${allActivities.length} 个活动\n`, 'green');
 
@@ -248,61 +244,38 @@ class GarminSync {
       log(`\n✗ 同步失败: ${error.message}`, 'red');
       throw error;
     } finally {
+      if (this.source && typeof this.source.close === 'function') {
+        await this.source.close().catch(() => {});
+      }
       this.db.close();
     }
   }
 
   async _fetchAllActivities() {
-    const allActivities = [];
-    const batchSize = 100;
-    let start = 0;
+    const allActivities = await this.source.listActivities();
     const debugList = process.env.DEBUG_GARMIN_LIST === '1' || process.env.DEBUG_GARMIN_LIST === 'true';
 
-    while (true) {
-      const activities = await this.client.getActivities(start, batchSize);
-      if (!activities || activities.length === 0) {
-        break;
-      }
-
-      // 调试：首次拉取时输出活动列表 API 的原始结构，并请求活动详情看是否有子类型
-      if (debugList && start === 0 && activities.length > 0) {
-        log('\n[DEBUG] Garmin 活动列表 API 本批数量: ' + activities.length, 'cyan');
-        log('[DEBUG] 第一条活动完整内容 (JSON):', 'cyan');
-        console.log(JSON.stringify(activities[0], null, 2));
-        if (activities.length > 1) {
-          log('[DEBUG] 第二条活动（仅键名）: ' + Object.keys(activities[1]).join(', '), 'cyan');
-        }
-        log('[DEBUG] 以上为 getActivities 返回结构，用于确认 sub_sport / activityType 等', 'cyan');
-        try {
-          const detail = await this.client.getActivityDetails(activities[0].activityId);
-          log('[DEBUG] 活动详情接口 getActivityDetails 返回 (第一条):', 'cyan');
-          console.log(JSON.stringify(detail, null, 2));
-        } catch (e) {
-          log('[DEBUG] 活动详情接口请求失败: ' + e.message, 'yellow');
-        }
-        log('[DEBUG] 调试输出结束\n', 'cyan');
-      }
-
-      // Filter by activity type if needed（running + treadmill_running 均算跑步里程）
-      const filtered = this.onlyRunning
-        ? activities.filter(act => {
-            const key = act.activityType?.typeKey || '';
-            return key === 'running' || key === 'treadmill_running';
-          })
-        : activities;
-
-      allActivities.push(...filtered);
-      start += batchSize;
-
-      if (this.limit && allActivities.length >= this.limit) {
-        return allActivities.slice(0, this.limit);
-      }
-
-      // Small delay
-      await this._sleep(500);
+    // 调试: 输出数据源返回的首条结构, 用于确认字段
+    if (debugList && allActivities.length > 0) {
+      log(`\n[DEBUG] ${this.sourceLabel} 返回活动数量: ${allActivities.length}`, 'cyan');
+      log('[DEBUG] 第一条活动完整内容 (JSON):', 'cyan');
+      console.log(JSON.stringify(allActivities[0], null, 2));
+      log('[DEBUG] 以上为 listActivities 返回结构\n', 'cyan');
     }
 
-    return allActivities;
+    // 仅保留跑步类活动; 元数据缺失 typeKey 时不预过滤 (入库时以 FIT sport 为准)
+    const filtered = this.onlyRunning
+      ? allActivities.filter(act => {
+          const key = act.activityType?.typeKey || '';
+          return key === '' || key === 'running' || key === 'treadmill_running';
+        })
+      : allActivities;
+
+    let result = filtered;
+    if (this.limit) {
+      result = result.slice(0, this.limit);
+    }
+    return result;
   }
 
   async _syncActivity(activityMeta, tempDir) {
@@ -317,8 +290,8 @@ class GarminSync {
       rawData = await fs.readFile(cachePath);
       fromCache = true;
     } catch {
-      // 缓存未命中，从 Garmin 下载
-      rawData = await this.client.downloadFitFile(activityId);
+      // 缓存未命中，从数据源下载
+      rawData = await this.source.downloadFit(activityId);
       if (rawData) {
         await fs.writeFile(cachePath, Buffer.isBuffer(rawData) ? rawData : Buffer.from(rawData));
       }
@@ -364,6 +337,13 @@ class GarminSync {
     activityData.name = activityName;
     activityData.activity_type = activityMeta.activityType?.typeKey || 'running';
 
+    // 兜底必填列: 跳绳/无 GPS 运动 FIT 无距离字段, DB 约束 NOT NULL
+    activityData.distance = activityData.distance ?? 0;
+    activityData.duration = activityData.duration ?? 0;
+    if (activityData.start_time == null) {
+      activityData.start_time = activityData.start_time_local || null;
+    }
+
     // FIT 常不区分子类型（多为 generic），用 API/名称/GPS 推断 sub_sport_type（列表与详情接口均无 subType）
     if (!activityData.sub_sport_type || activityData.sub_sport_type === '通用') {
       const fromApi = inferSubSportFromApi(activityMeta);
@@ -374,8 +354,9 @@ class GarminSync {
       else if (fromGps) activityData.sub_sport_type = fromGps;
     }
 
-    // Calculate VDOT if possible
-    if (this.vdotCalculator && activityData.average_heart_rate) {
+    // Calculate VDOT if possible (仅跑步类有配速-心率关系, 其他运动跳过)
+    const runnableTypes = ['running', 'treadmill_running', 'track_running'];
+    if (this.vdotCalculator && runnableTypes.includes(activityData.activity_type) && activityData.average_heart_rate) {
       const vdot = this.vdotCalculator.calculateVdotFromPace(
         (activityData.distance || 0) * 1000,  // Convert km to meters
         activityData.duration || 0,
@@ -433,6 +414,24 @@ async function main() {
     limit: null,
     dbPath: 'app/data/activities.db'
   };
+
+  // 数据源: api (默认, 国际区 OAuth) | local (本地导出目录) | cdp (国区 CDP 直连)
+  const sourceIndex = args.indexOf('--source');
+  if (sourceIndex !== -1 && args[sourceIndex + 1]) {
+    options.source = args[sourceIndex + 1];
+  }
+
+  // 本地目录数据源: --fit-dir <dir> (导出目录, 含 fit/ 与 activities.json)
+  const fitDirIndex = args.indexOf('--fit-dir');
+  if (fitDirIndex !== -1 && args[fitDirIndex + 1]) {
+    options.fitDir = args[fitDirIndex + 1];
+  }
+
+  // CDP 数据源: --cdp <url> (默认 http://127.0.0.1:9995)
+  const cdpIndex = args.indexOf('--cdp');
+  if (cdpIndex !== -1 && args[cdpIndex + 1]) {
+    options.cdpUrl = args[cdpIndex + 1];
+  }
 
   // Parse limit
   const limitIndex = args.indexOf('--limit');

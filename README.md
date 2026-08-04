@@ -123,7 +123,7 @@
 ### 前置要求
 
 - Node.js 18+
-- Garmin 国际区账号 (国区不支持) **或** Strava 账号
+- Garmin 账号（**国际区或国区均可**）**或** Strava 账号
 - GitHub 账号
 - Vercel 账号 (可选，用于部署)
 
@@ -149,7 +149,9 @@ npm install
 
 #### 方案 A: Garmin 数据源（推荐 Garmin 手表用户）
 
-**Step 1: 获取 Garmin Token**
+Garmin 数据源支持三种获取方式，按账号区域选择：
+
+**A1. 国际区 API（原方案，需国际区账号）**
 
 运行脚本获取 Token（需要输入 Garmin 账号密码）：
 
@@ -159,6 +161,33 @@ python3 scripts/garmin/get_garmin_token.py
 ```
 
 将输出的 **GARMIN_SECRET_STRING** 填入 `.env` 文件。
+
+**A2. 国区本地目录（国区推荐，离线可用）**
+
+若已有 cft/garmin 管线导出的 FIT 目录（`fit/*.fit` + `activities.json`），直接指向它即可，无需 API/Token：
+
+```bash
+# .env
+GARMIN_SOURCE=local
+GARMIN_CN_EXPORT_DIR=../cft/garmin/export/fit   # cft/garmin/cn_export.py 的导出目录
+```
+
+```bash
+npm run sync:garmin:cn      # 增量同步（跳过已入库）
+npm run init:cn             # 首次全量初始化（含统计缓存重建）
+```
+
+**A3. 国区 CDP 直连（国区，在线下载）**
+
+直连已登录 garmin.cn 的 Chrome（经 CDP 反向隧道），实时拉取活动列表与 FIT 文件，零额外依赖（Node >= 22 原生 WebSocket）：
+
+```bash
+# .env
+GARMIN_SOURCE=cdp
+GARMIN_CN_CDP=http://127.0.0.1:9995    # cft/garmin 反向隧道: u2:9995 → ZSXF
+```
+
+> 会话失效（重定向到 SSO 登录页）时，在 ZSXF 上运行 `cft/garmin/ws_login.py` 重登，或触发 `sync_cn_to_global.sh` 自动重登后重试。
 
 #### 方案 B: Strava 数据源（推荐 Strava 用户）
 
@@ -182,11 +211,18 @@ npm run auth:strava
 
 ### 3. 配置环境变量
 
-在项目根目录创建 `.env` 文件，根据你的数据源配置：
+在项目根目录创建 `.env` 文件（可参照 `.env.example`），根据你的数据源配置：
 
 ```bash
-# Garmin 认证 Token（方案 A 使用）
+# ===== Garmin 数据源 (三选一, 不设 GARMIN_SOURCE 则自动探测) =====
+# A1 国际区 API:
 GARMIN_SECRET_STRING="your_garmin_token_here"
+# A2 国区本地目录:
+# GARMIN_SOURCE=local
+# GARMIN_CN_EXPORT_DIR=../cft/garmin/export/fit
+# A3 国区 CDP 直连:
+# GARMIN_SOURCE=cdp
+# GARMIN_CN_CDP=http://127.0.0.1:9995
 
 # 或 Strava 认证（方案 B 使用）
 STRAVA_CLIENT_ID=your_strava_client_id
@@ -205,11 +241,21 @@ RESTING_HR=55     # 静息心率
 **Garmin 数据源**
 
 ```bash
-# 一键同步所有历史数据
+# 国际区 API: 一键同步所有历史数据
 npm run init:data
+
+# 国区本地目录: 全量初始化（推荐国区用户）
+npm run init:cn
+
+# 国区 CDP 直连: 全量初始化
+npm run init:cn:cdp
 
 # 或者手动测试同步最近 5 条记录
 node scripts/garmin/sync.js --limit 5
+
+# 指定数据源 / 目录 (CLI 覆盖 .env)
+node scripts/garmin/sync.js --source local --fit-dir /path/to/export/fit
+node scripts/garmin/sync.js --source cdp --cdp http://127.0.0.1:9995
 ```
 
 **Strava 数据源**
@@ -278,7 +324,7 @@ npm run dev
 
 ## 功能特性
 
-- ✅ **双数据源** - 支持 Garmin FIT 文件和 Strava API 导入
+- ✅ **多数据源** - 支持 Garmin (国际区 API / 国区 CDP / 国区本地目录) 和 Strava API 导入
 - ✅ **活动列表** - 查看所有跑步记录，支持按月份筛选
 - ✅ **活动详情** - 详细的配速、心率、海拔数据和分段信息
 - ✅ **统计分析** - 月度/年度里程、跑量、个人记录
@@ -303,10 +349,16 @@ pbRun/
 │   │   ├── vdot-calculator.js # VDOT 计算
 │   │   └── utils.js       # 工具函数
 │   ├── garmin/            # Garmin 数据源
-│   │   ├── sync.js        # Garmin 同步脚本
-│   │   ├── client.js      # Garmin API 客户端
+│   │   ├── sync.js        # 同步脚本 (统一数据源入口)
+│   │   ├── client.js      # 国际区 API 客户端 (OAuth)
 │   │   ├── fit-parser.js  # FIT 文件解析
-│   │   └── get_garmin_token.py # Token 获取
+│   │   ├── get_garmin_token.py # Token 获取 (国际区)
+│   │   └── sources/       # 数据源抽象层
+│   │       ├── base.js            # 契约 + ZIP 解压工具
+│   │       ├── api-source.js      # 国际区 API 源
+│   │       ├── local-dir-source.js # 国区本地目录源
+│   │       ├── cdp-source.js      # 国区 CDP 直连源 (零依赖)
+│   │       └── index.js           # 工厂 + 自动探测
 │   └── strava/            # Strava 数据源
 │       ├── sync.js        # Strava 同步脚本
 │       ├── fetcher.py     # Strava API 数据拉取

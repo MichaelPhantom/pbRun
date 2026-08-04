@@ -37,10 +37,15 @@ function logSection(title) {
 function checkEnvVars() {
   logSection('检查环境变量');
 
-  const requiredVars = ['GARMIN_SECRET_STRING'];
+  const source = (process.env.GARMIN_SOURCE || 'api').toLowerCase();
+  const requiredVars = source === 'api' ? ['GARMIN_SECRET_STRING'] : [];
   const optionalVars = ['MAX_HR', 'RESTING_HR'];
 
   let allRequired = true;
+
+  if (source !== 'api') {
+    log(`✓ 数据源: ${source} (无需 GARMIN_SECRET_STRING)`, 'green');
+  }
 
   for (const varName of requiredVars) {
     if (process.env[varName]) {
@@ -165,6 +170,9 @@ async function runSync() {
     const GarminSync = require('./sync');
 
     const sync = new GarminSync({
+      source: process.env.GARMIN_SOURCE || 'api',
+      fitDir: process.env.GARMIN_CN_EXPORT_DIR,
+      cdpUrl: process.env.GARMIN_CN_CDP,
       onlyRunning: true,
       withLaps: true,
     });
@@ -262,6 +270,21 @@ async function main() {
     log('║        Full Sync & Database Initialization            ║', 'blue');
     log('╚═══════════════════════════════════════════════════════╝', 'blue');
     console.log('');
+
+    // 数据源: api | local | cdp (透传环境变量, 供 checkEnvVars/runSync 使用)
+    const args = process.argv.slice(2);
+    const sourceIndex = args.indexOf('--source');
+    if (sourceIndex !== -1 && args[sourceIndex + 1]) {
+      process.env.GARMIN_SOURCE = args[sourceIndex + 1];
+    }
+    const fitDirIndex = args.indexOf('--fit-dir');
+    if (fitDirIndex !== -1 && args[fitDirIndex + 1]) {
+      process.env.GARMIN_CN_EXPORT_DIR = args[fitDirIndex + 1];
+    }
+    const cdpIndex = args.indexOf('--cdp');
+    if (cdpIndex !== -1 && args[cdpIndex + 1]) {
+      process.env.GARMIN_CN_CDP = args[cdpIndex + 1];
+    }
 
     // Step 1: Check environment variables
     checkEnvVars();

@@ -1,6 +1,14 @@
 // 全局测试配置
 import '@testing-library/jest-dom';
 
+// jsdom 环境缺 Node 22 Web Streams (zip.js 依赖 ReadableStream/WritableStream/TransformStream)
+if (typeof (globalThis as any).TransformStream === 'undefined') {
+  const web = require('node:stream/web');
+  (globalThis as any).TransformStream = web.TransformStream;
+  (globalThis as any).ReadableStream = web.ReadableStream;
+  (globalThis as any).WritableStream = web.WritableStream;
+}
+
 // Mock next/navigation
 jest.mock('next/navigation', () => ({
   useRouter: () => ({
