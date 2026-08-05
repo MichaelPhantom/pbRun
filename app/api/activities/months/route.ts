@@ -23,15 +23,16 @@ export async function GET(request: NextRequest) {
     }
 
     const result = getMonthSummaries(limit, offset);
+    const headers = { 'Cache-Control': 'no-store' };
     if (Array.isArray(result)) {
-      return NextResponse.json({ data: result });
+      return NextResponse.json({ data: result }, { headers });
     }
-    return NextResponse.json({ data: result.data, total: result.total });
+    return NextResponse.json({ data: result.data, total: result.total }, { headers });
   } catch (error) {
     console.error('Error fetching month summaries:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
-      { status: 500 }
+      { status: 500, headers: { 'Cache-Control': 'no-store' } }
     );
   }
 }

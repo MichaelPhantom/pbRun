@@ -1,6 +1,8 @@
 import { getStats, getPersonalRecords } from '@/app/lib/db';
 import StatsClient from './StatsClient';
 
+export const dynamic = 'force-dynamic';
+
 type StatsPeriod = 'week' | 'month' | 'year' | 'total';
 
 const VALID_PERIODS: StatsPeriod[] = ['week', 'month', 'year', 'total'];

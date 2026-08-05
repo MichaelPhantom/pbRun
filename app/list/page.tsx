@@ -3,6 +3,8 @@ import { monthToRange } from '@/app/lib/date-utils';
 import type { Activity } from '@/app/lib/types';
 import ListClient from './ListClient';
 
+export const dynamic = 'force-dynamic';
+
 const MONTHS_PAGE_SIZE = 6;
 
 export default async function ListPage() {

@@ -2,6 +2,8 @@ import { getHrZoneStats, getVDOTTrend, getStats, getPaceZoneStats } from '@/app/
 import { getDateRangeFromDays, parseTimeRangeDays } from '@/app/lib/date-utils';
 import AnalysisClient from './AnalysisClient';
 
+export const dynamic = 'force-dynamic';
+
 const GROUP_BY = 'week' as const;
 
 function buildZoneRanges(): Record<number, { min: number; max: number }> {
