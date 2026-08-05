@@ -298,6 +298,20 @@ node scripts/preprocess-stats-cache.js --mode full --clear
 
 同步完成后，会自动提交数据库并推送到 GitHub，触发 Vercel 重新部署。
 
+### 国区每日 cron 同步 (u2 自部署, 推荐)
+
+国区账号 (connect.garmin.cn) 无法走国际区 OAuth Token, 使用 [cft/garmin](https://github.com/MichaelPhantom/cft) 的 CDP 管线:
+
+```bash
+# u2 上 (一次性部署)
+bash ~/project/cft/garmin/install_cron.sh     # 每日 12:30 增量同步
+
+# 手动
+bash ~/project/cft/garmin/sync_cn_daily.sh    # 幂等, 可重复跑
+```
+
+流程: `cn_export.py` (CDP 直连国区增量导出 fit, state.json 去重) → `sync.js --source local` (DB 去重) → `preprocess` 缓存重建 → 条件 git 提交 `activities.db`。会话过期时自动 `ws_login.py` 重登 (CSRF 刷新 + 重试), 无需人工。详见 `cft/garmin/README.cn-daily-sync.md`。
+
 ---
 
 ## 数据结构
