@@ -267,7 +267,7 @@ class GarminSync {
     const filtered = this.onlyRunning
       ? allActivities.filter(act => {
           const key = act.activityType?.typeKey || '';
-          return key === '' || key === 'running' || key === 'treadmill_running';
+          return key === '' || key === 'running' || key === 'treadmill_running' || key === 'track_running';
         })
       : allActivities;
 
