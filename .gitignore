@@ -61,3 +61,8 @@ temp/
 
 # FIT cache (avoid re-downloading)
 .cache/
+
+# Runtime database (large, backup locally)
+app/data/*.db
+app/data/*.db-*
+app/data/.backups/
