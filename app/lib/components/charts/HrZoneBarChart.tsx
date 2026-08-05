@@ -107,10 +107,11 @@ export default function HrZoneBarChart({ data, metric, groupBy }: HrZoneBarChart
         axisPointer: {
           type: 'shadow',
         },
-        formatter: (params: any) => {
-          let tooltip = `<b>${params[0].axisValue}</b><br/>`;
-          params.forEach((param: any) => {
-            if (param.value !== null) {
+        formatter: (params: unknown) => {
+          const arr = (Array.isArray(params) ? params : [params]) as { axisValue?: string; value?: number | null; marker?: string; seriesName?: string }[];
+          let tooltip = `<b>${arr[0]?.axisValue}</b><br/>`;
+          arr.forEach((param) => {
+            if (param.value != null) {
               const formatted = config.formatter(param.value);
               tooltip += `${param.marker} ${param.seriesName}: ${formatted}<br/>`;
             }
@@ -143,7 +144,7 @@ export default function HrZoneBarChart({ data, metric, groupBy }: HrZoneBarChart
           formatter: (value: number) => config.formatter(value),
         },
       },
-      series: series as any,
+      series: series as echarts.BarSeriesOption[],
     };
 
     chart.setOption(option);

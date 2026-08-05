@@ -48,7 +48,7 @@ export default function ListClient({
 }: ListClientProps) {
   const router = useRouter();
   const [monthSummaries, setMonthSummaries] = useState<MonthSummary[]>(initialMonthSummaries);
-  const [totalMonths, setTotalMonths] = useState(initialTotalMonths);
+  const [totalMonths] = useState(initialTotalMonths);
   const [activitiesByMonth, setActivitiesByMonth] = useState<Record<string, Activity[]>>(initialActivitiesByMonth);
   const [expandedMonth, setExpandedMonth] = useState<string | null>(initialExpandedMonth);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -59,28 +59,28 @@ export default function ListClient({
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
-  // 当展开的月份变化且该月数据尚未加载时，拉取该月数据
-  useEffect(() => {
-    if (!expandedMonth) return;
-    if (activitiesByMonth[expandedMonth]) return;
+  // 展开月份时拉取该月数据 (从事件处理触发, 避免在 effect 内同步 setState)
+  const loadAndExpandMonth = useCallback((monthKey: string) => {
+    setExpandedMonth(monthKey);
+    if (activitiesByMonth[monthKey]) return;
     let cancelled = false;
-    setLoadingMonth(expandedMonth);
-    fetchMonthActivities(expandedMonth)
+    setLoadingMonth(monthKey);
+    fetchMonthActivities(monthKey)
       .then((data) => {
         if (!cancelled) {
-          setActivitiesByMonth((prev) => ({ ...prev, [expandedMonth]: data }));
+          setActivitiesByMonth((prev) => ({ ...prev, [monthKey]: data }));
         }
       })
       .catch((e) => {
         if (!cancelled) setError(e instanceof Error ? e.message : '加载失败');
       })
       .finally(() => {
-        if (!cancelled) setLoadingMonth((m) => (m === expandedMonth ? null : m));
+        if (!cancelled) setLoadingMonth((m) => (m === monthKey ? null : m));
       });
     return () => {
       cancelled = true;
     };
-  }, [expandedMonth, activitiesByMonth]);
+  }, [activitiesByMonth]);
 
   const loadMoreMonths = useCallback(() => {
     if (loadingMore) return;
@@ -123,10 +123,6 @@ export default function ListClient({
     Object.values(activitiesByMonth).flat().forEach((a) => set.add(a.activity_type || '跑步'));
     return ['all', ...Array.from(set).sort()];
   }, [activitiesByMonth]);
-
-  const loadAndExpandMonth = useCallback((monthKey: string) => {
-    setExpandedMonth(monthKey);
-  }, []);
 
   const filteredItemsForMonth = useMemo(() => {
     if (!expandedMonth) return [];

@@ -30,8 +30,8 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100`}
       >
         <header className="sticky top-0 z-50 flex flex-col bg-emerald-800">
-          {/* 标题栏：深绿底、白字，标题居中 */}
-          <div className="mx-auto flex w-full max-w-5xl justify-center px-4 py-3">
+          {/* 标题栏：深绿底、白字，标题居中 (手机端隐藏以节省空间) */}
+          <div className="hidden sm:flex mx-auto w-full max-w-5xl justify-center px-4 py-3">
             <Link
               href="/"
               className="font-semibold italic text-white"
@@ -42,7 +42,7 @@ export default function RootLayout({
           {/* 导航标签：同深绿底、白字，选中项亮绿下划线 */}
           <TopNav />
         </header>
-        <main className="mx-auto max-w-5xl px-4 py-6">{children}</main>
+        <main className="mx-auto max-w-5xl px-3 py-4 sm:px-4 sm:py-6">{children}</main>
       </body>
     </html>
   );

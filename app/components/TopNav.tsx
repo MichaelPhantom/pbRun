@@ -28,7 +28,7 @@ export default function TopNav() {
             <Link
               key={href}
               href={href}
-              className={`flex flex-1 justify-center border-b-2 px-4 py-3 text-sm font-medium text-white transition-colors ${
+              className={`flex flex-1 justify-center border-b-2 px-2 py-2.5 text-sm font-medium text-white transition-colors sm:px-4 sm:py-3 ${
                 active
                   ? 'border-emerald-300 text-white'
                   : 'border-transparent text-white/90 hover:text-white'

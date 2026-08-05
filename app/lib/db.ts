@@ -25,6 +25,18 @@ import {
 } from './types';
 import { getPaceZoneBoundsFromVdot, getPaceZoneCenterFromVdot } from './vdot-pace';
 
+/** 活动表行的最小类型 (用于动态 SQL 查询结果的类型断言) */
+type ActivityRow = {
+  start_time?: string;
+  duration?: number | null;
+  distance?: number | null;
+  average_heart_rate?: number | null;
+  average_pace?: number | null;
+  average_cadence?: number | null;
+  average_stride_length?: number | null;
+  vdot_value?: number | null;
+};
+
 // Database connection (singleton)
 let db: Database.Database | null = null;
 
@@ -58,7 +70,7 @@ export function getActivities(
 
   // Build query
   let query = 'SELECT * FROM activities WHERE 1=1';
-  const queryParams: any[] = [];
+  const queryParams: (string | number)[] = [];
 
   if (type) {
     query += ' AND activity_type = ?';
@@ -209,7 +221,18 @@ export function getStats(period?: 'week' | 'month' | 'year' | 'total'): StatsRes
     ${dateFilter}
   `;
 
-  const result = db.prepare(query).get() as any;
+  const result = db.prepare(query).get() as {
+    totalActivities?: number;
+    totalDistance?: number;
+    totalDuration?: number;
+    totalTrainingLoad?: number;
+    averagePace?: number | null;
+    averageHeartRate?: number | null;
+    totalAscent?: number | null;
+    averageVDOT?: number | null;
+    averageCadence?: number | null;
+    averageStrideLength?: number | null;
+  };
 
   // 数据库 activities.distance 存的是公里，统一转为米再返回（与 types.StatsResponse 约定一致）
   const totalDistanceMeters = (result.totalDistance ?? 0) * 1000;
@@ -283,7 +306,7 @@ export function getPersonalRecords(period: 'week' | 'month' | 'year' | 'total' |
   const db = getDatabase();
   const now = new Date();
   let startDate: Date;
-  let endDate = now;
+  const endDate = now;
   switch (period) {
     case 'week':
       startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -402,7 +425,6 @@ export function getPaceZoneStats(
     };
   }
 
-  const activityIds = new Set<number>();
   for (const lap of rows) {
     const pace = lap.average_pace!;
     let zone = 0;
@@ -509,7 +531,7 @@ function getHrZoneStatsFromCache(params: HrZoneAnalysisParams): HrZoneStat[] {
     WHERE period_type = ?
   `;
 
-  const queryParams: any[] = [groupBy];
+  const queryParams: (string | number)[] = [groupBy];
 
   if (startDate) {
     const startPeriod = getPeriodFromDate(startDate, groupBy);
@@ -535,13 +557,12 @@ function getHrZoneStatsRealtime(params: HrZoneAnalysisParams): HrZoneStat[] {
   const { startDate, endDate, groupBy } = params;
   const db = getDatabase();
 
-  // Get MAX_HR and RESTING_HR from environment
+  // Get MAX_HR from environment
   const maxHr = process.env.MAX_HR ? parseInt(process.env.MAX_HR) : 190;
-  const restingHr = process.env.RESTING_HR ? parseInt(process.env.RESTING_HR) : 55;
 
   // Build date filter
   let dateFilter = 'WHERE average_heart_rate IS NOT NULL';
-  const queryParams: any[] = [];
+  const queryParams: (string | number)[] = [];
 
   if (startDate) {
     dateFilter += ' AND start_time >= ?';
@@ -568,7 +589,7 @@ function getHrZoneStatsRealtime(params: HrZoneAnalysisParams): HrZoneStat[] {
     ORDER BY start_time
   `;
 
-  const activities = db.prepare(query).all(...queryParams) as any[];
+  const activities = db.prepare(query).all(...queryParams) as ActivityRow[];
 
   // Helper function to calculate HR zone
   const getHrZone = (avgHr: number): number => {
@@ -606,7 +627,7 @@ function getHrZoneStatsRealtime(params: HrZoneAnalysisParams): HrZoneStat[] {
     const hrZone = getHrZone(activity.average_heart_rate);
     if (hrZone === 0) continue;
 
-    const period = getPeriod(activity.start_time);
+    const period = getPeriod(activity.start_time!);
     const key = `${period}_${hrZone}`;
 
     if (!statsMap.has(key)) {
@@ -671,7 +692,7 @@ function mergeHrZoneStats(cached: HrZoneStat[], realtime: HrZoneStat[]): HrZoneS
  * Uses intelligent data source selection (cache vs realtime).
  */
 export function getHrZoneStats(params: HrZoneAnalysisParams): HrZoneStat[] {
-  const { startDate, endDate, groupBy } = params;
+  const { startDate, endDate } = params;
 
   // Calculate "freshness threshold" (7 days ago)
   const now = new Date();
@@ -724,7 +745,7 @@ function getVDOTTrendFromCache(params: VDOTTrendParams): VDOTTrendPoint[] {
     WHERE period_type = ?
   `;
 
-  const queryParams: any[] = [groupBy];
+  const queryParams: (string | number)[] = [groupBy];
 
   if (startDate) {
     const startPeriod = getPeriodFromDate(startDate, groupBy);
@@ -754,7 +775,7 @@ function getVDOTTrendRealtime(params: VDOTTrendParams): VDOTTrendPoint[] {
 
   // Build date filter
   let dateFilter = 'WHERE vdot_value IS NOT NULL';
-  const queryParams: any[] = [];
+  const queryParams: (string | number)[] = [];
 
   if (startDate) {
     dateFilter += ' AND start_time >= ?';
@@ -777,7 +798,7 @@ function getVDOTTrendRealtime(params: VDOTTrendParams): VDOTTrendPoint[] {
     ORDER BY start_time
   `;
 
-  const activities = db.prepare(query).all(...queryParams) as any[];
+  const activities = db.prepare(query).all(...queryParams) as ActivityRow[];
 
   // Helper function to get period string
   const getPeriod = (dateStr: string): string => {
@@ -798,7 +819,7 @@ function getVDOTTrendRealtime(params: VDOTTrendParams): VDOTTrendPoint[] {
   const trendsMap: Map<string, VDOTTrendPoint> = new Map();
 
   for (const activity of activities) {
-    const period = getPeriod(activity.start_time);
+    const period = getPeriod(activity.start_time!);
 
     if (!trendsMap.has(period)) {
       trendsMap.set(period, {
@@ -820,7 +841,7 @@ function getVDOTTrendRealtime(params: VDOTTrendParams): VDOTTrendPoint[] {
     trend.total_duration += activity.duration || 0;
 
     // Update VDOT stats
-    const vdot = activity.vdot_value;
+    const vdot = activity.vdot_value!;
     trend.avg_vdot = (trend.avg_vdot * (trend.activity_count - 1) + vdot) / trend.activity_count;
     trend.max_vdot = trend.max_vdot === null ? vdot : Math.max(trend.max_vdot, vdot);
     trend.min_vdot = trend.min_vdot === null ? vdot : Math.min(trend.min_vdot, vdot);
@@ -842,7 +863,7 @@ function mergeVDOTTrend(cached: VDOTTrendPoint[], realtime: VDOTTrendPoint[]): V
  * Uses intelligent data source selection (cache vs realtime).
  */
 export function getVDOTTrend(params: VDOTTrendParams): VDOTTrendPoint[] {
-  const { startDate, endDate, groupBy } = params;
+  const { startDate, endDate } = params;
 
   // Calculate "freshness threshold" (7 days ago)
   const now = new Date();

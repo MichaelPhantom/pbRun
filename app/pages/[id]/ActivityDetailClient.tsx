@@ -1,13 +1,9 @@
 'use client';
 
-import Link from 'next/link';
 import {
   formatPace,
-  formatDistanceFromMeters,
   formatDuration,
   formatDateTime,
-  formatCadence,
-  formatInt,
 } from '@/app/lib/format';
 import type { Activity, ActivityLap, ActivityRecord } from '@/app/lib/types';
 import ActivityTrendCharts from '@/app/lib/components/charts/ActivityTrendCharts';
@@ -85,33 +81,33 @@ export default function ActivityDetailClient({ activity, laps, records }: Activi
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-2">
-        <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">
+      <div className="flex flex-col gap-1.5">
+        <h1 className="text-lg font-semibold leading-tight text-zinc-900 dark:text-zinc-100 sm:text-xl">
           {activity.name || `跑步 ${formatDateTime(activity.start_time_local ?? activity.start_time)}`}
-          <span className="ml-2 text-sm font-normal text-zinc-500 dark:text-zinc-400">
+          <span className="ml-1.5 text-xs font-normal text-zinc-500 dark:text-zinc-400 sm:text-sm">
             #{activity.activity_id}
           </span>
         </h1>
       </div>
 
-      <section className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="grid grid-cols-3 gap-3">
+      <section className="rounded-xl border border-zinc-200 bg-white p-3 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 sm:p-4">
+        <div className="grid grid-cols-3 gap-2 sm:gap-3">
           {overviewItems.map(({ value, unit, label }) => (
             <div
               key={label}
-              className="flex flex-col items-center justify-center py-2 text-center"
+              className="flex flex-col items-center justify-center py-1.5 text-center sm:py-2"
             >
               <div className="flex flex-wrap items-baseline justify-center gap-0.5">
-                <span className="text-lg font-semibold tabular-nums text-zinc-800 dark:text-zinc-200">
+                <span className="text-base font-semibold tabular-nums text-zinc-800 dark:text-zinc-200 sm:text-lg">
                   {value}
                 </span>
                 {unit != null && (
-                  <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                  <span className="text-[10px] font-medium text-zinc-600 dark:text-zinc-400 sm:text-xs">
                     {unit}
                   </span>
                 )}
               </div>
-              <div className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">{label}</div>
+              <div className="mt-0.5 text-[10px] text-zinc-500 dark:text-zinc-400 sm:text-[11px]">{label}</div>
             </div>
           ))}
         </div>
@@ -131,8 +127,8 @@ export default function ActivityDetailClient({ activity, laps, records }: Activi
         </section>
       ) : null}
 
-      <section className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-        <h2 className="mb-4 text-base font-medium text-zinc-800 dark:text-zinc-200">
+      <section className="rounded-xl border border-zinc-200 bg-white p-3 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 sm:p-6">
+        <h2 className="mb-3 text-base font-medium text-zinc-800 dark:text-zinc-200 sm:mb-4">
           分段数据
         </h2>
         {laps.length === 0 ? (
@@ -140,29 +136,42 @@ export default function ActivityDetailClient({ activity, laps, records }: Activi
             暂无分段数据
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] text-left text-sm border-collapse">
+          <div className="-mx-3 overflow-x-auto sm:mx-0">
+            <table className="w-full text-left text-xs border-collapse sm:text-sm">
               <thead>
                 <tr className="border-b border-zinc-200 dark:border-zinc-700">
-                  <th className="px-3 py-2 font-medium text-zinc-700 dark:text-zinc-300">分段</th>
-                  <th className="px-3 py-2 font-medium text-zinc-700 dark:text-zinc-300">距离</th>
-                  <th className="px-3 py-2 font-medium text-zinc-700 dark:text-zinc-300">时长</th>
-                  <th className="px-3 py-2 font-medium text-zinc-700 dark:text-zinc-300">配速</th>
-                  <th className="px-3 py-2 font-medium text-zinc-700 dark:text-zinc-300">心率</th>
-                  <th className="px-3 py-2 font-medium text-zinc-700 dark:text-zinc-300">步频</th>
-                  <th className="px-3 py-2 font-medium text-zinc-700 dark:text-zinc-300">爬升</th>
+                  <th className="px-1.5 py-2 text-right font-medium text-zinc-700 dark:text-zinc-300 sm:px-3">#</th>
+                  <th className="px-1.5 py-2 text-right font-medium text-zinc-700 dark:text-zinc-300 sm:px-3">距离</th>
+                  <th className="px-1.5 py-2 text-right font-medium text-zinc-700 dark:text-zinc-300 sm:px-3">配速</th>
+                  <th className="px-1.5 py-2 text-right font-medium text-zinc-700 dark:text-zinc-300 sm:px-3">时长</th>
+                  <th className="px-1.5 py-2 text-right font-medium text-zinc-700 dark:text-zinc-300 sm:px-3">心率</th>
+                  <th className="hidden px-3 py-2 text-right font-medium text-zinc-700 dark:text-zinc-300 sm:table-cell">步频</th>
+                  <th className="hidden px-3 py-2 text-right font-medium text-zinc-700 dark:text-zinc-300 sm:table-cell">爬升</th>
                 </tr>
               </thead>
               <tbody>
                 {laps.map((lap) => (
-                  <tr key={lap.id} className="transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/30">
-                    <td className="px-3 py-2 font-medium">{lap.lap_index}</td>
-                    <td className="px-3 py-2">{formatDistanceFromMeters(lap.distance)}</td>
-                    <td className="px-3 py-2">{formatDuration(lap.duration)}</td>
-                    <td className="px-3 py-2">{formatPace(lap.average_pace)}</td>
-                    <td className="px-3 py-2">{formatInt(lap.average_heart_rate, 'bpm')}</td>
-                    <td className="px-3 py-2">{formatCadence(lap.average_cadence)}</td>
-                    <td className="px-3 py-2">
+                  <tr key={lap.id} className="border-b border-zinc-100 transition-colors hover:bg-zinc-50 dark:border-zinc-800/50 dark:hover:bg-zinc-800/30">
+                    <td className="px-1.5 py-1.5 text-right font-medium tabular-nums sm:px-3 sm:py-2">{lap.lap_index}</td>
+                    <td className="px-1.5 py-1.5 text-right tabular-nums sm:px-3 sm:py-2">
+                      {(() => {
+                        const km = (lap.distance ?? 0) / 1000;
+                        return km > 0 ? `${km.toFixed(2)}` : '--';
+                      })()}
+                    </td>
+                    <td className="px-1.5 py-1.5 text-right tabular-nums text-zinc-600 dark:text-zinc-300 sm:px-3 sm:py-2">
+                      {formatPace(lap.average_pace, false)}
+                    </td>
+                    <td className="px-1.5 py-1.5 text-right tabular-nums text-zinc-600 dark:text-zinc-300 sm:px-3 sm:py-2">
+                      {formatDuration(lap.duration)}
+                    </td>
+                    <td className="px-1.5 py-1.5 text-right tabular-nums sm:px-3 sm:py-2">
+                      {lap.average_heart_rate != null ? Math.round(lap.average_heart_rate) : '--'}
+                    </td>
+                    <td className="hidden px-3 py-2 text-right tabular-nums sm:table-cell">
+                      {lap.average_cadence != null ? Math.round(lap.average_cadence) : '--'}
+                    </td>
+                    <td className="hidden px-3 py-2 text-right tabular-nums sm:table-cell">
                       {lap.total_ascent != null ? `${lap.total_ascent} m` : '--'}
                     </td>
                   </tr>

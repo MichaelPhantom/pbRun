@@ -12,7 +12,7 @@ export default async function ListPage() {
   const monthSummaries = 'data' in result ? result.data : result;
   const totalMonths = 'total' in result ? result.total : monthSummaries.length;
 
-  let initialActivitiesByMonth: Record<string, Activity[]> = {};
+  const initialActivitiesByMonth: Record<string, Activity[]> = {};
   let initialExpandedMonth: string | null = null;
 
   if (monthSummaries.length > 0) {

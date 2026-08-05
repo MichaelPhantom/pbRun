@@ -1,4 +1,3 @@
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getActivityById, getActivityLaps, getActivityRecords } from '@/app/lib/db';
 import ActivityDetailClient from './ActivityDetailClient';

@@ -42,7 +42,8 @@ export default function ZoneTrendCharts({ seriesData, chartHeight = 320 }: ZoneT
       color: string,
       tooltipFormatter?: (period: string, value: number | null) => string,
       yAxisLabelFormatter?: (value: number) => string,
-      yAxisMin?: number
+      yAxisMin?: number,
+      yAxisInverse?: boolean
     ) => {
       if (!el) return () => {};
       const chart = echarts.init(el);
@@ -68,6 +69,7 @@ export default function ZoneTrendCharts({ seriesData, chartHeight = 320 }: ZoneT
           name: yName,
           scale: true,
           min: yAxisMin,
+          inverse: yAxisInverse ?? false,
           axisLabel: { formatter: yAxisLabelFormatter ? (v: number) => yAxisLabelFormatter(v) : undefined },
         },
         series: [{ type: 'line', data: yData, smooth: true, symbol: 'circle', symbolSize: 6, lineStyle: { width: 2, color }, itemStyle: { color } }],
@@ -87,7 +89,8 @@ export default function ZoneTrendCharts({ seriesData, chartHeight = 320 }: ZoneT
       '#3b82f6',
       (period, v) => `<b>${period}</b><br/>配速: ${v != null ? formatPace(v) : '--'}`,
       paceAxisFormatter,
-      180
+      180,
+      true
     );
     const c2 = buildChart(
       cadenceRef.current,
@@ -125,7 +128,10 @@ export default function ZoneTrendCharts({ seriesData, chartHeight = 320 }: ZoneT
   return (
     <div className="grid gap-8 sm:grid-cols-1 lg:grid-cols-3">
       <div>
-        <div className="mb-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">配速</div>
+        <div className="mb-2 flex flex-wrap items-baseline gap-x-2">
+          <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">配速</span>
+          <span className="text-[11px] text-zinc-400 dark:text-zinc-500">越靠上越快（Y 轴倒序）</span>
+        </div>
         <div ref={paceRef} style={{ width: '100%', height: `${chartHeight}px`, position: 'relative', zIndex: 0 }} />
       </div>
       <div>

@@ -45,16 +45,14 @@ export default function ZoneTrendPage() {
     return getDefaultHalfYearRange();
   }, [searchParams]);
 
+  const validZone = zone >= 1 && zone <= 5;
   const [seriesData, setSeriesData] = useState<ZoneTrendSeriesPoint[]>([]);
   const [rangeBpm, setRangeBpm] = useState<string>('');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(validZone);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!zone || zone < 1 || zone > 5) {
-      setLoading(false);
-      return;
-    }
+    if (!validZone) return;
     const query = new URLSearchParams({ startDate, endDate, groupBy }).toString();
     // 前缀与 next.config.ts basePath 同步 (next/link 自动加, 手写 fetch 手动拼)
     fetch(`/pbrun/api/analysis/hr-zones?${query}`)
@@ -81,7 +79,7 @@ export default function ZoneTrendPage() {
       })
       .catch((e) => setError(e instanceof Error ? e.message : '加载失败'))
       .finally(() => setLoading(false));
-  }, [zone, startDate, endDate, groupBy]);
+  }, [zone, validZone, startDate, endDate, groupBy]);
 
   if (zone < 1 || zone > 5) {
     return (

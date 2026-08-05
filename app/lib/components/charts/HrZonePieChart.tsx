@@ -69,9 +69,10 @@ export default function HrZonePieChart({ data }: HrZonePieChartProps) {
         trigger: 'item',
         confine: true,
         appendToBody: false,
-        formatter: (params: any) => {
-          const hours = (params.value / 3600).toFixed(1);
-          return `${params.marker} ${params.name}<br/>时长: ${hours} 小时<br/>占比: ${params.percent}%`;
+        formatter: (params: unknown) => {
+          const p = params as { value: number; name: string; marker: string; percent: number };
+          const hours = (p.value / 3600).toFixed(1);
+          return `${p.marker} ${p.name}<br/>时长: ${hours} 小时<br/>占比: ${p.percent}%`;
         },
       },
       legend: {
