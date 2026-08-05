@@ -137,42 +137,42 @@ export default function ActivityDetailClient({ activity, laps, records }: Activi
           </div>
         ) : (
           <div className="-mx-3 overflow-x-auto sm:mx-0">
-            <table className="w-full text-left text-xs border-collapse sm:text-sm">
+            <table className="w-full border-collapse text-left text-[11px] sm:text-sm">
               <thead>
                 <tr className="border-b border-zinc-200 dark:border-zinc-700">
-                  <th className="px-1.5 py-2 text-right font-medium text-zinc-700 dark:text-zinc-300 sm:px-3">#</th>
-                  <th className="px-1.5 py-2 text-right font-medium text-zinc-700 dark:text-zinc-300 sm:px-3">距离</th>
-                  <th className="px-1.5 py-2 text-right font-medium text-zinc-700 dark:text-zinc-300 sm:px-3">配速</th>
-                  <th className="px-1.5 py-2 text-right font-medium text-zinc-700 dark:text-zinc-300 sm:px-3">时长</th>
-                  <th className="px-1.5 py-2 text-right font-medium text-zinc-700 dark:text-zinc-300 sm:px-3">心率</th>
-                  <th className="hidden px-3 py-2 text-right font-medium text-zinc-700 dark:text-zinc-300 sm:table-cell">步频</th>
-                  <th className="hidden px-3 py-2 text-right font-medium text-zinc-700 dark:text-zinc-300 sm:table-cell">爬升</th>
+                  <th className="w-6 px-1 py-2 text-center font-medium text-zinc-700 dark:text-zinc-300">#</th>
+                  <th className="px-1.5 py-2 text-right font-medium text-zinc-700 dark:text-zinc-300 sm:px-2">距离</th>
+                  <th className="px-1.5 py-2 text-right font-medium text-zinc-700 dark:text-zinc-300 sm:px-2">配速</th>
+                  <th className="px-1.5 py-2 text-right font-medium text-zinc-700 dark:text-zinc-300 sm:px-2">时长</th>
+                  <th className="px-1.5 py-2 text-right font-medium text-zinc-700 dark:text-zinc-300 sm:px-2">心率</th>
+                  <th className="px-1.5 py-2 text-right font-medium text-zinc-700 dark:text-zinc-300 sm:px-2">步频</th>
+                  <th className="px-1.5 py-2 text-right font-medium text-zinc-700 dark:text-zinc-300 sm:px-2">爬升</th>
                 </tr>
               </thead>
               <tbody>
                 {laps.map((lap) => (
                   <tr key={lap.id} className="border-b border-zinc-100 transition-colors hover:bg-zinc-50 dark:border-zinc-800/50 dark:hover:bg-zinc-800/30">
-                    <td className="px-1.5 py-1.5 text-right font-medium tabular-nums sm:px-3 sm:py-2">{lap.lap_index}</td>
-                    <td className="px-1.5 py-1.5 text-right tabular-nums sm:px-3 sm:py-2">
+                    <td className="w-6 px-1 py-1.5 text-center font-medium tabular-nums">{lap.lap_index}</td>
+                    <td className="whitespace-nowrap px-1.5 py-1.5 text-right tabular-nums sm:px-2">
                       {(() => {
                         const km = (lap.distance ?? 0) / 1000;
                         return km > 0 ? `${km.toFixed(2)}` : '--';
                       })()}
                     </td>
-                    <td className="px-1.5 py-1.5 text-right tabular-nums text-zinc-600 dark:text-zinc-300 sm:px-3 sm:py-2">
+                    <td className="whitespace-nowrap px-1.5 py-1.5 text-right tabular-nums text-zinc-600 dark:text-zinc-300 sm:px-2">
                       {formatPace(lap.average_pace, false)}
                     </td>
-                    <td className="px-1.5 py-1.5 text-right tabular-nums text-zinc-600 dark:text-zinc-300 sm:px-3 sm:py-2">
+                    <td className="whitespace-nowrap px-1.5 py-1.5 text-right tabular-nums text-zinc-600 dark:text-zinc-300 sm:px-2">
                       {formatDuration(lap.duration)}
                     </td>
-                    <td className="px-1.5 py-1.5 text-right tabular-nums sm:px-3 sm:py-2">
+                    <td className="whitespace-nowrap px-1.5 py-1.5 text-right tabular-nums sm:px-2">
                       {lap.average_heart_rate != null ? Math.round(lap.average_heart_rate) : '--'}
                     </td>
-                    <td className="hidden px-3 py-2 text-right tabular-nums sm:table-cell">
+                    <td className="whitespace-nowrap px-1.5 py-1.5 text-right tabular-nums sm:px-2">
                       {lap.average_cadence != null ? Math.round(lap.average_cadence) : '--'}
                     </td>
-                    <td className="hidden px-3 py-2 text-right tabular-nums sm:table-cell">
-                      {lap.total_ascent != null ? `${lap.total_ascent} m` : '--'}
+                    <td className="whitespace-nowrap px-1.5 py-1.5 text-right tabular-nums sm:px-2">
+                      {lap.total_ascent != null ? lap.total_ascent : '--'}
                     </td>
                   </tr>
                 ))}
