@@ -141,12 +141,12 @@ export default function ActivityDetailClient({ activity, laps, records }: Activi
               <thead>
                 <tr className="border-b border-zinc-200 dark:border-zinc-700">
                   <th className="w-6 px-1 py-2 text-center font-medium text-zinc-700 dark:text-zinc-300">#</th>
-                  <th className="whitespace-nowrap px-1.5 py-2 text-right font-medium text-zinc-700 dark:text-zinc-300 sm:px-2">距离<span className="ml-0.5 font-normal text-zinc-400 dark:text-zinc-500">km</span></th>
-                  <th className="whitespace-nowrap px-1.5 py-2 text-right font-medium text-zinc-700 dark:text-zinc-300 sm:px-2">配速<span className="ml-0.5 font-normal text-zinc-400 dark:text-zinc-500">/km</span></th>
+                  <th className="whitespace-nowrap px-1.5 py-2 text-right font-medium text-zinc-700 dark:text-zinc-300 sm:px-2">距离<span className="block text-[9px] font-normal text-zinc-400 dark:text-zinc-500">km</span></th>
+                  <th className="whitespace-nowrap px-1.5 py-2 text-right font-medium text-zinc-700 dark:text-zinc-300 sm:px-2">配速<span className="block text-[9px] font-normal text-zinc-400 dark:text-zinc-500">/km</span></th>
                   <th className="whitespace-nowrap px-1.5 py-2 text-right font-medium text-zinc-700 dark:text-zinc-300 sm:px-2">时长</th>
-                  <th className="whitespace-nowrap px-1.5 py-2 text-right font-medium text-zinc-700 dark:text-zinc-300 sm:px-2">心率<span className="ml-0.5 font-normal text-zinc-400 dark:text-zinc-500">bpm</span></th>
-                  <th className="whitespace-nowrap px-1.5 py-2 text-right font-medium text-zinc-700 dark:text-zinc-300 sm:px-2">步频<span className="ml-0.5 font-normal text-zinc-400 dark:text-zinc-500">spm</span></th>
-                  <th className="whitespace-nowrap px-1.5 py-2 text-right font-medium text-zinc-700 dark:text-zinc-300 sm:px-2">爬升<span className="ml-0.5 font-normal text-zinc-400 dark:text-zinc-500">m</span></th>
+                  <th className="whitespace-nowrap px-1.5 py-2 text-right font-medium text-zinc-700 dark:text-zinc-300 sm:px-2">心率<span className="block text-[9px] font-normal text-zinc-400 dark:text-zinc-500">bpm</span></th>
+                  <th className="whitespace-nowrap px-1.5 py-2 text-right font-medium text-zinc-700 dark:text-zinc-300 sm:px-2">步频<span className="block text-[9px] font-normal text-zinc-400 dark:text-zinc-500">spm</span></th>
+                  <th className="whitespace-nowrap px-1.5 py-2 text-right font-medium text-zinc-700 dark:text-zinc-300 sm:px-2">爬升<span className="block text-[9px] font-normal text-zinc-400 dark:text-zinc-500">m</span></th>
                 </tr>
               </thead>
               <tbody>
