@@ -378,13 +378,17 @@ pbRun/
 
 | 端点 | 说明 | 参数 |
 |------|------|------|
-| `GET /api/activities` | 获取活动列表 | `month`, `limit`, `offset` |
+| `GET /api/activities` | 获取活动列表 | `page`, `limit`, `type`, `startDate`, `endDate` |
 | `GET /api/activities/[id]` | 获取活动详情 | - |
 | `GET /api/activities/[id]/laps` | 获取分段数据 | - |
-| `GET /api/stats` | 获取统计数据 | `year`, `month` |
-| `GET /api/vdot` | 获取 VDOT 趋势 | `days` |
-| `GET /api/analysis/hr-zones` | 心率区间分析 | `month` |
-| `GET /api/analysis/pace-zones` | 配速分布分析 | `month` |
+| `GET /api/activities/[id]/records` | 获取逐条记录（趋势图数据源） | - |
+| `GET /api/activities/months` | 获取月度汇总 | `limit`, `offset` |
+| `GET /api/stats` | 获取统计汇总 | `period` (week/month/year/total) |
+| `GET /api/stats/personal-records` | 获取个人最佳成绩 | `period` (week/month/year/total/6months) |
+| `GET /api/vdot` | 获取 VDOT 历史 | `limit` |
+| `GET /api/analysis/hr-zones` | 心率区间分析 | `startDate`, `endDate`, `groupBy` |
+| `GET /api/analysis/pace-zones` | 配速区间分析 | `startDate`, `endDate`, `vdot` |
+| `GET /api/analysis/vdot-trend` | 跑力趋势 | `startDate`, `endDate`, `groupBy` |
 
 完整 API 文档: [docs/api-reference.md](docs/api-reference.md)
 
