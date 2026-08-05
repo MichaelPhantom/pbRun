@@ -464,7 +464,7 @@ systemctl --user enable --now pbRun.service
 ```
 
 - 端口: **3996**, 仅监听 127.0.0.1 (不暴露公网)
-- 访问: 经 Nginx 门户反代 `https://129.150.50.12/pbrun/` (Basic Auth 保护)
+- 访问: 经 Nginx 门户反代 `http://129.150.50.12/pbrun/` (Basic Auth 保护)
 - basePath: `/pbrun` (next.config.ts); next/link 自动加前缀, 手写 fetch 需手动拼 (见 ListClient/zone 页面)
 - 数据同步: cft/garmin `sync_cn_daily.sh` 直接写 `app/data/activities.db` (SSR 页面 force-dynamic, 同步后即刻可见, 无需 rebuild)
 - DB 不入 git: 超 GitHub 100MB 限制, 本地 gzip 备份 `app/data/.backups/` (14 份)
