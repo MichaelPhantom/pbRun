@@ -127,7 +127,7 @@ output: {
 | 变量 | 默认值 | 用途 |
 |------|--------|------|
 | `DB_PATH` | `cwd()/app/data/activities.db` | SQLite 文件路径 |
-| `MAX_HR` | `190` | 心率区间计算 (Z1-Z5) |
+| `MAX_HR` | `194` | 心率区间计算 (Z1-Z5) |
 
 ## 6. 部署
 
@@ -147,7 +147,7 @@ Restart=on-failure
 RestartSec=5
 Environment=NODE_ENV=production
 Environment=DB_PATH=%h/project/pbRun/app/data/activities.db
-Environment=MAX_HR=192
+Environment=MAX_HR=194
 
 [Install]
 WantedBy=default.target
@@ -163,7 +163,7 @@ WantedBy=default.target
       "args": ["/home/ubuntu/project/pbRun/mcp-server/dist/index.js"],
       "env": {
         "DB_PATH": "/home/ubuntu/project/pbRun/app/data/activities.db",
-        "MAX_HR": "192"
+        "MAX_HR": "194"
       }
     }
   }
