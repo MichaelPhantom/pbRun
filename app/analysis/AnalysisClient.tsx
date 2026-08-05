@@ -50,18 +50,42 @@ export default function AnalysisClient({
       byZone[z.zone] = (z.total_duration / totalSec) * 100;
     });
     const z12 = (byZone[1] ?? 0) + (byZone[2] ?? 0);
-    const items: { label: string; actual: number; limit: string; type: 'over' | 'under' }[] = [];
+    const items: { label: string; actual: number; limit: string; type: 'over' | 'under'; hint: string }[] = [];
     if (z12 < 70) {
-      items.push({ label: 'Z1–Z2（轻松/有氧）', actual: Math.round(z12 * 10) / 10, limit: '建议 ≥70%', type: 'under' });
+      items.push({
+        label: 'Z1–Z2（轻松/有氧）',
+        actual: Math.round(z12 * 10) / 10,
+        limit: '建议 ≥70%',
+        type: 'under',
+        hint: '有氧基础是整座训练金字塔的地基。建议把约七成训练时间放在轻松/有氧区，配速以"能边跑边完整说话"为准；本周可先用 1–2 次放松跑替换强度课，等轻松配速变稳后再逐步回归强度。',
+      });
     }
     if ((byZone[3] ?? 0) > 15) {
-      items.push({ label: 'Z3（节奏/马拉松配速）', actual: Math.round((byZone[3] ?? 0) * 10) / 10, limit: '建议 ≤15%', type: 'over' });
+      items.push({
+        label: 'Z3（节奏/马拉松配速）',
+        actual: Math.round((byZone[3] ?? 0) * 10) / 10,
+        limit: '建议 ≤15%',
+        type: 'over',
+        hint: '节奏区占比偏高。马拉松配速跑每周 1 次足矣；如果长距离总在 Z3 顶住，试着把中间段降回 Z2，用更扎实的有氧垫底换更稳的比赛配速。',
+      });
     }
     if ((byZone[4] ?? 0) > 10) {
-      items.push({ label: 'Z4（乳酸阈）', actual: Math.round((byZone[4] ?? 0) * 10) / 10, limit: '建议 ≤10%', type: 'over' });
+      items.push({
+        label: 'Z4（乳酸阈）',
+        actual: Math.round((byZone[4] ?? 0) * 10) / 10,
+        limit: '建议 ≤10%',
+        type: 'over',
+        hint: '阈值强度累积偏多，进步的秘诀是"可持续"而非"堆量"。建议拆成每周 1–2 次分段跑（如 3×8 分钟，中间充分恢复），其余时间回到轻松区给身体留出吸收期。',
+      });
     }
     if ((byZone[5] ?? 0) > 8) {
-      items.push({ label: 'Z5（间歇/强度）', actual: Math.round((byZone[5] ?? 0) * 10) / 10, limit: '建议 ≤8%', type: 'over' });
+      items.push({
+        label: 'Z5（间歇/强度）',
+        actual: Math.round((byZone[5] ?? 0) * 10) / 10,
+        limit: '建议 ≤8%',
+        type: 'over',
+        hint: '高强度间歇占比过高，受伤与过度疲劳的风险会快速累积。VO₂max 课建议每周至多 1 次、单次总量控制在 8% 以内；强度课次日安排放松跑或休息，让"质量留在高刺激、数量留在低强度"。',
+      });
     }
     return items;
   }, [hrZoneDurationByZone]);
@@ -172,18 +196,23 @@ export default function AnalysisClient({
           </ul>
           {hrZoneOverflow.length > 0 && (
             <div className="border-t border-zinc-200 pt-2 dark:border-zinc-600">
-              <p className="mb-1.5 text-xs font-medium text-amber-700 dark:text-amber-400">明显超标 / 不足</p>
-              <ul className="space-y-1 text-xs">
+              <p className="mb-2 text-xs font-medium text-amber-700 dark:text-amber-400">明显超标 / 不足</p>
+              <ul className="space-y-2 text-xs">
                 {hrZoneOverflow.map((item) => (
-                  <li
-                    key={item.label}
-                    className={item.type === 'over' ? 'text-amber-700 dark:text-amber-400' : 'text-amber-600 dark:text-amber-500'}
-                  >
-                    {item.label}：当前 <span className="font-medium">{item.actual}%</span>，{item.limit}
+                  <li key={item.label}>
+                    <span className={item.type === 'over' ? 'text-amber-700 dark:text-amber-400' : 'text-amber-600 dark:text-amber-500'}>
+                      {item.label}：当前 <span className="font-medium">{item.actual}%</span>，{item.limit}
+                    </span>
+                    <p className="mt-0.5 leading-relaxed text-zinc-500 dark:text-zinc-400">{item.hint}</p>
                   </li>
                 ))}
               </ul>
             </div>
+          )}
+          {hrZoneOverflow.length === 0 && (
+            <p className="border-t border-zinc-200 pt-2 text-xs leading-relaxed text-emerald-700 dark:text-emerald-400">
+              各强度区间占比均在丹尼尔斯建议范围内，训练结构均衡。继续保持，并留意：随着跑力提升，配速区间会自动更新，建议每隔 4–6 周回看一次本页数据。
+            </p>
           )}
         </div>
       </section>

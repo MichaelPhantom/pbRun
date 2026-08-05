@@ -116,6 +116,15 @@ function buildLineChart(
 }
 
 function buildPaceChart(chartRef: HTMLDivElement, xData: number[], paceData: (number | null)[]) {
+  // 配速语义: 数值越小越快。Y 轴倒序 (inverse), 让"越快越靠上", 与跑步直觉一致
+  const valid = paceData.filter((v): v is number => v != null);
+  let paceMin = Math.floor(Math.min(...valid) / 60) * 60;
+  let paceMax = Math.ceil(Math.max(...valid) / 60) * 60;
+  if (paceMax - paceMin < 60) {
+    // 数据跨度不足一分钟时留出上下边距, 避免曲线贴边或轴无法渲染
+    paceMin = Math.max(0, paceMin - 60);
+    paceMax = paceMax + 60;
+  }
   const chart = echarts.init(chartRef);
   const option: echarts.EChartsOption = {
     tooltip: {
@@ -150,7 +159,11 @@ function buildPaceChart(chartRef: HTMLDivElement, xData: number[], paceData: (nu
     yAxis: {
       type: 'value',
       name: '配速',
-      min: 0,
+      // 倒序: 顶部为快配速(数值小), 底部为慢配速; 训练软件惯例 (Strava/Garmin)
+      inverse: true,
+      min: paceMin,
+      max: paceMax,
+      splitLine: { lineStyle: { type: 'dashed', opacity: 0.4 } },
       axisLabel: {
         formatter: (v: number) => formatPaceForAxis(v),
       },
@@ -253,7 +266,10 @@ export default function ActivityTrendCharts({ records }: ActivityTrendChartsProp
       )}
       {hasPace && (
         <section className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-          <h2 className="mb-2 text-base font-medium text-zinc-800 dark:text-zinc-200">配速趋势</h2>
+          <div className="mb-2 flex flex-wrap items-baseline gap-x-2">
+            <h2 className="text-base font-medium text-zinc-800 dark:text-zinc-200">配速趋势</h2>
+            <span className="text-[11px] text-zinc-400 dark:text-zinc-500">曲线越靠上 = 配速越快（Y 轴倒序）</span>
+          </div>
           <div ref={paceRef} style={{ width: '100%', height: '200px', position: 'relative', zIndex: 0 }} />
         </section>
       )}
