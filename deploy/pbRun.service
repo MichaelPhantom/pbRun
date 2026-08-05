@@ -1,0 +1,21 @@
+[Unit]
+Description=pbRun 跑步分析平台 (Next.js, basePath /pbrun, 端口 3996)
+# 数据同步: cft/garmin sync_cn_daily.sh (cron 每日 08:30/13:30/22:30) 直接写 DB, 本服务仅服务 HTTP
+# 访问: Nginx 门户 /pbrun/ → 127.0.0.1:3996 (仅本机监听, 不暴露公网)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=%h/project/pbRun
+ExecStart=/usr/bin/node %h/project/pbRun/node_modules/next/dist/bin/next start -p 3996 -H 127.0.0.1
+Restart=on-failure
+RestartSec=5
+Environment=NODE_ENV=production
+# 同步脚本会重建缓存/写 DB, 服务无需特权
+ProtectSystem=false
+
+[Install]
+WantedBy=default.target

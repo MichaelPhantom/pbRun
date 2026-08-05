@@ -14,6 +14,9 @@ import { monthToRange } from '@/app/lib/date-utils';
 
 const MONTHS_PAGE_SIZE = 6;
 
+// basePath 前缀 (与 next.config.ts 同步): next/link 自动加, 手写 fetch 需手动拼
+const API_BASE = "/pbrun";
+
 function fetchMonthActivities(monthKey: string): Promise<Activity[]> {
   const { startDate, endDate } = monthToRange(monthKey);
   const params = new URLSearchParams({
@@ -22,7 +25,7 @@ function fetchMonthActivities(monthKey: string): Promise<Activity[]> {
     startDate,
     endDate,
   });
-  return fetch(`/api/activities?${params}`)
+  return fetch(`${API_BASE}/api/activities?${params}`)
     .then((res) => {
       if (!res.ok) throw new Error(res.statusText);
       return res.json();
@@ -87,7 +90,7 @@ export default function ListClient({
       limit: String(MONTHS_PAGE_SIZE),
       offset: String(monthSummaries.length),
     });
-    fetch(`/api/activities/months?${params}`)
+    fetch(`${API_BASE}/api/activities/months?${params}`)
       .then((res) => {
         if (!res.ok) throw new Error(res.statusText);
         return res.json();

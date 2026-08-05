@@ -9,6 +9,9 @@ const projectRoot = configDir.endsWith(".next")
   : configDir;
 
 const nextConfig: NextConfig = {
+  // 子路径部署: 经 Nginx 门户反代 (/pbrun/ → 127.0.0.1:3996)
+  // 注意: next/link 自动加前缀; 手写 fetch 需手动拼 BASE (见 ListClient/zone page)
+  basePath: "/pbrun",
   // 将 app/data/activities.db 打入 API 的 serverless 包，否则 Vercel 部署后找不到库文件
   outputFileTracingIncludes: {
     "/api/*": ["./app/data/activities.db"],

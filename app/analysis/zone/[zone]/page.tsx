@@ -56,7 +56,8 @@ export default function ZoneTrendPage() {
       return;
     }
     const query = new URLSearchParams({ startDate, endDate, groupBy }).toString();
-    fetch(`/api/analysis/hr-zones?${query}`)
+    // 前缀与 next.config.ts basePath 同步 (next/link 自动加, 手写 fetch 手动拼)
+    fetch(`/pbrun/api/analysis/hr-zones?${query}`)
       .then((res) => {
         if (!res.ok) throw new Error(res.statusText);
         return res.json();

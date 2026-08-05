@@ -444,3 +444,33 @@ node scripts/garmin/validate-data.js
 - [Strava](https://www.strava.com/) - Strava 数据源
 - [Next.js](https://nextjs.org/) - Web 框架
 - [Vercel](https://vercel.com/) - 部署平台
+
+---
+
+## 本机部署 (fork 定制: u2, systemd, 端口 3996)
+
+> 上游为通用部署文档; 本 fork 在 u2 (Oracle Cloud ARM, Ubuntu 20.04) 上以 systemd 常驻部署,
+> 数据源为佳明国区 (garmin.cn), 同步由 cft/garmin 流水线完成 (每日 08:30/13:30/22:30)。
+
+### 服务单元
+
+`deploy/pbRun.service` (user 级, 开机自启):
+
+```bash
+cp deploy/pbRun.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now pbRun.service
+# 依赖 loginctl enable-linger ubuntu (已启用)
+```
+
+- 端口: **3996**, 仅监听 127.0.0.1 (不暴露公网)
+- 访问: 经 Nginx 门户反代 `https://129.150.50.12/pbrun/` (Basic Auth 保护)
+- basePath: `/pbrun` (next.config.ts); next/link 自动加前缀, 手写 fetch 需手动拼 (见 ListClient/zone 页面)
+- 数据同步: cft/garmin `sync_cn_daily.sh` 直接写 `app/data/activities.db` (SSR 页面 force-dynamic, 同步后即刻可见, 无需 rebuild)
+- DB 不入 git: 超 GitHub 100MB 限制, 本地 gzip 备份 `app/data/.backups/` (14 份)
+
+### 更新部署 (改代码后)
+
+```bash
+cd ~/project/pbRun && git pull && npm ci && npx next build && systemctl --user restart pbRun.service
+```
