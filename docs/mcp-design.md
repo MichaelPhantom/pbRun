@@ -32,16 +32,17 @@ pbRun/
 ├── mcp-server/
 │   ├── index.ts              # MCP server 入口 (stdio transport)
 │   ├── tools.ts              # 13 个 tool 定义与 handler
+│   ├── analysis.ts           # 纯逻辑 (降采样/ACWR/跨期对比, 可单测)
 │   ├── tsconfig.json         # 独立编译配置 (module node16, 输出 dist/)
 │   ├── dist/                 # 编译产物 (已 .gitignore)
 │   └── README.md             # 构建/运行/配置说明
-├── app/lib/
-│   ├── db.ts                 # 直接复用 (新增 getPeriodStats/getTrainingLoads/getLatestVdot)
-│   ├── types.ts              # 直接复用 (新增 PeriodStats/TrainingLoadPoint)
-│   └── vdot-pace.ts          # 直接复用
-└── deploy/
-    └── pbRun-mcp.service     # systemd user service
+└── app/lib/
+    ├── db.ts                 # 直接复用 (新增 getPeriodStats/getTrainingLoads/getLatestVdot)
+    ├── types.ts              # 直接复用 (新增 PeriodStats/TrainingLoadPoint)
+    └── vdot-pace.ts          # 直接复用
 ```
+
+> 部署: 无 systemd unit — stdio 进程由 AI 客户端按需拉起 (见 §6.1)。
 
 ## 3. Tools 清单 (13 个)
 
@@ -132,27 +133,23 @@ output: {
 
 ## 6. 部署
 
-### 6.1 systemd user service
+### 6.1 部署方式: 无需 systemd
 
-```ini
-[Unit]
-Description=pbRun MCP Server (AI 数据接口, stdio)
-After=network-online.target
-Wants=network-online.target
+stdio 传输的 MCP server **不需要 systemd 常驻管理**:
 
-[Service]
-Type=simple
-WorkingDirectory=%h/project/pbRun
-ExecStart=/usr/bin/node %h/project/pbRun/mcp-server/dist/mcp-server/index.js
-Restart=on-failure
-RestartSec=5
-Environment=NODE_ENV=production
-Environment=DB_PATH=%h/project/pbRun/app/data/activities.db
-Environment=MAX_HR=194
+- 进程由 AI 客户端 (opencode) 按需拉起 (`command` 启动), 生命周期与客户端绑定;
+  客户端退出 → stdin EOF → 进程优雅关闭 SQLite 连接后自行退出。
+- 常驻 unit 反而无意义: 无客户端连接时进程空转 (stdin 已是 EOF), 且会与客户端直接拉起的
+  实例同时打开 DB。
 
-[Install]
-WantedBy=default.target
+自检/验证 (与 opencode 调用等价):
+
+```bash
+DB_PATH=/home/ubuntu/project/pbRun/app/data/activities.db MAX_HR=194 \
+  node mcp-server/dist/mcp-server/index.js
 ```
+
+> 仅当未来部署 §6.3 的远程 SSE 访问 (端口 3997, 常驻 HTTP 服务) 时才需要 systemd unit。
 
 ### 6.2 AI 客户端配置 (opencode)
 
@@ -185,7 +182,7 @@ WantedBy=default.target
 | 3 | 实现 records 采样逻辑 (samplingInterval + maxPoints 双参数) | ✅ |
 | 4 | 实现 compare_periods (db.ts 新增 getPeriodStats) | ✅ |
 | 5 | 实现 get_training_load_analysis (db.ts 新增 getTrainingLoads, ACWR) | ✅ |
-| 6 | systemd service + opencode 配置 (已写入 ~/.config/opencode) | ✅ |
+| 6 | opencode 配置 (已写入 ~/.config/opencode); 确认无需 systemd (stdio 由客户端拉起) | ✅ |
 | 7 | 端到端验证 (stdio 客户端逐一调用 13 个 tool) | ✅ 全部通过 |
 | 8 | 打磨: 纯逻辑抽离 analysis.ts (可单测)、结构化错误、日期校验、优雅退出 | ✅ |
 | 9 | 单元测试: db 新函数 10 例 + analysis 纯逻辑 18 例 | ✅ 全部通过 |

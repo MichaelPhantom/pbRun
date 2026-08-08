@@ -21,7 +21,8 @@ node mcp-server/dist/mcp-server/index.js
 | `DB_PATH` | `<cwd>/app/data/activities.db` | SQLite 文件路径 |
 | `MAX_HR` | `190` (与 db.ts 一致; 生产建议 `194`) | 心率区间计算 (Z1-Z5) |
 
-进程生命周期: 正常 EOF (客户端断开) 或 SIGINT/SIGTERM 均优雅关闭 SQLite 只读连接后退出。
+进程生命周期: 由 AI 客户端 (opencode) 按需拉起, 客户端退出 → stdin EOF → 优雅关闭 SQLite
+连接后自行退出; 无需 systemd 常驻管理。
 
 ## 响应格式
 
