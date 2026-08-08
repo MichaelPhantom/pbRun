@@ -50,12 +50,13 @@ describe('mcp-server/analysis 纯逻辑', () => {
   });
 
   describe('downsampleRecords', () => {
-    test('记录数不超过 maxPoints 时原样返回', () => {
+    test('记录数不超过 maxPoints 时原样返回且不标记截断', () => {
       const records = [rec(0), rec(1), rec(2)] as never;
       const r = downsampleRecords(records, 1, 500);
       expect(r.sampled).toBe(3);
       expect(r.step).toBe(1);
       expect(r.total_original).toBe(3);
+      expect(r.truncated).toBe(false);
     });
 
     test('空记录应返回空结果', () => {
@@ -63,23 +64,54 @@ describe('mcp-server/analysis 纯逻辑', () => {
       expect(r.records).toEqual([]);
       expect(r.total_original).toBe(0);
       expect(r.step).toBe(1);
+      expect(r.truncated).toBe(false);
     });
 
-    test('超出 maxPoints 时自动加大步长且结果不超限', () => {
+    test('超出 maxPoints 时自动加大步长且结果约等于上限 (+1 为末点)', () => {
       const records = Array.from({ length: 1000 }, (_, i) => rec(i)) as never;
       const r = downsampleRecords(records, 1, 100);
       expect(r.step).toBe(10);
-      expect(r.sampled).toBe(100);
+      expect(r.sampled).toBe(101);
       expect(r.total_original).toBe(1000);
+      expect(r.truncated).toBe(true);
       expect(r.records[1]).toEqual({ record_index: 10 });
+      expect(r.records[r.records.length - 1]).toEqual({ record_index: 999 });
     });
 
-    test('samplingInterval 优先生效', () => {
+    test('自动降采样时强制包含首末点 (尾部极值不丢失)', () => {
+      const records = Array.from({ length: 4635 }, (_, i) => rec(i)) as never;
+      const r = downsampleRecords(records, 1, 500);
+      expect(r.step).toBe(10);
+      expect(r.truncated).toBe(true);
+      expect(r.records[0]).toEqual({ record_index: 0 });
+      expect(r.records[r.records.length - 1]).toEqual({ record_index: 4634 });
+    });
+
+    test('记录数恰为 maxPoints 整数倍时不截断且末尾点天然包含', () => {
+      const records = Array.from({ length: 1000 }, (_, i) => rec(i)) as never;
+      const r = downsampleRecords(records, 1, 1000);
+      expect(r.step).toBe(1);
+      expect(r.truncated).toBe(false);
+      expect(r.sampled).toBe(1000);
+    });
+
+    test('samplingInterval 优先生效且未超限时不标记截断', () => {
       const records = Array.from({ length: 100 }, (_, i) => rec(i)) as never;
       const r = downsampleRecords(records, 60, 500);
       expect(r.step).toBe(60);
-      expect(r.sampled).toBe(2);
+      expect(r.sampled).toBe(3); // 0/60 等距 + 末点 99
+      expect(r.truncated).toBe(false);
       expect(r.records[1]).toEqual({ record_index: 60 });
+      expect(r.records[2]).toEqual({ record_index: 99 });
+    });
+
+    test('samplingInterval 导致超限时同样自动放大并标记截断', () => {
+      const records = Array.from({ length: 10000 }, (_, i) => rec(i)) as never;
+      const r = downsampleRecords(records, 30, 100);
+      expect(r.step).toBe(100);
+      expect(r.truncated).toBe(true);
+      expect(r.sampled).toBeLessThanOrEqual(100 + 1);
+      expect(r.records[r.records.length - 1]).toEqual({ record_index: 9999 });
     });
   });
 

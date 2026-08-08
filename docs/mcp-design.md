@@ -187,6 +187,7 @@ DB_PATH=/home/ubuntu/project/pbRun/app/data/activities.db MAX_HR=194 \
 | 8 | 打磨: 纯逻辑抽离 analysis.ts (可单测)、结构化错误、日期校验、优雅退出 | ✅ |
 | 9 | 单元测试: db 新函数 10 例 + analysis 纯逻辑 18 例 | ✅ 全部通过 |
 | 10 | 修复 format.ts locale 脆弱性 (toLocaleDateString → 确定性 YYYY/MM/DD) | ✅ 全量测试 271 通过 |
+| 11 | 数据完整性契约: records 降采样含首末点 + truncated 标志; vdot_history 翻页 (offset) + total 元数据; 各工具 description 明示截断/取全量方式; README 契约表 | ✅ 全量测试 276 通过 |
 
 构建: `npm run build:mcp` (tsc -p mcp-server) → `mcp-server/dist/`
 测试: `npm test -- tests/unit/lib/db-mcp.test.ts tests/unit/mcp/analysis.test.ts`

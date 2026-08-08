@@ -469,9 +469,11 @@ export function getPaceZoneStats(
 }
 
 /**
- * Get VDOT history data.
+ * Get VDOT history data (paginated, 按时间倒序).
+ * @param limit 每页条数 (默认 50)
+ * @param offset 偏移量 (默认 0, 配合 limit 翻页取全量)
  */
-export function getVDOTHistory(limit: number = 50): VDOTDataPoint[] {
+export function getVDOTHistory(limit: number = 50, offset: number = 0): VDOTDataPoint[] {
   const db = getDatabase();
 
   const query = `
@@ -484,11 +486,20 @@ export function getVDOTHistory(limit: number = 50): VDOTDataPoint[] {
     FROM activities
     WHERE vdot_value IS NOT NULL
     ORDER BY start_time DESC
-    LIMIT ?
+    LIMIT ? OFFSET ?
   `;
 
   const stmt = db.prepare(query);
-  return stmt.all(limit) as VDOTDataPoint[];
+  return stmt.all(limit, offset) as VDOTDataPoint[];
+}
+
+/** VDOT 历史总条数 (供使用方识别是否已取全量) */
+export function getVDOTHistoryTotal(): number {
+  const db = getDatabase();
+  const row = db
+    .prepare('SELECT COUNT(*) AS count FROM activities WHERE vdot_value IS NOT NULL')
+    .get() as { count: number };
+  return row.count;
 }
 
 /**

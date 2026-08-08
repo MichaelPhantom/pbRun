@@ -13,6 +13,7 @@ import {
   getStats,
   getPersonalRecords,
   getVDOTHistory,
+  getVDOTHistoryTotal,
   getVDOTTrend,
   getHrZoneStats,
   getPaceZoneStats,
@@ -67,7 +68,7 @@ export async function registerTools(server: McpServer): Promise<void> {
     'list_activities',
     {
       title: '活动列表',
-      description: '列出跑步活动（支持分页、类型与日期过滤）。distance 为公里, 配速为秒/公里。',
+      description: '列出跑步活动（支持分页、类型与日期过滤）。distance 为公里, 配速为秒/公里。默认每页 20 条: pagination.total 为筛选后的总条数, 未取完时请用 offset 翻页 (limit 最大 100)。',
       inputSchema: {
         limit: z.number().int().min(1).max(100).optional().describe('每页数量 (1-100, 默认 20)'),
         offset: z.number().int().min(0).optional().describe('偏移量 (默认 0)'),
@@ -123,11 +124,12 @@ export async function registerTools(server: McpServer): Promise<void> {
     'get_activity_records',
     {
       title: '活动逐秒记录',
-      description: '按 activity_id 返回逐秒记录（心率/步频/步幅/配速），支持降采样防止数据量过大。',
+      description:
+        '按 activity_id 返回逐秒记录（心率/步频/步幅/配速）。默认最多返回 500 点: 记录超限时自动等距采样（强制包含首末点）并置 truncated=true; 如需秒级全量数据请传 maxPoints ≥ 活动时长秒数 (上限 5000, 如 60 分钟跑传 3600)。返回含元数据 total_original (原始条数) / sampled (返回条数) / step (实际采样步长, 1=全量) / truncated (是否被自动降采样)。',
       inputSchema: {
         activityId: z.number().int().positive().describe('活动 ID'),
-        samplingInterval: z.number().int().min(1).optional().describe('采样间隔（默认 1, 即全部）'),
-        maxPoints: z.number().int().min(10).max(5000).optional().describe('最大返回点数（默认 500, 超出自动加大采样间隔）'),
+        samplingInterval: z.number().int().min(1).optional().describe('采样间隔（默认 1, 即全部; 仍受 maxPoints 上限约束）'),
+        maxPoints: z.number().int().min(10).max(5000).optional().describe('最大返回点数（默认 500, 超出自动加大采样间隔; 要全量请设为活动时长秒数）'),
       },
     },
     (args) =>
@@ -169,12 +171,21 @@ export async function registerTools(server: McpServer): Promise<void> {
     'get_vdot_history',
     {
       title: 'VDOT 跑力历史',
-      description: '各次活动对应的 VDOT 跑力值（按时间倒序）。',
+      description:
+        '各次活动对应的 VDOT 跑力值（按时间倒序）。默认仅返回最近 50 条: 返回含 total (总条数) / returned (本次条数), 未取全量时请用 offset 翻页 (limit 最大 100, 一次最多 100 条)。',
       inputSchema: {
-        limit: z.number().int().min(1).max(100).optional().describe('返回条数 (1-100, 默认 50)'),
+        limit: z.number().int().min(1).max(100).optional().describe('每页条数 (1-100, 默认 50)'),
+        offset: z.number().int().min(0).optional().describe('偏移量 (默认 0, 配合 limit 翻页取全量)'),
       },
     },
-    (args) => run(() => getVDOTHistory(args.limit ?? 50))
+    (args) =>
+      run(() => {
+        const limit = args.limit ?? 50;
+        const offset = args.offset ?? 0;
+        const total = getVDOTHistoryTotal();
+        const data = getVDOTHistory(limit, offset);
+        return { data, total, returned: data.length, limit, offset };
+      })
   );
 
   await server.registerTool(
@@ -259,7 +270,7 @@ export async function registerTools(server: McpServer): Promise<void> {
     'get_month_summaries',
     {
       title: '月度汇总',
-      description: '按月汇总总距离与活动次数（倒序）。totalDistance 为公里（与 activities.distance 一致）。',
+      description: '按月汇总总距离与活动次数（倒序, 默认最近 12 个月, 可用 limit/offset 扩展）。totalDistance 为公里（与 activities.distance 一致）。',
       inputSchema: {
         limit: z.number().int().min(1).max(100).optional().describe('返回月份数 (默认 12)'),
         offset: z.number().int().min(0).optional().describe('偏移量 (默认 0)'),

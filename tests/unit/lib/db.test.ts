@@ -5,6 +5,7 @@ import {
   getStats,
   getPersonalRecords,
   getVDOTHistory,
+  getVDOTHistoryTotal,
 } from '@/app/lib/db';
 
 // Mock better-sqlite3
@@ -214,6 +215,26 @@ describe('Database Functions', () => {
 
       const lastCall = mockAll.mock.calls[mockAll.mock.calls.length - 1];
       expect(lastCall).toContain(50);
+    });
+
+    test('offset 分页应传入 OFFSET 参数 (翻页取全量)', () => {
+      mockAll.mockReturnValue([]);
+
+      getVDOTHistory(100, 100);
+
+      const lastCall = mockAll.mock.calls[mockAll.mock.calls.length - 1];
+      expect(lastCall).toEqual([100, 100]);
+    });
+  });
+
+  describe('getVDOTHistoryTotal', () => {
+    test('应返回有 VDOT 值的活动总条数', () => {
+      mockGet.mockReturnValue({ count: 188 });
+
+      const total = getVDOTHistoryTotal();
+
+      expect(total).toBe(188);
+      expect(mockGet).toHaveBeenCalled();
     });
   });
 });
