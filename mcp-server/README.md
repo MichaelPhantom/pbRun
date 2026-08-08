@@ -21,7 +21,7 @@ node mcp-server/dist/mcp-server/index.js
 | `DB_PATH` | `<cwd>/app/data/activities.db` | SQLite 文件路径 |
 | `MAX_HR` | `190` (与 db.ts 一致; 生产建议 `194`) | 心率区间计算 (Z1-Z5) |
 
-进程生命周期: 由 AI 客户端 (opencode) 按需拉起, 客户端退出 → stdin EOF → 优雅关闭 SQLite
+进程生命周期: 由 AI 客户端 (opencode / hermes) 按需拉起, 客户端退出 → stdin EOF → 优雅关闭 SQLite
 连接后自行退出; 无需 systemd 常驻管理。
 
 ## 响应格式
@@ -71,6 +71,32 @@ AI 专用 (2 个): `compare_periods` (跨期对比), `get_training_load_analysis
   "enabled": true
 }
 ```
+
+## Hermes (本机 agent gateway) 配置
+
+```bash
+# ~/.hermes/hermes-agent/venv/bin/python -m hermes_cli.main mcp add pbRun \
+#   --command node \
+#   --args /home/ubuntu/project/pbRun/mcp-server/dist/mcp-server/index.js \
+#   --env DB_PATH=/home/ubuntu/project/pbRun/app/data/activities.db MAX_HR=194
+# 注意: --args 之后的参数全部归 args, --env 需放在 --args 之前 (否则 env 会被吞进 args)
+```
+
+写入 `~/.hermes/config.yaml` 的 `mcp_servers:` 段 (推荐格式):
+
+```yaml
+mcp_servers:
+  pbRun:
+    command: node
+    args:
+      - /home/ubuntu/project/pbRun/mcp-server/dist/mcp-server/index.js
+    env:
+      DB_PATH: /home/ubuntu/project/pbRun/app/data/activities.db
+      MAX_HR: '194'
+    enabled: true
+```
+
+新会话自动加载; 验证: `hermes mcp test pbRun` (应显示 `Connected` + 13 tools)。
 
 ## 重新构建 (代码变更后)
 

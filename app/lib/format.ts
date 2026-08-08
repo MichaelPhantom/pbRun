@@ -44,27 +44,28 @@ export function formatDurationRecord(seconds: number | null | undefined): string
   return `${pad(h)}:${pad(m)}:${pad(s)}`;
 }
 
-/** 日期时间：ISO 字符串 → 本地日期时间显示 */
+/** 日期时间：ISO 字符串 → 本地日期时间 YYYY/MM/DD HH:MM（确定性格式, 不依赖系统 locale） */
 export function formatDateTime(iso: string | null | undefined): string {
   if (!iso) return '--';
   const d = new Date(iso);
-  return d.toLocaleString(undefined, {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  if (Number.isNaN(d.getTime())) return '--';
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const h = String(d.getHours()).padStart(2, '0');
+  const min = String(d.getMinutes()).padStart(2, '0');
+  return `${y}/${m}/${day} ${h}:${min}`;
 }
 
-/** 仅日期 */
+/** 仅日期：YYYY/MM/DD（确定性格式, 不依赖系统 locale） */
 export function formatDate(iso: string | null | undefined): string {
   if (!iso) return '--';
-  return new Date(iso).toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  });
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '--';
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}/${m}/${day}`;
 }
 
 const WEEKDAY_ZH = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];

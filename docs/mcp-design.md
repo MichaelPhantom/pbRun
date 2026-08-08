@@ -186,12 +186,13 @@ DB_PATH=/home/ubuntu/project/pbRun/app/data/activities.db MAX_HR=194 \
 | 7 | 端到端验证 (stdio 客户端逐一调用 13 个 tool) | ✅ 全部通过 |
 | 8 | 打磨: 纯逻辑抽离 analysis.ts (可单测)、结构化错误、日期校验、优雅退出 | ✅ |
 | 9 | 单元测试: db 新函数 10 例 + analysis 纯逻辑 18 例 | ✅ 全部通过 |
+| 10 | 修复 format.ts locale 脆弱性 (toLocaleDateString → 确定性 YYYY/MM/DD) | ✅ 全量测试 271 通过 |
 
 构建: `npm run build:mcp` (tsc -p mcp-server) → `mcp-server/dist/`
 测试: `npm test -- tests/unit/lib/db-mcp.test.ts tests/unit/mcp/analysis.test.ts`
 说明: 实际 tool 数为 13 (11 基础 + 2 AI), 设计文档原 "12 个" 为笔误。
-注意: `/_global-error` 页面在 `next build` 时存在既有 prerender 失败 (React useContext), 与 MCP 无关。
-注意: tests/unit/lib/format.test.ts 有 2 例既有 locale 相关失败 (环境无关代码)。
+注意: `next build` 时勿设置 `NODE_ENV=development` (Next 16 已知 bug 会使 /_global-error
+prerender 崩溃, vercel/next.js#85668 等); 正常构建 (不设或 NODE_ENV=production) 无此问题。
 
 ## 8. 安全考量
 
