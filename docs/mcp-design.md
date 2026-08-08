@@ -1,7 +1,7 @@
 # pbRun MCP Server 设计方案
 
 > 为 AI 客户端（Claude Desktop / opencode 等）提供结构化跑步数据访问能力
-> 状态: 设计中 (2026-08-05)
+> 状态: 已实施 (2026-08-08), 13 个 tools
 
 ## 1. 架构
 
@@ -31,20 +31,21 @@
 pbRun/
 ├── mcp-server/
 │   ├── index.ts              # MCP server 入口 (stdio transport)
-│   ├── tools.ts              # 12 个 tool 定义与 handler
-│   ├── tsconfig.json         # 继承项目 tsconfig, paths 映射 @/*
-│   └── README.md             # 本文件
+│   ├── tools.ts              # 13 个 tool 定义与 handler
+│   ├── tsconfig.json         # 独立编译配置 (module node16, 输出 dist/)
+│   ├── dist/                 # 编译产物 (已 .gitignore)
+│   └── README.md             # 构建/运行/配置说明
 ├── app/lib/
-│   ├── db.ts                 # 直接复用 (无修改)
-│   ├── types.ts              # 直接复用
+│   ├── db.ts                 # 直接复用 (新增 getPeriodStats/getTrainingLoads/getLatestVdot)
+│   ├── types.ts              # 直接复用 (新增 PeriodStats/TrainingLoadPoint)
 │   └── vdot-pace.ts          # 直接复用
 └── deploy/
     └── pbRun-mcp.service     # systemd user service
 ```
 
-## 3. Tools 清单 (12 个)
+## 3. Tools 清单 (13 个)
 
-### 3.1 基础数据 (复用 db.ts, 10 个)
+### 3.1 基础数据 (复用 db.ts, 11 个)
 
 | Tool | db.ts 函数 | 参数 | 输出 | 说明 |
 |------|-----------|------|------|------|
@@ -127,7 +128,7 @@ output: {
 | 变量 | 默认值 | 用途 |
 |------|--------|------|
 | `DB_PATH` | `cwd()/app/data/activities.db` | SQLite 文件路径 |
-| `MAX_HR` | `194` | 心率区间计算 (Z1-Z5) |
+| `MAX_HR` | `190` (代码 fallback, 与 db.ts 一致) | 心率区间计算 (Z1-Z5); 生产配置 `194` |
 
 ## 6. 部署
 
@@ -142,7 +143,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=%h/project/pbRun
-ExecStart=/usr/bin/node %h/project/pbRun/mcp-server/dist/index.js
+ExecStart=/usr/bin/node %h/project/pbRun/mcp-server/dist/mcp-server/index.js
 Restart=on-failure
 RestartSec=5
 Environment=NODE_ENV=production
@@ -155,18 +156,16 @@ WantedBy=default.target
 
 ### 6.2 AI 客户端配置 (opencode)
 
-```json
-{
-  "mcpServers": {
-    "pbRun": {
-      "command": "node",
-      "args": ["/home/ubuntu/project/pbRun/mcp-server/dist/index.js"],
-      "env": {
-        "DB_PATH": "/home/ubuntu/project/pbRun/app/data/activities.db",
-        "MAX_HR": "194"
-      }
-    }
-  }
+```jsonc
+// ~/.config/opencode/opencode.jsonc → mcp 字段 (已生效, 重启 opencode 后加载)
+"pbRun": {
+  "type": "local",
+  "command": ["node", "/home/ubuntu/project/pbRun/mcp-server/dist/mcp-server/index.js"],
+  "env": {
+    "DB_PATH": "/home/ubuntu/project/pbRun/app/data/activities.db",
+    "MAX_HR": "194"
+  },
+  "enabled": true
 }
 ```
 
@@ -177,18 +176,25 @@ WantedBy=default.target
 - 仅监听 127.0.0.1, 经 Nginx `/pbrun-mcp` 反代 + Basic Auth
 - 使用 SSE transport 替代 stdio
 
-## 7. 实施计划
+## 7. 实施记录
 
-| 阶段 | 内容 | 预估 |
+| 阶段 | 内容 | 状态 |
 |------|------|------|
-| 1 | 创建 mcp-server/ 骨架, tsconfig, 安装 @modelcontextprotocol/sdk | 0.5h |
-| 2 | 实现 10 个基础 tools (直接映射 db.ts 函数) | 2h |
-| 3 | 实现 records 采样逻辑 | 0.5h |
-| 4 | 实现 compare_periods (新增 db.ts 查询函数) | 1h |
-| 5 | 实现 get_training_load_analysis (ACWR 计算) | 1h |
-| 6 | systemd service + opencode 配置 | 0.5h |
-| 7 | 端到端验证 (opencode 调用各 tool) | 1h |
-| **合计** | | **~6.5h** |
+| 1 | 创建 mcp-server/ 骨架, tsconfig, 安装 @modelcontextprotocol/sdk | ✅ 2026-08-08 (SDK 1.30 + zod 4) |
+| 2 | 实现 11 个基础 tools (直接映射 db.ts 函数) | ✅ |
+| 3 | 实现 records 采样逻辑 (samplingInterval + maxPoints 双参数) | ✅ |
+| 4 | 实现 compare_periods (db.ts 新增 getPeriodStats) | ✅ |
+| 5 | 实现 get_training_load_analysis (db.ts 新增 getTrainingLoads, ACWR) | ✅ |
+| 6 | systemd service + opencode 配置 (已写入 ~/.config/opencode) | ✅ |
+| 7 | 端到端验证 (stdio 客户端逐一调用 13 个 tool) | ✅ 全部通过 |
+| 8 | 打磨: 纯逻辑抽离 analysis.ts (可单测)、结构化错误、日期校验、优雅退出 | ✅ |
+| 9 | 单元测试: db 新函数 10 例 + analysis 纯逻辑 18 例 | ✅ 全部通过 |
+
+构建: `npm run build:mcp` (tsc -p mcp-server) → `mcp-server/dist/`
+测试: `npm test -- tests/unit/lib/db-mcp.test.ts tests/unit/mcp/analysis.test.ts`
+说明: 实际 tool 数为 13 (11 基础 + 2 AI), 设计文档原 "12 个" 为笔误。
+注意: `/_global-error` 页面在 `next build` 时存在既有 prerender 失败 (React useContext), 与 MCP 无关。
+注意: tests/unit/lib/format.test.ts 有 2 例既有 locale 相关失败 (环境无关代码)。
 
 ## 8. 安全考量
 

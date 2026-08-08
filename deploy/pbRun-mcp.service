@@ -1,0 +1,20 @@
+[Unit]
+Description=pbRun MCP Server (AI 数据接口, stdio)
+# stdio 协议通常由 AI 客户端直接拉起进程, 无需常驻; 本 unit 保留用于独立启动/自检
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=%h/project/pbRun
+ExecStart=/usr/bin/node %h/project/pbRun/mcp-server/dist/mcp-server/index.js
+Restart=on-failure
+RestartSec=5
+Environment=NODE_ENV=production
+Environment=DB_PATH=%h/project/pbRun/app/data/activities.db
+Environment=MAX_HR=194
+
+[Install]
+WantedBy=default.target

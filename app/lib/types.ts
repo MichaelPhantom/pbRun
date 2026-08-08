@@ -264,6 +264,26 @@ export interface VDOTTrendParams {
   groupBy: 'week' | 'month';                     // 聚合维度
 }
 
+/** 单个日期区间的活动汇总（用于跨期对比 compare_periods） */
+export interface PeriodStats {
+  startDate: string;                             // YYYY-MM-DD
+  endDate: string;                               // YYYY-MM-DD
+  totalActivities: number;                       // 活动次数
+  totalDistance: number;                         // 总距离（米）
+  totalDuration: number;                         // 总时长（秒）
+  avgPace?: number;                              // 平均配速（秒/公里）
+  avgVDOT?: number;                              // 平均 VDOT
+  totalTrainingLoad?: number;                    // 训练负荷（总和）
+}
+
+/** 单日活动负荷（用于 ACWR 训练负荷分析） */
+export interface TrainingLoadPoint {
+  date: string;                                  // YYYY-MM-DD（本地日期）
+  load: number;                                  // 当日训练负荷合计
+  distance: number;                              // 当日总距离（米）
+  duration: number;                              // 当日总时长（秒）
+}
+
 /** 跑力配速区间：基于 VDOT 的 Z1-Z5 目标配速及该区间内 laps 的统计 */
 export interface PaceZoneStat {
   zone: number;                                  // 1-5，对应 Z1-Z5

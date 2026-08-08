@@ -15,6 +15,7 @@
     "sync:garmin:cdp": "node scripts/garmin/sync.js --source cdp",
     "sync:strava": "node scripts/strava/sync.js",
     "auth:strava": "python scripts/strava/oauth_helper.py",
+    "build:mcp": "tsc -p mcp-server/tsconfig.json",
     "test": "jest",
     "test:unit": "jest tests/unit",
     "test:coverage": "jest --coverage",
@@ -23,6 +24,7 @@
     "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@zip.js/zip.js": "^2.8.19",
     "axios": "^1.13.5",
     "better-sqlite3": "^11.8.1",
@@ -33,7 +35,8 @@
     "fit-file-parser": "^2.3.3",
     "next": "16.1.6",
     "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react-dom": "19.2.3",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",
@@ -52,6 +55,6 @@
     "playwright": "^1.58.2",
     "tailwindcss": "^4",
     "ts-jest": "^29.4.9",
-    "typescript": "^5"
+    "typescript": "^5.9.3"
   }
 }

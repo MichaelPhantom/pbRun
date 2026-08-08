@@ -22,6 +22,8 @@ import {
   PersonalRecordsResponse,
   PersonalRecordItem,
   PaceZoneStat,
+  PeriodStats,
+  TrainingLoadPoint,
 } from './types';
 import { getPaceZoneBoundsFromVdot, getPaceZoneCenterFromVdot } from './vdot-pace';
 
@@ -893,6 +895,102 @@ export function getVDOTTrend(params: VDOTTrendParams): VDOTTrendPoint[] {
   });
 
   return mergeVDOTTrend(cachedData, realtimeData);
+}
+
+/**
+ * 返回单个日期区间内活动的汇总指标（跨期对比用）。
+ * distance 以米返回；endDate 为 YYYY-MM-DD 时按当天 23:59:59 截止。
+ * @throws 日期格式非法或 startDate > endDate 时抛出清晰错误
+ */
+export function getPeriodStats(startDate: string, endDate: string): PeriodStats {
+  const db = getDatabase();
+  const end = toInclusiveEnd(endDate, 'getPeriodStats');
+  validateRange(startDate, endDate, 'getPeriodStats');
+  const row = db.prepare(
+    `SELECT
+       SUM(distance) AS totalDistance,
+       SUM(duration) AS totalDuration,
+       COUNT(*) AS totalActivities,
+       AVG(average_pace) AS avgPace,
+       AVG(vdot_value) AS avgVDOT,
+       SUM(training_load) AS totalTrainingLoad
+     FROM activities
+     WHERE start_time >= ? AND start_time <= ?`
+  ).get(startDate, end) as {
+    totalDistance?: number | null;
+    totalDuration?: number | null;
+    totalActivities?: number;
+    avgPace?: number | null;
+    avgVDOT?: number | null;
+    totalTrainingLoad?: number | null;
+  };
+
+  return {
+    startDate,
+    endDate,
+    totalActivities: row?.totalActivities ?? 0,
+    totalDistance: (row?.totalDistance ?? 0) * 1000,
+    totalDuration: row?.totalDuration ?? 0,
+    avgPace: row?.avgPace ?? undefined,
+    avgVDOT: row?.avgVDOT ?? undefined,
+    totalTrainingLoad: row?.totalTrainingLoad ?? undefined,
+  };
+}
+
+/**
+ * 按本地日期聚合每日训练负荷（ACWR 训练负荷分析用）。
+ * distance 以米返回。
+ * @throws 日期格式非法或 startDate > endDate 时抛出清晰错误
+ */
+export function getTrainingLoads(startDate: string, endDate: string): TrainingLoadPoint[] {
+  const db = getDatabase();
+  const end = toInclusiveEnd(endDate, 'getTrainingLoads');
+  validateRange(startDate, endDate, 'getTrainingLoads');
+  const rows = db.prepare(
+    `SELECT
+       substr(start_time_local, 1, 10) AS date,
+       SUM(COALESCE(training_load, 0)) AS load,
+       SUM(distance) AS distance,
+       SUM(duration) AS duration
+     FROM activities
+     WHERE start_time_local IS NOT NULL AND start_time >= ? AND start_time <= ?
+     GROUP BY date
+     ORDER BY date`
+  ).all(startDate, end) as { date: string; load: number; distance: number; duration: number }[];
+
+  return rows.map((r) => ({
+    date: r.date,
+    load: r.load ?? 0,
+    distance: (r.distance ?? 0) * 1000,
+    duration: r.duration ?? 0,
+  }));
+}
+
+/**
+ * 最新一次活动的 VDOT 跑力值（配速区间分析自动取档用）。
+ */
+export function getLatestVdot(): number | null {
+  const db = getDatabase();
+  const row = db.prepare(
+    'SELECT vdot_value FROM activities WHERE vdot_value IS NOT NULL ORDER BY start_time DESC LIMIT 1'
+  ).get() as { vdot_value?: number } | undefined;
+  return row?.vdot_value ?? null;
+}
+
+/** 日期参数校验: 格式必须为 YYYY-MM-DD 且 startDate <= endDate */
+function validateRange(startDate: string, endDate: string, fnName: string): void {
+  const re = /^\d{4}-\d{2}-\d{2}$/;
+  if (!re.test(startDate)) throw new Error(`${fnName}: startDate 格式应为 YYYY-MM-DD, 实际为 "${startDate}"`);
+  if (!re.test(endDate)) throw new Error(`${fnName}: endDate 格式应为 YYYY-MM-DD, 实际为 "${endDate}"`);
+  if (startDate > endDate) throw new Error(`${fnName}: startDate (${startDate}) 不能晚于 endDate (${endDate})`);
+}
+
+/** 日期串转含当天末刻的截止时间 (YYYY-MM-DD → YYYY-MM-DDT23:59:59.999Z) */
+function toInclusiveEnd(endDate: string, fnName: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+    throw new Error(`${fnName}: endDate 格式应为 YYYY-MM-DD, 实际为 "${endDate}"`);
+  }
+  return endDate + 'T23:59:59.999Z';
 }
 
 /**
