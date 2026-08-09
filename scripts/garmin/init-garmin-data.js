@@ -290,7 +290,7 @@ async function main() {
     checkEnvVars();
 
     // Step 2: Handle existing database
-    const syncType = await handleExistingDatabase();
+    await handleExistingDatabase();
 
     // Step 3: Confirm sync
     log('\n准备开始数据同步...', 'cyan');

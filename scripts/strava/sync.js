@@ -12,7 +12,7 @@ const path = require('path');
 
 const VDOTCalculator = require('../common/vdot-calculator');
 const DatabaseManager = require('../common/db-manager');
-const { log, logSection, formatDuration, sleep } = require('../common/utils');
+const { log, logSection, formatDuration } = require('../common/utils');
 
 // Colors for output
 const colors = {

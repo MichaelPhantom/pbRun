@@ -44,8 +44,8 @@
 
 - **完全免费** 🎉 - 无需购买云数据库，零运营成本
 - **一键部署** 🚀 - 部署到 Vercel，享受全球 CDN 加速
-- **数据离线化** 💾 - SQLite 数据库随代码版本管理，数据永不丢失
-- **自动同步** 🔄 - GitHub Actions 每日自动同步，无需手动操作
+- **数据离线化** 💾 - SQLite 数据库随代码版本管理，数据永不丢失 *(本 fork: DB 超 GitHub 100MB 限制, 已移出 git, 改由本地 gzip 备份, 见文末「本机部署」)*
+- **自动同步** 🔄 - GitHub Actions 每日自动同步，无需手动操作 *(本 fork: 由 cft/garmin 流水线同步)*
 - **隐私安全** 🔒 - 数据存储在自己的 GitHub 仓库，完全掌控
 - **移动端优化** 📱 - 完美适配手机端，随时随地查看数据
 
@@ -100,9 +100,9 @@
 核心优势
 
 ✓ 双数据源     支持 Garmin FIT 文件和 Strava API 双渠道导入
-✓ 完全免费     数据库文件随代码提交，无需购买云数据库
+✓ 完全免费     数据库文件随代码提交，无需购买云数据库 (本 fork 已改为本地备份)
 ✓ 数据安全     SQLite 文件存在自己的 GitHub 仓库
-✓ 自动同步     GitHub Actions 每日自动运行
+✓ 自动同步     GitHub Actions 每日自动运行 (本 fork 由 cft/garmin 流水线同步)
 ✓ 全球加速     Vercel CDN 全球节点，响应 <100ms
 ✓ 版本管理     数据库支持 Git 版本控制，永不丢失
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -364,14 +364,26 @@ pbRun/
 │       ├── fetcher.py     # Strava API 数据拉取
 │       ├── oauth_helper.py # OAuth 授权助手
 │       └── gpx_generator.py # GPX 轨迹生成
+├── mcp-server/            # MCP Server (AI 客户端接入, 13 tools)
+│   ├── index.ts           # 入口 (stdio 传输)
+│   ├── tools.ts           # 13 个 tool 定义与 handler
+│   ├── analysis.ts        # 纯逻辑 (降采样/ACWR/跨期对比, 可单测)
+│   └── README.md          # 配置与数据完整性契约
+├── deploy/                # 本机部署 (systemd 单元等)
+├── tests/                 # 单元/集成测试 (Jest + Playwright)
+│   ├── unit/              # 单元测试
+│   └── integration/       # 集成测试
 ├── .github/workflows/     # GitHub Actions
-│   └── sync_running_data.yml  # 统一的数据同步工作流
-├── app/data/              # SQLite 数据库
+│   └── sync_running_data.yml  # 统一的数据同步工作流 (上游通用; 本 fork 由 cft 流水线同步)
+├── app/data/              # SQLite 数据库 (已移出 git, 本地备份)
 │   └── activities.db
 └── docs/                  # 文档
     ├── deployment.md      # 部署指南
     ├── data-sync.md       # 数据同步说明
-    └── api-reference.md   # API 接口文档
+    ├── api-reference.md   # API 接口文档
+    ├── mcp-design.md      # MCP Server 设计
+    ├── faq.md             # 常见问题
+    └── ...
 ```
 
 ## API 接口
@@ -396,9 +408,10 @@ pbRun/
 
 - [部署指南](docs/deployment.md) - Vercel 部署和 GitHub Actions 配置
 - [数据同步说明](docs/data-sync.md) - Garmin 和 Strava 数据同步原理和配置
-- [Strava 配置指南](docs/strava-setup.md) - Strava OAuth 应用配置详细步骤
+- [Strava 集成设计](docs/strava-integration-design.md) - Strava 数据源集成设计方案
 - [API 参考](docs/api-reference.md) - 完整的 API 接口文档
 - [VDOT 计算说明](docs/vdot-calculation.md) - 跑力计算公式和原理
+- [MCP Server 说明](mcp-server/README.md) - AI 客户端接入的 MCP 服务 (13 个 tools)
 - [常见问题](docs/faq.md) - 常见问题解答
 
 ## 贡献

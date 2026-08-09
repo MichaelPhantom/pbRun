@@ -273,8 +273,6 @@ class DataValidator {
       }
     });
 
-    const totalLaps = this.db.prepare('SELECT COUNT(*) as count FROM activity_laps').get().count;
-
     if (speedCalcErrors === 0) {
       log(`  ✓ average_speed 计算: 正确`, 'green');
     } else {

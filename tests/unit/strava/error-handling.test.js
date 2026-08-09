@@ -3,7 +3,6 @@
  * 测试各种错误场景的处理
  */
 
-const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 

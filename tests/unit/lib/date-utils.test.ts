@@ -2,7 +2,6 @@ import {
   getDateRangeFromDays,
   parseTimeRangeDays,
   monthToRange,
-  TimeRangeDays,
 } from '@/app/lib/date-utils';
 
 describe('date-utils', () => {

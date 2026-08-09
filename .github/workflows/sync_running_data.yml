@@ -30,6 +30,8 @@ permissions:
 
 jobs:
   sync:
+    # 未配置任何同步 secrets 时跳过 (本 fork 数据由 cft/garmin 流水线同步, 无需 Actions)
+    if: ${{ secrets.STRAVA_CLIENT_ID != '' || secrets.GARMIN_SECRET_STRING != '' }}
     runs-on: ubuntu-latest
 
     steps:

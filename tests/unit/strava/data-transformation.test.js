@@ -3,9 +3,6 @@
  * 测试 Strava API 数据到 SQLite schema 的转换
  */
 
-const fs = require('fs');
-const path = require('path');
-
 // Mock data for Strava activity
 const mockStravaActivity = {
   activity_id: 1234567890,
