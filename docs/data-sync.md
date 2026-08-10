@@ -181,14 +181,7 @@ VDOT (V̇O2max) 是由 Jack Daniels 提出的跑力指标，基于跑步成绩�
    ↓
    SQLite 数据库 (app/data/activities.db)
 
-6. 预计算统计缓存
-   ↓
-   计算心率区间分布 (hr_zones 表)
-   计算 VDOT 趋势 (vdot_trend 表)
-   ↓
-   加速 API 查询速度
-
-7. 提交到 Git
+6. 提交到 Git
    ↓
    git add app/data/activities.db
    git commit -m "chore: update garmin data YYYY-MM-DD"
@@ -281,12 +274,8 @@ node scripts/sync-garmin.js
 node scripts/sync-garmin.js --force
 ```
 
-#### 更新统计缓存
-
-```bash
-# 更新心率区间和 VDOT 趋势
-node scripts/preprocess-stats-cache.js --mode full --clear
-```
+> 统计类分析（心率区间 / VDOT 趋势 / 配速区间）均为同步完成后实时计算，
+> 无需预生成缓存；新数据同步后分析页即自动更新。
 
 ### GitHub Actions 自动同步
 
@@ -310,7 +299,7 @@ bash ~/project/cft/garmin/install_cron.sh     # 每日 12:30 增量同步
 bash ~/project/cft/garmin/sync_cn_daily.sh    # 幂等, 可重复跑
 ```
 
-流程: `cn_export.py` (CDP 直连国区增量导出 fit, state.json 去重) → `sync.js --source local` (DB 去重) → `preprocess` 缓存重建 → 条件 git 提交 `activities.db`。会话过期时自动 `ws_login.py` 重登 (CSRF 刷新 + 重试), 无需人工。详见 `cft/garmin/README.cn-daily-sync.md`。
+流程: `cn_export.py` (CDP 直连国区增量导出 fit, state.json 去重) → `sync.js --source local` (DB 去重) → 条件 git 提交 `activities.db`。会话过期时自动 `ws_login.py` 重登 (CSRF 刷新 + 重试), 无需人工。统计类分析为同步后实时计算, 无需缓存重建。详见 `cft/garmin/README.cn-daily-sync.md`。
 
 ---
 
@@ -390,36 +379,12 @@ CREATE TABLE records (
 );
 ```
 
-#### hr_zones 表 (统计缓存)
+#### 统计类分析（实时计算）
 
-存储心率区间分布数据。
-
-```sql
-CREATE TABLE hr_zones (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  activity_id INTEGER,
-  zone_1_time INTEGER,  -- 有氧基础区
-  zone_2_time INTEGER,  -- 有氧耐力区
-  zone_3_time INTEGER,  -- 乳酸阈值区
-  zone_4_time INTEGER,  -- 无氧区
-  zone_5_time INTEGER,  -- 最大区
-  FOREIGN KEY (activity_id) REFERENCES activities(activity_id)
-);
-```
-
-#### vdot_trend 表 (统计缓存)
-
-存储 VDOT 趋势数据。
-
-```sql
-CREATE TABLE vdot_trend (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  date TEXT,
-  vdot REAL,
-  activity_id INTEGER,
-  FOREIGN KEY (activity_id) REFERENCES activities(activity_id)
-);
-```
+心率区间分布、VDOT 趋势、配速区间等统计**不依赖预计算缓存表**：
+查询时由 `app/lib/db.ts` 基于 `activities` + `activity_laps` 实时聚合（周/月维度），
+新数据同步入库后分析页即自动更新。历史版本的 `hr_zone_stats_cache` / `vdot_trend_cache`
+缓存表已废弃，不再读写。
 
 ---
 

@@ -17,10 +17,12 @@ export default async function StatsPage({ searchParams }: PageProps) {
     ? (periodParam as StatsPeriod)
     : 'week';
 
-  const [data, pr] = await Promise.all([
+  const [data, pr, weekStats] = await Promise.all([
     getStats(period),
     getPersonalRecords('6months'),
+    getStats('week'),
   ]);
 
-  return <StatsClient data={data} pr={pr} period={period} />;
+  // 「当前跑力」口径与分析页一致：近一周活动的 VDOT 平均值（而非所选周期/全历史平均）
+  return <StatsClient data={data} pr={pr} period={period} currentVdot={weekStats.averageVDOT ?? null} />;
 }

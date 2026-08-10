@@ -38,7 +38,6 @@ scripts/
 │   ├── sync.js                     # 同步入口（从 sync-garmin.js 迁移）
 │   ├── client.js                   # API 客户端（从 garmin-client.js 迁移）
 │   ├── fit-parser.js               # FIT 解析（从 fit-parser.js 迁移）
-│   ├── preprocess-stats-cache.js   # 统计缓存（从 scripts/ 迁移）
 │   ├── validate-data.js            # 数据验证（从 scripts/ 迁移）
 │   └── get_garmin_token.py         # Token 获取（从 scripts/ 迁移）
 ├── strava/                          # Strava 数据源（新增）

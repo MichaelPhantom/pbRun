@@ -6,6 +6,8 @@ import {
   getPersonalRecords,
   getVDOTHistory,
   getVDOTHistoryTotal,
+  getHrZoneStats,
+  getVDOTTrend,
 } from '@/app/lib/db';
 
 // Mock better-sqlite3
@@ -235,6 +237,104 @@ describe('Database Functions', () => {
 
       expect(total).toBe(188);
       expect(mockGet).toHaveBeenCalled();
+    });
+  });
+
+  describe('getHrZoneStats (纯实时, lap 平均心率口径)', () => {
+    test('按 lap 心率归区并聚合 duration/distance (月维度)', () => {
+      mockAll.mockReturnValue([
+        // 活动 1: 两个 lap, 分别落入 Z1 (120bpm) 与 Z2 (150bpm)
+        { activity_id: 1, start_time: '2024-01-05T08:00:00Z', duration: 300, distance: 1000, average_pace: 300, average_cadence: 170, average_stride_length: 1.1, average_heart_rate: 120 },
+        { activity_id: 1, start_time: '2024-01-05T08:00:00Z', duration: 300, distance: 1000, average_pace: 290, average_cadence: 175, average_stride_length: 1.2, average_heart_rate: 150 },
+        // 活动 2: 一个 lap, 落入 Z2 (145bpm)
+        { activity_id: 2, start_time: '2024-01-10T08:00:00Z', duration: 300, distance: 1000, average_pace: 300, average_cadence: 170, average_stride_length: 1.0, average_heart_rate: 145 },
+      ]);
+
+      const result = getHrZoneStats({ startDate: '2024-01-01', endDate: '2024-01-31', groupBy: 'month' });
+
+      const z1 = result.find((s) => s.hr_zone === 1);
+      const z2 = result.find((s) => s.hr_zone === 2);
+
+      // Z1 只有活动 1 的一个 lap
+      expect(z1?.activity_count).toBe(1);
+      expect(z1?.total_duration).toBe(300);
+      expect(z1?.total_distance).toBe(1000);
+
+      // Z2 有活动 1、2 两个活动 (去重), duration 累加 600
+      expect(z2?.activity_count).toBe(2);
+      expect(z2?.total_duration).toBe(600);
+      expect(z2?.total_distance).toBe(2000);
+
+      expect(result.every((s) => s.period === '2024-01')).toBe(true);
+      expect(result.every((s) => s.period_type === 'month')).toBe(true);
+    });
+
+    test('MAX_HR 边界: 恰为阈值时归入更高区间', () => {
+      mockAll.mockReturnValue([
+        { activity_id: 1, start_time: '2024-01-05T08:00:00Z', duration: 300, distance: 1000, average_heart_rate: 133 }, // 133/190=70% → Z2
+        { activity_id: 1, start_time: '2024-01-05T08:00:00Z', duration: 300, distance: 1000, average_heart_rate: 152 }, // 152/190=80% → Z3
+      ]);
+
+      const result = getHrZoneStats({ startDate: '2024-01-01', endDate: '2024-01-31', groupBy: 'month' });
+
+      expect(result.find((s) => s.hr_zone === 2)?.total_duration).toBe(300);
+      expect(result.find((s) => s.hr_zone === 3)?.total_duration).toBe(300);
+      expect(result.find((s) => s.hr_zone === 1)).toBeUndefined();
+    });
+
+    test('周维度按 ISO 周编号分组', () => {
+      mockAll.mockReturnValue([
+        { activity_id: 1, start_time: '2025-01-01T08:00:00Z', duration: 300, distance: 1000, average_heart_rate: 120 },
+        { activity_id: 2, start_time: '2025-01-06T08:00:00Z', duration: 300, distance: 1000, average_heart_rate: 120 },
+      ]);
+
+      const result = getHrZoneStats({ startDate: '2025-01-01', endDate: '2025-01-31', groupBy: 'week' });
+
+      const periods = [...new Set(result.map((s) => s.period))];
+      // 2025-01-01(周三)属 2025-W01; 2025-01-06(周一)属 2025-W02
+      expect(periods).toEqual(['2025-W01', '2025-W02']);
+    });
+
+    test('endDate 过滤传当天末刻 (闭区间含整日)', () => {
+      mockAll.mockReturnValue([]);
+
+      getHrZoneStats({ startDate: '2024-01-01', endDate: '2024-01-31', groupBy: 'month' });
+
+      const allCall = mockAll.mock.calls[mockAll.mock.calls.length - 1];
+      expect(allCall).toContain('2024-01-31T23:59:59.999Z');
+    });
+  });
+
+  describe('getVDOTTrend (纯实时聚合)', () => {
+    test('按月聚合 avg/max/min/distance/duration', () => {
+      mockAll.mockReturnValue([
+        { start_time: '2024-01-05T08:00:00Z', vdot_value: 40, distance: 10, duration: 3600 },
+        { start_time: '2024-01-20T08:00:00Z', vdot_value: 42, distance: 5, duration: 1800 },
+      ]);
+
+      const result = getVDOTTrend({ startDate: '2024-01-01', endDate: '2024-01-31', groupBy: 'month' });
+
+      expect(result).toHaveLength(1);
+      expect(result[0]).toMatchObject({
+        period: '2024-01',
+        period_type: 'month',
+        avg_vdot: 41,
+        max_vdot: 42,
+        min_vdot: 40,
+        activity_count: 2,
+        total_distance: 15000, // 公里 ×1000 → 米
+        total_duration: 5400,
+      });
+    });
+
+    test('周维度使用 ISO 周键', () => {
+      mockAll.mockReturnValue([
+        { start_time: '2025-12-29T08:00:00Z', vdot_value: 40, distance: 5, duration: 1800 },
+      ]);
+
+      const result = getVDOTTrend({ startDate: '2025-12-01', endDate: '2026-01-31', groupBy: 'week' });
+
+      expect(result[0].period).toBe('2026-W01');
     });
   });
 });

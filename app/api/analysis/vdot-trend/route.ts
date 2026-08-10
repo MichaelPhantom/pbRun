@@ -36,6 +36,12 @@ export async function GET(request: NextRequest) {
         { status: 400 }
       );
     }
+    if (startDate && endDate && startDate > endDate) {
+      return NextResponse.json(
+        { error: 'startDate must not be later than endDate' },
+        { status: 400 }
+      );
+    }
 
     const params: VDOTTrendParams = {
       startDate,

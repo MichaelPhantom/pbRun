@@ -2,6 +2,8 @@ import {
   getDateRangeFromDays,
   parseTimeRangeDays,
   monthToRange,
+  isoWeekOf,
+  periodKeyOf,
 } from '@/app/lib/date-utils';
 
 describe('date-utils', () => {
@@ -110,6 +112,40 @@ describe('date-utils', () => {
         startDate: '2024-12-01',
         endDate: '2024-12-31',
       });
+    });
+  });
+
+  describe('isoWeekOf (ISO 8601)', () => {
+    test('周一至周日归入同一周', () => {
+      expect(isoWeekOf(new Date('2024-01-01T00:00:00Z'))).toEqual({ year: 2024, week: 1 });
+      expect(isoWeekOf(new Date('2024-01-07T23:59:59Z'))).toEqual({ year: 2024, week: 1 });
+    });
+
+    test('跨年周归属正确年份', () => {
+      // 2025-01-04(周六)所在周的周四是 2025-01-02 → 属 2025-W01
+      expect(isoWeekOf(new Date('2025-01-04T00:00:00Z'))).toEqual({ year: 2025, week: 1 });
+      expect(isoWeekOf(new Date('2025-01-06T00:00:00Z'))).toEqual({ year: 2025, week: 2 });
+    });
+
+    test('含首个周四的周为第 1 周', () => {
+      // 2025-12-29(周一)所在周的周四是 2026-01-01 → 属 2026-W01
+      expect(isoWeekOf(new Date('2025-12-29T00:00:00Z'))).toEqual({ year: 2026, week: 1 });
+      // 2026-12-31(周四) → 2026-W53
+      expect(isoWeekOf(new Date('2026-12-31T00:00:00Z'))).toEqual({ year: 2026, week: 53 });
+    });
+  });
+
+  describe('periodKeyOf', () => {
+    test('月维度返回 YYYY-MM', () => {
+      expect(periodKeyOf('2024-03-15', 'month')).toBe('2024-03');
+      expect(periodKeyOf('2024-12-31', 'month')).toBe('2024-12');
+    });
+
+    test('周维度返回 ISO YYYY-Www', () => {
+      expect(periodKeyOf('2024-01-01', 'week')).toBe('2024-W01');
+      expect(periodKeyOf('2025-01-04', 'week')).toBe('2025-W01');
+      expect(periodKeyOf('2025-12-29', 'week')).toBe('2026-W01');
+      expect(periodKeyOf('2026-12-31', 'week')).toBe('2026-W53');
     });
   });
 });

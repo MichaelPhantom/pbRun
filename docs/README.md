@@ -153,8 +153,8 @@ garmin_data/
 | `activities` | 活动汇总数据 | 150+ |
 | `laps` | 分段数据 | 1500+ |
 | `records` | 记录点数据 | 450000+ |
-| `hr_zones` | 心率区间统计（缓存） | 150+ |
-| `vdot_trend` | VDOT 趋势数据（缓存） | 150+ |
+
+> 心率区间 / VDOT 趋势 / 配速区间等统计均由查询时实时计算，无预计算缓存表。
 
 详细结构请参考 [数据同步说明 - 数据结构](data-sync.md#数据结构)。
 
@@ -213,9 +213,6 @@ node scripts/sync-garmin.js --force
 ### 数据库管理
 
 ```bash
-# 更新统计缓存
-node scripts/preprocess-stats-cache.js --mode full
-
 # 验证数据完整性
 node scripts/validate-data.js
 

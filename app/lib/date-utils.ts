@@ -25,3 +25,25 @@ export function monthToRange(yearMonth: string): { startDate: string; endDate: s
   const endDate = `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
   return { startDate, endDate };
 }
+
+/** ISO 8601 周编号 (周一为一周开始, 第 1 周含当年首个周四); 返回 `{year, week}` */
+export function isoWeekOf(date: Date): { year: number; week: number } {
+  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  const dayNum = d.getUTCDay() || 7; // 周日→7, 周一→1 ... 周六→6
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum); // 定位到本周四 (ISO 定义周归属年)
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const week = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  return { year: d.getUTCFullYear(), week };
+}
+
+/** 按聚合维度返回周期键: 月 → `YYYY-MM`; 周 → `YYYY-Www` (ISO 8601) */
+export function periodKeyOf(dateStr: string, groupBy: 'week' | 'month'): string {
+  const date = new Date(dateStr);
+  if (groupBy === 'month') {
+    const year = date.getUTCFullYear();
+    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+    return `${year}-${month}`;
+  }
+  const { year, week } = isoWeekOf(date);
+  return `${year}-W${String(week).padStart(2, '0')}`;
+}

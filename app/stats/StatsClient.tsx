@@ -32,10 +32,10 @@ interface StatsClientProps {
   data: StatsResponse;
   pr: PersonalRecordsResponse;
   period: StatsPeriod;
+  currentVdot: number | null;
 }
 
-export default function StatsClient({ data, pr, period }: StatsClientProps) {
-  const currentVdot = data.averageVDOT ?? null;
+export default function StatsClient({ data, pr, period, currentVdot }: StatsClientProps) {
   const dateRangeStr = formatPeriodDateRange(pr.startDate, pr.endDate, pr.period);
 
   return (

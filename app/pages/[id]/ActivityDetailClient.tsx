@@ -17,9 +17,8 @@ interface ActivityDetailClientProps {
 export default function ActivityDetailClient({ activity, laps, records }: ActivityDetailClientProps) {
   const durationSec = activity.moving_time ?? activity.duration ?? 0;
   const durationMinutes = durationSec / 60;
-  const rawDistance = activity.distance ?? 0;
-  const distanceKm =
-    rawDistance > 0 && rawDistance < 100 ? rawDistance : rawDistance / 1000;
+  // activities.distance 统一为公里 (库内无米制历史行)
+  const distanceKm = activity.distance ?? 0;
 
   const overviewItems: { value: string; unit?: string; label: string }[] = [
     {

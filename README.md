@@ -174,7 +174,7 @@ GARMIN_CN_EXPORT_DIR=../cft/garmin/export/fit   # cft/garmin/cn_export.py 的导
 
 ```bash
 npm run sync:garmin:cn      # 增量同步（跳过已入库）
-npm run init:cn             # 首次全量初始化（含统计缓存重建）
+npm run init:cn             # 首次全量初始化
 ```
 
 **A3. 国区 CDP 直连（国区，在线下载）**

@@ -93,12 +93,6 @@ jobs:
           RESTING_HR: ${{ secrets.RESTING_HR }}
         run: node scripts/garmin/sync.js
 
-      - name: Update stats cache
-        env:
-          MAX_HR: ${{ secrets.MAX_HR }}
-          RESTING_HR: ${{ secrets.RESTING_HR }}
-        run: node scripts/preprocess-stats-cache.js --mode full --clear
-
       - name: Show sync results
         if: always()
         run: |

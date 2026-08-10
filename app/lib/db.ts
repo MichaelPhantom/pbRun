@@ -26,18 +26,8 @@ import {
   TrainingLoadPoint,
 } from './types';
 import { getPaceZoneBoundsFromVdot, getPaceZoneCenterFromVdot } from './vdot-pace';
+import { periodKeyOf } from './date-utils';
 
-/** 活动表行的最小类型 (用于动态 SQL 查询结果的类型断言) */
-type ActivityRow = {
-  start_time?: string;
-  duration?: number | null;
-  distance?: number | null;
-  average_heart_rate?: number | null;
-  average_pace?: number | null;
-  average_cadence?: number | null;
-  average_stride_length?: number | null;
-  vdot_value?: number | null;
-};
 
 // Database connection (singleton)
 let db: Database.Database | null = null;
@@ -183,18 +173,24 @@ export function getActivityRecords(activityId: number): ActivityRecord[] {
 
 /**
  * Get statistics for a time period.
+ * week/month/year 均为日历口径 (周从周一起, 与 /api/analysis 的周聚合一致)。
  */
 export function getStats(period?: 'week' | 'month' | 'year' | 'total'): StatsResponse {
   const db = getDatabase();
 
   let dateFilter = '';
+  const queryParams: string[] = [];
   if (period && period !== 'total') {
     const now = new Date();
     let startDate: Date;
     switch (period) {
-      case 'week':
-        startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      case 'week': {
+        // ISO 周口径: 周一 00:00 起 (含今天)
+        const dayOfWeek = now.getDay(); // 0=周日
+        const daysSinceMonday = (dayOfWeek + 6) % 7;
+        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysSinceMonday);
         break;
+      }
       case 'month':
         startDate = new Date(now.getFullYear(), now.getMonth(), 1);
         break;
@@ -204,7 +200,8 @@ export function getStats(period?: 'week' | 'month' | 'year' | 'total'): StatsRes
       default:
         startDate = now;
     }
-    dateFilter = `WHERE start_time >= '${startDate.toISOString()}'`;
+    dateFilter = 'WHERE start_time >= ?';
+    queryParams.push(startDate.toISOString());
   }
 
   const query = `
@@ -223,7 +220,7 @@ export function getStats(period?: 'week' | 'month' | 'year' | 'total'): StatsRes
     ${dateFilter}
   `;
 
-  const result = db.prepare(query).get() as {
+  const result = db.prepare(query).get(...queryParams) as {
     totalActivities?: number;
     totalDistance?: number;
     totalDuration?: number;
@@ -337,7 +334,7 @@ export function getPersonalRecords(period: 'week' | 'month' | 'year' | 'total' |
   // 数据库 activities.distance 存的是公里，统一转为米再参与计算
   const activities = rows.map((a) => ({
     ...a,
-    distanceMeters: a.distance < 1000 ? a.distance * 1000 : a.distance,
+    distanceMeters: a.distance * 1000,
   }));
 
   const getLaps = (activityId: number) => getActivityLaps(activityId);
@@ -503,151 +500,82 @@ export function getVDOTHistoryTotal(): number {
 }
 
 /**
- * Helper: Get period string from date
+ * 按聚合维度返回周期键 (月 → YYYY-MM; 周 → YYYY-Www, ISO 8601)。
+ * 单一实现来源: app/lib/date-utils.periodKeyOf
  */
-function getPeriodFromDate(dateStr: string, groupBy: 'week' | 'month'): string {
-  const date = new Date(dateStr);
-
-  if (groupBy === 'month') {
-    const year = date.getUTCFullYear();
-    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-    return `${year}-${month}`;
-  } else {
-    const year = date.getUTCFullYear();
-    const startOfYear = new Date(Date.UTC(year, 0, 1));
-    const daysSinceStartOfYear = Math.floor((date.getTime() - startOfYear.getTime()) / 86400000);
-    const weekNo = Math.ceil((daysSinceStartOfYear + startOfYear.getUTCDay() + 1) / 7);
-    return `${year}-W${String(weekNo).padStart(2, '0')}`;
-  }
+function periodKey(dateStr: string, groupBy: 'week' | 'month'): string {
+  return periodKeyOf(dateStr, groupBy);
 }
 
 /**
- * Get HR zone stats from cache table
+ * 心率区间统计 (按周/月聚合, 全量实时计算)。
+ * 口径: 以**分段 (lap) 平均心率**归入 Z1-Z5 —— 与活动内逐 km 强度分布一致,
+ * 同一活动可跨多个区间 (比"活动平均心率"更精细真实)。
+ * activity_count 按 (周期, 区间) 内去重的活动数统计; distance 为米, duration 为秒。
  */
-function getHrZoneStatsFromCache(params: HrZoneAnalysisParams): HrZoneStat[] {
-  const db = getDatabase();
-  const { startDate, endDate, groupBy } = params;
-
-  let query = `
-    SELECT
-      period,
-      period_type,
-      hr_zone,
-      activity_count,
-      total_duration,
-      total_distance,
-      avg_pace,
-      avg_cadence,
-      avg_stride_length,
-      avg_heart_rate
-    FROM hr_zone_stats_cache
-    WHERE period_type = ?
-  `;
-
-  const queryParams: (string | number)[] = [groupBy];
-
-  if (startDate) {
-    const startPeriod = getPeriodFromDate(startDate, groupBy);
-    query += ' AND period >= ?';
-    queryParams.push(startPeriod);
-  }
-
-  if (endDate) {
-    const endPeriod = getPeriodFromDate(endDate, groupBy);
-    query += ' AND period <= ?';
-    queryParams.push(endPeriod);
-  }
-
-  query += ' ORDER BY period, hr_zone';
-
-  return db.prepare(query).all(...queryParams) as HrZoneStat[];
-}
-
-/**
- * Get HR zone stats using real-time calculation
- */
-function getHrZoneStatsRealtime(params: HrZoneAnalysisParams): HrZoneStat[] {
+export function getHrZoneStats(params: HrZoneAnalysisParams): HrZoneStat[] {
   const { startDate, endDate, groupBy } = params;
   const db = getDatabase();
+  const maxHr = process.env.MAX_HR ? parseInt(process.env.MAX_HR, 10) : 190;
 
-  // Get MAX_HR from environment
-  const maxHr = process.env.MAX_HR ? parseInt(process.env.MAX_HR) : 190;
-
-  // Build date filter
-  let dateFilter = 'WHERE average_heart_rate IS NOT NULL';
-  const queryParams: (string | number)[] = [];
-
+  let dateFilter = '';
+  const queryParams: string[] = [];
   if (startDate) {
-    dateFilter += ' AND start_time >= ?';
+    dateFilter += ' AND a.start_time >= ?';
     queryParams.push(startDate);
   }
   if (endDate) {
-    dateFilter += ' AND start_time <= ?';
-    queryParams.push(endDate);
+    dateFilter += ' AND a.start_time <= ?';
+    queryParams.push(endDate + 'T23:59:59.999Z');
   }
 
-  // Get all activities with heart rate data
-  const query = `
-    SELECT
-      activity_id,
-      start_time,
-      duration,
-      distance,
-      average_pace,
-      average_cadence,
-      average_stride_length,
-      average_heart_rate
-    FROM activities
-    ${dateFilter}
-    ORDER BY start_time
-  `;
+  const rows = db.prepare(
+    `SELECT al.activity_id, a.start_time, al.duration, al.distance,
+            al.average_pace, al.average_cadence, al.average_stride_length, al.average_heart_rate
+     FROM activity_laps al
+     INNER JOIN activities a ON a.activity_id = al.activity_id
+     WHERE al.average_heart_rate IS NOT NULL AND al.average_heart_rate > 0 AND al.distance > 0
+     ${dateFilter}
+     ORDER BY a.start_time, al.lap_index`
+  ).all(...queryParams) as {
+    activity_id: number;
+    start_time: string;
+    duration: number;
+    distance: number;
+    average_pace: number | null;
+    average_cadence: number | null;
+    average_stride_length: number | null;
+    average_heart_rate: number;
+  }[];
 
-  const activities = db.prepare(query).all(...queryParams) as ActivityRow[];
-
-  // Helper function to calculate HR zone
+  const hrPercent = (hr: number) => (hr / maxHr) * 100;
   const getHrZone = (avgHr: number): number => {
-    if (avgHr <= 0) return 0;
-    const hrPercent = (avgHr / maxHr) * 100;
-    if (hrPercent < 70) return 1;
-    if (hrPercent < 80) return 2;
-    if (hrPercent < 87) return 3;
-    if (hrPercent < 93) return 4;
+    const p = hrPercent(avgHr);
+    if (p < 70) return 1;
+    if (p < 80) return 2;
+    if (p < 87) return 3;
+    if (p < 93) return 4;
     return 5;
   };
 
-  // Helper function to get period string
-  const getPeriod = (dateStr: string): string => {
-    const date = new Date(dateStr);
-    if (groupBy === 'month') {
-      const year = date.getUTCFullYear();
-      const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-      return `${year}-${month}`;
-    } else {
-      // ISO week number
-      const year = date.getUTCFullYear();
-      const startOfYear = new Date(Date.UTC(year, 0, 1));
-      const weekNo = Math.ceil((((date.getTime() - startOfYear.getTime()) / 86400000) + startOfYear.getUTCDay() + 1) / 7);
-      return `${year}-W${String(weekNo).padStart(2, '0')}`;
-    }
-  };
+  const statsMap = new Map<string, HrZoneStat>();
+  const activitySets = new Map<string, Set<number>>();
+  const sums = new Map<string, {
+    pace: number; cadence: number; stride: number; hr: number;
+    nPace: number; nCadence: number; nStride: number; nHr: number;
+  }>();
 
-  // Aggregate by period and HR zone
-  const statsMap: Map<string, HrZoneStat> = new Map();
+  for (const lap of rows) {
+    const zone = getHrZone(lap.average_heart_rate);
+    const period = periodKey(lap.start_time, groupBy);
+    const key = `${period}_${zone}`;
 
-  for (const activity of activities) {
-    if (!activity.average_heart_rate) continue;
-
-    const hrZone = getHrZone(activity.average_heart_rate);
-    if (hrZone === 0) continue;
-
-    const period = getPeriod(activity.start_time!);
-    const key = `${period}_${hrZone}`;
-
-    if (!statsMap.has(key)) {
-      statsMap.set(key, {
+    let stat = statsMap.get(key);
+    if (!stat) {
+      stat = {
         period,
         period_type: groupBy,
-        hr_zone: hrZone,
+        hr_zone: zone,
         activity_count: 0,
         total_duration: 0,
         total_distance: 0,
@@ -655,32 +583,32 @@ function getHrZoneStatsRealtime(params: HrZoneAnalysisParams): HrZoneStat[] {
         avg_cadence: null,
         avg_stride_length: null,
         avg_heart_rate: null,
-      });
+      };
+      statsMap.set(key, stat);
+      activitySets.set(key, new Set());
+      sums.set(key, { pace: 0, cadence: 0, stride: 0, hr: 0, nPace: 0, nCadence: 0, nStride: 0, nHr: 0 });
     }
 
-    const stat = statsMap.get(key)!;
-    stat.activity_count += 1;
-    stat.total_duration += activity.duration || 0;
-    stat.total_distance += activity.distance || 0;
+    const activitySet = activitySets.get(key)!;
+    activitySet.add(lap.activity_id);
+    stat.activity_count = activitySet.size;
 
-    // Accumulate for averaging
-    const prevAvgPace = stat.avg_pace || 0;
-    const prevAvgCadence = stat.avg_cadence || 0;
-    const prevAvgStride = stat.avg_stride_length || 0;
-    const prevAvgHr = stat.avg_heart_rate || 0;
+    stat.total_duration += lap.duration || 0;
+    stat.total_distance += lap.distance || 0;
 
-    stat.avg_pace = activity.average_pace
-      ? (prevAvgPace * (stat.activity_count - 1) + activity.average_pace) / stat.activity_count
-      : prevAvgPace || null;
-    stat.avg_cadence = activity.average_cadence
-      ? (prevAvgCadence * (stat.activity_count - 1) + activity.average_cadence) / stat.activity_count
-      : prevAvgCadence || null;
-    stat.avg_stride_length = activity.average_stride_length
-      ? (prevAvgStride * (stat.activity_count - 1) + activity.average_stride_length) / stat.activity_count
-      : prevAvgStride || null;
-    stat.avg_heart_rate = activity.average_heart_rate
-      ? (prevAvgHr * (stat.activity_count - 1) + activity.average_heart_rate) / stat.activity_count
-      : prevAvgHr || null;
+    const s = sums.get(key)!;
+    if (lap.average_pace) { s.pace += lap.average_pace; s.nPace += 1; }
+    if (lap.average_cadence) { s.cadence += lap.average_cadence; s.nCadence += 1; }
+    if (lap.average_stride_length) { s.stride += lap.average_stride_length; s.nStride += 1; }
+    if (lap.average_heart_rate) { s.hr += lap.average_heart_rate; s.nHr += 1; }
+  }
+
+  for (const [key, stat] of statsMap) {
+    const s = sums.get(key)!;
+    stat.avg_pace = s.nPace > 0 ? s.pace / s.nPace : null;
+    stat.avg_cadence = s.nCadence > 0 ? s.cadence / s.nCadence : null;
+    stat.avg_stride_length = s.nStride > 0 ? s.stride / s.nStride : null;
+    stat.avg_heart_rate = s.nHr > 0 ? s.hr / s.nHr : null;
   }
 
   return Array.from(statsMap.values()).sort((a, b) => {
@@ -690,105 +618,16 @@ function getHrZoneStatsRealtime(params: HrZoneAnalysisParams): HrZoneStat[] {
 }
 
 /**
- * Merge HR zone stats from cache and realtime
+ * VDOT 趋势 (按周/月聚合, 全量实时计算)。
+ * 以每场活动的 VDOT 为样本: avg 为周期内均值, max/min 为极值;
+ * total_distance 为米, total_duration 为秒, activity_count 为有 VDOT 的活动数。
  */
-function mergeHrZoneStats(cached: HrZoneStat[], realtime: HrZoneStat[]): HrZoneStat[] {
-  const merged = [...cached, ...realtime];
-  return merged.sort((a, b) => {
-    if (a.period !== b.period) return a.period.localeCompare(b.period);
-    return a.hr_zone - b.hr_zone;
-  });
-}
-
-/**
- * Get heart rate zone statistics grouped by week or month.
- * Uses intelligent data source selection (cache vs realtime).
- */
-export function getHrZoneStats(params: HrZoneAnalysisParams): HrZoneStat[] {
-  const { startDate, endDate } = params;
-
-  // Calculate "freshness threshold" (7 days ago)
-  const now = new Date();
-  const freshThreshold = new Date(now);
-  freshThreshold.setDate(now.getDate() - 7);
-  const freshDate = freshThreshold.toISOString().split('T')[0];
-
-  // Strategy 1: Query range is entirely before 7 days ago → use cache
-  if (endDate && endDate < freshDate) {
-    return getHrZoneStatsFromCache(params);
-  }
-
-  // Strategy 2: Query range is entirely within last 7 days → realtime
-  if (startDate && startDate >= freshDate) {
-    return getHrZoneStatsRealtime(params);
-  }
-
-  // Strategy 3: Hybrid mode → cache + realtime
-  const cachedData = getHrZoneStatsFromCache({
-    ...params,
-    endDate: freshDate,
-  });
-
-  const realtimeData = getHrZoneStatsRealtime({
-    ...params,
-    startDate: freshDate,
-  });
-
-  return mergeHrZoneStats(cachedData, realtimeData);
-}
-
-/**
- * Get VDOT trend from cache table
- */
-function getVDOTTrendFromCache(params: VDOTTrendParams): VDOTTrendPoint[] {
-  const db = getDatabase();
-  const { startDate, endDate, groupBy } = params;
-
-  let query = `
-    SELECT
-      period,
-      period_type,
-      avg_vdot,
-      max_vdot,
-      min_vdot,
-      activity_count,
-      total_distance,
-      total_duration
-    FROM vdot_trend_cache
-    WHERE period_type = ?
-  `;
-
-  const queryParams: (string | number)[] = [groupBy];
-
-  if (startDate) {
-    const startPeriod = getPeriodFromDate(startDate, groupBy);
-    query += ' AND period >= ?';
-    queryParams.push(startPeriod);
-  }
-
-  if (endDate) {
-    const endPeriod = getPeriodFromDate(endDate, groupBy);
-    query += ' AND period <= ?';
-    queryParams.push(endPeriod);
-  }
-
-  query += ' ORDER BY period';
-
-  const rows = db.prepare(query).all(...queryParams) as VDOTTrendPoint[];
-  // 缓存与 activities 中 distance 均为公里，接口约定 total_distance 为米
-  return rows.map((r) => ({ ...r, total_distance: (r.total_distance ?? 0) * 1000 }));
-}
-
-/**
- * Get VDOT trend using real-time calculation
- */
-function getVDOTTrendRealtime(params: VDOTTrendParams): VDOTTrendPoint[] {
+export function getVDOTTrend(params: VDOTTrendParams): VDOTTrendPoint[] {
   const { startDate, endDate, groupBy } = params;
   const db = getDatabase();
 
-  // Build date filter
   let dateFilter = 'WHERE vdot_value IS NOT NULL';
-  const queryParams: (string | number)[] = [];
+  const queryParams: string[] = [];
 
   if (startDate) {
     dateFilter += ' AND start_time >= ?';
@@ -796,46 +635,24 @@ function getVDOTTrendRealtime(params: VDOTTrendParams): VDOTTrendPoint[] {
   }
   if (endDate) {
     dateFilter += ' AND start_time <= ?';
-    queryParams.push(endDate);
+    queryParams.push(endDate + 'T23:59:59.999Z');
   }
 
-  // Get all activities with VDOT data
-  const query = `
-    SELECT
-      start_time,
-      vdot_value,
-      distance,
-      duration
-    FROM activities
-    ${dateFilter}
-    ORDER BY start_time
-  `;
+  const rows = db.prepare(
+    `SELECT start_time, vdot_value, distance, duration
+     FROM activities
+     ${dateFilter}
+     ORDER BY start_time`
+  ).all(...queryParams) as { start_time: string; vdot_value: number; distance: number; duration: number }[];
 
-  const activities = db.prepare(query).all(...queryParams) as ActivityRow[];
+  const trendsMap = new Map<string, VDOTTrendPoint>();
 
-  // Helper function to get period string
-  const getPeriod = (dateStr: string): string => {
-    const date = new Date(dateStr);
-    if (groupBy === 'month') {
-      const year = date.getUTCFullYear();
-      const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-      return `${year}-${month}`;
-    } else {
-      const year = date.getUTCFullYear();
-      const startOfYear = new Date(Date.UTC(year, 0, 1));
-      const weekNo = Math.ceil((((date.getTime() - startOfYear.getTime()) / 86400000) + startOfYear.getUTCDay() + 1) / 7);
-      return `${year}-W${String(weekNo).padStart(2, '0')}`;
-    }
-  };
+  for (const activity of rows) {
+    const period = periodKey(activity.start_time, groupBy);
 
-  // Aggregate by period
-  const trendsMap: Map<string, VDOTTrendPoint> = new Map();
-
-  for (const activity of activities) {
-    const period = getPeriod(activity.start_time!);
-
-    if (!trendsMap.has(period)) {
-      trendsMap.set(period, {
+    let trend = trendsMap.get(period);
+    if (!trend) {
+      trend = {
         period,
         period_type: groupBy,
         avg_vdot: 0,
@@ -844,68 +661,27 @@ function getVDOTTrendRealtime(params: VDOTTrendParams): VDOTTrendPoint[] {
         activity_count: 0,
         total_distance: 0,
         total_duration: 0,
-      });
+      };
+      trendsMap.set(period, trend);
     }
 
-    const trend = trendsMap.get(period)!;
     trend.activity_count += 1;
-    // activities.distance 为公里，VDOTTrendPoint.total_distance 约定为米
+    // activities.distance 为公里, VDOTTrendPoint.total_distance 约定为米
     trend.total_distance += (activity.distance ?? 0) * 1000;
     trend.total_duration += activity.duration || 0;
 
-    // Update VDOT stats
-    const vdot = activity.vdot_value!;
-    trend.avg_vdot = (trend.avg_vdot * (trend.activity_count - 1) + vdot) / trend.activity_count;
-    trend.max_vdot = trend.max_vdot === null ? vdot : Math.max(trend.max_vdot, vdot);
-    trend.min_vdot = trend.min_vdot === null ? vdot : Math.min(trend.min_vdot, vdot);
+    trend.avg_vdot += activity.vdot_value;
+    trend.max_vdot = trend.max_vdot === null ? activity.vdot_value : Math.max(trend.max_vdot, activity.vdot_value);
+    trend.min_vdot = trend.min_vdot === null ? activity.vdot_value : Math.min(trend.min_vdot, activity.vdot_value);
+  }
+
+  for (const trend of trendsMap.values()) {
+    if (trend.activity_count > 0) {
+      trend.avg_vdot = trend.avg_vdot / trend.activity_count;
+    }
   }
 
   return Array.from(trendsMap.values()).sort((a, b) => a.period.localeCompare(b.period));
-}
-
-/**
- * Merge VDOT trend data from cache and realtime
- */
-function mergeVDOTTrend(cached: VDOTTrendPoint[], realtime: VDOTTrendPoint[]): VDOTTrendPoint[] {
-  const merged = [...cached, ...realtime];
-  return merged.sort((a, b) => a.period.localeCompare(b.period));
-}
-
-/**
- * Get VDOT trend data grouped by week or month.
- * Uses intelligent data source selection (cache vs realtime).
- */
-export function getVDOTTrend(params: VDOTTrendParams): VDOTTrendPoint[] {
-  const { startDate, endDate } = params;
-
-  // Calculate "freshness threshold" (7 days ago)
-  const now = new Date();
-  const freshThreshold = new Date(now);
-  freshThreshold.setDate(now.getDate() - 7);
-  const freshDate = freshThreshold.toISOString().split('T')[0];
-
-  // Strategy 1: Query range is entirely before 7 days ago → use cache
-  if (endDate && endDate < freshDate) {
-    return getVDOTTrendFromCache(params);
-  }
-
-  // Strategy 2: Query range is entirely within last 7 days → realtime
-  if (startDate && startDate >= freshDate) {
-    return getVDOTTrendRealtime(params);
-  }
-
-  // Strategy 3: Hybrid mode → cache + realtime
-  const cachedData = getVDOTTrendFromCache({
-    ...params,
-    endDate: freshDate,
-  });
-
-  const realtimeData = getVDOTTrendRealtime({
-    ...params,
-    startDate: freshDate,
-  });
-
-  return mergeVDOTTrend(cachedData, realtimeData);
 }
 
 /**

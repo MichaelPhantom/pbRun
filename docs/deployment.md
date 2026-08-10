@@ -179,7 +179,6 @@ Repository secrets
 
 ```
 ✅ Sync Garmin data
-✅ Update stats cache
 ✅ Commit and push
 ```
 
@@ -198,10 +197,9 @@ GitHub Actions 配置了以下触发条件：
 1. 拉取最新代码
 2. 从 Garmin 下载新活动的 FIT 文件
 3. 解析 FIT 文件，计算 VDOT
-4. 更新 SQLite 数据库
-5. 预计算统计缓存 (心率区间、跑力趋势)
-6. 提交数据库到 Git
-7. 推送到 GitHub (触发 Vercel 重新部署)
+4. 更新 SQLite 数据库（统计类分析为查询时实时计算，无需预计算）
+5. 提交数据库到 Git
+6. 推送到 GitHub (触发 Vercel 重新部署)
 ```
 
 ---
@@ -327,8 +325,7 @@ https://your-project.vercel.app/api/vdot?days=30
 **解决方案**:
 
 1. 检查 `MAX_HR` 和 `RESTING_HR` 是否符合你的实际情况
-2. 更新 GitHub Secrets
-3. 重新运行 `node scripts/preprocess-stats-cache.js` 重新计算
+2. 更新 GitHub Secrets（`MAX_HR` 参与心率区间划分，改动后无需重建数据，分析页实时生效）
 
 ### Q5: Vercel 部署超时
 

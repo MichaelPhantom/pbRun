@@ -20,6 +20,12 @@ export async function GET(request: NextRequest) {
         { status: 400 }
       );
     }
+    if (startDate > endDate) {
+      return NextResponse.json(
+        { error: 'startDate must not be later than endDate' },
+        { status: 400 }
+      );
+    }
     const vdot = parseFloat(vdotStr);
     if (Number.isNaN(vdot) || vdot <= 0) {
       return NextResponse.json(

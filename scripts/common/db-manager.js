@@ -264,38 +264,6 @@ class DatabaseManager {
       CREATE INDEX IF NOT EXISTS idx_records_activity_id
       ON activity_records(activity_id)
     `);
-
-    // 统计缓存表（由 preprocess-stats-cache.js 写入，前端按周/月查）
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS hr_zone_stats_cache (
-        period TEXT NOT NULL,
-        period_type TEXT NOT NULL,
-        hr_zone INTEGER NOT NULL,
-        activity_count INTEGER NOT NULL,
-        total_duration REAL,
-        total_distance REAL,
-        avg_pace REAL,
-        avg_cadence REAL,
-        avg_stride_length REAL,
-        avg_heart_rate REAL,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (period, period_type, hr_zone)
-      )
-    `);
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS vdot_trend_cache (
-        period TEXT NOT NULL,
-        period_type TEXT NOT NULL,
-        avg_vdot REAL,
-        max_vdot REAL,
-        min_vdot REAL,
-        activity_count INTEGER,
-        total_distance REAL,
-        total_duration REAL,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (period, period_type)
-      )
-    `);
   }
 
   upsertActivity(activityData) {
