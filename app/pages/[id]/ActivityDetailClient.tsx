@@ -51,20 +51,20 @@ export default function ActivityDetailClient({ activity, laps, records }: Activi
       label: '总时长',
     },
     {
-      value: activity.average_heart_rate != null ? String(activity.average_heart_rate) : '--',
+      value: activity.average_heart_rate != null ? String(Math.round(activity.average_heart_rate)) : '--',
       unit: activity.average_heart_rate != null ? 'bpm' : undefined,
       label: '平均心率',
     },
     {
       value:
         activity.total_ascent != null
-          ? String(activity.total_ascent)
+          ? String(Math.round(activity.total_ascent))
           : '0',
       unit: '米',
       label: '累计爬升',
     },
     {
-      value: activity.average_cadence != null ? String(activity.average_cadence) : '--',
+      value: activity.average_cadence != null ? String(Math.round(activity.average_cadence)) : '--',
       unit: activity.average_cadence != null ? '步/分' : undefined,
       label: '平均步频',
     },
@@ -171,7 +171,7 @@ export default function ActivityDetailClient({ activity, laps, records }: Activi
                       {lap.average_cadence != null ? Math.round(lap.average_cadence) : '--'}
                     </td>
                     <td className="whitespace-nowrap px-1.5 py-1.5 text-center tabular-nums sm:px-2">
-                      {lap.total_ascent != null ? lap.total_ascent : '--'}
+                      {lap.total_ascent != null ? Math.round(lap.total_ascent) : '--'}
                     </td>
                   </tr>
                 ))}

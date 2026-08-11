@@ -226,10 +226,11 @@ class GarminFITParser {
     activityData.max_power_to_weight = this._safeGetFloat(session, 'max_power_to_weight');
 
     // Elevation（FIT 解析器在 lengthUnit: 'km' 时会把海拔也转成 km，需乘 1000 还原为米）
+    // 直接相乘会引入浮点噪声 (0.05900000000000001*1000=59.00000000000001), 收敛到 1 位小数
     const sessionAscent = this._safeGetFloat(session, 'total_ascent');
-    activityData.total_ascent = sessionAscent != null ? sessionAscent * 1000 : undefined;
+    activityData.total_ascent = sessionAscent != null ? Math.round(sessionAscent * 1000 * 10) / 10 : undefined;
     const sessionDescent = this._safeGetFloat(session, 'total_descent');
-    activityData.total_descent = sessionDescent != null ? sessionDescent * 1000 : undefined;
+    activityData.total_descent = sessionDescent != null ? Math.round(sessionDescent * 1000 * 10) / 10 : undefined;
 
     // 坡度（%）
     activityData.avg_grade = this._safeGetFloat(session, 'avg_grade');
@@ -319,10 +320,11 @@ class GarminFITParser {
       lapData.max_heart_rate = this._safeGetInt(lap, 'max_heart_rate');
 
       // Elevation（解析器 lengthUnit: 'km' 时海拔被转为 km，乘 1000 还原为米）
+      // 收敛浮点噪声 (同 session 处理)
       const lapAscent = this._safeGetFloat(lap, 'total_ascent');
-      lapData.total_ascent = lapAscent != null ? lapAscent * 1000 : undefined;
+      lapData.total_ascent = lapAscent != null ? Math.round(lapAscent * 1000 * 10) / 10 : undefined;
       const lapDescent = this._safeGetFloat(lap, 'total_descent');
-      lapData.total_descent = lapDescent != null ? lapDescent * 1000 : undefined;
+      lapData.total_descent = lapDescent != null ? Math.round(lapDescent * 1000 * 10) / 10 : undefined;
 
       // Power
       lapData.average_power = this._safeGetInt(lap, 'avg_power');
