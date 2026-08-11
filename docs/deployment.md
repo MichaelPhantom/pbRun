@@ -202,6 +202,23 @@ GitHub Actions 配置了以下触发条件：
 6. 推送到 GitHub (触发 Vercel 重新部署)
 ```
 
+### 5. 代码更新 / 重新部署 (ubtu2)
+
+生产为 systemd user 服务 (`pbRun.service`, 端口 3996, Nginx 门户 `/pbrun/`):
+
+```bash
+bash scripts/deploy-prod.sh            # pull + 依赖检查 + 停服 + build + 起服 + 健康检查
+bash scripts/deploy-prod.sh --no-pull  # 跳过 git pull
+bash scripts/deploy-prod.sh --verify   # 仅做健康检查 (首页 200 + 主 CSS 200)
+```
+
+> ⚠️ **务必先停服再 build**：若在 `next start` 运行中覆盖 `.next`，服务内存中
+> 仍是旧前端产物，页面引用的 CSS chunk 会 404，表现为全站无样式/布局混乱。
+> 数据同步 (cft cron) 只写 DB、不碰 `.next`，无需重建或重启——统计类分析为
+> 查询时实时计算。
+
+日志: `journalctl --user -u pbRun -f`
+
 ---
 
 ## 环境变量配置
