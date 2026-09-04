@@ -17,74 +17,74 @@ describe('TopNav', () => {
     jest.clearAllMocks();
   });
 
-  test('应渲染导航项', () => {
+  test('应渲染四个导航项 (记录/分析/统计/配速)', () => {
     render(<TopNav />);
-    expect(screen.getByText('运动记录')).toBeInTheDocument();
-    expect(screen.getByText('运动分析')).toBeInTheDocument();
-    expect(screen.getByText('运动统计')).toBeInTheDocument();
+    expect(screen.getByText('记录')).toBeInTheDocument();
+    expect(screen.getByText('分析')).toBeInTheDocument();
+    expect(screen.getByText('统计')).toBeInTheDocument();
+    expect(screen.getByText('配速')).toBeInTheDocument();
   });
 
-  test('在 /list 页面时应高亮"运动记录"', () => {
+  test('在 /list 页面时应高亮"记录"', () => {
     mockUsePathname.mockReturnValue('/list');
     render(<TopNav />);
 
-    const listLink = screen.getByText('运动记录');
-    expect(listLink).toHaveClass('border-emerald-300');
+    const link = screen.getByText('记录');
+    expect(link).toHaveAttribute('aria-current', 'page');
+    expect(link).toHaveAttribute('data-active', 'true');
   });
 
-  test('在 /pages/[id] 页面时应高亮"运动记录"', () => {
+  test('在 /pages/[id] 页面时应高亮"记录"', () => {
     mockUsePathname.mockReturnValue('/pages/12345');
     render(<TopNav />);
 
-    const listLink = screen.getByText('运动记录');
-    expect(listLink).toHaveClass('border-emerald-300');
+    expect(screen.getByText('记录')).toHaveAttribute('aria-current', 'page');
   });
 
-  test('在 /analysis 页面时应高亮"运动分析"', () => {
+  test('在 /analysis 页面时应高亮"分析"', () => {
     mockUsePathname.mockReturnValue('/analysis');
     render(<TopNav />);
 
-    const analysisLink = screen.getByText('运动分析');
-    expect(analysisLink).toHaveClass('border-emerald-300');
+    expect(screen.getByText('分析')).toHaveAttribute('aria-current', 'page');
   });
 
-  test('在 /analysis/zone/1 页面时应高亮"运动分析"', () => {
+  test('在 /analysis/zone/1 子页面时应高亮"分析"', () => {
     mockUsePathname.mockReturnValue('/analysis/zone/1');
     render(<TopNav />);
 
-    const analysisLink = screen.getByText('运动分析');
-    expect(analysisLink).toHaveClass('border-emerald-300');
+    expect(screen.getByText('分析')).toHaveAttribute('aria-current', 'page');
   });
 
-  test('在 /daniels 页面时应高亮"运动分析"', () => {
-    mockUsePathname.mockReturnValue('/daniels');
-    render(<TopNav />);
-
-    const analysisLink = screen.getByText('运动分析');
-    expect(analysisLink).toHaveClass('border-emerald-300');
-  });
-
-  test('在 /stats 页面时应高亮"运动统计"', () => {
+  test('在 /stats 页面时应高亮"统计"', () => {
     mockUsePathname.mockReturnValue('/stats');
     render(<TopNav />);
 
-    const statsLink = screen.getByText('运动统计');
-    expect(statsLink).toHaveClass('border-emerald-300');
+    expect(screen.getByText('统计')).toHaveAttribute('aria-current', 'page');
   });
 
-  test('非活动项应有透明边框', () => {
+  test('在 /daniels 页面时应高亮"配速"', () => {
+    mockUsePathname.mockReturnValue('/daniels');
+    render(<TopNav />);
+
+    expect(screen.getByText('配速')).toHaveAttribute('aria-current', 'page');
+  });
+
+  test('非活动项不应有 aria-current / data-active 标记', () => {
     mockUsePathname.mockReturnValue('/list');
     render(<TopNav />);
 
-    const analysisLink = screen.getByText('运动分析');
-    expect(analysisLink).toHaveClass('border-transparent');
+    expect(screen.getByText('分析')).not.toHaveAttribute('aria-current');
+    expect(screen.getByText('分析')).toHaveAttribute('data-active', 'false');
+    expect(screen.getByText('统计')).not.toHaveAttribute('aria-current');
+    expect(screen.getByText('配速')).not.toHaveAttribute('aria-current');
   });
 
   test('链接应指向正确路径', () => {
     render(<TopNav />);
 
-    expect(screen.getByText('运动记录').closest('a')).toHaveAttribute('href', '/list');
-    expect(screen.getByText('运动分析').closest('a')).toHaveAttribute('href', '/analysis');
-    expect(screen.getByText('运动统计').closest('a')).toHaveAttribute('href', '/stats');
+    expect(screen.getByText('记录').closest('a')).toHaveAttribute('href', '/list');
+    expect(screen.getByText('分析').closest('a')).toHaveAttribute('href', '/analysis');
+    expect(screen.getByText('统计').closest('a')).toHaveAttribute('href', '/stats');
+    expect(screen.getByText('配速').closest('a')).toHaveAttribute('href', '/daniels');
   });
 });
