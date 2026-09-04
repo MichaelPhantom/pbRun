@@ -298,3 +298,11 @@ export interface PaceZoneStat {
   avg_stride_length: number | null;
   avg_heart_rate: number | null;
 }
+
+/** 活动路线轨迹 (track 列, JSON)。无 GPS 的室内活动该列为 null。 */
+export interface ActivityTrack {
+  coords: [number, number][];                  // [lat, lng] 降采样后的路径点 (十进制度数)
+  bounds?: { minLat: number; minLng: number; maxLat: number; maxLng: number };
+  elev?: [number, number][];                   // [elapsed_sec, altitude_m] 海拔剖面
+  n: number;                                   // 原始记录点数 (回填前)
+}

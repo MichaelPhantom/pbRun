@@ -24,6 +24,7 @@ import {
   PaceZoneStat,
   PeriodStats,
   TrainingLoadPoint,
+  ActivityTrack,
 } from './types';
 import { getPaceZoneBoundsFromVdot, getPaceZoneCenterFromVdot } from './vdot-pace';
 import { periodKeyOf } from './date-utils';
@@ -762,6 +763,39 @@ export function getLatestVdot(): number | null {
     'SELECT vdot_value FROM activities WHERE vdot_value IS NOT NULL ORDER BY start_time DESC LIMIT 1'
   ).get() as { vdot_value?: number } | undefined;
   return row?.vdot_value ?? null;
+}
+
+/**
+ * 指定年份每天累计里程 (KM), 用于年度热力图。
+ * 按 start_time_local 日期分组; 返回 [{date:'YYYY-MM-DD', km}]。
+ */
+export function getDailyDistances(year: number): { date: string; km: number }[] {
+  const db = getDatabase();
+  const rows = db.prepare(
+    `SELECT
+       substr(start_time_local, 1, 10) AS date,
+       SUM(distance) AS km
+     FROM activities
+     WHERE start_time_local IS NOT NULL
+       AND start_time_local >= ? AND start_time_local <= ?
+     GROUP BY date
+     ORDER BY date`
+  ).all(`${year}-01-01`, `${year}-12-31T23:59:59.999`) as { date: string; km: number }[];
+  return rows.map((r) => ({ date: r.date, km: r.km ?? 0 }));
+}
+
+/** 活动路线 GeoJSON-ish 轨迹 (track 列, 由 backfill-tracks.js 回填)。无 GPS 返回 null。 */
+export function getActivityTrack(activityId: number): ActivityTrack | null {
+  const db = getDatabase();
+  const row = db
+    .prepare('SELECT track FROM activities WHERE activity_id = ?')
+    .get(activityId) as { track?: string | null } | undefined;
+  if (!row?.track) return null;
+  try {
+    return JSON.parse(row.track) as ActivityTrack;
+  } catch {
+    return null;
+  }
 }
 
 /** 日期参数校验: 格式必须为 YYYY-MM-DD 且 startDate <= endDate */

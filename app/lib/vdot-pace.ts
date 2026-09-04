@@ -50,3 +50,55 @@ export function getPaceZoneCenterFromVdot(vdot: number): Record<number, number> 
   }
   return out;
 }
+
+/*
+ * 赛事预测 — Daniels VDOT 等价模型
+ *
+ * VDOT 本身由某次比赛成绩反算而得: VO2(v) = VDOT * frac(t),
+ * 其中 v=d/t (米/分钟), VO2(v)=-4.6+0.182258v+0.000104v²,
+ * frac(t) 为该时长可维持的 %VO2max (Daniels 经验曲线)。
+ *
+ * 预测另一距离时 VDOT 视为常量, 解 VO2(d/t) = VDOT*frac(t) 求 t。
+ * f(t)=VO2(d/t)-VDOT*frac(t): t→0 时 v→∞→VO2→∞ (f>0);
+ * t→∞ 时 v→0→VO2→-4.6, frac→0.8, f→-4.6-0.8*VDOT<0。
+ * 故 f 单调递减 (VO2 关于 t 递减, frac 关于 t 递减), 唯一根, 二分法收敛。
+ *
+ * %VO2max-时长曲线 (Daniels, t 单位分钟):
+ *   frac(t) = 0.8 + 0.1894398·e^(-0.012778·t) + 0.2989558·e^(-0.193055·t)
+ *   (5K≈17min→96%, 10K≈35min→92%, 半马≈88%, 全马≈83.6%, 与 Daniels 表吻合)
+ */
+const _fracOf = (tMin: number) =>
+  Math.min(1, 0.8 + 0.1894398 * Math.exp(-0.012778 * tMin) + 0.2989558 * Math.exp(-0.193055 * tMin));
+
+const _vo2Of = (vMpm: number) => -4.6 + 0.182258 * vMpm + 0.000104 * vMpm * vMpm;
+
+/** 给定 VDOT 与距离(米), 返回预测完赛秒数 (二分法, 单调递减根)。 */
+export function predictRaceTimeSec(vdot: number, distanceMeters: number): number | null {
+  if (vdot <= 0 || distanceMeters <= 0) return null;
+  const f = (t: number) => _vo2Of(distanceMeters / t) - vdot * _fracOf(t);
+  let lo = 0.5; // 30s 上限 (不可能更快, 保证 f(lo)>0)
+  let hi = 480; // 8h 下限 (全马步行级, 保证 f(hi)<0)
+  // 收敛区间内根 (f 单调递减)
+  for (let i = 0; i < 80; i++) {
+    const mid = (lo + hi) / 2;
+    if (f(mid) > 0) lo = mid;
+    else hi = mid;
+  }
+  return ((lo + hi) / 2) * 60; // 秒
+}
+
+export interface RacePrediction {
+  label: string;
+  distanceMeters: number;
+  seconds: number | null;
+}
+
+/** 5K / 10K / 半马 / 全马 预测完赛时间列表 (秒)。 */
+export function predictRaceTimes(vdot: number): RacePrediction[] {
+  return [
+    { label: "5K", distanceMeters: 5000, seconds: predictRaceTimeSec(vdot, 5000) },
+    { label: "10K", distanceMeters: 10000, seconds: predictRaceTimeSec(vdot, 10000) },
+    { label: "半马", distanceMeters: 21097.5, seconds: predictRaceTimeSec(vdot, 21097.5) },
+    { label: "全马", distanceMeters: 42195, seconds: predictRaceTimeSec(vdot, 42195) },
+  ];
+}
