@@ -225,3 +225,30 @@ html { scroll-behavior: smooth; scroll-padding-top: 5rem; }
 
 /* ECharts 容器内 tooltip 文字色由主题接管, 这里只防溢出 */
 .echarts-tooltip { white-space: normal; }
+
+/* —— 路线地图 (leaflet + 高德) —— */
+/* el 同时持有 .route-map 与 leaflet 注入的 .leaflet-container */
+.route-map.leaflet-container {
+  background: var(--surface-2);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+}
+.route-map .leaflet-bar a {
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--fg);
+  border-color: var(--border);
+}
+.route-map .leaflet-control-attribution {
+  background: var(--surface);
+  color: var(--fg-muted);
+  font-size: 10px;
+}
+/* 深色模式: 高德无官方暗底, 反相瓦片近似暗主题.
+   仅瓦片层反相; 路径/标记 (overlay/marker pane) 保留本色不被反相. */
+.route-map-dark.leaflet-container,
+.route-map-dark .leaflet-container { background: #1a1a19; }
+.route-map-dark .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.95) saturate(0.85);
+}
+.route-map-dark .leaflet-bar a { background: var(--surface); color: var(--fg); }
+.route-map-dark .leaflet-control-attribution { background: rgba(26,26,25,0.8); color: var(--fg-muted); }
