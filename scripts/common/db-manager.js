@@ -138,9 +138,14 @@ class DatabaseManager {
       ['garmin_vo2max', 'REAL'],                     // Garmin 官方 VO2max（区别于本地推算的 vdot_value）
       ['recovery_time', 'INTEGER'],                  // 恢复时间（分钟）
       ['primary_benefit', 'TEXT'],                   // 训练主要收益（FIT primary_benefit，见 fit-parser BENEFIT_LABELS）
-      // 区间边界（FIT time_in_zone 消息，JSON 数组，如 [98,117,137,156,195]）
+      // 区间数据（FIT time_in_zone 消息，JSON 数组）
       ['hr_zone_boundaries', 'TEXT'],                // 心率区间上限边界（bpm）
       ['power_zone_boundaries', 'TEXT'],             // 功率区间上限边界（瓦）
+      ['time_in_power_zone', 'TEXT'],                // 各功率区间停留秒数（session 级）
+      // 阈值元数据（FIT time_in_zone 消息，用于区间与强度分析）
+      ['threshold_heart_rate', 'INTEGER'],           // 乳酸阈心率（bpm）
+      ['max_heart_rate_fit', 'INTEGER'],             // 设备设置的最大心率（bpm）
+      ['functional_threshold_power', 'INTEGER'],     // FTP 功能性阈值功率（瓦）
       // 设备与用户档案（FIT device_infos / user_profile 消息，已脱敏无序列号）
       ['devices', 'TEXT'],                           // 参与设备列表 JSON [{device_type,manufacturer,product,firmware}]
       ['user_weight', 'REAL'],                       // 体重（公斤，FIT user_profile.weight）

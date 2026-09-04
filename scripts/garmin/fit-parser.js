@@ -102,6 +102,30 @@ const DEVICE_TYPE_LABELS = {
   13: '身体成分分析仪',
 };
 
+/**
+ * FIT local_device_type 枚举 -> 中文展示
+ * 手表内部子传感器（气压计、GPS、加速度计、光学心率等）走这套枚举，
+ * 与 device_type 主枚举数字域重叠，需按来源分别解释。
+ */
+const LOCAL_DEVICE_TYPE_LABELS = {
+  0: 'GPS',
+  1: 'GLONASS',
+  2: 'GPS+GLONASS',
+  3: '加速度计',
+  4: '气压计',
+  5: '温度传感器',
+  10: '腕式心率',
+  12: '传感器中枢',
+  gps: 'GPS',
+  glonass: 'GLONASS',
+  gps_glonass: 'GPS+GLONASS',
+  accelerometer: '加速度计',
+  barometer: '气压计',
+  temperature: '温度传感器',
+  whr: '腕式心率',
+  sensor_hub: '传感器中枢',
+};
+
 /** FIT sport 枚举 -> 中文展示 */
 const SPORT_LABELS = {
   generic: '通用',
@@ -526,30 +550,29 @@ class GarminFITParser {
     }
   }
 
+  /**
+   * 安全取浮点数；非有限值（NaN/Infinity）与非数字一律返回 null，
+   * 避免 NaN 穿透到下游 JSON/DB 造成脏数据。
+   */
   _safeGetFloat(data, key) {
     const value = data[key];
-    if (value === null || value === undefined) return null;
-    try {
-      return parseFloat(value);
-    } catch (error) {
-      return null;
-    }
+    if (value === null || value === undefined || value === '') return null;
+    const num = Number(value);
+    return Number.isFinite(num) ? num : null;
   }
 
+  /** 安全取整数（向下取整），同样过滤非有限值 */
   _safeGetInt(data, key) {
-    const value = data[key];
-    if (value === null || value === undefined) return null;
-    try {
-      return parseInt(value);
-    } catch (error) {
-      return null;
-    }
+    const num = this._safeGetFloat(data, key);
+    return num === null ? null : Math.round(num);
   }
 
   /**
    * 提取 Garmin 官方指标（FIT activity_metrics 消息）
-   * vo2_max: Garmin 官方 VO2max，需 ×65536/3.5 还原为 ml/kg/min
-   * recovery_time: 恢复时间（分钟）
+   *
+   * vo2_max: 解析器已按 FIT 规范（scale 65536/3.5）把原始 uint32 还原为 ml/kg/min，
+   *   直接取用即可；此早期版本曾再乘一次 65536/3.5，导致输出 1e6 量级的荒谬值。
+   * recovery_time: 单位就是分钟（FIT units: 'min'），无需换算。
    * primary_benefit: 训练主要收益（枚举数字）
    */
   _extractActivityMetrics(fitData) {
@@ -558,12 +581,15 @@ class GarminFITParser {
     if (!metrics || !Array.isArray(metrics) || metrics.length === 0) return result;
 
     const m = metrics[0]; // 取首条 session-level 指标
-    if (m.vo2_max != null) {
-      const raw = Number(m.vo2_max);
-      result.garmin_vo2max = Math.round((raw * 65536 / 3.5) * 10) / 10;
+    // 解析器已完成 scale 换算；再做合理性校验（人类 VO2max 约 20–90 ml/kg/min）
+    const vo2 = this._safeGetFloat(m, 'vo2_max');
+    if (vo2 != null && vo2 >= 20 && vo2 <= 90) {
+      result.garmin_vo2max = Math.round(vo2 * 10) / 10;
     }
-    if (m.recovery_time != null) {
-      result.recovery_time = Math.round(Number(m.recovery_time));
+    // 恢复时间单位即分钟，仅做非负校验（0 = 无需恢复）
+    const recovery = this._safeGetInt(m, 'recovery_time');
+    if (recovery != null && recovery >= 0) {
+      result.recovery_time = recovery;
     }
     if (m.primary_benefit != null) {
       const idx = Number(m.primary_benefit);
@@ -573,9 +599,14 @@ class GarminFITParser {
   }
 
   /**
-   * 提取区间边界（FIT time_in_zone 消息）
-   * hr_zone_high_boundary: 心率区间上限边界（bpm），JSON 数组
-   * power_zone_high_boundary: 功率区间上限边界（瓦），JSON 数组
+   * 提取区间数据（FIT time_in_zone 消息）
+   *
+   * 除区间边界外，这里还落库 session 级各区间停留时间与阈值元数据：
+   *   - hr_zone_boundaries / power_zone_boundaries：区间上限边界
+   *   - time_in_hr_zone / time_in_power_zone：各区间停留秒数（JSON 数组）
+   *     注：session 消息里的同名字段多数文件为空，time_in_zone 才是可靠来源
+   *   - threshold_heart_rate / resting_heart_rate / max_heart_rate_fit
+   *   - functional_threshold_power：FTP（瓦）
    */
   _extractZoneBoundaries(fitData) {
     const result = {};
@@ -585,32 +616,129 @@ class GarminFITParser {
     // 找 session 级别（reference_mesg === 18）的 time_in_zone
     const sessionZone = zones.find(z => z.reference_mesg === 18) ?? zones[0];
 
-    if (sessionZone.hr_zone_high_boundary && Array.isArray(sessionZone.hr_zone_high_boundary)) {
+    if (Array.isArray(sessionZone.hr_zone_high_boundary)) {
       result.hr_zone_boundaries = JSON.stringify(sessionZone.hr_zone_high_boundary);
     }
-    if (sessionZone.power_zone_high_boundary && Array.isArray(sessionZone.power_zone_high_boundary)) {
+    if (Array.isArray(sessionZone.power_zone_high_boundary)) {
       result.power_zone_boundaries = JSON.stringify(sessionZone.power_zone_high_boundary);
+    }
+
+    // 各区间停留时间（秒）：去掉尾部 null，并收敛浮点噪声
+    const zoneSeconds = (arr) => {
+      if (!Array.isArray(arr)) return null;
+      const cleaned = arr
+        .filter(v => v != null)
+        .map(v => Math.round(Number(v) * 10) / 10);
+      return cleaned.length ? JSON.stringify(cleaned) : null;
+    };
+    const hrZoneTime = zoneSeconds(sessionZone.time_in_hr_zone);
+    if (hrZoneTime) result.time_in_hr_zone = hrZoneTime;
+    const powerZoneTime = zoneSeconds(sessionZone.time_in_power_zone);
+    if (powerZoneTime) result.time_in_power_zone = powerZoneTime;
+
+    // 阈值元数据
+    const thresholdHr = this._safeGetInt(sessionZone, 'threshold_heart_rate');
+    if (thresholdHr != null && thresholdHr > 0 && thresholdHr < 250) {
+      result.threshold_heart_rate = thresholdHr;
+    }
+    const restingHr = this._safeGetInt(sessionZone, 'resting_heart_rate');
+    if (restingHr != null && restingHr > 0 && restingHr < 150) {
+      result.resting_heart_rate_fit = restingHr;
+    }
+    const maxHr = this._safeGetInt(sessionZone, 'max_heart_rate');
+    if (maxHr != null && maxHr > 0 && maxHr < 250) {
+      result.max_heart_rate_fit = maxHr;
+    }
+    const ftp = this._safeGetInt(sessionZone, 'functional_threshold_power');
+    if (ftp != null && ftp > 0 && ftp < 1000) {
+      result.functional_threshold_power = ftp;
     }
     return result;
   }
 
   /**
    * 提取设备信息（FIT device_infos 消息），脱敏不存序列号
+   *
+   * device_info 会随活动反复上报（同一手表 + 其 barometer/gps/传感器子设备），
+   * 一个 310 文件的语料里中位数就有 14 条、最多 55 条，大量是同一 device_index 的重复。
+   * 这里按 device_index 去重并保留信息最完整的一条。
    */
   _extractDevices(fitData) {
     const result = {};
     const devices = fitData.activity?.device_infos ?? fitData.device_infos;
     if (!devices || !Array.isArray(devices) || devices.length === 0) return result;
 
-    const deviceList = devices.map(d => ({
-      device_type: DEVICE_TYPE_LABELS[d.device_type] ?? d.device_type ?? '未知',
-      manufacturer: d.manufacturer ?? '未知',
-      product: d.product_name ?? d.product ?? '未知',
-      firmware: d.software_version ?? null,
-    }));
+    // 信息完整度评分：字段越多、越具体的一条胜出
+    const completeness = (d) => {
+      let score = 0;
+      if (d.device_type != null) score += 4;
+      if (d.product != null || d.product_name != null) score += 4;
+      if (d.manufacturer != null && d.manufacturer !== 65535) score += 2;
+      if (d.software_version != null) score += 2;
+      if (d.battery_level != null && d.battery_level !== 255) score += 1;
+      return score;
+    };
+
+    /** @type {Map<string|number, object>} */
+    const byIndex = new Map();
+    for (const d of devices) {
+      // 无 device_index 的匿名设备按各字段组合归组，避免被错误合并
+      const key = d.device_index != null ? d.device_index : `anon:${d.device_type}:${d.product ?? d.product_name}:${d.manufacturer}`;
+      const existing = byIndex.get(key);
+      if (!existing || completeness(d) > completeness(existing)) {
+        byIndex.set(key, d);
+      }
+    }
+
+    const deviceList = [...byIndex.values()]
+      // 主设备（index 0）在前，其余按 index 升序，匿名设备排最后
+      .sort((a, b) => (a.device_index ?? 999) - (b.device_index ?? 999))
+      .map(d => ({
+        device_index: d.device_index ?? null,
+        device_type: this._resolveDeviceType(d.device_type, d.source_type)
+          ?? (d.device_index === 0 ? '运动手表' : '未知'),
+        manufacturer: this._resolveManufacturer(d.manufacturer),
+        product: d.product_name ?? d.product ?? null,
+        firmware: d.software_version ?? null,
+        battery_level: d.battery_level != null && d.battery_level !== 255 ? d.battery_level : null,
+      }));
 
     result.devices = JSON.stringify(deviceList);
     return result;
+  }
+
+  /**
+   * device_type 解析：优先按 local_device_type 解释，其次 device_type 主枚举。
+   *
+   * Garmin 手表上报的 device_info 绝大多数 source_type = local（设备内部子传感器），
+   * 此时 device_type 走 local_device_type 枚举（0=GPS 1=GLONASS … 4=气压计 10=腕式心率 12=传感器中枢），
+   * 与 device_type 主枚举（0=手机 1=GPS 2=运动手表 3=心率带 … 8=智能骑行台）数字域重叠但语义不同。
+   * 主设备（device_index 0）常不带 device_type，返回 null 由调用方依 product 判断。
+   */
+  _resolveDeviceType(value, sourceType) {
+    if (value == null) return null;
+    if (typeof value === 'string') return LOCAL_DEVICE_TYPE_LABELS[value] ?? value;
+    const n = Number(value);
+    if (!Number.isFinite(n)) return '未知';
+    // 255 = 无效值（FIT 用 255 表示"无子设备类型"）
+    if (n === 255) return null;
+    // local 子设备枚举取值集中且稀疏（0,1,2,3,4,5,10,12），命中即按子设备解释
+    if (n in LOCAL_DEVICE_TYPE_LABELS) return LOCAL_DEVICE_TYPE_LABELS[n];
+    // source_type = local 但数字未落在已知 local 枚举上时，不要拿主枚举去套
+    // （否则手表内部传感器会被误读成"智能骑行台"之类的无关设备）
+    if (sourceType === 'local') return `local_${n}`;
+    return DEVICE_TYPE_LABELS[n] ?? `device_type_${n}`;
+  }
+
+  /**
+   * manufacturer 可能是字符串或数字；65535 = 未知/development
+   */
+  _resolveManufacturer(value) {
+    if (value == null) return '未知';
+    if (typeof value === 'string') return value;
+    const n = Number(value);
+    if (!Number.isFinite(n) || n === 65535) return '未知';
+    return String(n);
   }
 
   /**
@@ -632,8 +760,10 @@ class GarminFITParser {
       const h = Number(profile.height);
       if (h > 0 && h < 3) result.user_height = Math.round(h * 100) / 100;
     }
-    if (profile.resting_heart_rate != null) {
-      result.resting_heart_rate_fit = Math.round(Number(profile.resting_heart_rate));
+    // 静息心率：user_profile 是权威来源（合并顺序上覆盖 time_in_zone 的同名字段）
+    const rhr = this._safeGetInt(profile, 'resting_heart_rate');
+    if (rhr != null && rhr > 0 && rhr < 150) {
+      result.resting_heart_rate_fit = rhr;
     }
     return result;
   }
