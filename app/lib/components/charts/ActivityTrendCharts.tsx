@@ -3,6 +3,9 @@
 import { useEffect, useRef } from 'react';
 import * as echarts from 'echarts';
 import type { ActivityRecord } from '@/app/lib/types';
+import { registerPbrunThemes, getPbrunTheme, resolveColor } from '@/app/lib/echarts-theme';
+
+registerPbrunThemes(); // 模块加载即注册 pbRun 主题
 
 interface ActivityTrendChartsProps {
   records: ActivityRecord[];
@@ -43,7 +46,7 @@ const PACE_MAX_SEC = 900;   // 15:00 /km
 const FIVE_MIN_SEC = 300;
 
 /** 趋势图统一配色，与页面 zinc 中性风格协调 */
-const TREND_CHART_COLOR = '#52525b'; // zinc-600，与 text-zinc-600 一致
+const TREND_CHART_COLOR = 'var(--brand)'; // 主题品牌色, 运行时 resolveColor 解析为 hex
 
 /** 配速秒/公里 → M:SS 显示 */
 function formatPaceForAxis(sec: number): string {
@@ -60,7 +63,8 @@ function buildLineChart(
   unit: string,
   color: string
 ) {
-  const chart = echarts.init(chartRef);
+  const chart = echarts.init(chartRef, getPbrunTheme());
+  const lineColor = resolveColor(color, '#0e9f6e');
   const option: echarts.EChartsOption = {
     tooltip: {
       trigger: 'axis',
@@ -101,8 +105,8 @@ function buildLineChart(
         data: yData,
         smooth: true,
         symbol: 'none',
-        lineStyle: { width: 2, color },
-        areaStyle: { opacity: 0.12, color },
+        lineStyle: { width: 2, color: lineColor },
+        areaStyle: { opacity: 0.12, color: lineColor },
       },
     ],
   };
@@ -125,7 +129,8 @@ function buildPaceChart(chartRef: HTMLDivElement, xData: number[], paceData: (nu
     paceMin = Math.max(0, paceMin - 60);
     paceMax = paceMax + 60;
   }
-  const chart = echarts.init(chartRef);
+  const chart = echarts.init(chartRef, getPbrunTheme());
+  const paceLineColor = resolveColor(TREND_CHART_COLOR, '#0e9f6e');
   const option: echarts.EChartsOption = {
     tooltip: {
       trigger: 'axis',
@@ -174,8 +179,8 @@ function buildPaceChart(chartRef: HTMLDivElement, xData: number[], paceData: (nu
         data: paceData,
         smooth: true,
         symbol: 'none',
-        lineStyle: { width: 2, color: TREND_CHART_COLOR },
-        areaStyle: { opacity: 0.12, color: TREND_CHART_COLOR },
+        lineStyle: { width: 2, color: paceLineColor },
+        areaStyle: { opacity: 0.12, color: paceLineColor },
       },
     ],
   };

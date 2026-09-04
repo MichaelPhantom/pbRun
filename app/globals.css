@@ -60,9 +60,12 @@
 
   /* —— 状态 (固定, 带 icon+label, 不单独承载语义) —— */
   --good: #0ca30c;
+  --good-soft: rgba(12, 163, 12, 0.12);
   --warn: #fab219;
+  --warn-soft: rgba(250, 178, 25, 0.16);
   --serious: #ec835a;
   --crit: #d03b3b;
+  --crit-soft: rgba(208, 59, 59, 0.12);
 
   /* —— 形状 token —— */
   --radius: 0.75rem;

@@ -176,6 +176,9 @@ class GarminFITParser {
       // Extract record-level data (for trend charts: heart rate, cadence, stride over time)
       const recordsData = this._extractRecordsData(fitData);
 
+      // Extract 路线轨迹 (降采样 GPS 多段线 + 海拔剖面, 用于详情页地图)
+      const trackData = this._extractTrack(fitData);
+
       // Extract Garmin 官方指标（activity_metrics 消息）
       const metricsData = this._extractActivityMetrics(fitData);
 
@@ -196,6 +199,9 @@ class GarminFITParser {
 
       // 合并所有新字段到 activityData
       Object.assign(activityData, metricsData, zoneBoundaries, devicesData, userProfile, workoutData, hrvData);
+
+      // 路线轨迹 (JSON 字符串; 无 GPS 为 null, 室内/跑步机自动跳过)
+      activityData.track = trackData ? JSON.stringify(trackData) : null;
 
       return { activity: activityData, laps: lapsData, records: recordsData };
     } catch (error) {
@@ -508,7 +514,7 @@ class GarminFITParser {
 
       // 新增：功率、海拔、速度、距离
       const power = this._safeGetInt(r, 'power');
-      const altitude = this._safeGetFloat(r, 'altitude');
+      const altitude = this._safeGetFloat(r, 'enhanced_altitude') ?? this._safeGetFloat(r, 'altitude');
       const speed = this._safeGetFloat(r, 'enhanced_speed') ?? this._safeGetFloat(r, 'speed');
       const distance = this._safeGetFloat(r, 'distance');
 
@@ -536,6 +542,69 @@ class GarminFITParser {
     }
 
     return records;
+  }
+
+  /**
+   * 提取降采样路线轨迹: GPS 多段线 + 海拔剖面 + 包围盒。
+   * - 坐标取 position_lat/position_long (解析器已转十进制度数)。
+   * - 海拔取 enhanced_altitude (旧版 altitude 字段在增强型 FIT 中恒空)。
+   * - 降采样至 ~2000 路径点 / ~500 海拔点 (保形状, 单条约 ~40KB)。
+   * - 无 GPS (室内/跑步机) 返回 null。
+   */
+  _extractTrack(fitData) {
+    const rawRecords = fitData.records || [];
+    if (rawRecords.length === 0) return null;
+
+    const pts = [];
+    let minLat = Infinity, minLng = Infinity, maxLat = -Infinity, maxLng = -Infinity;
+    let firstTs = null;
+
+    for (let i = 0; i < rawRecords.length; i++) {
+      const r = rawRecords[i];
+      const lat = this._safeGetFloat(r, 'position_lat');
+      const lng = this._safeGetFloat(r, 'position_long');
+      if (lat == null || lng == null) continue;
+      // 经纬度合理性过滤 (排除 0,0 等坏点)
+      if (Math.abs(lat) < 0.001 && Math.abs(lng) < 0.001) continue;
+      pts.push([lat, lng]);
+      if (lat < minLat) minLat = lat;
+      if (lat > maxLat) maxLat = lat;
+      if (lng < minLng) minLng = lng;
+      if (lng > maxLng) maxLng = lng;
+    }
+
+    if (pts.length < 2) return null;
+
+    // 降采样路径点 (等步幅, 首尾保留)
+    const ptStride = Math.max(1, Math.floor(pts.length / 2000));
+    const coords = [];
+    for (let i = 0; i < pts.length; i += ptStride) coords.push(pts[i]);
+    if (coords[coords.length - 1] !== pts[pts.length - 1]) coords.push(pts[pts.length - 1]);
+
+    // 海拔剖面 [elapsed_sec, altitude_m]
+    const elev = [];
+    for (let i = 0; i < rawRecords.length; i++) {
+      const r = rawRecords[i];
+      const alt = this._safeGetFloat(r, 'enhanced_altitude') ?? this._safeGetFloat(r, 'altitude');
+      if (alt == null) continue;
+      const ts = r.timestamp;
+      const elapsed = r.elapsed_time != null
+        ? Number(r.elapsed_time)
+        : (firstTs != null && ts ? (new Date(ts).getTime() - firstTs) / 1000 : i);
+      if (firstTs == null && ts) firstTs = new Date(ts).getTime();
+      elev.push([Math.round(elapsed * 10) / 10, Math.round(alt * 10) / 10]);
+    }
+    const elevStride = Math.max(1, Math.floor(elev.length / 500));
+    const elevDown = [];
+    for (let i = 0; i < elev.length; i += elevStride) elevDown.push(elev[i]);
+    if (elev.length > 0 && elevDown[elevDown.length - 1] !== elev[elev.length - 1]) elevDown.push(elev[elev.length - 1]);
+
+    return {
+      coords,
+      bounds: { minLat, minLng, maxLat, maxLng },
+      elev: elevDown,
+      n: rawRecords.length,
+    };
   }
 
   _convertTimestamp(timestamp) {
