@@ -69,6 +69,39 @@ const SPORT_KEYS_BY_NUM = [
   'floor_climbing', 'diving', 'all'
 ];
 
+/** FIT primary_benefit 枚举 -> 中文（FIT SDK enum order） */
+const PRIMARY_BENEFIT_LABELS = [
+  '通用',
+  '有氧基础',
+  '有氧效率',
+  '有氧阈值',
+  '有氧高负荷',
+  'VO2max',
+  '无氧耐力',
+  '无氧爆发力',
+  '力量',
+  '速度',
+  '高强度间歇',
+];
+
+/** FIT device_type 枚举 -> 中文展示 */
+const DEVICE_TYPE_LABELS = {
+  0: '手机',
+  1: 'GPS',
+  2: '运动手表',
+  3: '心率带',
+  4: '温度传感器',
+  5: '踏频传感器',
+  6: '功率计',
+  7: '速度传感器',
+  8: '智能骑行台',
+  9: '电助力',
+  10: '跑步动态传感器',
+  11: '血糖传感器',
+  12: '皮肤温度传感器',
+  13: '身体成分分析仪',
+};
+
 /** FIT sport 枚举 -> 中文展示 */
 const SPORT_LABELS = {
   generic: '通用',
@@ -118,6 +151,27 @@ class GarminFITParser {
 
       // Extract record-level data (for trend charts: heart rate, cadence, stride over time)
       const recordsData = this._extractRecordsData(fitData);
+
+      // Extract Garmin 官方指标（activity_metrics 消息）
+      const metricsData = this._extractActivityMetrics(fitData);
+
+      // Extract 区间边界（time_in_zone 消息）
+      const zoneBoundaries = this._extractZoneBoundaries(fitData);
+
+      // Extract 设备信息（device_infos 消息）
+      const devicesData = this._extractDevices(fitData);
+
+      // Extract 用户档案（user_profile 消息）
+      const userProfile = this._extractUserProfile(fitData);
+
+      // Extract 课表（workout / workout_step 消息）
+      const workoutData = this._extractWorkout(fitData);
+
+      // Extract 心率变异性（hrv 消息）
+      const hrvData = this._extractHrv(fitData);
+
+      // 合并所有新字段到 activityData
+      Object.assign(activityData, metricsData, zoneBoundaries, devicesData, userProfile, workoutData, hrvData);
 
       return { activity: activityData, laps: lapsData, records: recordsData };
     } catch (error) {
@@ -428,7 +482,13 @@ class GarminFITParser {
         stepLength = stepLength > 10 ? stepLength / 1000 : stepLength;
       }
 
-      if (heartRate != null || cadence != null || stepLength != null) {
+      // 新增：功率、海拔、速度、距离
+      const power = this._safeGetInt(r, 'power');
+      const altitude = this._safeGetFloat(r, 'altitude');
+      const speed = this._safeGetFloat(r, 'enhanced_speed') ?? this._safeGetFloat(r, 'speed');
+      const distance = this._safeGetFloat(r, 'distance');
+
+      if (heartRate != null || cadence != null || stepLength != null || power != null || altitude != null || speed != null || distance != null) {
         let pace = null;
         if (cadence != null && cadence > 0 && stepLength != null && stepLength > 0) {
           const secPerKm = 60000 / (cadence * stepLength);
@@ -443,6 +503,10 @@ class GarminFITParser {
           cadence: cadence ?? null,
           step_length: stepLength ?? null,
           pace,
+          power: power ?? null,
+          altitude: altitude != null ? Math.round(altitude * 10) / 10 : null,
+          speed: speed != null ? Math.round(speed * 1000) / 1000 : null,
+          distance: distance != null ? Math.round(distance * 1000) / 1000 : null,
         });
       }
     }
@@ -480,6 +544,165 @@ class GarminFITParser {
     } catch (error) {
       return null;
     }
+  }
+
+  /**
+   * 提取 Garmin 官方指标（FIT activity_metrics 消息）
+   * vo2_max: Garmin 官方 VO2max，需 ×65536/3.5 还原为 ml/kg/min
+   * recovery_time: 恢复时间（分钟）
+   * primary_benefit: 训练主要收益（枚举数字）
+   */
+  _extractActivityMetrics(fitData) {
+    const result = {};
+    const metrics = fitData.activity_metrics;
+    if (!metrics || !Array.isArray(metrics) || metrics.length === 0) return result;
+
+    const m = metrics[0]; // 取首条 session-level 指标
+    if (m.vo2_max != null) {
+      const raw = Number(m.vo2_max);
+      result.garmin_vo2max = Math.round((raw * 65536 / 3.5) * 10) / 10;
+    }
+    if (m.recovery_time != null) {
+      result.recovery_time = Math.round(Number(m.recovery_time));
+    }
+    if (m.primary_benefit != null) {
+      const idx = Number(m.primary_benefit);
+      result.primary_benefit = PRIMARY_BENEFIT_LABELS[idx] ?? `benefit_${idx}`;
+    }
+    return result;
+  }
+
+  /**
+   * 提取区间边界（FIT time_in_zone 消息）
+   * hr_zone_high_boundary: 心率区间上限边界（bpm），JSON 数组
+   * power_zone_high_boundary: 功率区间上限边界（瓦），JSON 数组
+   */
+  _extractZoneBoundaries(fitData) {
+    const result = {};
+    const zones = fitData.time_in_zone;
+    if (!zones || !Array.isArray(zones) || zones.length === 0) return result;
+
+    // 找 session 级别（reference_mesg === 18）的 time_in_zone
+    const sessionZone = zones.find(z => z.reference_mesg === 18) ?? zones[0];
+
+    if (sessionZone.hr_zone_high_boundary && Array.isArray(sessionZone.hr_zone_high_boundary)) {
+      result.hr_zone_boundaries = JSON.stringify(sessionZone.hr_zone_high_boundary);
+    }
+    if (sessionZone.power_zone_high_boundary && Array.isArray(sessionZone.power_zone_high_boundary)) {
+      result.power_zone_boundaries = JSON.stringify(sessionZone.power_zone_high_boundary);
+    }
+    return result;
+  }
+
+  /**
+   * 提取设备信息（FIT device_infos 消息），脱敏不存序列号
+   */
+  _extractDevices(fitData) {
+    const result = {};
+    const devices = fitData.activity?.device_infos ?? fitData.device_infos;
+    if (!devices || !Array.isArray(devices) || devices.length === 0) return result;
+
+    const deviceList = devices.map(d => ({
+      device_type: DEVICE_TYPE_LABELS[d.device_type] ?? d.device_type ?? '未知',
+      manufacturer: d.manufacturer ?? '未知',
+      product: d.product_name ?? d.product ?? '未知',
+      firmware: d.software_version ?? null,
+    }));
+
+    result.devices = JSON.stringify(deviceList);
+    return result;
+  }
+
+  /**
+   * 提取用户档案（FIT user_profile 消息）
+   * weight: 公斤（FIT 解析器已 ÷10）
+   * height: 米（FIT 解析器已 ÷100，直接用）
+   * resting_heart_rate: 静息心率（bpm）
+   */
+  _extractUserProfile(fitData) {
+    const result = {};
+    const profile = fitData.user_profile;
+    if (!profile || typeof profile !== 'object') return result;
+
+    if (profile.weight != null) {
+      const w = Number(profile.weight);
+      if (w > 0 && w < 300) result.user_weight = Math.round(w * 10) / 10;
+    }
+    if (profile.height != null) {
+      const h = Number(profile.height);
+      if (h > 0 && h < 3) result.user_height = Math.round(h * 100) / 100;
+    }
+    if (profile.resting_heart_rate != null) {
+      result.resting_heart_rate_fit = Math.round(Number(profile.resting_heart_rate));
+    }
+    return result;
+  }
+
+  /**
+   * 提取课表（FIT workout / workout_step 消息）
+   * workout_name: 课表名称
+   * workout_steps: 课表步骤 JSON 数组
+   */
+  _extractWorkout(fitData) {
+    const result = {};
+    const workout = fitData.workout;
+    const steps = fitData.workout_step;
+
+    if (workout) {
+      if (workout.wkt_name) result.workout_name = workout.wkt_name;
+    }
+
+    // fit-file-parser 在 both 模式下 workout_step 是单对象，需要聚合
+    // 如果有多个步骤，解析器会覆盖为最后一个；此处做防御性处理
+    if (steps) {
+      const stepArr = Array.isArray(steps) ? steps : [steps];
+      result.workout_steps = JSON.stringify(stepArr.map((s, i) => ({
+        index: s.message_index ?? i,
+        name: s.wkt_step_name ?? null,
+        duration_type: s.duration_type ?? null,
+        duration_sec: s.duration_value ?? null,
+        target_type: s.target_type ?? null,
+        target_low: s.custom_target_value_low ?? null,
+        target_high: s.custom_target_value_high ?? null,
+        intensity: s.intensity ?? null,
+      })));
+    }
+    return result;
+  }
+
+  /**
+   * 提取心率变异性（FIT hrv 消息）
+   * RMSSD = sqrt(mean((RR[i] - RR[i-1])^2))
+   * FIT 解析器已将 RR 间期转为秒（÷1000），此处 ×1000 还原为毫秒再计算
+   */
+  _extractHrv(fitData) {
+    const result = {};
+    const hrvRecords = fitData.activity?.hrv ?? fitData.hrv;
+    if (!hrvRecords || !Array.isArray(hrvRecords) || hrvRecords.length === 0) return result;
+
+    // 收集所有 RR 间期（秒 → 毫秒）
+    const rrIntervals = [];
+    for (const rec of hrvRecords) {
+      if (rec.time && Array.isArray(rec.time)) {
+        for (const t of rec.time) {
+          const ms = Number(t) * 1000;
+          if (ms > 0 && ms < 3000) rrIntervals.push(ms); // 过滤异常值（<3000ms）
+        }
+      }
+    }
+
+    if (rrIntervals.length < 2) return result;
+
+    // RMSSD 计算
+    let sumSqDiff = 0;
+    for (let i = 1; i < rrIntervals.length; i++) {
+      const diff = rrIntervals[i] - rrIntervals[i - 1];
+      sumSqDiff += diff * diff;
+    }
+    const rmssd = Math.sqrt(sumSqDiff / (rrIntervals.length - 1));
+    result.hrv_rmssd = Math.round(rmssd * 100) / 100;
+
+    return result;
   }
 }
 

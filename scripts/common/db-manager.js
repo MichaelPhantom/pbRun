@@ -134,10 +134,23 @@ class DatabaseManager {
       if (!/duplicate column name/i.test(e.message)) throw e;
     }
     const newActivityColumns = [
-      ['avg_grade', 'REAL'], ['avg_pos_grade', 'REAL'], ['avg_neg_grade', 'REAL'], ['max_pos_grade', 'REAL'], ['max_neg_grade', 'REAL'],
-      ['total_training_effect', 'REAL'], ['total_anaerobic_training_effect', 'REAL'], ['normalized_power', 'INTEGER'], ['training_stress_score', 'INTEGER'], ['intensity_factor', 'REAL'],
-      ['avg_altitude', 'REAL'], ['max_altitude', 'REAL'], ['min_altitude', 'REAL'],
-      ['time_in_hr_zone', 'TEXT'], ['time_in_speed_zone', 'TEXT'], ['time_in_cadence_zone', 'TEXT'], ['time_in_power_zone', 'TEXT']
+      // Garmin 官方指标（FIT activity_metrics 消息）
+      ['garmin_vo2max', 'REAL'],                     // Garmin 官方 VO2max（区别于本地推算的 vdot_value）
+      ['recovery_time', 'INTEGER'],                  // 恢复时间（分钟）
+      ['primary_benefit', 'TEXT'],                   // 训练主要收益（FIT primary_benefit，见 fit-parser BENEFIT_LABELS）
+      // 区间边界（FIT time_in_zone 消息，JSON 数组，如 [98,117,137,156,195]）
+      ['hr_zone_boundaries', 'TEXT'],                // 心率区间上限边界（bpm）
+      ['power_zone_boundaries', 'TEXT'],             // 功率区间上限边界（瓦）
+      // 设备与用户档案（FIT device_infos / user_profile 消息，已脱敏无序列号）
+      ['devices', 'TEXT'],                           // 参与设备列表 JSON [{device_type,manufacturer,product,firmware}]
+      ['user_weight', 'REAL'],                       // 体重（公斤，FIT user_profile.weight）
+      ['user_height', 'REAL'],                       // 身高（米，FIT user_profile.height ×1000 由 km 还原）
+      ['resting_heart_rate_fit', 'INTEGER'],         // 静息心率（bpm，FIT user_profile）
+      // 课表（FIT workout / workout_step 消息）
+      ['workout_name', 'TEXT'],                      // 课表名称（如 基础训练、10 分钟 AMRAP 自重训练）
+      ['workout_steps', 'TEXT'],                     // 课表步骤 JSON [{index,name,duration_type,duration_sec,target_type,target_low,target_high,intensity}]
+      // 心率变异性（FIT hrv 消息，仅部分活动有）
+      ['hrv_rmssd', 'REAL']                          // RMSSD（毫秒，由 RR 间期计算）
     ];
     for (const [name, type] of newActivityColumns) {
       try {
@@ -252,6 +265,10 @@ class DatabaseManager {
         cadence INTEGER,
         step_length REAL,
         pace REAL,
+        power INTEGER,                                -- 功率（瓦）
+        altitude REAL,                                -- 海拔（米）
+        speed REAL,                                   -- 速度（米/秒）
+        distance REAL,                                -- 累计距离（米）
         FOREIGN KEY (activity_id) REFERENCES activities(activity_id) ON DELETE CASCADE
       )
     `);
@@ -259,6 +276,17 @@ class DatabaseManager {
       this.db.exec('ALTER TABLE activity_records ADD COLUMN pace REAL');
     } catch (e) {
       if (!/duplicate column name/i.test(e.message)) throw e;
+    }
+    // 逐秒记录扩展列（功率/海拔/速度/距离）
+    const newRecordColumns = [
+      ['power', 'INTEGER'], ['altitude', 'REAL'], ['speed', 'REAL'], ['distance', 'REAL']
+    ];
+    for (const [name, type] of newRecordColumns) {
+      try {
+        this.db.exec(`ALTER TABLE activity_records ADD COLUMN ${name} ${type}`);
+      } catch (e) {
+        if (!/duplicate column name/i.test(e.message)) throw e;
+      }
     }
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_records_activity_id
@@ -322,7 +350,7 @@ class DatabaseManager {
       return;
     }
 
-    const columns = ['activity_id', 'record_index', 'elapsed_sec', 'heart_rate', 'cadence', 'step_length', 'pace'];
+    const columns = ['activity_id', 'record_index', 'elapsed_sec', 'heart_rate', 'cadence', 'step_length', 'pace', 'power', 'altitude', 'speed', 'distance'];
     const placeholders = columns.map(() => '?').join(', ');
     const insertStmt = this.db.prepare(`
       INSERT INTO activity_records (${columns.join(', ')})
@@ -338,7 +366,11 @@ class DatabaseManager {
           row.heart_rate ?? null,
           row.cadence ?? null,
           row.step_length ?? null,
-          row.pace ?? null
+          row.pace ?? null,
+          row.power ?? null,
+          row.altitude ?? null,
+          row.speed ?? null,
+          row.distance ?? null
         );
       }
     });
