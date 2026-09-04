@@ -6,6 +6,7 @@ import type { Activity, ActivityLap, ActivityRecord, ActivityTrack } from '@/app
 import { SectionCard } from '@/app/components/ui/SectionCard';
 import { Badge } from '@/app/components/ui/Badge';
 import ActivityTrendCharts from '@/app/lib/components/charts/ActivityTrendCharts';
+import { AiAnalysis } from '@/app/lib/components/ai/AiAnalysis';
 
 // 路线地图纯 SVG 客户端组件 (无 leaflet 依赖); 仅在客户端渲染避免 SSR window 引用
 const RouteMap = dynamic(() => import('@/app/lib/components/map/RouteMap').then(m => m.RouteMap), {
@@ -161,6 +162,9 @@ export default function ActivityDetailClient({ activity, laps, records, track }:
           </div>
         )}
       </SectionCard>
+
+      {/* AI 教练分析 (本机 freellm, 模型可选) */}
+      <AiAnalysis activityId={activity.activity_id} />
     </div>
   );
 }
