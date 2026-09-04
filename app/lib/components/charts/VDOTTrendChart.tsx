@@ -3,6 +3,9 @@
 import { useEffect, useRef } from 'react';
 import * as echarts from 'echarts';
 import type { VDOTTrendPoint } from '@/app/lib/types';
+import { registerPbrunThemes, getPbrunTheme, resolveColor } from '@/app/lib/echarts-theme';
+
+registerPbrunThemes();
 
 interface VDOTTrendChartProps {
   data: VDOTTrendPoint[];
@@ -18,7 +21,7 @@ export default function VDOTTrendChart({ data, groupBy }: VDOTTrendChartProps) {
 
     // Initialize chart
     if (!chartInstance.current) {
-      chartInstance.current = echarts.init(chartRef.current);
+      chartInstance.current = echarts.init(chartRef.current, getPbrunTheme());
     }
 
     const chart = chartInstance.current;
@@ -82,7 +85,7 @@ export default function VDOTTrendChart({ data, groupBy }: VDOTTrendChartProps) {
             width: 3,
           },
           itemStyle: {
-            color: '#3b82f6',
+            color: resolveColor('var(--brand)', '#0e9f6e'),
           },
         },
       ],

@@ -6,6 +6,12 @@ import VDOTTrendChart from '@/app/lib/components/charts/VDOTTrendChart';
 import HrZoneDurationBarChart from '@/app/lib/components/charts/HrZoneDurationBarChart';
 import HrZoneMetricsTable from '@/app/lib/components/charts/HrZoneMetricsTable';
 import PaceZoneMetricsTable from '@/app/lib/components/charts/PaceZoneMetricsTable';
+import { TrainingLoadChart, type TrainingLoadPoint } from '@/app/lib/components/charts/TrainingLoadChart';
+import { SectionCard } from '@/app/components/ui/SectionCard';
+import { StatCard } from '@/app/components/ui/StatCard';
+import { Segmented } from '@/app/components/ui/Segmented';
+import { Badge } from '@/app/components/ui/Badge';
+import { tsbStatus } from '@/app/lib/training-load';
 import type { HrZoneStat, VDOTTrendPoint, PaceZoneStat } from '@/app/lib/types';
 import type { TimeRangeDays } from '@/app/lib/date-utils';
 import { TIME_RANGE_DAYS_OPTIONS } from '@/app/lib/date-utils';
@@ -21,6 +27,10 @@ interface AnalysisClientProps {
   startDate: string;
   endDate: string;
   timeRangeDays: TimeRangeDays;
+  loadSeries: TrainingLoadPoint[];
+  ctl: number;
+  atl: number;
+  tsb: number;
 }
 
 export default function AnalysisClient({
@@ -32,6 +42,10 @@ export default function AnalysisClient({
   startDate,
   endDate,
   timeRangeDays,
+  loadSeries,
+  ctl,
+  atl,
+  tsb,
 }: AnalysisClientProps) {
   const hrZoneDurationByZone = useMemo(() => {
     const byZone: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
@@ -90,165 +104,123 @@ export default function AnalysisClient({
     return items;
   }, [hrZoneDurationByZone]);
 
+  const tsbTone = tsbStatus(tsb);
+  const rangeItems = TIME_RANGE_DAYS_OPTIONS.map((d) => ({
+    label: `${d}天`,
+    value: String(d),
+    href: `/analysis?days=${d}`,
+  }));
+
   return (
-    <div className="mx-auto w-full max-w-3xl flex flex-col gap-6">
+    <div className="flex flex-col gap-4 sm:gap-5">
       {/* 时间范围 */}
-      <section className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="text-sm text-zinc-500 dark:text-zinc-400">分析范围</span>
-          <span className="text-sm text-zinc-700 dark:text-zinc-300">{startDate}</span>
-          <span className="text-zinc-300 dark:text-zinc-600">–</span>
-          <span className="text-sm text-zinc-700 dark:text-zinc-300">{endDate}</span>
-          <div className="flex gap-2">
-            {TIME_RANGE_DAYS_OPTIONS.map((d) => {
-              const href = `/analysis?days=${d}`;
-              const isActive = timeRangeDays === d;
-              return (
-                <Link
-                  key={d}
-                  href={href}
-                  className={`rounded-md px-3 py-1.5 text-sm ${
-                    isActive
-                      ? 'bg-emerald-600 text-white dark:bg-emerald-500'
-                      : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700'
-                  }`}
-                >
-                  {d}天
-                </Link>
-              );
-            })}
-          </div>
+      <SectionCard title="分析范围" action={<Segmented items={rangeItems} value={String(timeRangeDays)} size="sm" />}>
+        <div className="flex items-center gap-2 text-xs text-fg-secondary">
+          <span className="tnum">{startDate}</span>
+          <span className="text-fg-muted">–</span>
+          <span className="tnum">{endDate}</span>
         </div>
-      </section>
+      </SectionCard>
+
+      {/* 训练负荷 */}
+      <SectionCard title="训练负荷 (Fitness / Freshness)" accent action={<Badge variant={tsbTone.tone}>{tsbTone.label}</Badge>}>
+        <div className="mb-3 grid grid-cols-3 gap-3">
+          <StatCard value={ctl.toFixed(0)} label="Fitness (CTL)" accent hint="42 天体能基线" />
+          <StatCard value={atl.toFixed(0)} label="Fatigue (ATL)" hint="7 天急性疲劳" />
+          <StatCard value={tsb >= 0 ? `+${tsb.toFixed(0)}` : tsb.toFixed(0)} label="Form (TSB)" hint="正=新鲜 负=疲劳" />
+        </div>
+        {loadSeries.length > 1 ? (
+          <TrainingLoadChart data={loadSeries} height={300} />
+        ) : (
+          <div className="py-8 text-center text-sm text-fg-muted">所选区间数据不足以建模训练负荷</div>
+        )}
+      </SectionCard>
 
       {/* 当前跑力 */}
-      <section className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
-        <h2 className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
-          当前跑力
-          <Link
-            href="/daniels"
-            className="ml-2 text-xs text-emerald-600 underline decoration-emerald-600/50 underline-offset-2 hover:text-emerald-700 hover:decoration-emerald-700 dark:text-emerald-400 dark:decoration-emerald-400/50 dark:hover:text-emerald-300 dark:hover:decoration-emerald-300"
-          >
-            丹尼尔斯跑步法
-          </Link>
-        </h2>
-        <div className="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-          <span className="text-3xl font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+      <SectionCard title="当前跑力" action={<Link href="/daniels" className="text-xs text-[var(--brand)] hover:underline">丹尼尔斯跑步法 →</Link>}>
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <span className="tnum text-3xl font-semibold text-[var(--brand)]">
             {currentVdot != null ? currentVdot.toFixed(1) : '--'}
           </span>
-          <span className="rounded-full border border-emerald-500/50 bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
-            跑力
-          </span>
-          {currentVdot != null && (
-            <span className="text-xs text-zinc-500 dark:text-zinc-400">近一周活动平均</span>
-          )}
+          <Badge variant="brand">VDOT</Badge>
+          {currentVdot != null && <span className="text-xs text-fg-muted">近一周活动平均</span>}
         </div>
         <div className="mt-3">
-          <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
+          <div className="h-2 w-full overflow-hidden rounded-full bg-surface-2">
             <div
-              className="h-full rounded-full bg-emerald-500 transition-all duration-300"
-              style={{
-                width: currentVdot != null ? `${Math.min(100, (currentVdot / 60) * 100)}%` : '0%',
-              }}
+              className="h-full rounded-full bg-[var(--brand)] transition-all duration-300"
+              style={{ width: currentVdot != null ? `${Math.min(100, (currentVdot / 60) * 100)}%` : '0%' }}
             />
           </div>
-          <p className="mt-1 text-[11px] text-zinc-400 dark:text-zinc-500">VDOT 参考：业余跑者约 30–55，进阶跑者约 55+</p>
+          <p className="mt-1 text-[11px] text-fg-muted">VDOT 参考：业余跑者约 30–55，进阶跑者约 55+</p>
         </div>
-      </section>
+      </SectionCard>
 
       {/* 跑力变化 */}
-      <section className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
-        <h2 className="mb-4 text-sm font-medium text-zinc-700 dark:text-zinc-300">跑力变化</h2>
+      <SectionCard title="跑力变化" accent>
         {vdotData.length > 0 ? (
           <VDOTTrendChart data={vdotData} groupBy={GROUP_BY} />
         ) : (
-          <div className="py-8 text-center text-sm text-zinc-500 dark:text-zinc-400">
-            暂无跑力趋势数据
-          </div>
+          <div className="py-8 text-center text-sm text-fg-muted">暂无跑力趋势数据</div>
         )}
-      </section>
+      </SectionCard>
 
       {/* 心率区间跑步时间 */}
-      <section className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
-        <h2 className="mb-1 text-sm font-medium text-zinc-700 dark:text-zinc-300">
-          心率区间跑步时间
-          <span className="ml-2 text-xs font-normal text-zinc-500 dark:text-zinc-400">
-            {startDate} – {endDate}
-          </span>
-        </h2>
-        <p className="mb-4 text-xs text-zinc-500 dark:text-zinc-400">
+      <SectionCard title="心率区间跑步时间" action={<span className="text-xs text-fg-muted">{startDate} – {endDate}</span>}>
+        <p className="mb-4 text-xs text-fg-secondary">
           以活动心率为依据，按心率区间（Z1–Z5）统计各区间跑步时长（单位：分钟）。
         </p>
         {hrZoneData.length > 0 ? (
           <HrZoneDurationBarChart data={hrZoneDurationByZone} />
         ) : (
-          <div className="py-8 text-center text-sm text-zinc-500 dark:text-zinc-400">
-            暂无心率区间数据
-          </div>
+          <div className="py-8 text-center text-sm text-fg-muted">暂无心率区间数据</div>
         )}
-        <div className="mt-4 rounded-lg border border-zinc-100 bg-zinc-50/80 px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800/50">
-          <h3 className="mb-2 text-xs font-medium text-zinc-600 dark:text-zinc-400">跑步建议（丹尼尔斯跑步法）</h3>
-          <ul className="mb-3 space-y-1 text-xs text-zinc-600 dark:text-zinc-400">
-            <li><span className="font-medium">Z1–Z2（轻松/有氧）</span>：约 70–80% — 有氧基础与恢复</li>
-            <li><span className="font-medium">Z3（节奏/马拉松配速）</span>：约 10–15%</li>
-            <li><span className="font-medium">Z4（乳酸阈）</span>：约 10% — 节奏跑、乳酸阈训练</li>
-            <li><span className="font-medium">Z5（间歇/强度）</span>：约 5–8% — VO₂max 与速度</li>
+        <div className="mt-4 rounded-lg border border-border bg-surface-2 px-4 py-3">
+          <h3 className="mb-2 text-xs font-medium text-fg-secondary">跑步建议（丹尼尔斯跑步法）</h3>
+          <ul className="mb-3 space-y-1 text-xs text-fg-secondary">
+            <li><span className="font-medium text-fg">Z1–Z2（轻松/有氧）</span>：约 70–80% — 有氧基础与恢复</li>
+            <li><span className="font-medium text-fg">Z3（节奏/马拉松配速）</span>：约 10–15%</li>
+            <li><span className="font-medium text-fg">Z4（乳酸阈）</span>：约 10% — 节奏跑、乳酸阈训练</li>
+            <li><span className="font-medium text-fg">Z5（间歇/强度）</span>：约 5–8% — VO₂max 与速度</li>
           </ul>
           {hrZoneOverflow.length > 0 && (
-            <div className="border-t border-zinc-200 pt-2 dark:border-zinc-600">
-              <p className="mb-2 text-xs font-medium text-amber-700 dark:text-amber-400">明显超标 / 不足</p>
+            <div className="border-t border-border pt-2">
+              <p className="mb-2 text-xs font-medium text-[var(--warn)]">明显超标 / 不足</p>
               <ul className="space-y-2 text-xs">
                 {hrZoneOverflow.map((item) => (
                   <li key={item.label}>
-                    <span className={item.type === 'over' ? 'text-amber-700 dark:text-amber-400' : 'text-amber-600 dark:text-amber-500'}>
+                    <span className={item.type === 'over' ? 'text-[var(--warn)]' : 'text-[var(--warn)]'}>
                       {item.label}：当前 <span className="font-medium">{item.actual}%</span>，{item.limit}
                     </span>
-                    <p className="mt-0.5 leading-relaxed text-zinc-500 dark:text-zinc-400">{item.hint}</p>
+                    <p className="mt-0.5 leading-relaxed text-fg-muted">{item.hint}</p>
                   </li>
                 ))}
               </ul>
             </div>
           )}
           {hrZoneOverflow.length === 0 && (
-            <p className="border-t border-zinc-200 pt-2 text-xs leading-relaxed text-emerald-700 dark:text-emerald-400">
+            <p className="border-t border-border pt-2 text-xs leading-relaxed text-[var(--good)]">
               各强度区间占比均在丹尼尔斯建议范围内，训练结构均衡。继续保持，并留意：随着跑力提升，配速区间会自动更新，建议每隔 4–6 周回看一次本页数据。
             </p>
           )}
         </div>
-      </section>
+      </SectionCard>
 
       {/* 跑力与详细指标 */}
-      <section className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
-        <h2 className="mb-1 text-sm font-medium text-zinc-700 dark:text-zinc-300">
-          跑力与详细指标
-          <span className="ml-2 text-xs font-normal text-zinc-500 dark:text-zinc-400">
-            {startDate} – {endDate}
-          </span>
-          {currentVdot != null && currentVdot > 0 && (
-            <span className="ml-2 font-semibold text-emerald-600 dark:text-emerald-400">{currentVdot.toFixed(1)}</span>
-          )}
-        </h2>
-        <p className="mb-4 text-xs text-zinc-500 dark:text-zinc-400">
+      <SectionCard title="跑力与详细指标" action={<span className="text-xs text-fg-muted">{startDate} – {endDate}</span>}>
+        <p className="mb-4 text-xs text-fg-secondary">
           下表按当前跑力（VDOT）划分配速区间（Z1–Z5），并展示各区间的统计指标。
         </p>
         {currentVdot != null && currentVdot > 0 ? (
           <PaceZoneMetricsTable data={paceZoneData} />
         ) : (
-          <div className="py-8 text-center text-sm text-zinc-500 dark:text-zinc-400">
-            暂无当前跑力，无法计算配速区间
-          </div>
+          <div className="py-8 text-center text-sm text-fg-muted">暂无当前跑力，无法计算配速区间</div>
         )}
-      </section>
+      </SectionCard>
 
       {/* 心率区间与详细指标 */}
-      <section className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
-        <h2 className="mb-1 text-sm font-medium text-zinc-700 dark:text-zinc-300">
-          心率区间与详细指标
-          <span className="ml-2 text-xs font-normal text-zinc-500 dark:text-zinc-400">
-            {startDate} – {endDate}
-          </span>
-        </h2>
-        <p className="mb-4 text-xs text-zinc-500 dark:text-zinc-400">
+      <SectionCard title="心率区间与详细指标" action={<span className="text-xs text-fg-muted">{startDate} – {endDate}</span>}>
+        <p className="mb-4 text-xs text-fg-secondary">
           下表按最大心率百分比划分心率区间（Z1–Z5），并展示各区间内的统计指标。
         </p>
         {hrZoneData.length > 0 ? (
@@ -258,11 +230,9 @@ export default function AnalysisClient({
             trendLinkParams={{ startDate, endDate, groupBy: GROUP_BY }}
           />
         ) : (
-          <div className="py-8 text-center text-sm text-zinc-500 dark:text-zinc-400">
-            暂无心率区间数据
-          </div>
+          <div className="py-8 text-center text-sm text-fg-muted">暂无心率区间数据</div>
         )}
-      </section>
+      </SectionCard>
     </div>
   );
 }

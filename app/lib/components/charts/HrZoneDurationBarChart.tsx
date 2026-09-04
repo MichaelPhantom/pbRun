@@ -3,6 +3,9 @@
 import { useEffect, useRef } from 'react';
 import * as echarts from 'echarts';
 import { formatDuration } from '@/app/lib/format';
+import { registerPbrunThemes, getPbrunTheme, HR_ZONE_THEME } from '@/app/lib/echarts-theme';
+
+registerPbrunThemes();
 
 /** 按心率区间聚合的时长（来自 /api/analysis/hr-zones 按 zone 汇总） */
 export interface HrZoneDurationItem {
@@ -18,13 +21,10 @@ const HR_ZONE_NAMES: Record<number, string> = {
   5: 'Z5(VoMax)',
 };
 
-const HR_ZONE_COLORS: Record<number, string> = {
-  1: '#10b981',
-  2: '#3b82f6',
-  3: '#f59e0b',
-  4: '#f97316',
-  5: '#ef4444',
-};
+// 心率区间色 (主题感知, 取自 echarts-theme 校验通过的 Z1-Z5 ramp; 非 zinc 旧温阶)
+function hrZoneColor(zone: number): string {
+  return HR_ZONE_THEME[getPbrunTheme()][Math.min(Math.max(zone, 1), 5) - 1];
+}
 
 interface HrZoneDurationBarChartProps {
   data: HrZoneDurationItem[];
@@ -42,7 +42,7 @@ export default function HrZoneDurationBarChart({ data }: HrZoneDurationBarChartP
     if (!chartRef.current) return;
 
     if (!chartInstance.current) {
-      chartInstance.current = echarts.init(chartRef.current);
+      chartInstance.current = echarts.init(chartRef.current, getPbrunTheme());
     }
 
     const chart = chartInstance.current;
@@ -102,7 +102,7 @@ export default function HrZoneDurationBarChart({ data }: HrZoneDurationBarChartP
           data: zoneLabels.map((_, i) => ({
             value: durationMinutes[i],
             itemStyle: {
-              color: HR_ZONE_COLORS[zones[i]],
+              color: hrZoneColor(zones[i]),
             },
           })),
           barMaxWidth: 36,
