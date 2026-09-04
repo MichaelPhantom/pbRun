@@ -266,7 +266,7 @@ class GarminFITParser {
     activityData.max_heart_rate = this._safeGetInt(session, 'max_heart_rate');
 
     // Speed
-    activityData.max_speed = this._safeGetFloat(session, 'max_speed');
+    activityData.max_speed = this._safeGetFloat(session, 'enhanced_max_speed') ?? this._safeGetFloat(session, 'max_speed');
 
     // Cadence (convert to steps per minute if needed)
     const avgCadence = this._safeGetInt(session, 'avg_cadence');
@@ -316,8 +316,8 @@ class GarminFITParser {
     const sessionDescent = this._safeGetFloat(session, 'total_descent');
     activityData.total_descent = sessionDescent != null ? Math.round(sessionDescent * 1000 * 10) / 10 : undefined;
 
-    // 坡度（%）
-    activityData.avg_grade = this._safeGetFloat(session, 'avg_grade');
+    // 坡度（%）— session 可能无此字段
+    activityData.avg_grade = this._safeGetFloat(session, 'avg_grade') ?? this._safeGetFloat(session, 'avg_pos_grade');
     activityData.avg_pos_grade = this._safeGetFloat(session, 'avg_pos_grade');
     activityData.avg_neg_grade = this._safeGetFloat(session, 'avg_neg_grade');
     activityData.max_pos_grade = this._safeGetFloat(session, 'max_pos_grade');
@@ -330,10 +330,24 @@ class GarminFITParser {
     activityData.training_stress_score = this._safeGetInt(session, 'training_stress_score');
     activityData.intensity_factor = this._safeGetFloat(session, 'intensity_factor');
 
-    // 海拔（米）
-    activityData.avg_altitude = this._safeGetFloat(session, 'avg_altitude');
-    activityData.max_altitude = this._safeGetFloat(session, 'max_altitude');
-    activityData.min_altitude = this._safeGetFloat(session, 'min_altitude');
+    // 海拔（米）— session 可能无此字段，兜底从 records 计算
+    activityData.avg_altitude = this._safeGetFloat(session, 'enhanced_avg_altitude') ?? this._safeGetFloat(session, 'avg_altitude');
+    activityData.max_altitude = this._safeGetFloat(session, 'enhanced_max_altitude') ?? this._safeGetFloat(session, 'max_altitude');
+    activityData.min_altitude = this._safeGetFloat(session, 'enhanced_min_altitude') ?? this._safeGetFloat(session, 'min_altitude');
+
+    // 兜底：session 无海拔时从 records 聚合
+    if (activityData.avg_altitude == null && fitData.records && fitData.records.length > 0) {
+      const alts = [];
+      for (const r of fitData.records) {
+        const alt = this._safeGetFloat(r, 'enhanced_altitude') ?? this._safeGetFloat(r, 'altitude');
+        if (alt != null) alts.push(alt);
+      }
+      if (alts.length > 0) {
+        activityData.avg_altitude = Math.round(alts.reduce((s, v) => s + v, 0) / alts.length * 10) / 10;
+        activityData.max_altitude = Math.round(Math.max(...alts) * 10) / 10;
+        activityData.min_altitude = Math.round(Math.min(...alts) * 10) / 10;
+      }
+    }
 
     // 区间时间（秒），存为 JSON 字符串
     activityData.time_in_hr_zone = this._safeGetZoneJson(session, 'time_in_hr_zone');
@@ -827,7 +841,9 @@ class GarminFITParser {
     }
     if (profile.height != null) {
       const h = Number(profile.height);
-      if (h > 0 && h < 3) result.user_height = Math.round(h * 100) / 100;
+      // FIT 解析器 lengthUnit:'km' 时 height 已转为 km，×1000 还原为米
+      const heightM = h < 3 ? h * 1000 : h;
+      if (heightM > 0 && heightM < 3) result.user_height = Math.round(heightM * 100) / 100;
     }
     // 静息心率：user_profile 是权威来源（合并顺序上覆盖 time_in_zone 的同名字段）
     const rhr = this._safeGetInt(profile, 'resting_heart_rate');
@@ -855,16 +871,20 @@ class GarminFITParser {
     // 如果有多个步骤，解析器会覆盖为最后一个；此处做防御性处理
     if (steps) {
       const stepArr = Array.isArray(steps) ? steps : [steps];
-      result.workout_steps = JSON.stringify(stepArr.map((s, i) => ({
-        index: s.message_index ?? i,
-        name: s.wkt_step_name ?? null,
-        duration_type: s.duration_type ?? null,
-        duration_sec: s.duration_value ?? null,
-        target_type: s.target_type ?? null,
-        target_low: s.custom_target_value_low ?? null,
-        target_high: s.custom_target_value_high ?? null,
-        intensity: s.intensity ?? null,
-      })));
+      result.workout_steps = JSON.stringify(stepArr.map((s, i) => {
+        const idx = s.message_index;
+        const stepIndex = (idx && typeof idx === 'object' && 'value' in idx) ? idx.value : (idx ?? i);
+        return {
+          index: stepIndex,
+          name: s.wkt_step_name ?? null,
+          duration_type: s.duration_type ?? null,
+          duration_sec: s.duration_value ?? null,
+          target_type: s.target_type ?? null,
+          target_low: s.custom_target_value_low ?? null,
+          target_high: s.custom_target_value_high ?? null,
+          intensity: s.intensity ?? null,
+        };
+      }));
     }
     return result;
   }
