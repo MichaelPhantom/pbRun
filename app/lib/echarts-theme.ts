@@ -96,3 +96,21 @@ export function getPbrunTheme(): "pbrun-light" | "pbrun-dark" {
 }
 
 export const HR_ZONE_THEME = { "pbrun-light": HR_ZONE_LIGHT, "pbrun-dark": HR_ZONE_DARK } as const;
+
+/**
+ * 运行时读取 CSS 变量值 (hex)。ECharts 不解析 var(), 需在 init 时取实值。
+ * 主题切换时 useEchart 重建实例会重新读取 — 与 CSS 单一真源同步。
+ */
+export function cssVar(name: string, fallback = "#000000"): string {
+  if (typeof document === "undefined") return fallback;
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return v || fallback;
+}
+
+/** 解析 "var(--x)" 为运行时 hex; 直接 hex 透传。ECharts 不认 var()。 */
+export function resolveColor(c: string | undefined, fallback = "#000000"): string {
+  if (!c) return fallback;
+  const m = c.match(/var\(\s*(--[\w-]+)\s*\)/);
+  if (m) return cssVar(m[1], fallback);
+  return c;
+}

@@ -1,6 +1,8 @@
 "use client";
 
 import { useEchart } from "@/app/lib/components/charts/useEchart";
+import { cssVar, resolveColor } from "@/app/lib/echarts-theme";
+import type { EChartsOption } from "echarts";
 
 export interface HeatmapDay {
   date: string; // YYYY-MM-DD
@@ -22,10 +24,14 @@ export function YearHeatmap({
       const values = data.map((d) => d.km).filter((v) => v > 0);
       const max = values.length ? Math.max(...values) : 1;
       const seriesData = data.map((d) => [d.date, d.km]);
+      const fgMuted = cssVar("--fg-muted");
+      const surface = cssVar("--surface");
+      const surface2 = cssVar("--surface-2");
       return {
         tooltip: {
-          formatter: (p: { value: [string, number] }) =>
-            `${p.value[0]}<br/>${p.value[1] > 0 ? `${p.value[1].toFixed(1)} km` : "休息"}`,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          formatter: (p: any) =>
+            `${p.value[0]}<br/>${p.value[1] > 0 ? `${Number(p.value[1]).toFixed(1)} km` : "休息"}`,
         },
         visualMap: {
           min: 0.001,
@@ -41,18 +47,11 @@ export function YearHeatmap({
           cellSize: ["auto", 13],
           range: String(year),
           orient: "horizontal",
-          itemStyle: { color: "var(--surface-2)", borderColor: "var(--surface)", borderWidth: 2 },
+          itemStyle: { color: surface2, borderColor: surface, borderWidth: 2 },
           splitLine: { show: false },
           yearLabel: { show: false },
-          monthLabel: {
-            show: true,
-            color: "var(--fg-muted)",
-            fontSize: 10,
-            firstDay: 1,
-            margin: 6,
-            nameMap: "ZH",
-          },
-          dayLabel: { show: true, color: "var(--fg-muted)", fontSize: 9, firstDay: 1 },
+          monthLabel: { show: true, color: fgMuted, fontSize: 10, firstDay: 1, margin: 6, nameMap: "ZH" },
+          dayLabel: { show: true, color: fgMuted, fontSize: 9, firstDay: 1 },
         },
         series: [
           {
@@ -62,7 +61,7 @@ export function YearHeatmap({
             itemStyle: { borderRadius: 2 },
           },
         ],
-      };
+      } as EChartsOption;
     },
     [data, year],
     { height },
