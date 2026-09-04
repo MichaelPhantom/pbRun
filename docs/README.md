@@ -34,7 +34,7 @@
 |------|------|
 | [API 接口文档](api-reference.md) | 完整的 RESTful API 参考 |
 | [VDOT 计算说明](vdot-calculation.md) | VDOT 跑力计算公式和训练建议 |
-| [MCP Server 设计](mcp-design.md) | AI 客户端接入 (13 个 tools, 已实施) |
+| [MCP Server 设计](mcp-design.md) | AI 客户端接入 (15 个 tools, 已实施) |
 | [测试方案](testing-strategy.md) | Jest + Playwright 测试架构 |
 | [Strava 集成设计](strava-integration-design.md) | Strava 数据源集成方案 |
 

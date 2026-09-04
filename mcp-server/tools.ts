@@ -1,5 +1,5 @@
 /**
- * pbRun MCP Server — 13 个 tool 的定义与 handler。
+ * pbRun MCP Server — 15 个 tool 的定义与 handler。
  * 直接复用 app/lib/db.ts 的查询函数（只读访问 activities.db）；
  * 纯计算逻辑 (降采样/ACWR/跨期对比) 在 ./analysis.ts, 可单测。
  */
@@ -21,6 +21,8 @@ import {
   getPeriodStats,
   getTrainingLoads,
   getLatestVdot,
+  getActivityTrack,
+  getDailyDistances,
 } from '../app/lib/db';
 import {
   assertDateRange,
@@ -142,6 +144,38 @@ export async function registerTools(server: McpServer): Promise<void> {
         return { activityId: args.activityId, ...downsampleRecords(raw, samplingInterval, maxPoints) };
       })
   );
+
+  await server.registerTool(
+    'get_activity_track',
+    {
+      title: '活动路线轨迹',
+      description:
+        '按 activity_id 返回该活动的降采样路线轨迹 (track)。含 coords=[[lat,lng]...] (十进制度数, ~≤2000 点)、bounds (经纬度包围盒)、elev=[[elapsed_sec,altitude_m]...] (~≤500 点海拔剖面)、n (原始记录点数)。室内/跑步机无 GPS 返回 track=null。用于路线地图绘制与轨迹分析。',
+      inputSchema: {
+        activityId: z.number().int().positive().describe('活动 ID'),
+      },
+    },
+    (args) =>
+      run(() => {
+        const activity = getActivityById(args.activityId);
+        if (!activity) throw new Error(`未找到活动: activity_id=${args.activityId}`);
+        return { activityId: args.activityId, track: getActivityTrack(args.activityId) };
+      })
+  );
+
+  await server.registerTool(
+    'get_daily_distances',
+    {
+      title: '年度每日里程',
+      description:
+        '返回指定年份每天累计跑步里程 (按本地日期聚合)。返回 [{date:YYYY-MM-DD, km}], 无活动的日期不出现。用于年度里程热力图与连续性分析。',
+      inputSchema: {
+        year: z.number().int().min(2000).max(2100).optional().describe('年份 (默认当前年)'),
+      },
+    },
+    (args) => run(() => getDailyDistances(args.year ?? new Date().getFullYear()))
+  );
+
 
   await server.registerTool(
     'get_stats',

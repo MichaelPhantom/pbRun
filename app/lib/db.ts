@@ -88,7 +88,11 @@ export function getActivities(
   queryParams.push(limit, offset);
 
   const stmt = db.prepare(query);
-  const data = stmt.all(...queryParams) as Activity[];
+  // track (~40KB/条 JSON) 仅活动详情页需要 (经 getActivityTrack 单独取);
+  // 列表 / REST / MCP list_activities 不需要, 此处剥离以避免响应膨胀与 LLM token 爆炸。
+  const rows = stmt.all(...queryParams) as (Activity & { track?: string })[];
+  for (const r of rows) delete r.track;
+  const data = rows as Activity[];
 
   return {
     data,
@@ -146,8 +150,11 @@ export function getMonthSummaries(limit?: number, offset?: number): MonthSummary
 export function getActivityById(activityId: number): Activity | null {
   const db = getDatabase();
   const stmt = db.prepare('SELECT * FROM activities WHERE activity_id = ?');
-  const result = stmt.get(activityId) as Activity | undefined;
-  return result || null;
+  const result = stmt.get(activityId) as (Activity & { track?: string }) | undefined;
+  if (!result) return null;
+  // track 由 getActivityTrack 单独取 (解析后的对象); 通用 by-id 路径剥离原始 JSON 串, 保持响应精简。
+  delete result.track;
+  return result as Activity;
 }
 
 /**

@@ -248,6 +248,11 @@ GET /api/activities/{id}/records
 
 **注意**: 记录点数据量较大，建议使用分页获取或前端按需加载。
 
+> **路线轨迹 (track) 不经此 REST 接口返回**: track 是降采样的 GPS 多段线 + 海拔剖面 + 包围盒
+> (~40KB/条 JSON), 仅活动详情页经 SSR (`getActivityTrack`) 渲染离线路线图, 室内/跑步机为
+> `null`。AI 客户端可经 MCP 工具 `get_activity_track` 取得 (见 [MCP Server 设计](mcp-design.md));
+> 年度每日里程同理, 经 MCP `get_daily_distances` 或首页 SSR 取得, 无 REST 端点。
+
 ---
 
 ## 统计相关 API

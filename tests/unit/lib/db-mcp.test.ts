@@ -1,4 +1,4 @@
-import { getPeriodStats, getTrainingLoads, getLatestVdot } from '@/app/lib/db';
+import { getPeriodStats, getTrainingLoads, getLatestVdot, getActivityTrack, getDailyDistances } from '@/app/lib/db';
 
 // Mock better-sqlite3 (与 db.test.ts 相同模式)
 const mockGet = jest.fn();
@@ -128,6 +128,66 @@ describe('MCP 新增 db 函数', () => {
       mockGet.mockReturnValue(undefined);
 
       expect(getLatestVdot()).toBeNull();
+    });
+  });
+
+  describe('getActivityTrack', () => {
+    test('应返回解析后的轨迹对象', () => {
+      mockGet.mockReturnValue({ track: '{"coords":[[29.52,106.5]],"n":1}' });
+
+      const result = getActivityTrack(1);
+
+      expect(result).toEqual({ coords: [[29.52, 106.5]], n: 1 });
+    });
+
+    test('活动不存在应返回 null', () => {
+      mockGet.mockReturnValue(undefined);
+
+      expect(getActivityTrack(999)).toBeNull();
+    });
+
+    test('track 为 null/空应返回 null (室内无 GPS)', () => {
+      mockGet.mockReturnValue({ track: null });
+      expect(getActivityTrack(1)).toBeNull();
+
+      mockGet.mockReturnValue({ track: '' });
+      expect(getActivityTrack(1)).toBeNull();
+    });
+
+    test('track 为损坏 JSON 应返回 null (容错)', () => {
+      mockGet.mockReturnValue({ track: '{not json' });
+
+      expect(getActivityTrack(1)).toBeNull();
+    });
+  });
+
+  describe('getDailyDistances', () => {
+    test('应按本地日期聚合里程 (km), null 归零', () => {
+      mockAll.mockReturnValue([
+        { date: '2026-01-01', km: 10.5 },
+        { date: '2026-01-03', km: null },
+      ]);
+
+      const result = getDailyDistances(2026);
+
+      expect(result).toEqual([
+        { date: '2026-01-01', km: 10.5 },
+        { date: '2026-01-03', km: 0 },
+      ]);
+    });
+
+    test('无数据应返回空数组', () => {
+      mockAll.mockReturnValue([]);
+
+      expect(getDailyDistances(2026)).toEqual([]);
+    });
+
+    test('应按年份限定查询范围', () => {
+      mockAll.mockReturnValue([]);
+
+      getDailyDistances(2026);
+
+      expect(mockAll).toHaveBeenCalledWith('2026-01-01', '2026-12-31T23:59:59.999');
     });
   });
 });

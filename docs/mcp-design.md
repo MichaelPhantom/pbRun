@@ -1,7 +1,7 @@
 # pbRun MCP Server 设计方案
 
 > 为 AI 客户端（Claude Desktop / opencode 等）提供结构化跑步数据访问能力
-> 状态: 已实施 (2026-08-08), 13 个 tools
+> 状态: 已实施 (2026-08-08), 15 个 tools (含路线轨迹 + 年度里程)
 
 ## 1. 架构
 
@@ -31,7 +31,7 @@
 pbRun/
 ├── mcp-server/
 │   ├── index.ts              # MCP server 入口 (stdio transport)
-│   ├── tools.ts              # 13 个 tool 定义与 handler
+│   ├── tools.ts              # 15 个 tool 定义与 handler
 │   ├── analysis.ts           # 纯逻辑 (降采样/ACWR/跨期对比, 可单测)
 │   ├── tsconfig.json         # 独立编译配置 (module node16, 输出 dist/)
 │   ├── dist/                 # 编译产物 (已 .gitignore)
@@ -44,9 +44,9 @@ pbRun/
 
 > 部署: 无 systemd unit — stdio 进程由 AI 客户端按需拉起 (见 §6.1)。
 
-## 3. Tools 清单 (13 个)
+## 3. Tools 清单 (15 个)
 
-### 3.1 基础数据 (复用 db.ts, 11 个)
+### 3.1 基础数据 (复用 db.ts, 13 个)
 
 | Tool | db.ts 函数 | 参数 | 输出 | 说明 |
 |------|-----------|------|------|------|
@@ -61,6 +61,8 @@ pbRun/
 | `get_hr_zone_analysis` | `getHrZoneStats` | `startDate?`, `endDate?`, `groupBy` | `{data, zoneRanges, summary}` | 心率区间分析 |
 | `get_pace_zone_analysis` | `getPaceZoneStats` | `startDate`, `endDate`, `vdot?`(auto=取最新) | `PaceZoneStat[]` | 配速区间分析 |
 | `get_month_summaries` | `getMonthSummaries` | `limit?`, `offset?` | `MonthSummary[]` | 月度汇总 |
+| `get_activity_track` | `getActivityTrack` | `activityId` | `{track: ActivityTrack \| null}` | 路线轨迹 (降采样 GPS+海拔+包围盒); 室内为 null |
+| `get_daily_distances` | `getDailyDistances` | `year?`(默认当前年) | `{date, km}[]` | 年度每日里程 (热力图/连续性) |
 
 ### 3.2 AI 专用 (新增, 2 个)
 
@@ -178,12 +180,12 @@ DB_PATH=/home/ubuntu/project/pbRun/app/data/activities.db MAX_HR=194 \
 | 阶段 | 内容 | 状态 |
 |------|------|------|
 | 1 | 创建 mcp-server/ 骨架, tsconfig, 安装 @modelcontextprotocol/sdk | ✅ 2026-08-08 (SDK 1.30 + zod 4) |
-| 2 | 实现 11 个基础 tools (直接映射 db.ts 函数) | ✅ |
+| 2 | 实现 13 个基础 tools (含 track + daily-distances) (直接映射 db.ts 函数) | ✅ |
 | 3 | 实现 records 采样逻辑 (samplingInterval + maxPoints 双参数) | ✅ |
 | 4 | 实现 compare_periods (db.ts 新增 getPeriodStats) | ✅ |
 | 5 | 实现 get_training_load_analysis (db.ts 新增 getTrainingLoads, ACWR) | ✅ |
 | 6 | opencode 配置 (已写入 ~/.config/opencode); 确认无需 systemd (stdio 由客户端拉起) | ✅ |
-| 7 | 端到端验证 (stdio 客户端逐一调用 13 个 tool) | ✅ 全部通过 |
+| 7 | 端到端验证 (stdio 客户端逐一调用 15 个 tool) | ✅ 全部通过 |
 | 8 | 打磨: 纯逻辑抽离 analysis.ts (可单测)、结构化错误、日期校验、优雅退出 | ✅ |
 | 9 | 单元测试: db 新函数 10 例 + analysis 纯逻辑 18 例 | ✅ 全部通过 |
 | 10 | 修复 format.ts locale 脆弱性 (toLocaleDateString → 确定性 YYYY/MM/DD) | ✅ 全量测试 271 通过 |
@@ -191,7 +193,7 @@ DB_PATH=/home/ubuntu/project/pbRun/app/data/activities.db MAX_HR=194 \
 
 构建: `npm run build:mcp` (tsc -p mcp-server) → `mcp-server/dist/`
 测试: `npm test -- tests/unit/lib/db-mcp.test.ts tests/unit/mcp/analysis.test.ts`
-说明: 实际 tool 数为 13 (11 基础 + 2 AI), 设计文档原 "12 个" 为笔误。
+说明: 实际 tool 数为 15 (13 基础 + 2 AI), 设计文档原 "12 个" 为笔误。
 注意: `next build` 时勿设置 `NODE_ENV=development` (Next 16 已知 bug 会使 /_global-error
 prerender 崩溃, vercel/next.js#85668 等); 正常构建 (不设或 NODE_ENV=production) 无此问题。
 

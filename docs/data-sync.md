@@ -68,7 +68,9 @@ FIT (Flexible and Interoperable Data Transfer) 是 Garmin 设备使用的二进�
 
 ### 数据解析
 
-项目使用 `fit-file-parser` 库解析 FIT 文件，提取以下 **28+ 字段**：
+项目使用 `fit-file-parser` 库解析 FIT 文件，提取以下 **28+ 字段**（含路线轨迹 `track`）：
+
+> 另有 `_extractTrack` 单独产出 `track` 字段（降采样 GPS 多段线 + 海拔剖面 + 包围盒, JSON），存入 `activities.track` 列, 供详情页路线地图使用; 无 GPS 的室内活动为 NULL。
 
 #### 活动级别字段
 
@@ -333,9 +335,15 @@ CREATE TABLE activities (
   avg_stride_length REAL,
   training_effect REAL,
   vdot REAL,
+  track TEXT,  -- 降采样路线轨迹 JSON (coords/bounds/elev/n); 室内/跑步机为 NULL; 由 fit-parser._extractTrack 回填
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 ```
+
+> **track 列** (路线轨迹): 存降采样后的 GPS 多段线 + 海拔剖面 + 包围盒 (JSON, ~≤40KB/条)。
+> 由 `scripts/garmin/fit-parser.js` 的 `_extractTrack` 在 FIT 解析时生成, 经 `upsertActivity` 动态列写入。
+> 新活动随每日同步自动写入; 历史 310 条 FIT 用 `scripts/garmin/backfill-tracks.js` 一次性回填
+> (读 `.cache/fit/{activity_id}`, 备份 DB + 幂等 + 无需重新鉴权)。查询: `db.getActivityTrack(id)`。
 
 #### laps 表
 

@@ -84,6 +84,19 @@ describe('Database Functions', () => {
       expect(result.pagination.page).toBe(1);
       expect(result.pagination.limit).toBe(20);
     });
+
+    test('应剥离 track 轨迹字段 (避免列表/REST/MCP 响应膨胀)', () => {
+      mockAll.mockReturnValue([
+        { activity_id: 1, name: 'Run 1', distance: 10, track: '{"coords":[]}' },
+        { activity_id: 2, name: 'Run 2', distance: 15, track: null },
+      ]);
+
+      const result = getActivities({ page: 1, limit: 20 });
+
+      expect(result.data).toHaveLength(2);
+      expect((result.data[0] as Record<string, unknown>).track).toBeUndefined();
+      expect((result.data[1] as Record<string, unknown>).track).toBeUndefined();
+    });
   });
 
   describe('getActivityById', () => {
@@ -106,6 +119,21 @@ describe('Database Functions', () => {
       const result = getActivityById(999);
 
       expect(result).toBeNull();
+    });
+
+    test('应剥离 track 轨迹字段 (详情经 getActivityTrack 单独取)', () => {
+      mockGet.mockReturnValue({
+        activity_id: 1,
+        name: 'Morning Run',
+        distance: 10,
+        track: '{"coords":[[29.52,106.5]],"n":1}',
+      });
+
+      const result = getActivityById(1);
+
+      expect(result).not.toBeNull();
+      expect(result?.activity_id).toBe(1);
+      expect((result as Record<string, unknown>).track).toBeUndefined();
     });
   });
 
