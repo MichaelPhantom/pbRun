@@ -15,8 +15,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "pbRun",
-  description: "跑步活动数据可视化与统计",
+  title: "pbRun · 跑步数据分析",
+  description: "专业的跑步数据分析工具 — VDOT 跑力 / 心率区间 / 训练负荷 / 路线地图",
 };
 
 export default function RootLayout({
@@ -27,20 +27,20 @@ export default function RootLayout({
   return (
     <html lang="zh-CN">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen bg-bg text-fg`}
       >
-        <header className="sticky top-0 z-50 flex flex-col bg-emerald-800">
-          {/* 标题栏：深绿底、白字，标题居中 (手机端隐藏以节省空间) */}
-          <div className="hidden sm:flex mx-auto w-full max-w-5xl justify-center px-4 py-3">
-            <Link
-              href="/"
-              className="font-semibold italic text-white"
-            >
-              pbRun
+        <header className="sticky top-0 z-50 border-b border-border bg-bg/80 backdrop-blur-md supports-[backdrop-filter]:bg-bg/70">
+          <div className="mx-auto flex h-14 w-full max-w-5xl items-center justify-between gap-2 px-3 sm:px-4">
+            <Link href="/" className="flex items-center gap-1.5 font-semibold">
+              <span className="inline-flex h-6 w-6 items-center justify-center rounded-lg bg-[var(--brand)] text-[13px] font-bold text-[var(--brand-fg)]">
+                p
+              </span>
+              <span className="text-[15px] tracking-tight">
+                pb<span className="text-[var(--brand)]">Run</span>
+              </span>
             </Link>
+            <TopNav />
           </div>
-          {/* 导航标签：同深绿底、白字，选中项亮绿下划线 */}
-          <TopNav />
         </header>
         <main className="mx-auto max-w-5xl px-3 py-4 sm:px-4 sm:py-6">{children}</main>
       </body>

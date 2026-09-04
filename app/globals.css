@@ -1,26 +1,224 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/*
+ * pbRun 设计系统 — 统一 token (light/dark)
+ * 色板经 dataviz 校验器验证 (CVD ΔE≥8, 正常视觉 ΔE≥15, 色阶/对比度合规)。
+ * 暖灰中性 + 单一翠绿强调色; 图表分类色/HR 区间/顺序/状态色各司其职。
+ * 修改色板须重跑 node .../dataviz/scripts/validate_palette.js。
+ */
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+:root {
+  color-scheme: light;
+
+  /* —— 中性面 (暖灰, 与图表 chrome 一致) —— */
+  --bg: #f6f6f4;            /* 页面底 */
+  --fg: #0b0b0b;            /* 主文字 */
+  --fg-secondary: #52514e;  /* 次文字 */
+  --fg-muted: #898781;      /* 弱化 (轴/标签) */
+  --surface: #ffffff;       /* 卡面 */
+  --surface-2: #f9f9f7;     /* 次级面 / 表头底 */
+  --surface-3: #f1f1ee;     /* 悬停底 */
+  --border: rgba(11, 11, 11, 0.10);
+  --border-strong: rgba(11, 11, 11, 0.18);
+  --gridline: #e1e0d9;
+  --baseline: #c3c2b7;
+
+  /* —— 品牌强调色 (仅 chrome, 非图表系列) —— */
+  --brand: #0e9f6e;         /* 翠绿 */
+  --brand-strong: #0b7d57;
+  --brand-soft: #e6f7f0;    /* 强调底 */
+  --brand-fg: #ffffff;
+
+  /* —— 图表分类色 (固定顺序, 8 槽, 已校验) —— */
+  --cat-1: #2a78d6;  /* blue */
+  --cat-2: #eb6834;  /* orange */
+  --cat-3: #1baf7a;  /* aqua */
+  --cat-4: #eda100;  /* yellow */
+  --cat-5: #e87ba4;  /* magenta */
+  --cat-6: #008300;  /* green */
+  --cat-7: #4a3aa7;  /* violet */
+  --cat-8: #e34948;  /* red */
+
+  /* —— 心率区间 Z1-Z5 (强度递增, 桥接 violet 避暖色碰撞, 已校验) —— */
+  --z1: #2a78d6;
+  --z2: #1baf7a;
+  --z3: #eda100;
+  --z4: #4a3aa7;
+  --z5: #e34948;
+
+  /* —— 顺序色阶 (蓝, 量级用) —— */
+  --seq-1: #cde2fb;
+  --seq-2: #86b6ef;
+  --seq-3: #3987e5;
+  --seq-4: #256abf;
+  --seq-5: #0d366b;
+
+  /* —— 发散 (TSB 正/负) blue↔red, 灰中点 —— */
+  --div-pos: #2a78d6;
+  --div-neg: #e34948;
+  --div-mid: #c3c2b7;
+
+  /* —— 状态 (固定, 带 icon+label, 不单独承载语义) —— */
+  --good: #0ca30c;
+  --warn: #fab219;
+  --serious: #ec835a;
+  --crit: #d03b3b;
+
+  /* —— 形状 token —— */
+  --radius: 0.75rem;
+  --radius-sm: 0.5rem;
+  --radius-lg: 1rem;
+  --shadow-sm: 0 1px 2px rgba(11, 11, 11, 0.04), 0 1px 3px rgba(11, 11, 11, 0.06);
+  --shadow: 0 4px 12px rgba(11, 11, 11, 0.06), 0 2px 4px rgba(11, 11, 11, 0.04);
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0d0d0d;
+    --fg: #ffffff;
+    --fg-secondary: #c3c2b7;
+    --fg-muted: #898781;
+    --surface: #1a1a19;
+    --surface-2: #232322;
+    --surface-3: #2c2c2a;
+    --border: rgba(255, 255, 255, 0.10);
+    --border-strong: rgba(255, 255, 255, 0.18);
+    --gridline: #2c2c2a;
+    --baseline: #383835;
+
+    --brand: #1fb986;
+    --brand-strong: #2dd4a6;
+    --brand-soft: rgba(31, 185, 134, 0.12);
+    --brand-fg: #0d0d0d;
+
+    --cat-1: #3987e5;
+    --cat-2: #d95926;
+    --cat-3: #199e70;
+    --cat-4: #c98500;
+    --cat-5: #d55181;
+    --cat-6: #008300;
+    --cat-7: #9085e9;
+    --cat-8: #e66767;
+
+    --z1: #3987e5;
+    --z2: #199e70;
+    --z3: #c98500;
+    --z4: #9085e9;
+    --z5: #e66767;
+
+    --seq-1: #1c3358;
+    --seq-2: #1c5cab;
+    --seq-3: #3987e5;
+    --seq-4: #6da7ec;
+    --seq-5: #cde2fb;
+
+    --div-pos: #3987e5;
+    --div-neg: #e66767;
+    --div-mid: #383835;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0d0d0d;
+  --fg: #ffffff;
+  --fg-secondary: #c3c2b7;
+  --fg-muted: #898781;
+  --surface: #1a1a19;
+  --surface-2: #232322;
+  --surface-3: #2c2c2a;
+  --border: rgba(255, 255, 255, 0.10);
+  --border-strong: rgba(255, 255, 255, 0.18);
+  --gridline: #2c2c2a;
+  --baseline: #383835;
+  --brand: #1fb986;
+  --brand-strong: #2dd4a6;
+  --brand-soft: rgba(31, 185, 134, 0.12);
+  --brand-fg: #0d0d0d;
+  --cat-1: #3987e5; --cat-2: #d95926; --cat-3: #199e70; --cat-4: #c98500;
+  --cat-5: #d55181; --cat-6: #008300; --cat-7: #9085e9; --cat-8: #e66767;
+  --z1: #3987e5; --z2: #199e70; --z3: #c98500; --z4: #9085e9; --z5: #e66767;
+  --seq-1: #1c3358; --seq-2: #1c5cab; --seq-3: #3987e5; --seq-4: #6da7ec; --seq-5: #cde2fb;
+  --div-pos: #3987e5; --div-neg: #e66767; --div-mid: #383835;
+}
+
+/* 暴露为 Tailwind 工具类 (inline 跟随主题切换) */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-fg: var(--fg);
+  --color-fg-secondary: var(--fg-secondary);
+  --color-fg-muted: var(--fg-muted);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-border: var(--border);
+  --color-brand: var(--brand);
+  --color-brand-strong: var(--brand-strong);
+  --color-brand-soft: var(--brand-soft);
+  --font-sans: var(--font-geist-sans), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+/* —— 基础 —— */
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-geist-sans), system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+* { border-color: var(--border); }
+
+/* 数字列对齐 */
+.tnum { font-variant-numeric: tabular-nums; }
+
+/* 平滑滚动 + 锚点偏移 (sticky 头) */
+html { scroll-behavior: smooth; scroll-padding-top: 5rem; }
+
+::selection { background: var(--brand-soft); color: var(--fg); }
+
+/* 滚动条 (细, 主题色) */
+* { scrollbar-width: thin; scrollbar-color: var(--baseline) transparent; }
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb { background: var(--baseline); border-radius: 999px; }
+*::-webkit-scrollbar-track { background: transparent; }
+
+@layer components {
+  /* 一致卡面 */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-sm);
+  }
+  .card-hover { transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease; }
+  .card-hover:hover {
+    border-color: var(--border-strong);
+    box-shadow: var(--shadow);
+  }
+  /* 小节标题 */
+  .section-title {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--fg-secondary);
+    letter-spacing: 0.01em;
+  }
+  /* 强调条 (小节左侧) */
+  .accent-bar {
+    width: 3px;
+    border-radius: 999px;
+    background: var(--brand);
+  }
+  /* 分段按钮 */
+  .seg-btn {
+    transition: color .15s ease, background .15s ease;
+    color: var(--fg-secondary);
+  }
+  .seg-btn[data-active="true"] {
+    color: var(--brand);
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
-}
+/* ECharts 容器内 tooltip 文字色由主题接管, 这里只防溢出 */
+.echarts-tooltip { white-space: normal; }
