@@ -73,7 +73,7 @@ export function RouteMap({ track, height = 360 }: { track: ActivityTrack; height
     };
     applyTheme();
     const observer = new MutationObserver(applyTheme);
-    observer.observe(document.documentElement, { attributes: { attributeFilter: ["data-theme"] } });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
     // 容器布局稳定后校正尺寸 (防初次渲染高度 0 导致瓦片灰块)
     const t = window.setTimeout(() => map.invalidateSize(), 0);
