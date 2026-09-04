@@ -148,7 +148,7 @@ export default function ListClient({
         <select
           value={typeFilter}
           onChange={(e) => setTypeFilter(e.target.value)}
-          className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200"
+          className="tnum rounded-lg border border-border bg-surface px-3 py-2 text-sm text-fg-secondary"
         >
           <option value="all">所有类型</option>
           {typeOptions.filter((t) => t !== 'all').map((t) => (
@@ -157,8 +157,8 @@ export default function ListClient({
             </option>
           ))}
         </select>
-        <div className="ml-auto flex flex-1 min-w-0 max-w-xs items-center rounded-lg border border-zinc-300 bg-white px-3 py-2 dark:border-zinc-600 dark:bg-zinc-800">
-          <span className="mr-2 text-zinc-400" aria-hidden>
+        <div className="ml-auto flex flex-1 min-w-0 max-w-xs items-center rounded-lg border border-border bg-surface px-3 py-2">
+          <span className="mr-2 text-fg-muted" aria-hidden>
             🔍
           </span>
           <input
@@ -166,19 +166,19 @@ export default function ListClient({
             placeholder="搜索"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="min-w-0 flex-1 bg-transparent text-sm text-zinc-700 placeholder:text-zinc-400 dark:text-zinc-200 dark:placeholder:text-zinc-500"
+            className="min-w-0 flex-1 bg-transparent text-sm text-fg-secondary placeholder:text-fg-muted"
           />
         </div>
       </div>
 
       {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-red-800 dark:border-red-800 dark:bg-red-950/30 dark:text-red-200">
+        <div className="rounded-lg border border-[var(--crit-soft)] bg-[var(--crit-soft)] px-4 py-3 text-[var(--crit)]">
           {error}
         </div>
       )}
 
       {monthSummaries.length === 0 ? (
-        <div className="rounded-xl border border-zinc-200 bg-white py-12 text-center text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
+        <div className="rounded-xl border border-border bg-surface py-12 text-center text-fg-muted">
           暂无活动数据
         </div>
       ) : (
@@ -191,12 +191,12 @@ export default function ListClient({
                 <button
                   type="button"
                   onClick={() => loadAndExpandMonth(summary.monthKey)}
-                  className="flex w-full items-center justify-between rounded-lg border border-zinc-200 bg-white px-4 py-3 text-left dark:border-zinc-800 dark:bg-zinc-900"
+                  className="card-hover flex w-full items-center justify-between rounded-lg border border-border bg-surface px-4 py-3 text-left"
                 >
-                  <span className="font-medium text-zinc-900 dark:text-zinc-100">
+                  <span className="font-medium text-fg">
                     {formatMonthYear(summary.monthKey)}
                   </span>
-                  <span className="flex items-center gap-3 text-sm text-zinc-500 dark:text-zinc-400">
+                  <span className="tnum flex items-center gap-3 text-sm text-fg-muted">
                     <span>{Number(summary.totalDistance).toFixed(2)} 公里</span>
                     <span>{summary.count} 次</span>
                     {isExpanded ? (
@@ -209,13 +209,13 @@ export default function ListClient({
                 {isExpanded && (
                   <>
                     {isLoading ? (
-                      <div className="flex justify-center py-8 text-sm text-zinc-500 dark:text-zinc-400">
+                      <div className="flex justify-center py-8 text-sm text-fg-muted">
                         加载当月数据…
                       </div>
                     ) : (
                       <div className="flex flex-col gap-3">
                         {filteredItemsForMonth.length === 0 ? (
-                          <div className="rounded-xl border border-zinc-200 bg-white py-8 text-center text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
+                          <div className="rounded-xl border border-border bg-surface py-8 text-center text-sm text-fg-muted">
                             该月暂无匹配活动
                           </div>
                         ) : (
@@ -237,7 +237,7 @@ export default function ListClient({
           {monthSummaries.length < totalMonths && (
             <div
               ref={loadMoreRef}
-              className="flex justify-center py-6 text-sm text-zinc-500 dark:text-zinc-400"
+              className="flex justify-center py-6 text-sm text-fg-muted"
             >
               {loadingMore ? '加载中…' : '滚动加载更多'}
             </div>
@@ -261,47 +261,47 @@ function ActivityCard({
     <button
       type="button"
       onClick={onSelect}
-      className="relative flex min-w-0 flex-col gap-2 rounded-xl border border-zinc-200 bg-white p-4 text-left shadow-sm transition hover:border-emerald-200 hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-emerald-800"
+      className="card-hover group relative flex min-w-0 flex-col gap-2 overflow-hidden rounded-xl border border-border bg-surface p-4 text-left"
     >
       <div
-        className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-6xl opacity-10"
+        className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-6xl opacity-[0.07]"
         aria-hidden
       >
         🏃
       </div>
 
       <div className="flex flex-wrap items-start justify-between gap-2">
-        <h3 className="min-w-0 flex-1 text-base font-medium text-zinc-900 dark:text-zinc-100 line-clamp-2">
+        <h3 className="min-w-0 flex-1 text-base font-medium text-fg line-clamp-2">
           {name}
         </h3>
-        <div className="flex items-center gap-1.5 text-sm text-zinc-500 dark:text-zinc-400">
+        <div className="tnum flex items-center gap-1.5 text-sm text-fg-muted">
           <span>{formatListDateTime(a.start_time_local ?? a.start_time)}</span>
           <span
-            className="h-2 w-2 shrink-0 rounded-full bg-emerald-500"
+            className="h-2 w-2 shrink-0 rounded-full bg-[var(--good)]"
             title="已完成"
             aria-hidden
           />
         </div>
       </div>
 
-      <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1">
-        <span className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">
+      <div className="tnum flex flex-wrap items-baseline gap-x-6 gap-y-1">
+        <span className="text-xl font-semibold text-fg">
           {a.distance != null ? `${Number(a.distance).toFixed(2)} 公里` : '--'}
         </span>
-        <span className="text-sm text-zinc-500 dark:text-zinc-400">
+        <span className="text-sm text-fg-secondary">
           {formatDuration(duration)} {formatPaceShort(a.average_pace)}
         </span>
       </div>
 
-      <div className="flex flex-wrap gap-4 text-sm">
+      <div className="tnum flex flex-wrap gap-4 text-sm">
         {a.training_load != null && (
-          <span className="text-zinc-600 dark:text-zinc-300">
-            <span className="font-medium">{a.training_load.toFixed(1)}</span> 训练负荷
+          <span className="text-fg-secondary">
+            <span className="font-medium text-fg-secondary">{a.training_load.toFixed(1)}</span> 训练负荷
           </span>
         )}
         {a.vdot_value != null && (
-          <span className="text-zinc-600 dark:text-zinc-300">
-            <span className="font-medium">{a.vdot_value.toFixed(1)}</span> 即时跑力
+          <span className="text-fg-secondary">
+            <span className="font-medium text-fg-secondary">{a.vdot_value.toFixed(1)}</span> 即时跑力
           </span>
         )}
       </div>

@@ -1,5 +1,6 @@
 'use client';
 
+import type { CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import type { HrZoneStat } from '@/app/lib/types';
 import { formatPace } from '@/app/lib/format';
@@ -40,13 +41,11 @@ const HR_ZONE_NAMES: Record<number, string> = {
   5: 'Z5(VoMax)',
 };
 
-const HR_ZONE_COLORS: Record<number, string> = {
-  1: 'bg-green-100 dark:bg-green-900',
-  2: 'bg-blue-100 dark:bg-blue-900',
-  3: 'bg-yellow-100 dark:bg-yellow-900',
-  4: 'bg-orange-100 dark:bg-orange-900',
-  5: 'bg-red-100 dark:bg-red-900',
-};
+/** HR 区间色 (--z1..--z5 校验通过 ramp), 与 Badge zone 变体同源 */
+function zoneBadgeStyle(zone: number): CSSProperties {
+  const v = `var(--z${Math.min(Math.max(zone, 1), 5)})`;
+  return { backgroundColor: `color-mix(in srgb, ${v} 14%, transparent)`, color: v };
+}
 
 export default function HrZoneMetricsTable({ data, zoneRanges, trendLinkParams }: HrZoneMetricsTableProps) {
   const router = useRouter();
@@ -118,21 +117,21 @@ export default function HrZoneMetricsTable({ data, zoneRanges, trendLinkParams }
 
   if (rows.length === 0) {
     return (
-      <div className="py-8 text-center text-sm text-zinc-500 dark:text-zinc-400">
+      <div className="py-8 text-center text-sm text-fg-muted">
         暂无数据
       </div>
     );
   }
 
   return (
-    <div className="overflow-x-auto rounded-xl bg-white dark:bg-zinc-900">
-      <table className="w-full min-w-[260px] text-sm border-collapse">
+    <div className="overflow-x-auto rounded-xl border border-border bg-surface">
+      <table className="tnum w-full min-w-[260px] text-sm border-collapse">
         <thead>
-          <tr className="border-b border-zinc-200 dark:border-zinc-700">
-            <th className="w-36 min-w-[9rem] px-3 py-2.5 text-left font-medium text-zinc-800 dark:text-zinc-200">心率区间</th>
-            <th className="px-3 py-2.5 text-center font-medium text-zinc-800 dark:text-zinc-200">配速</th>
-            <th className="px-3 py-2.5 text-center font-medium text-zinc-800 dark:text-zinc-200">步频</th>
-            <th className="px-3 py-2.5 text-right font-medium text-zinc-800 dark:text-zinc-200">步幅</th>
+          <tr className="border-b border-border">
+            <th className="w-36 min-w-[9rem] px-3 py-2.5 text-left font-medium text-fg-secondary">心率区间</th>
+            <th className="px-3 py-2.5 text-center font-medium text-fg-secondary">配速</th>
+            <th className="px-3 py-2.5 text-center font-medium text-fg-secondary">步频</th>
+            <th className="px-3 py-2.5 text-right font-medium text-fg-secondary">步幅</th>
           </tr>
         </thead>
         <tbody>
@@ -143,32 +142,32 @@ export default function HrZoneMetricsTable({ data, zoneRanges, trendLinkParams }
                 key={row.zone}
                 role={href ? 'button' : undefined}
                 tabIndex={href ? 0 : undefined}
-                className={`transition-colors ${href ? 'cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/50' : ''}`}
+                className={`transition-colors ${href ? 'cursor-pointer hover:bg-surface-3' : ''}`}
                 onClick={href ? () => router.push(href) : undefined}
                 onKeyDown={href ? (e) => e.key === 'Enter' && router.push(href) : undefined}
               >
                 <td className="w-36 min-w-[9rem] px-3 py-2">
-                  <span className={`block w-full rounded px-1.5 py-0.5 ${HR_ZONE_COLORS[row.zone]}`}>
-                    <span className="block leading-tight font-medium text-zinc-800 dark:text-zinc-200">{row.name}</span>
-                    <span className="block text-xs leading-tight text-zinc-600 dark:text-zinc-400">{row.rangeBpm}</span>
+                  <span className="block w-full rounded px-1.5 py-0.5" style={zoneBadgeStyle(row.zone)}>
+                    <span className="block leading-tight font-medium">{row.name}</span>
+                    <span className="block text-xs leading-tight opacity-80">{row.rangeBpm}</span>
                   </span>
                 </td>
-                <td className="px-3 py-2 text-center tabular-nums">
+                <td className="px-3 py-2 text-center">
                   {row.avg_pace != null ? (
                     <>
                       {formatPace(row.avg_pace, false)}
-                      <span className="ml-0.5 text-xs text-zinc-500 dark:text-zinc-400">/km</span>
+                      <span className="ml-0.5 text-xs text-fg-muted">/km</span>
                     </>
                   ) : '--'}
                 </td>
-                <td className="px-3 py-2 text-center tabular-nums text-zinc-800 dark:text-zinc-200">
+                <td className="px-3 py-2 text-center text-fg-secondary">
                   {row.avg_cadence != null ? row.avg_cadence.toFixed(0) : '--'}
                 </td>
-                <td className="px-3 py-2 text-right tabular-nums">
+                <td className="px-3 py-2 text-right">
                   {row.avg_stride != null ? (
                     <>
                       {row.avg_stride.toFixed(2)}
-                      <span className="ml-0.5 text-xs text-zinc-500 dark:text-zinc-400">m</span>
+                      <span className="ml-0.5 text-xs text-fg-muted">m</span>
                     </>
                   ) : '--'}
                 </td>

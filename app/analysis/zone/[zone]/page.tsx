@@ -2,7 +2,7 @@
 
 import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, type CSSProperties } from 'react';
 import ZoneTrendCharts from '@/app/lib/components/charts/ZoneTrendCharts';
 import type { ZoneTrendSeriesPoint } from '@/app/lib/components/charts/ZoneTrendCharts';
 
@@ -14,13 +14,11 @@ const HR_ZONE_NAMES: Record<number, string> = {
   5: 'Z5(VoMax)',
 };
 
-const HR_ZONE_COLORS: Record<number, string> = {
-  1: 'bg-green-100 dark:bg-green-900',
-  2: 'bg-blue-100 dark:bg-blue-900',
-  3: 'bg-yellow-100 dark:bg-yellow-900',
-  4: 'bg-orange-100 dark:bg-orange-900',
-  5: 'bg-red-100 dark:bg-red-900',
-};
+/** HR 区间色 (--z1..--z5 校验通过 ramp), 与 Badge zone 变体同源 */
+function zoneBadgeStyle(zone: number): CSSProperties {
+  const v = `var(--z${Math.min(Math.max(zone, 1), 5)})`;
+  return { backgroundColor: `color-mix(in srgb, ${v} 16%, transparent)`, color: v };
+}
 
 function getDefaultHalfYearRange(): { startDate: string; endDate: string } {
   const now = new Date();
@@ -84,8 +82,8 @@ export default function ZoneTrendPage() {
   if (zone < 1 || zone > 5) {
     return (
       <div className="flex flex-col gap-4 p-6">
-        <p className="text-zinc-500">无效的心率区间</p>
-        <Link href="/analysis" className="text-blue-600 hover:underline dark:text-blue-400">
+        <p className="text-fg-muted">无效的心率区间</p>
+        <Link href="/analysis" className="text-[var(--brand)] hover:underline">
           返回数据分析
         </Link>
       </div>
@@ -93,28 +91,27 @@ export default function ZoneTrendPage() {
   }
 
   const zoneName = HR_ZONE_NAMES[zone];
-  const zoneColor = HR_ZONE_COLORS[zone];
 
   return (
     <div className="mx-auto w-full max-w-3xl flex flex-col gap-6 p-6">
       <div className="flex flex-wrap items-center gap-3">
-        <span className={`inline-block rounded px-3 py-1.5 text-base font-medium ${zoneColor}`}>
+        <span className="inline-block rounded px-3 py-1.5 text-base font-medium" style={zoneBadgeStyle(zone)}>
           {zoneName}
           {rangeBpm && <span className="ml-1 block text-xs opacity-90">{rangeBpm}</span>}
         </span>
-        <span className="text-sm text-zinc-500 dark:text-zinc-400">
+        <span className="text-sm text-fg-muted">
           {startDate} 至 {endDate}
         </span>
       </div>
 
       {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-red-800 dark:border-red-800 dark:bg-red-950/30 dark:text-red-200">
+        <div className="rounded-lg border border-[var(--crit-soft)] bg-[var(--crit-soft)] px-4 py-3 text-[var(--crit)]">
           {error}
         </div>
       )}
 
       {loading ? (
-        <div className="py-12 text-center text-zinc-500">加载中…</div>
+        <div className="py-12 text-center text-fg-muted">加载中…</div>
       ) : (
         <ZoneTrendCharts seriesData={seriesData} chartHeight={260} />
       )}

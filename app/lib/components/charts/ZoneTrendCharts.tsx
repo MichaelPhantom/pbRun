@@ -119,7 +119,7 @@ export default function ZoneTrendCharts({ seriesData, chartHeight = 320 }: ZoneT
 
   if (seriesData.length === 0) {
     return (
-      <div className="py-12 text-center text-zinc-500">
+      <div className="py-12 text-center text-fg-muted">
         暂无该区间按时间范围的数据
       </div>
     );
@@ -129,17 +129,17 @@ export default function ZoneTrendCharts({ seriesData, chartHeight = 320 }: ZoneT
     <div className="grid gap-8 sm:grid-cols-1 lg:grid-cols-3">
       <div>
         <div className="mb-2 flex flex-wrap items-baseline gap-x-2">
-          <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">配速</span>
-          <span className="text-[11px] text-zinc-400 dark:text-zinc-500">越靠上越快（Y 轴倒序）</span>
+          <span className="text-sm font-medium text-fg-secondary">配速</span>
+          <span className="text-[11px] text-fg-muted">越靠上越快（Y 轴倒序）</span>
         </div>
         <div ref={paceRef} style={{ width: '100%', height: `${chartHeight}px`, position: 'relative', zIndex: 0 }} />
       </div>
       <div>
-        <div className="mb-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">步频</div>
+        <div className="mb-2 text-sm font-medium text-fg-secondary">步频</div>
         <div ref={cadenceRef} style={{ width: '100%', height: `${chartHeight}px`, position: 'relative', zIndex: 0 }} />
       </div>
       <div>
-        <div className="mb-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">步幅</div>
+        <div className="mb-2 text-sm font-medium text-fg-secondary">步幅</div>
         <div ref={strideRef} style={{ width: '100%', height: `${chartHeight}px`, position: 'relative', zIndex: 0 }} />
       </div>
     </div>

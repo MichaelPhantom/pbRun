@@ -45,7 +45,7 @@ const PACE_MAX_SEC = 900;   // 15:00 /km
 
 const FIVE_MIN_SEC = 300;
 
-/** 趋势图统一配色，与页面 zinc 中性风格协调 */
+/** 趋势图统一配色，与设计系统品牌强调色协调 */
 const TREND_CHART_COLOR = 'var(--brand)'; // 主题品牌色, 运行时 resolveColor 解析为 hex
 
 /** 配速秒/公里 → M:SS 显示 */
@@ -262,34 +262,34 @@ export default function ActivityTrendCharts({ records }: ActivityTrendChartsProp
   }
 
   return (
-    <>
+    <div className="flex flex-col gap-4">
       {hasHr && (
-        <section className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-          <h2 className="mb-2 text-base font-medium text-zinc-800 dark:text-zinc-200">心率趋势</h2>
+        <section>
+          <h2 className="mb-2 text-sm font-medium text-fg">心率趋势</h2>
           <div ref={hrRef} style={{ width: '100%', height: '200px', position: 'relative', zIndex: 0 }} />
         </section>
       )}
       {hasPace && (
-        <section className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+        <section>
           <div className="mb-2 flex flex-wrap items-baseline gap-x-2">
-            <h2 className="text-base font-medium text-zinc-800 dark:text-zinc-200">配速趋势</h2>
-            <span className="text-[11px] text-zinc-400 dark:text-zinc-500">曲线越靠上 = 配速越快（Y 轴倒序）</span>
+            <h2 className="text-sm font-medium text-fg">配速趋势</h2>
+            <span className="text-[11px] text-fg-muted">曲线越靠上 = 配速越快（Y 轴倒序）</span>
           </div>
           <div ref={paceRef} style={{ width: '100%', height: '200px', position: 'relative', zIndex: 0 }} />
         </section>
       )}
       {hasCadence && (
-        <section className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-          <h2 className="mb-2 text-base font-medium text-zinc-800 dark:text-zinc-200">步频趋势</h2>
+        <section>
+          <h2 className="mb-2 text-sm font-medium text-fg">步频趋势</h2>
           <div ref={cadenceRef} style={{ width: '100%', height: '200px', position: 'relative', zIndex: 0 }} />
         </section>
       )}
       {hasStride && (
-        <section className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-          <h2 className="mb-2 text-base font-medium text-zinc-800 dark:text-zinc-200">步幅趋势</h2>
+        <section>
+          <h2 className="mb-2 text-sm font-medium text-fg">步幅趋势</h2>
           <div ref={strideRef} style={{ width: '100%', height: '200px', position: 'relative', zIndex: 0 }} />
         </section>
       )}
-    </>
+    </div>
   );
 }
