@@ -63,7 +63,7 @@ export function useEchart(
     const mq = window.matchMedia?.("(prefers-color-scheme: dark)");
     mq?.addEventListener?.("change", onTheme);
     const mo = new MutationObserver(onTheme);
-    mo.observe(document.documentElement, { attributes: { attributeFilter: ["data-theme"] } });
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
     return () => {
       ro.disconnect();
