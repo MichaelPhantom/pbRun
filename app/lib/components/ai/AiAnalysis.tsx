@@ -11,6 +11,9 @@ type Status = 'idle' | 'streaming' | 'done' | 'error';
  * AI 教练分析 — 活动详情页。
  * 点「生成分析」后, 服务端从 DB 取本次活动指标+分段, 调本机 freellm (auto 路由器
  * 或用户选定模型), 以 SSE 流式返回; 客户端边收边渲染 Markdown。模型可下拉切换。
+ *
+ * 推理类模型 (auto 可能路由到 nemotron/qwen-thinking 等) 会先流 reasoning_content
+ * 再流 content; 实时展示「思考过程」避免长思考期空白, 答案到达后折叠。
  */
 export function AiAnalysis({ activityId }: { activityId: number }) {
   const [models, setModels] = useState<ModelInfo[]>([]);
@@ -18,6 +21,7 @@ export function AiAnalysis({ activityId }: { activityId: number }) {
   const [model, setModel] = useState('auto');
   const [status, setStatus] = useState<Status>('idle');
   const [content, setContent] = useState('');
+  const [reasoning, setReasoning] = useState('');
   const [routedModel, setRoutedModel] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -38,10 +42,12 @@ export function AiAnalysis({ activityId }: { activityId: number }) {
     abortRef.current = ac;
     setStatus('streaming');
     setContent('');
+    setReasoning('');
     setRoutedModel(null);
     setError(null);
 
     let text = '';
+    let think = '';
     let routed: string | null = null;
 
     try {
@@ -73,8 +79,13 @@ export function AiAnalysis({ activityId }: { activityId: number }) {
             const json = JSON.parse(payload);
             if (json.error) throw new Error(String(json.error));
             if (json.model && !routed) routed = String(json.model);
-            const delta: string | undefined = json.choices?.[0]?.delta?.content;
-            if (delta) { text += delta; setContent(text); }
+            const delta: Record<string, string | undefined> | undefined = json.choices?.[0]?.delta;
+            if (delta) {
+              const c = delta.content;
+              const r = delta.reasoning_content ?? delta.reasoning;
+              if (c) { text += c; setContent(text); }
+              if (r) { think += r; setReasoning(think); }
+            }
           } catch {
             // 非 JSON 行 (注释/keepalive), 忽略
           }
@@ -82,10 +93,11 @@ export function AiAnalysis({ activityId }: { activityId: number }) {
       }
       if (routed) setRoutedModel(routed);
       setStatus(text ? 'done' : 'error');
-      if (!text) setError('分析结果为空');
+      if (!text) setError(think ? '模型仅输出思考过程, 未能生成分析结论' : '分析结果为空');
     } catch (e) {
       if ((e as Error).name === 'AbortError') {
         if (routed) setRoutedModel(routed);
+        if (think) setReasoning(think);
         setStatus(text ? 'done' : 'idle');
         return;
       }
@@ -97,6 +109,7 @@ export function AiAnalysis({ activityId }: { activityId: number }) {
   function stop() { abortRef.current?.abort(); }
 
   const busy = status === 'streaming';
+  const showReasoning = reasoning.length > 0;
 
   return (
     <SectionCard
@@ -146,16 +159,29 @@ export function AiAnalysis({ activityId }: { activityId: number }) {
             基于本次活动的配速、心率、步频、VDOT 与每公里分段，点击「生成分析」获取专业解读与训练建议。
           </p>
         )}
-        {busy && content === '' && (
+        {busy && content === '' && !showReasoning && (
           <p className="flex items-center gap-2 py-2 text-sm text-fg-muted">
             <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-[var(--brand)] border-t-transparent" />
             分析中…
           </p>
         )}
-        {content && <MarkdownLite text={content} />}
+
+        {showReasoning && (
+          <details open={!content} className="mt-0.5">
+            <summary className="cursor-pointer text-[11px] text-fg-muted select-none">
+              思考过程{busy && !content ? '…' : ''}
+            </summary>
+            <pre className="mt-1 max-h-44 overflow-auto whitespace-pre-wrap rounded bg-surface-2 p-2 text-[11px] leading-relaxed text-fg-muted">
+              {reasoning}
+            </pre>
+          </details>
+        )}
+
+        {content && <div className={showReasoning ? 'mt-2 border-t border-border pt-2' : ''}><MarkdownLite text={content} /></div>}
         {busy && content && (
           <span className="ml-0.5 inline-block h-3.5 w-[3px] animate-pulse bg-[var(--brand)] align-middle" />
         )}
+
         {status === 'error' && error && (
           <p className="py-2 text-sm text-[var(--crit)]">⚠ {error}</p>
         )}

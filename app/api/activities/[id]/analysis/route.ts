@@ -58,7 +58,7 @@ export async function POST(
         messages,
         stream: true,
         temperature: 0.5,
-        max_tokens: 1400,
+        max_tokens: 2500,
       }),
     });
   } catch {
