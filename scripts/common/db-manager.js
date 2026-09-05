@@ -319,6 +319,20 @@ class DatabaseManager {
     stmt.run(...values);
   }
 
+  /**
+   * 只更新指定字段（不整体 upsert），用于回填场景。
+   * patch: { column: value }，仅允许 activities 表已存在的列。
+   */
+  updateActivityFields(activityId, patch) {
+    const cols = Object.keys(patch);
+    if (cols.length === 0) return;
+    const setClause = cols.map(c => `${c} = ?`).join(', ');
+    const stmt = this.db.prepare(
+      `UPDATE activities SET ${setClause}, updated_at = CURRENT_TIMESTAMP WHERE activity_id = ?`
+    );
+    stmt.run(...cols.map(c => patch[c]), activityId);
+  }
+
   insertLaps(activityId, lapsData) {
     // Delete existing laps
     const deleteStmt = this.db.prepare('DELETE FROM activity_laps WHERE activity_id = ?');
