@@ -68,6 +68,8 @@ async function main() {
         'hr_zone_boundaries', 'power_zone_boundaries',
         'devices', 'user_weight', 'user_height', 'resting_heart_rate_fit',
         'workout_name', 'workout_steps', 'hrv_rmssd',
+        // 海拔（km→m 换算修复后需重刷）
+        'avg_altitude', 'max_altitude', 'min_altitude',
       ];
       for (const f of fields) {
         if (a[f] != null) patch[f] = a[f];

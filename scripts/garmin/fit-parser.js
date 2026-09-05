@@ -331,15 +331,21 @@ class GarminFITParser {
     activityData.intensity_factor = this._safeGetFloat(session, 'intensity_factor');
 
     // 海拔（米）— session 可能无此字段，兜底从 records 计算
-    activityData.avg_altitude = this._safeGetFloat(session, 'enhanced_avg_altitude') ?? this._safeGetFloat(session, 'avg_altitude');
-    activityData.max_altitude = this._safeGetFloat(session, 'enhanced_max_altitude') ?? this._safeGetFloat(session, 'max_altitude');
-    activityData.min_altitude = this._safeGetFloat(session, 'enhanced_min_altitude') ?? this._safeGetFloat(session, 'min_altitude');
+    activityData.avg_altitude = this._altitudeToMeters(
+      this._safeGetFloat(session, 'enhanced_avg_altitude') ?? this._safeGetFloat(session, 'avg_altitude')
+    );
+    activityData.max_altitude = this._altitudeToMeters(
+      this._safeGetFloat(session, 'enhanced_max_altitude') ?? this._safeGetFloat(session, 'max_altitude')
+    );
+    activityData.min_altitude = this._altitudeToMeters(
+      this._safeGetFloat(session, 'enhanced_min_altitude') ?? this._safeGetFloat(session, 'min_altitude')
+    );
 
-    // 兜底：session 无海拔时从 records 聚合
+    // 兜底：session 无海拔时从 records 聚合（records 海拔同样需 km→m）
     if (activityData.avg_altitude == null && fitData.records && fitData.records.length > 0) {
       const alts = [];
       for (const r of fitData.records) {
-        const alt = this._safeGetFloat(r, 'enhanced_altitude') ?? this._safeGetFloat(r, 'altitude');
+        const alt = this._recordAltitudeMeters(r);
         if (alt != null) alts.push(alt);
       }
       if (alts.length > 0) {
@@ -528,7 +534,7 @@ class GarminFITParser {
 
       // 新增：功率、海拔、速度、距离
       const power = this._safeGetInt(r, 'power');
-      const altitude = this._safeGetFloat(r, 'enhanced_altitude') ?? this._safeGetFloat(r, 'altitude');
+      const altitude = this._recordAltitudeMeters(r);
       const speed = this._safeGetFloat(r, 'enhanced_speed') ?? this._safeGetFloat(r, 'speed');
       const distance = this._safeGetFloat(r, 'distance');
 
@@ -599,7 +605,7 @@ class GarminFITParser {
     const elev = [];
     for (let i = 0; i < rawRecords.length; i++) {
       const r = rawRecords[i];
-      const alt = this._safeGetFloat(r, 'enhanced_altitude') ?? this._safeGetFloat(r, 'altitude');
+      const alt = this._recordAltitudeMeters(r);
       if (alt == null) continue;
       const ts = r.timestamp;
       const elapsed = r.elapsed_time != null
@@ -648,6 +654,23 @@ class GarminFITParser {
   _safeGetInt(data, key) {
     const num = this._safeGetFloat(data, key);
     return num === null ? null : Math.round(num);
+  }
+
+  /**
+   * 海拔换算：解析器 lengthUnit:'km' 时海拔/爬升均被转为 km，需 ×1000 还原为米。
+   * 收敛浮点噪声（0.2882 * 1000 = 288.20000000000005 → 288.2）。
+   */
+  _altitudeToMeters(value) {
+    if (value == null) return null;
+    const n = Number(value);
+    if (!Number.isFinite(n)) return null;
+    return Math.round(n * 1000 * 10) / 10;
+  }
+
+  /** 取 record 海拔（优先 enhanced_altitude）并换算为米 */
+  _recordAltitudeMeters(r) {
+    const raw = this._safeGetFloat(r, 'enhanced_altitude') ?? this._safeGetFloat(r, 'altitude');
+    return this._altitudeToMeters(raw);
   }
 
   /**
