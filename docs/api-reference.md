@@ -80,6 +80,18 @@ GET /api/activities
 | `avg_cadence` | number | 平均步频 | spm |
 | `total_calories` | number | 总卡路里 | kcal |
 | `vdot` | number | VDOT 跑力值 | - |
+| `garmin_vo2max` | number \| null | Garmin 官方 VO2max | ml/kg/min |
+| `recovery_time` | number \| null | 恢复时间 | 分钟 |
+| `primary_benefit` | string \| null | 训练主要收益 | - |
+| `hr_zone_boundaries` | string \| null | 心率区间上限边界 (JSON 数组) | bpm |
+| `power_zone_boundaries` | string \| null | 功率区间上限边界 (JSON 数组) | 瓦 |
+| `devices` | string \| null | 设备列表 (JSON 数组) | - |
+| `user_weight` | number \| null | 体重 | kg |
+| `user_height` | number \| null | 身高 | m |
+| `resting_heart_rate_fit` | number \| null | 静息心率 | bpm |
+| `workout_name` | string \| null | 课表名称 | - |
+| `workout_steps` | string \| null | 课表步骤 (JSON 数组) | - |
+| `hrv_rmssd` | number \| null | HRV RMSSD | ms |
 
 ---
 
@@ -146,7 +158,19 @@ GET /api/activities/{id}
   "total_descent": 110,
   "avg_stride_length": 1.18,
   "training_effect": 3.5,
-  "vdot": 52.3
+  "vdot": 52.3,
+  "garmin_vo2max": 50.2,
+  "recovery_time": 24,
+  "primary_benefit": "有氧基础",
+  "hr_zone_boundaries": "[97,117,136,155,175,194]",
+  "power_zone_boundaries": null,
+  "devices": "[{\"device_type\":\"GPS\",\"manufacturer\":\"garmin\",\"product\":\"FR265\",\"firmware\":\"18.22\"}]",
+  "user_weight": 70,
+  "user_height": 1.75,
+  "resting_heart_rate_fit": 55,
+  "workout_name": "基础训练",
+  "workout_steps": null,
+  "hrv_rmssd": 42.5
 }
 ```
 
