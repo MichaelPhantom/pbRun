@@ -65,6 +65,7 @@ temp/
 # Runtime database (large, backup locally)
 app/data/*.db
 app/data/*.db-*
+app/data/*.db.bak.*
 app/data/.backups/
 
 # MCP server build output
