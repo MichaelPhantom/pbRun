@@ -170,7 +170,7 @@ export default async function DashboardPage() {
             value={formatDistance(thisMonthKm)}
             label="本月距离"
             delta={Math.abs(thisMonthKm - lastMonthKm) > 0.05 ? thisMonthKm - lastMonthKm : null}
-            deltaLabel="km vs 上月"
+            deltaLabel="vs 上月"
           />
           <StatCard value={thisMonthRuns} label="活动天数" />
           <StatCard value={monthAvgPace != null ? formatPace(monthAvgPace, false) : "--"} unit="/km" label="平均配速" />
