@@ -92,7 +92,14 @@ export async function registerTools(server: McpServer): Promise<void> {
     'get_activity',
     {
       title: '单条活动详情',
-      description: '按 activity_id 返回单条活动的完整指标。distance 为公里, 时长/配速分别为秒/秒每公里。',
+      description:
+        '按 activity_id 返回单条活动的完整指标。distance 为公里, 时长/配速分别为秒/秒每公里。' +
+        '含 Garmin 官方指标: garmin_vo2max(官方VO2max, 区别于本地推算的 vdot_value)、' +
+        'recovery_time(恢复分钟)、primary_benefit(训练收益)、' +
+        'hr_zone_boundaries/power_zone_boundaries(区间边界 bpm/瓦, JSON 数组字符串)、' +
+        'devices(设备列表 JSON, 已脱敏)、user_weight/user_height/resting_heart_rate_fit(用户档案)、' +
+        'workout_name/workout_steps(课表)、hrv_rmssd(HRV 毫秒, 仅部分活动有)。' +
+        'JSON 字段需自行 parse; 字段缺失表示该活动无对应数据。',
       inputSchema: {
         activityId: z.number().int().positive().describe('活动 ID'),
       },
