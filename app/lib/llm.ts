@@ -56,8 +56,10 @@ export async function fetchModels(): Promise<LlmModelInfo[]> {
     signal: AbortSignal.timeout(6000),
   }).catch(() => null);
   if (!r || !r.ok) return [];
-  const j = await r.json().catch(() => ({ data: [] }));
-  const data = (j?.data ?? []) as Array<{ id: string; name?: string; available?: boolean }>;
+  const j = (await r
+    .json()
+    .catch(() => null)) as { data?: Array<{ id: string; name?: string; available?: boolean }> } | null;
+  const data = j?.data ?? [];
   return data
     .filter((m) => m && m.id && m.available !== false)
     .map((m) => ({ id: m.id, name: m.name || m.id, available: m.available !== false }));
