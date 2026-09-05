@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { useEchart } from "@/app/lib/components/charts/useEchart";
 import { cssVar, resolveColor } from "@/app/lib/echarts-theme";
 import type { EChartsOption } from "echarts";
@@ -20,16 +19,6 @@ export function YearHeatmap({
   year: number;
   height?: number;
 }) {
-  const [isMobile, setIsMobile] = useState(false);
-
-  useEffect(() => {
-    const mq = window.matchMedia("(max-width: 640px)");
-    setIsMobile(mq.matches);
-    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
-    mq.addEventListener("change", handler);
-    return () => mq.removeEventListener("change", handler);
-  }, []);
-
   const { ref, style } = useEchart(
     () => {
       const values = data.map((d) => d.km).filter((v) => v > 0);
@@ -39,10 +28,29 @@ export function YearHeatmap({
       const surface = cssVar("--surface");
       const surface2 = cssVar("--surface-2");
 
-      const now = new Date();
-      const rangeEnd = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-      const rangeStart = new Date(now.getFullYear(), now.getMonth() - 5, 1);
-      const rangeStartStr = `${rangeStart.getFullYear()}-${String(rangeStart.getMonth() + 1).padStart(2, "0")}-01`;
+      const mobile = typeof window !== "undefined" && window.innerWidth <= 640;
+      let range: string | [string, string] = String(year);
+      let cellW: number | "auto" = "auto";
+      let showYearLabel = false;
+      let showDayLabel = true;
+      let monthFontSize = 10;
+      let calLeft = 20;
+      let calRight = 20;
+      let h = height;
+
+      if (mobile) {
+        const now = new Date();
+        const end = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+        const start = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+        const startStr = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}-01`;
+        range = [startStr, end];
+        cellW = 10;
+        showDayLabel = false;
+        monthFontSize = 9;
+        calLeft = 10;
+        calRight = 10;
+        h = 130;
+      }
 
       return {
         tooltip: {
@@ -59,16 +67,16 @@ export function YearHeatmap({
         },
         calendar: {
           top: 30,
-          left: isMobile ? 10 : 20,
-          right: isMobile ? 10 : 20,
-          cellSize: [isMobile ? 10 : "auto", 13],
-          range: isMobile ? [rangeStartStr, rangeEnd] : String(year),
+          left: calLeft,
+          right: calRight,
+          cellSize: [cellW, 13],
+          range,
           orient: "horizontal",
           itemStyle: { color: surface2, borderColor: surface, borderWidth: 2 },
           splitLine: { show: false },
-          yearLabel: { show: !isMobile },
-          monthLabel: { show: true, color: fgMuted, fontSize: isMobile ? 9 : 10, firstDay: 1, margin: 6, nameMap: "ZH" },
-          dayLabel: { show: !isMobile, color: fgMuted, fontSize: 9, firstDay: 1 },
+          yearLabel: { show: showYearLabel },
+          monthLabel: { show: true, color: fgMuted, fontSize: monthFontSize, firstDay: 1, margin: 6, nameMap: "ZH" },
+          dayLabel: { show: showDayLabel, color: fgMuted, fontSize: 9, firstDay: 1 },
         },
         series: [
           {
@@ -80,8 +88,8 @@ export function YearHeatmap({
         ],
       } as EChartsOption;
     },
-    [data, year, isMobile],
-    { height: isMobile ? 130 : height },
+    [data, year],
+    { height },
   );
   return (
     <div className="overflow-x-auto">

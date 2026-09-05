@@ -36,13 +36,13 @@ export function StatCard({
         </span>
         {unit && <span className="text-xs font-medium text-fg-muted">{unit}</span>}
       </div>
-      <div className="flex items-center gap-1.5 overflow-hidden text-xs text-fg-secondary">
-        <span className="shrink-0 whitespace-nowrap">{label}</span>
+      <div className="flex items-center gap-1.5 text-xs text-fg-secondary">
+        <span className="truncate">{label}</span>
         {showDelta && (
-          <span className={`tnum shrink-0 whitespace-nowrap ${deltaColor}`}>
+          <span className={`tnum shrink-0 whitespace-nowrap text-[10px] sm:text-xs ${deltaColor}`}>
             {deltaSign}
             {Math.abs(delta as number).toFixed(absIsInt(delta) ? 0 : 1)}
-            {deltaLabel ? ` ${deltaLabel}` : ""}
+            {deltaLabel ? <span className="hidden sm:inline"> {deltaLabel}</span> : ""}
           </span>
         )}
       </div>
