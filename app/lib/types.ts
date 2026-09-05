@@ -81,6 +81,28 @@ export interface Activity {
   vdot_value?: number;                           // VDOT 跑力值
   training_load?: number;                        // 训练负荷
 
+  // Garmin 官方指标（FIT activity_metrics 消息）
+  garmin_vo2max?: number | null;                 // Garmin 官方 VO2max（ml/kg/min，区别于本地推算的 vdot_value）
+  recovery_time?: number | null;                 // 恢复时间（分钟）
+  primary_benefit?: string | null;               // 训练主要收益（如 有氧基础/VO2max/速度）
+
+  // 区间边界（FIT time_in_zone 消息，JSON 数组字符串）
+  hr_zone_boundaries?: string | null;            // 心率区间上限边界（bpm），如 "[97,117,136,155,175,194]"
+  power_zone_boundaries?: string | null;         // 功率区间上限边界（瓦）
+
+  // 设备与用户档案（FIT device_infos / user_profile，设备已脱敏无序列号）
+  devices?: string | null;                       // 设备列表 JSON [{device_type,manufacturer,product,firmware}]
+  user_weight?: number | null;                   // 体重（公斤）
+  user_height?: number | null;                   // 身高（米）
+  resting_heart_rate_fit?: number | null;        // 静息心率（bpm）
+
+  // 课表（FIT workout / workout_step 消息）
+  workout_name?: string | null;                  // 课表名称（如 基础训练、乳酸阈值）
+  workout_steps?: string | null;                 // 课表步骤 JSON 数组
+
+  // 心率变异性（FIT hrv 消息，仅部分活动有）
+  hrv_rmssd?: number | null;                     // RMSSD（毫秒，由 RR 间期计算）
+
   // 元数据
   created_at: string;                            // 创建时间
   updated_at: string;                            // 更新时间
@@ -161,6 +183,10 @@ export interface ActivityRecord {
   cadence?: number | null;                        // 步频（步/分钟）
   step_length?: number | null;                    // 步幅（米）
   pace?: number | null;                           // 配速（秒/公里），由步频与步幅推导或同步时写入
+  power?: number | null;                          // 功率（瓦）
+  altitude?: number | null;                       // 海拔（米）
+  speed?: number | null;                          // 速度（米/秒）
+  distance?: number | null;                       // 累计距离（米）
 }
 
 export interface ActivityQueryParams {
