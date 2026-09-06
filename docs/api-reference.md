@@ -79,7 +79,8 @@ GET /api/activities
 | `avg_heart_rate` | number | 平均心率 | bpm |
 | `avg_cadence` | number | 平均步频 | spm |
 | `total_calories` | number | 总卡路里 | kcal |
-| `vdot` | number | VDOT 跑力值 | - |
+| `vdot` | number \| null | VDOT 跑力值（Daniels；仅 Z3+ 代表性强度段，取最快 Z3+ lap，否则全程 Z3+ 才计；日常轻松/恢复跑为 null） | - |
+| `training_load` | number \| null | 训练负荷（优先 FIT 官方，缺省按时长×心率档回退） | - |
 | `garmin_vo2max` | number \| null | Garmin 官方 VO2max | ml/kg/min |
 | `recovery_time` | number \| null | 恢复时间 | 分钟 |
 | `primary_benefit` | string \| null | 训练主要收益 | - |

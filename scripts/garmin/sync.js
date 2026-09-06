@@ -354,21 +354,40 @@ class GarminSync {
       else if (fromGps) activityData.sub_sport_type = fromGps;
     }
 
-    // Calculate VDOT if possible (仅跑步类有配速-心率关系, 其他运动跳过)
+    // VDOT：仅在“代表性强度”时段计算（避免把恢复/有氧慢跑平均强度当成能力值）
+    // 取 laps 中最快且为 Z3+ 的段为代表；无合适 lap 且全程也非 Z3+ 则跳过
     const runnableTypes = ['running', 'treadmill_running', 'track_running'];
     if (this.vdotCalculator && runnableTypes.includes(activityData.activity_type) && activityData.average_heart_rate) {
-      const vdot = this.vdotCalculator.calculateVdotFromPace(
-        (activityData.distance || 0) * 1000,  // Convert km to meters
-        activityData.duration || 0,
-        activityData.average_heart_rate
-      );
-      activityData.vdot_value = vdot;
-
-      const trainingLoad = this.vdotCalculator.calculateTrainingLoad(
-        activityData.duration || 0,
-        activityData.average_heart_rate
-      );
-      activityData.training_load = trainingLoad;
+      let seg = null;
+      if (Array.isArray(lapsData) && lapsData.length > 0) {
+        const cands = lapsData.filter(l => l.distance > 400 && l.duration > 30 && l.average_heart_rate && l.average_pace);
+        if (cands.length > 0) {
+          const best = cands.reduce((a, b) => (a.average_pace < b.average_pace ? a : b));
+          if (this.vdotCalculator.isRepresentativeEffort(best.average_heart_rate)) {
+            seg = { d: best.distance, t: best.duration, hr: best.average_heart_rate };
+          } else if (this.vdotCalculator.isRepresentativeEffort(activityData.average_heart_rate)) {
+            seg = { d: (activityData.distance || 0) * 1000, t: activityData.duration || 0, hr: activityData.average_heart_rate };
+          }
+        } else if (this.vdotCalculator.isRepresentativeEffort(activityData.average_heart_rate)) {
+          seg = { d: (activityData.distance || 0) * 1000, t: activityData.duration || 0, hr: activityData.average_heart_rate };
+        }
+      } else if (this.vdotCalculator.isRepresentativeEffort(activityData.average_heart_rate)) {
+        seg = { d: (activityData.distance || 0) * 1000, t: activityData.duration || 0, hr: activityData.average_heart_rate };
+      }
+      if (seg) {
+        const vdot = this.vdotCalculator.calculateVdotFromPace(seg.d, seg.t);
+        activityData.vdot_value = vdot;
+      }
+    }
+    // training_load：优先用 FIT 官方（fit-parser 已提取），缺省才回退自定义公式
+    if (activityData.training_load == null && this.vdotCalculator && activityData.duration && activityData.average_heart_rate) {
+      const runnableTypes2 = ['running', 'treadmill_running', 'track_running'];
+      if (runnableTypes2.includes(activityData.activity_type)) {
+        activityData.training_load = this.vdotCalculator.calculateTrainingLoad(
+          activityData.duration,
+          activityData.average_heart_rate
+        );
+      }
     }
 
     // Save to database

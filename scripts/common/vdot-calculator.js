@@ -52,34 +52,15 @@ class VDOTCalculator {
 
     // Calculate percent of VO2max based on duration (standard Daniels formula)
     // %VO2max = 0.8 + 0.1894393 * e^(-0.012778*t) + 0.2989558 * e^(-0.1932605*t)
+    // t 拟合区间约 3.5–240 min；超出则 clamp 至 [0.8, 1.0]，不再对短/超长活动 return null
     const t = durationMinutes;
-    const percentVo2max = 0.8
+    let percentVo2max = 0.8
                         + 0.1894393 * Math.exp(-0.012778 * t)
                         + 0.2989558 * Math.exp(-0.1932605 * t);
+    percentVo2max = Math.min(1.0, Math.max(0.8, percentVo2max));
 
-    // Sanity check
-    if (percentVo2max <= 0 || percentVo2max > 1.0) return null;
-
-    // Calculate base VDOT
-    let vdot = vo2 / percentVo2max;
-
-    // Optional: Adjust VDOT based on heart rate zone
-    // This accounts for efficiency differences (lower HR at same pace = better fitness)
-    if (avgHr && avgHr > 0) {
-      const hrZone = this.getHrZone(avgHr);
-
-      // Conservative multipliers based on HR efficiency
-      const zoneMultipliers = {
-        1: 0.97,  // Easy run - may indicate overtraining or inefficiency if too many easy runs
-        2: 0.99,  // Aerobic base - good aerobic fitness
-        3: 1.00,  // Tempo run - baseline
-        4: 1.00,  // Lactate threshold - expected for this pace
-        5: 1.00   // VO2max - expected for hard efforts
-      };
-
-      const multiplier = zoneMultipliers[hrZone] || 1.0;
-      vdot *= multiplier;
-    }
+    // Calculate VDOT — 纯 Daniels，不再做心率乘子修正（见审核报告：原 0.97/0.99 无依据且方向相反）
+    const vdot = vo2 / percentVo2max;
 
     // Sanity check: VDOT typically ranges from 30-85 for most runners
     if (vdot < 20 || vdot > 100) {
@@ -87,6 +68,15 @@ class VDOTCalculator {
     }
 
     return Math.round(vdot * 10) / 10;
+  }
+
+  /**
+   * 判断是否为“代表性强度”时段：仅 Z3+（≥80% maxHR）的全力/阈值段才计入 VDOT，
+   * 日常轻松/恢复跑（Z1/Z2）直接跳过，避免把训练平均强度当成能力值
+   */
+  isRepresentativeEffort(avgHr) {
+    if (avgHr == null || avgHr <= 0) return false;
+    return this.getHrZone(avgHr) >= 3;
   }
 
   /**

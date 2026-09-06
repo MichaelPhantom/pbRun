@@ -78,8 +78,8 @@ export interface Activity {
   average_temperature?: number;                  // 平均温度（摄氏度）
 
   // VDOT 跑力值
-  vdot_value?: number;                           // VDOT 跑力值
-  training_load?: number;                        // 训练负荷
+  vdot_value?: number | null;                   // VDOT 跑力值（Daniels；仅 Z3+ 代表性强度，轻松/恢复跑为 null）
+  training_load?: number | null;                 // 训练负荷（优先 FIT 官方，缺省回退）
 
   // Garmin 官方指标（FIT activity_metrics 消息）
   garmin_vo2max?: number | null;                 // Garmin 官方 VO2max（ml/kg/min，区别于本地推算的 vdot_value）

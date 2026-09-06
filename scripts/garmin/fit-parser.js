@@ -329,6 +329,11 @@ class GarminFITParser {
     activityData.normalized_power = this._safeGetInt(session, 'normalized_power');
     activityData.training_stress_score = this._safeGetInt(session, 'training_stress_score');
     activityData.intensity_factor = this._safeGetFloat(session, 'intensity_factor');
+    // FIT 官方 training_load（若有则优先用，缺省才回退自定义公式；兼容解析器可能的不同字段名）
+    const fitTrainingLoad = this._safeGetInt(session, 'training_load')
+      ?? this._safeGetInt(session, 'training_load_score')
+      ?? this._safeGetInt(session, 'acute_training_load');
+    if (fitTrainingLoad != null) activityData.training_load = fitTrainingLoad;
 
     // 海拔（米）— session 可能无此字段，兜底从 records 计算
     activityData.avg_altitude = this._altitudeToMeters(

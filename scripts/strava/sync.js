@@ -213,21 +213,31 @@ class StravaSync {
       calories: data.calories,
     };
 
-    // Calculate VDOT if heart rate data available
+    // VDOT：仅 Z3+ 代表性强度才计算（与 garmin 侧一致，日常轻松跑跳过）
     if (this.vdotCalculator && data.average_heart_rate) {
-      const distanceMeters = data.distance * 1000;
-      const vdot = this.vdotCalculator.calculateVdotFromPace(
-        distanceMeters,
-        data.duration,
-        data.average_heart_rate
-      );
-      activityData.vdot_value = vdot;
-
-      const trainingLoad = this.vdotCalculator.calculateTrainingLoad(
-        data.duration,
-        data.average_heart_rate
-      );
-      activityData.training_load = trainingLoad;
+      let seg = null;
+      if (Array.isArray(data.laps) && data.laps.length > 0) {
+        const cands = data.laps.filter(l => l.distance > 400 && l.duration > 30 && l.average_heart_rate && l.average_pace);
+        if (cands.length > 0) {
+          const best = cands.reduce((a, b) => (a.average_pace < b.average_pace ? a : b));
+          if (this.vdotCalculator.isRepresentativeEffort(best.average_heart_rate)) {
+            seg = { d: best.distance, t: best.duration };
+          } else if (this.vdotCalculator.isRepresentativeEffort(data.average_heart_rate)) {
+            seg = { d: data.distance * 1000, t: data.duration };
+          }
+        } else if (this.vdotCalculator.isRepresentativeEffort(data.average_heart_rate)) {
+          seg = { d: data.distance * 1000, t: data.duration };
+        }
+      } else if (this.vdotCalculator.isRepresentativeEffort(data.average_heart_rate)) {
+        seg = { d: data.distance * 1000, t: data.duration };
+      }
+      if (seg) {
+        activityData.vdot_value = this.vdotCalculator.calculateVdotFromPace(seg.d, seg.t);
+      }
+    }
+    // training_load：Strava 无 FIT 官方值，仍用自定义公式（与 garmin 缺省回退一致）
+    if (activityData.training_load == null && this.vdotCalculator && data.average_heart_rate && data.duration) {
+      activityData.training_load = this.vdotCalculator.calculateTrainingLoad(data.duration, data.average_heart_rate);
     }
 
     return activityData;

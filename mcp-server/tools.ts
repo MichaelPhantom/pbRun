@@ -99,6 +99,8 @@ export async function registerTools(server: McpServer): Promise<void> {
         'hr_zone_boundaries/power_zone_boundaries(区间边界 bpm/瓦, JSON 数组字符串)、' +
         'devices(设备列表 JSON, 已脱敏)、user_weight/user_height/resting_heart_rate_fit(用户档案)、' +
         'workout_name/workout_steps(课表)、hrv_rmssd(HRV 毫秒, 仅部分活动有)。' +
+        'vdot_value 仅在 Z3+ 代表性强度段计算（取最快 Z3+ lap，否则全程 Z3+），日常轻松/恢复跑为 null；' +
+        'training_load 优先 FIT 官方，缺省回退时长×心率档；' +
         'JSON 字段需自行 parse; 字段缺失表示该活动无对应数据。',
       inputSchema: {
         activityId: z.number().int().positive().describe('活动 ID'),
