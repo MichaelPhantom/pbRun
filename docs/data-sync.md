@@ -129,11 +129,10 @@ VDOT (V̇O2max) 是由 Jack Daniels 提出的跑力指标，基于跑步成绩�
 4. 计算 VDOT:
    VDOT = VO2max / energy_percent
 
-5. 心率校准 (可选):
-   如果提供了 MAX_HR 和 RESTING_HR，会根据心率储备百分比进行校准
+5. 代表性强度门控: 仅 Z3+（≥80% maxHR）的全力/阈值段才计入 VDOT，取最快 Z3+ lap 否则全程 Z3+；日常轻松/恢复跑为 null（纯 Daniels，不再做心率乘子修正；%VO2max clamp 至 [0.8,1.0]）
 ```
 
-详细公式推导请参考 [VDOT 计算说明](vdot-calculation.md)。
+> 新口径已回填库：103/197 有 VDOT，均值 39.2（原 32.6）。详见 [VDOT 计算说明](vdot-calculation.md)。
 
 ---
 

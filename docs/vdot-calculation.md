@@ -124,101 +124,67 @@ VDOT = 36.01 / 0.8999
 
 ### 代码实现
 
-以下是本项目中的 VDOT 计算函数（简化版）：
+以下是本项目中的 VDOT 计算函数（简化版，已按 2026-09 全面重构）：
 
 ```javascript
-function calculateVDOT(distanceMeters, durationSeconds, avgHeartRate = null, maxHR = null, restingHR = null) {
+function calculateVDOT(distanceMeters, durationSeconds) {
   // 1. 计算速度 (m/min)
   const durationMinutes = durationSeconds / 60;
   const velocity = distanceMeters / durationMinutes;
 
-  // 2. 计算 VO2max
-  const vo2max = -4.60 + 0.182258 * velocity + 0.000104 * (velocity ** 2);
+  // 2. 计算 VO2
+  const vo2 = -4.60 + 0.182258 * velocity + 0.000104 * (velocity ** 2);
 
-  // 3. 计算能量消耗比例
-  const energyPercent =
-    0.8 +
-    0.1894393 * Math.exp(-0.012778 * durationMinutes) +
-    0.2989558 * Math.exp(-0.1932605 * durationMinutes);
+  // 3. 计算 %VO2max — 拟合区间约 3.5–240 min，超出 clamp 至 [0.8, 1.0]
+  let pct = 0.8
+    + 0.1894393 * Math.exp(-0.012778 * durationMinutes)
+    + 0.2989558 * Math.exp(-0.1932605 * durationMinutes);
+  pct = Math.min(1.0, Math.max(0.8, pct)); // 短于 11.5min / 超长均不再 return null
 
-  // 4. 计算基础 VDOT
-  let vdot = vo2max / energyPercent;
-
-  // 5. 心率校准 (可选)
-  if (avgHeartRate && maxHR && restingHR) {
-    const hrr = maxHR - restingHR;
-    const hrPercent = (avgHeartRate - restingHR) / hrr;
-
-    // 根据心率百分比调整 VDOT
-    // 如果心率偏低，说明实际能力更强，上调 VDOT
-    // 如果心率偏高，说明实际能力较弱，下调 VDOT
-    const expectedHRPercent = 0.70; // 假设 70% 心率储备对应当前配速
-    const hrAdjustment = (expectedHRPercent - hrPercent) * 5; // 每 1% 差异调整 5 个 VDOT 点
-    vdot += hrAdjustment;
-  }
-
-  return Math.round(vdot * 10) / 10; // 保留 1 位小数
+  // 4. 纯 Daniels，不再做心率乘子修正
+  const vdot = vo2 / pct;
+  return Math.round(vdot * 10) / 10;
+}
+// 门控：仅 Z3+（≥80% maxHR）的全力/阈值段才计入 VDOT
+function isRepresentativeEffort(avgHr, maxHr) {
+  return (avgHr / maxHr) * 100 >= 80; // 日常轻松/恢复跑直接跳过
 }
 ```
+
+### 代表性强度门控
+
+Daniels VDOT 仅对**比赛/近全力**成绩有意义。本项目不再用每次跑步的平均配速直接算 VDOT，而是：
+
+1. 优先取 laps 中**最快且为 Z3+ 的段**为代表；无合适 lap 且全程也非 Z3+ 则该次 `vdot_value` 置 `null`
+2. `training_load` 优先取 FIT 官方（`training_load`/`training_load_score`），缺省才回退时长×心率档
 
 ### 有效性验证
 
-VDOT 计算仅在以下条件下有效：
-
-1. **距离 ≥ 1000 米**: 短距离跑步不适用 VDOT 理论
-2. **持续时间 ≥ 3 分钟**: 过短的跑步无法准确反映有氧能力
-3. **配速稳定**: 大幅变速或间歇跑可能导致计算不准确
-
-代码中的验证逻辑：
-
-```javascript
-if (distanceMeters < 1000 || durationSeconds < 180) {
-  return null; // 不计算 VDOT
-}
-```
+- `%VO2max` clamp 至 `[0.8, 1.0]`，<11.5 min 的短活动与超长活动均可给出 VDOT（原逻辑 >1.0 时 `null`）
+- 距离/时长非法（≤0）或 `VDOT<20/>100` 时返回 `null`
+- 日常轻松/恢复跑因门控为 `null`，属预期
 
 ---
 
-## 心率校准
+## 代表性强度门控（原“心率校准”已重构）
 
-### 为什么需要心率校准？
+### 为什么需要门控？
 
-同样的配速，不同的心率反映了不同的运动强度：
+VDOT 定义为**比赛/近全力**时的能力参数。把日常轻松跑的平均配速直接套 Daniels 公式会系统性低估（你的数据中 Garimn VO2max 54.8 vs 旧口径 VDOT 32 的鸿沟即由此产生）。
 
-- **心率低**: 说明当前配速对你来说较轻松，实际能力可能更强
-- **心率高**: 说明当前配速对你来说较吃力，实际能力可能较弱
+### 门控逻辑
 
-心率校准可以更准确地反映真实的有氧能力。
+仅当平均心率落入 **Z3+（≥80% maxHR）** 的阈值段才计入 VDOT：
 
-### 心率储备计算
+| %maxHR | 区间 | 是否计入 |
+|--------|------|----------|
+| <70% | Z1 轻松 | 否 |
+| 70–80% | Z2 有氧 | 否 |
+| 80–87% | Z3 节奏 | ✅ |
+| 87–93% | Z4 乳酸阈 | ✅ |
+| >93% | Z5 最大摄氧 | ✅ |
 
-```
-心率储备 (HRR) = MAX_HR - RESTING_HR
-心率储备百分比 = (平均心率 - RESTING_HR) / HRR
-```
-
-示例：
-
-```
-MAX_HR = 190 bpm
-RESTING_HR = 55 bpm
-平均心率 = 150 bpm
-
-HRR = 190 - 55 = 135 bpm
-心率储备百分比 = (150 - 55) / 135 = 70.4%
-```
-
-### 校准逻辑
-
-根据心率储备百分比调整 VDOT：
-
-| 心率储备百分比 | 训练强度 | VDOT 调整 |
-|----------------|----------|-----------|
-| 50-60% | 轻松跑 | +5 |
-| 60-70% | 有氧跑 | +2 |
-| 70-80% | 节奏跑 | 0 |
-| 80-90% | 间歇跑 | -2 |
-| 90-100% | 冲刺 | -5 |
+实现：`isRepresentativeEffort(avgHr) = getHrZone(avgHr) >= 3`。计算时优先取 laps 中最快 Z3+ 段，否则取全程（全程亦需 Z3+）。日常轻松/恢复跑 `vdot_value` 为 `null` 属预期。
 
 ### 配置心率参数
 
