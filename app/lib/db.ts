@@ -486,7 +486,7 @@ export function getVDOTHistory(limit: number = 50, offset: number = 0): VDOTData
       activity_id,
       start_time,
       vdot_value,
-      distance,
+      distance * 1000 AS distance, -- activities.distance 为公里，转米以符合 VDOTDataPoint 契约
       duration
     FROM activities
     WHERE vdot_value IS NOT NULL

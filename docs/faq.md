@@ -76,3 +76,18 @@
 - **差异来源**: 本项目心率区间基于 `MAX_HR` (默认 190, 生产 194) 与
   `RESTING_HR` (默认 55, 生产 46) 计算, 与 Garmin 默认区间划分不同;
   请在 `.env` 中按实际身体参数配置后再对比
+
+### 11. AI 教练分析失败 / 输出被截断 / 距离显示 0.01km
+
+- **现象 A（距离 0.0x km）**: 已修复（2026-09-13）——`app/lib/llm.ts` 曾把
+  `activities.distance`（DB 单位：公里）又除以 1000。回归测试见
+  `tests/unit/lib/llm.test.ts`。
+- **现象 B（`*-juzi` 模型报上游错误 502）**: 本机网关 `jiutian` 渠道凭证缺失
+  （u1 `~/.wbwild/cred/jiutian.json`）或上游抖动。前端现会提示切换模型；
+  运维侧需续凭证（`push_cred`，约 5h TTL），见网关日志 `RuntimeError`。
+- **现象 C（输出中途截断，`finish_reason=length`）**: 思考模型的 reasoning
+  占用 `max_tokens` 同预算。本路由已将预算提到 4000（上游 shim 上限 8000）；
+  治本方法是选非思考模型：`auto`（路由常命中 gemini 非思考版）或
+  `glm-5.1-wb`（实测 finish=stop、无 reasoning、数学正确）。
+- **单位约定**（防复发）: `activities.distance` 为公里、`activity_laps.distance`
+  为米；聚合函数在 `db.ts` 内统一转米后再返回。`Activity.distance` 的类型注释已更正。

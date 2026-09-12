@@ -58,7 +58,10 @@ export async function POST(
         messages,
         stream: true,
         temperature: 0.5,
-        max_tokens: 2500,
+        // 4000: 思考模型的 reasoning 占用同预算，2500 易 length 截断；
+        // 上游 shim 上限 8000 (jiutian)，4000 留足余量。分析首选非思考模型
+        // (auto / glm-5.1-wb)，见 AiAnalysis 与 analysis-errors 注释。
+        max_tokens: 4000,
       }),
     });
   } catch {

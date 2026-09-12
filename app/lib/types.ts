@@ -13,7 +13,7 @@ export interface Activity {
   start_time_local: string;                      // 开始时间（本地时区）
 
   // 基础指标
-  distance: number;                              // 距离（米）
+  distance: number;                              // 距离（公里，DB 原单位；聚合接口返回米，见 db.ts 各函数）
   duration: number;                              // 总时长（秒）
   moving_time: number;                           // 移动时间（秒）
   elapsed_time: number;                          // 经过时间（秒）

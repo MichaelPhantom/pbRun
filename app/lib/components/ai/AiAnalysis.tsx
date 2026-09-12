@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { SectionCard } from '@/app/components/ui/SectionCard';
 import MarkdownLite from './MarkdownLite';
+import { friendlyAnalysisError } from './analysis-errors';
 
 interface ModelInfo { id: string; name: string; }
 type Status = 'idle' | 'streaming' | 'done' | 'error';
@@ -58,8 +59,11 @@ export function AiAnalysis({ activityId }: { activityId: number }) {
         signal: ac.signal,
       });
       if (!resp.ok) {
-        const j = await resp.json().catch(() => ({}));
-        throw new Error(j?.error || `HTTP ${resp.status}`);
+        const j = (await resp.json().catch(() => ({}))) as {
+          error?: string;
+          detail?: string;
+        };
+        throw new Error(friendlyAnalysisError(resp.status, j?.error, j?.detail));
       }
       const reader = resp.body!.getReader();
       const dec = new TextDecoder();

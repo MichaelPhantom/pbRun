@@ -87,7 +87,8 @@ export function buildAnalysisMessages(
   activity: Activity,
   laps: ActivityLap[],
 ): Array<{ role: 'system' | 'user'; content: string }> {
-  const dist = (activity.distance ?? 0) / 1000;
+  // activities.distance 在 DB 中即为公里 (详情页/列表页/MCP 均按公里使用); 仅 laps 距离为米。
+  const dist = activity.distance ?? 0;
   const dur = activity.moving_time || activity.duration || 0;
   const ordered = laps.slice().sort((a, b) => a.lap_index - b.lap_index);
 
