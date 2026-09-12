@@ -14,6 +14,29 @@ BASE_URL="http://127.0.0.1:3996/pbrun"
 
 cd "$ROOT"
 
+# app/data 为指向块存储的软链时，Turbopack 构建会因"越界软链"失败；
+# 构建前暂存软链并以空目录替身，构建后（成功/失败均）恢复。
+DATA_LINK_BAK="$ROOT/app/data.link.bak"
+stash_data_link() {
+  if [ -L "$ROOT/app/data" ]; then
+    echo "      app/data 为软链 (-> $(readlink "$ROOT/app/data"))，构建时临时替身"
+    mv "$ROOT/app/data" "$DATA_LINK_BAK"
+    mkdir -p "$ROOT/app/data"
+  fi
+}
+restore_data_link() {
+  if [ -e "$DATA_LINK_BAK" ] && [ ! -L "$ROOT/app/data" ]; then
+    rmdir "$ROOT/app/data" 2>/dev/null || true
+    # 替身目录非空说明构建写入了数据文件，合并回软链目标而非丢弃
+    if [ -d "$ROOT/app/data" ]; then
+      cp -rn "$ROOT/app/data/." "$(readlink "$DATA_LINK_BAK")/" 2>/dev/null || true
+      rm -rf "$ROOT/app/data"
+    fi
+    mv "$DATA_LINK_BAK" "$ROOT/app/data"
+    echo "      app/data 软链已恢复 (-> $(readlink "$ROOT/app/data"))"
+  fi
+}
+
 verify() {
   echo "[verify] 健康检查: $BASE_URL"
   local css status
@@ -60,7 +83,11 @@ echo "[3/5] 停止服务 (避免 next start 持有旧 .next 时被覆盖)"
 systemctl --user stop "$SERVICE"
 
 echo "[4/5] 构建 (unset NODE_ENV: 防止 Next 16 误判环境)"
+stash_data_link
+trap restore_data_link EXIT
 env -u NODE_ENV "$ROOT/node_modules/.bin/next" build
+restore_data_link
+trap - EXIT
 
 echo "[5/5] 启动服务"
 systemctl --user start "$SERVICE"
