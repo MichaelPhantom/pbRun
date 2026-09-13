@@ -99,3 +99,8 @@
   （路由目标不确定）。名单与 u1 wbwild shim catalog 对齐，见代码注释；
   新增模型时先用网关 A/B 验证思考 token 量再同步名单，单测
   `tests/unit/lib/thinking.test.ts`（28 用例）锁定映射。
+- **分析质量优化（2026-09-13）**: 分段标签改累计距离区间（laps 含 709m 等
+  非整公里段，K 序号曾误导模型）；prompt 新增【近期状态】（近 7 天跑量、
+  当日 TSB、上次跑步，`app/lib/coach-context.ts`，失败自动降级为空）；
+  主模型 502/超时自动回退 auto 并在脚注明示（`X-Model-Fallback` 头）；
+  模型下拉按推荐排序并标注思考模型。详见 `tests/unit/lib/coach-context.test.ts`。

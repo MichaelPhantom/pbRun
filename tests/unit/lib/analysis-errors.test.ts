@@ -13,6 +13,10 @@ describe('friendlyAnalysisError', () => {
     expect(friendlyAnalysisError(503, 'AI 分析未配置')).toContain('glm-5.1-wb');
   });
 
+  test('504 给出超时重试指引', () => {
+    expect(friendlyAnalysisError(504)).toContain('120s');
+  });
+
   test('其他错误原样透传服务端文案', () => {
     expect(friendlyAnalysisError(404, 'Activity not found')).toBe('Activity not found');
   });

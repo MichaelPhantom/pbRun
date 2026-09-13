@@ -31,7 +31,9 @@ const SYSTEM_PROMPT = `你是一位持有认证的跑步教练与运动数据分
 - 配速单位 min/km, 心率 bpm, 距离 km, 时长用 分:秒。
 - 重点识别: 配速波动 (分段前后半程差异)、心率漂移 (后半程心率上升幅度)、步频/步幅经济性、触地平衡左右对称性 (理想 50/50)。
 - 结合 VDOT 判断本次强度处于哪个训练区间 (E/M/T/I/R)。
-- 简洁有重点, 不要客套话, 不要原样复述全部数据。`;
+- 简洁有重点, 不要客套话, 不要原样复述全部数据。
+- 如提供【近期状态】，务必结合当日疲劳度 (TSB) 与近 7 天跑量解读本次表现
+  （疲劳日的慢配速可能是正常恢复，忌孤立苛责），并据此校准下次训练建议的强度。`;
 
 /** freellmapi 网关配置 (从环境变量读取); 未配置返回 null。 */
 export function getFreellmConfig(): { baseUrl: string; key: string } | null {
@@ -45,6 +47,10 @@ export interface LlmModelInfo {
   id: string;
   name: string;
   available: boolean;
+  /** 思考模型（reasoning 占 max_tokens 预算，易截断；路由已自动压思考） */
+  thinking: boolean;
+  /** 推荐：非思考模型，分析任务更稳更省 */
+  recommended: boolean;
 }
 
 /** 拉取 freellmapi 可用模型列表 (供前端选择器)。 */
@@ -62,7 +68,16 @@ export async function fetchModels(): Promise<LlmModelInfo[]> {
   const data = j?.data ?? [];
   return data
     .filter((m) => m && m.id && m.available !== false)
-    .map((m) => ({ id: m.id, name: m.name || m.id, available: m.available !== false }));
+    .map((m) => {
+      const thinking = isThinkingModel(m.id);
+      return {
+        id: m.id,
+        name: m.name || m.id,
+        available: m.available !== false,
+        thinking,
+        recommended: !thinking,
+      };
+    });
 }
 
 function fmtNum(v?: number | null, digits = 0, unit = ''): string {
@@ -143,15 +158,22 @@ export function buildAnalysisRequestBody(
 export function buildAnalysisMessages(
   activity: Activity,
   laps: ActivityLap[],
+  contextBlock = '',
 ): Array<{ role: 'system' | 'user'; content: string }> {
   // activities.distance 在 DB 中即为公里 (详情页/列表页/MCP 均按公里使用); 仅 laps 距离为米。
   const dist = activity.distance ?? 0;
   const dur = activity.moving_time || activity.duration || 0;
   const ordered = laps.slice().sort((a, b) => a.lap_index - b.lap_index);
 
+  // 分段标签用累计距离区间而非序号：laps 含非整公里段（如 709m/472m），
+  // K1..Kn 会误导模型以为每段恰为 1 公里（实测曾致模型质疑数据自洽性）。
+  let cumKm = 0;
   const lapLines = ordered
-    .map((l, i) => {
-      const parts = [`K${i + 1}`, formatPace(l.average_pace, false)];
+    .map((l) => {
+      const segKm = (l.distance ?? 0) / 1000; // laps.distance 单位为米
+      const seg = `${cumKm.toFixed(1)}-${(cumKm + segKm).toFixed(1)}km`;
+      cumKm += segKm;
+      const parts = [seg, formatPace(l.average_pace, false)];
       if (l.average_heart_rate != null) parts.push(`${Math.round(l.average_heart_rate)}bpm`);
       if (l.average_cadence != null) parts.push(`${Math.round(l.average_cadence)}spm`);
       if (l.total_ascent != null) parts.push(`${l.total_ascent >= 0 ? '+' : ''}${Math.round(l.total_ascent)}m`);
@@ -176,8 +198,10 @@ TSS: ${fmtNum(activity.training_stress_score, 0)}  IF: ${fmtNum(activity.intensi
 平均海拔: ${fmtNum(activity.avg_altitude, 0, 'm')}  热量: ${fmtNum(activity.calories, 0, 'kcal')}  温度: ${fmtNum(activity.average_temperature, 1, '°C')}
 心率区间时间: ${fmtZoneTimes(activity.time_in_hr_zone)}
 
-【每公里分段】
-${lapLines || '(无分段数据)'}`;
+【每公里分段】（区间为累计距离，非序号）
+${lapLines || '(无分段数据)'}${
+    contextBlock ? `\n\n${contextBlock}` : ''
+  }`;
 
   return [
     { role: 'system', content: SYSTEM_PROMPT },

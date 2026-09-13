@@ -49,10 +49,36 @@ describe('buildAnalysisMessages', () => {
     expect(user.content).toContain('距离: 0.00 km');
   });
 
-  test('分段行不受活动距离单位影响（laps仍为米）', () => {
+  test('分段行使用累计距离区间（laps含非整公里段，序号会误导）', () => {
     const [, user] = buildAnalysisMessages(fakeActivity(), fakeLaps());
-    expect(user.content).toContain('K1 12:39');
-    expect(user.content).toContain('K2 6:45');
+    expect(user.content).toContain('0.0-1.0km 12:39');
+    expect(user.content).toContain('1.0-2.0km 6:45');
+    expect(user.content).not.toContain('K1 ');
+  });
+
+  test('非整公里分段按实际累计区间标注', () => {
+    const laps = [
+      { activity_id: 1, lap_index: 0, distance: 709.44, duration: 214, average_pace: 301.6 },
+      { activity_id: 1, lap_index: 1, distance: 472.15, duration: 247, average_pace: 523.1 },
+    ] as ActivityLap[];
+    const [, user] = buildAnalysisMessages(fakeActivity(), laps);
+    expect(user.content).toContain('0.0-0.7km');
+    expect(user.content).toContain('0.7-1.2km');
+  });
+
+  test('contextBlock 非空时追加【近期状态】', () => {
+    const [, user] = buildAnalysisMessages(
+      fakeActivity(),
+      [],
+      '【近期状态】\n近7天: 32.5 km / 3 次',
+    );
+    expect(user.content).toContain('【近期状态】');
+    expect(user.content).toContain('近7天: 32.5 km / 3 次');
+  });
+
+  test('contextBlock 缺省时不出现【近期状态】', () => {
+    const [, user] = buildAnalysisMessages(fakeActivity(), []);
+    expect(user.content).not.toContain('【近期状态】');
   });
 
   test('无分段时给出占位提示', () => {

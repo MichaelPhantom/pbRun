@@ -5,7 +5,12 @@ import { SectionCard } from '@/app/components/ui/SectionCard';
 import MarkdownLite from './MarkdownLite';
 import { friendlyAnalysisError } from './analysis-errors';
 
-interface ModelInfo { id: string; name: string; }
+interface ModelInfo {
+  id: string;
+  name: string;
+  thinking?: boolean;
+  recommended?: boolean;
+}
 type Status = 'idle' | 'streaming' | 'done' | 'error';
 
 /**
@@ -24,6 +29,7 @@ export function AiAnalysis({ activityId }: { activityId: number }) {
   const [content, setContent] = useState('');
   const [reasoning, setReasoning] = useState('');
   const [routedModel, setRoutedModel] = useState<string | null>(null);
+  const [fellBack, setFellBack] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -31,7 +37,11 @@ export function AiAnalysis({ activityId }: { activityId: number }) {
     fetch('/pbrun/api/llm/models')
       .then((r) => r.json())
       .then((j) => {
-        setModels(j.models ?? []);
+        const list: ModelInfo[] = j.models ?? [];
+        list.sort(
+          (a, b) => Number(b.recommended ?? false) - Number(a.recommended ?? false),
+        );
+        setModels(list);
         setConfigured(!!j.configured);
       })
       .catch(() => setConfigured(false));
@@ -45,6 +55,7 @@ export function AiAnalysis({ activityId }: { activityId: number }) {
     setContent('');
     setReasoning('');
     setRoutedModel(null);
+    setFellBack(false);
     setError(null);
 
     let text = '';
@@ -58,6 +69,7 @@ export function AiAnalysis({ activityId }: { activityId: number }) {
         body: JSON.stringify({ model }),
         signal: ac.signal,
       });
+      if (resp.headers.get('X-Model-Fallback') === '1') setFellBack(true);
       if (!resp.ok) {
         const j = (await resp.json().catch(() => ({}))) as {
           error?: string;
@@ -130,7 +142,10 @@ export function AiAnalysis({ activityId }: { activityId: number }) {
           >
             {models.length === 0 && <option value="auto">auto</option>}
             {models.map((m) => (
-              <option key={m.id} value={m.id}>{m.name}</option>
+              <option key={m.id} value={m.id}>
+                {m.recommended ? `★ ${m.name}` : m.name}
+                {m.thinking ? ' ·思考' : ''}
+              </option>
             ))}
           </select>
           {busy ? (
@@ -192,6 +207,7 @@ export function AiAnalysis({ activityId }: { activityId: number }) {
         {status === 'done' && routedModel && (
           <p className="mt-2 border-t border-border pt-1.5 text-[11px] text-fg-muted">
             由 freellm · <span className="font-mono">{routedModel}</span> 生成
+            {fellBack && '（所选模型故障，已自动切换）'}
           </p>
         )}
       </div>
