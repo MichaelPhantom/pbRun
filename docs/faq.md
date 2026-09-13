@@ -91,3 +91,11 @@
   `glm-5.1-wb`（实测 finish=stop、无 reasoning、数学正确）。
 - **单位约定**（防复发）: `activities.distance` 为公里、`activity_laps.distance`
   为米；聚合函数在 `db.ts` 内统一转米后再返回。`Activity.distance` 的类型注释已更正。
+- **思考模型怎么用（2026-09-13 落地）**: 能用，但必须按模型下发
+  `reasoning_effort: low`。实测 `glm-5.3-flash-wb` 思考 token
+  3994→18、`finish` 由 `length` 转 `stop`、费用降约 8 倍；但该参数会诱发
+  非思考模型也输出思考过程（`glm-5.1-wb` 实测 reasoning 0→1476），
+  故 `app/lib/llm.ts` 用 `isThinkingModel` 名单精确下发，`auto` 默认不加
+  （路由目标不确定）。名单与 u1 wbwild shim catalog 对齐，见代码注释；
+  新增模型时先用网关 A/B 验证思考 token 量再同步名单，单测
+  `tests/unit/lib/thinking.test.ts`（28 用例）锁定映射。

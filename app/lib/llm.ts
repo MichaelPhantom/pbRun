@@ -82,6 +82,63 @@ function fmtZoneTimes(json?: string | null): string {
   }
 }
 
+/**
+ * 思考模型判定（启发式名单，依据 2026-09 网关实测维护）。
+ *
+ * 背景：思考模型的 reasoning 与正文共用 max_tokens 预算；本任务是格式固定的
+ * 结构化点评，不需要深度思考。实测 `reasoning_effort: "low"` 可把思考从
+ * 3994 token 压到 18 token（glm-5.3-flash-wb），finish 由 length 转为 stop，
+ * 费用降约 8 倍；但该参数会诱发非思考模型也输出思考过程
+ * （glm-5.1-wb 实测 reasoning 0→1476），故只能按模型精确下发。
+ *
+ * 名单语义（与 u1 wbwild shim catalog 对齐）：
+ * - juzi 系仅 qwen3.8-27b 非思考；wb 系仅 glm-5.1 非思考；其余带 -juzi/-wb
+ *   后缀的 glm/deepseek/kimi/minimax/hunyuan 均为思考模型。
+ * freellm /models 不暴露 reasoning 标记，名单只能手写维护；新增模型时用
+ * 网关 A/B 脚本验证思考 token 后同步此表（见 docs/faq.md#11）。
+ */
+const THINKING_MODEL_RE =
+  /thinking|nemotron|deepseek|qwen3[.-]|kimi|minimax|hunyuan|glm-5\.[23]|hy[34]|minimax-m3/i;
+const NON_THINKING_MODEL_RE =
+  /^(auto|fusion)$|glm-5\.1|qwen3\.8-27b|gemini|gpt-oss|compound|diffusiongemma|mistral|poolside|north-mini|devstral/i;
+
+/** 模型是否需要下发 reasoning_effort: low（思考模型 true，非思考/auto false）。 */
+export function isThinkingModel(modelId: string): boolean {
+  const id = (modelId || '').trim();
+  if (!id) return false;
+  return THINKING_MODEL_RE.test(id) && !NON_THINKING_MODEL_RE.test(id);
+}
+
+export interface AnalysisRequestBody {
+  model: string;
+  messages: Array<{ role: 'system' | 'user'; content: string }>;
+  stream: boolean;
+  temperature: number;
+  max_tokens: number;
+  reasoning_effort?: 'low';
+}
+
+/**
+ * 构造分析请求体：思考模型加 reasoning_effort low（防 length 截断），
+ * 非思考模型原样（该参数会诱发其输出思考过程，反而浪费预算）。
+ * max_tokens 上限见路由注释（上游 shim cap 8000）。
+ */
+export function buildAnalysisRequestBody(
+  model: string,
+  messages: Array<{ role: 'system' | 'user'; content: string }>,
+  maxTokens = 4000,
+): AnalysisRequestBody {
+  const body: AnalysisRequestBody = {
+    model,
+    messages,
+    stream: true,
+    temperature: 0.5,
+    max_tokens: maxTokens,
+  };
+  if (isThinkingModel(model)) body.reasoning_effort = 'low';
+  return body;
+}
+
 /** 构造单次活动 AI 分析用的 chat 消息 (system + user)。 */
 export function buildAnalysisMessages(
   activity: Activity,
