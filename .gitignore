@@ -63,6 +63,9 @@ temp/
 .cache/
 
 # Runtime database (large, backup locally)
+# /app/data整体不入库：生产为指向块存储的软链，git不遍历软链目录，
+# 其下的.gitkeep会被误判为删除并挡住pull --rebase（2026-09-13实证）
+/app/data
 app/data/*.db
 app/data/*.db-*
 app/data/*.db.bak.*

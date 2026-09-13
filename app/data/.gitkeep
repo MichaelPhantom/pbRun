@@ -1,1 +1,0 @@
-# 保留 app/data 目录以便 Git 跟踪，Vercel 部署时需要此目录存在

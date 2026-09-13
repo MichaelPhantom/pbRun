@@ -89,6 +89,14 @@ env -u NODE_ENV "$ROOT/node_modules/.bin/next" build
 restore_data_link
 trap - EXIT
 
+# 构建后必须恢复软链；若恢复失败则 loud 失败，绝不带着坏数据目录启动服务。
+if [ -e "$ROOT/app/data.link.bak" ] || [ ! -L "$ROOT/app/data" ]; then
+  echo "[4/5] ✗ app/data 软链未恢复，拒绝启动服务" >&2
+  restore_data_link || true
+  ls -lad "$ROOT/app/data" "$ROOT/app/data.link.bak" 2>&1 || true
+  exit 1
+fi
+
 echo "[5/5] 启动服务"
 systemctl --user start "$SERVICE"
 
