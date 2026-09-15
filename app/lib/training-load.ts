@@ -30,9 +30,11 @@ function toContinuousDays(points: TrainingLoadPoint[]): { date: string; load: nu
   const start = sorted[0].date;
   const end = sorted[sorted.length - 1].date;
   const out: { date: string; load: number }[] = [];
-  const cur = new Date(start + 'T00:00:00');
-  const last = new Date(end + 'T00:00:00');
-  // 用 UTC 日期避免时区漂移
+  // ⚠ 2026-09-15 修: 必须用 UTC 解析('T00:00:00Z')。原 'T00:00:00' 按**本地时区**
+  //   解析, 在 UTC+8 下 toISOString() 前推 8h 跨日 → 所有日期偏移一天(CTL/ATL/TSB
+  //   序列错位)。与下方 toISOString()(UTC) 语义一致才不会漂移。
+  const cur = new Date(start + 'T00:00:00Z');
+  const last = new Date(end + 'T00:00:00Z');
   for (; cur <= last; cur.setUTCDate(cur.getUTCDate() + 1)) {
     const ds = cur.toISOString().slice(0, 10);
     out.push({ date: ds, load: map.get(ds) ?? 0 });
