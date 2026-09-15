@@ -4,7 +4,7 @@ test.describe('移动端响应式', () => {
   test.use({ viewport: { width: 375, height: 667 } });
 
   test('活动列表在移动端应正常显示', async ({ page }) => {
-    await page.goto('/list');
+    await page.goto('/pbrun/list');
     await page.waitForTimeout(1000);
 
     // 检查月份标题可见
@@ -13,7 +13,7 @@ test.describe('移动端响应式', () => {
   });
 
   test('导航栏在移动端应正常显示', async ({ page }) => {
-    await page.goto('/list');
+    await page.goto('/pbrun/list');
 
     // 检查导航项
     const navItems = page.locator('nav a, [class*="nav"] a').first();
@@ -21,7 +21,7 @@ test.describe('移动端响应式', () => {
   });
 
   test('统计页面在移动端应正常显示', async ({ page }) => {
-    await page.goto('/stats');
+    await page.goto('/pbrun/stats');
     await page.waitForTimeout(1000);
 
     // 检查统计内容

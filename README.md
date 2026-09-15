@@ -382,7 +382,8 @@ pbRun/
 │   ├── unit/              # 单元测试
 │   └── integration/       # 集成测试
 ├── .github/workflows/     # GitHub Actions
-│   └── sync_running_data.yml  # 统一的数据同步工作流 (上游通用; 本 fork 由 cft 流水线同步)
+│   ├── test.yml               # 质量门禁: tsc + eslint + jest + build (2026-09-15 新增)
+│   └── sync_running_data.yml  # 上游通用数据同步工作流 (本 fork 由 cft/garmin 流水线同步)
 ├── app/data/              # SQLite 数据库 (已移出 git, 本地备份)
 │   └── activities.db
 └── docs/                  # 文档
@@ -409,6 +410,9 @@ pbRun/
 | `GET /api/analysis/hr-zones` | 心率区间分析 | `startDate`, `endDate`, `groupBy` |
 | `GET /api/analysis/pace-zones` | 配速区间分析 | `startDate`, `endDate`, `vdot` |
 | `GET /api/analysis/vdot-trend` | 跑力趋势 | `startDate`, `endDate`, `groupBy` |
+| `GET /api/activities/[id]/analysis` | AI 教练分析(含模型回退头) | - |
+| `GET /api/llm/models` | 可用 LLM 模型列表 | - |
+| `GET /api/health` | 存活/就绪探针(2026-09-15 新增) | `deep=1` 校验 DB 可读 |
 
 完整 API 文档: [docs/api-reference.md](docs/api-reference.md)
 

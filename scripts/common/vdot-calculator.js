@@ -34,6 +34,7 @@ class VDOTCalculator {
    * @returns {number|null} VDOT value
    */
   calculateVdotFromPace(distanceMeters, durationSeconds, avgHr = null) {
+    void avgHr; // 保留 API 兼容(部分调用方传心率); VDOT 仅由配速+距离推导
     if (durationSeconds <= 0 || distanceMeters <= 0) {
       return null;
     }

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { getLatestVdot, getTrainingLoads, getActivities, getVDOTHistory, getDailyDistances, getHrZoneStats } from "@/app/lib/db";
 import { predictRaceTimes } from "@/app/lib/vdot-pace";
 import { computeTrainingLoads, tsbStatus } from "@/app/lib/training-load";
-import { formatDistance, formatDuration, formatPace, formatDistanceFromMeters } from "@/app/lib/format";
+import { formatDistance, formatDuration, formatPace } from "@/app/lib/format";
 import { SectionCard } from "@/app/components/ui/SectionCard";
 import { StatCard } from "@/app/components/ui/StatCard";
 import { Badge } from "@/app/components/ui/Badge";
@@ -22,7 +22,6 @@ function ymd(d: Date): string {
 export default async function DashboardPage() {
   const now = new Date();
   const year = now.getFullYear();
-  const yearStr = String(year);
   const monthStr = `${year}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   const prevMonthStr = `${prevMonthDate.getFullYear()}-${String(prevMonthDate.getMonth() + 1).padStart(2, "0")}`;

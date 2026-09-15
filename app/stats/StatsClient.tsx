@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { formatPace, formatDurationRecord } from '@/app/lib/format';
 import type { PersonalRecordsResponse, PersonalRecordItem } from '@/app/lib/types';
 import type { StatsResponse } from '@/app/lib/types';

@@ -210,7 +210,7 @@ GARMIN_PASSWORD=your_garmin_password
 然后运行：
 
 ```bash
-python3 scripts/get_garmin_token.py
+python3 scripts/garmin/get_garmin_token.py
 ```
 
 脚本会从 .env 读取 `GARMIN_EMAIL` / `GARMIN_PASSWORD`（未配置时按提示输入），并输出 `GARMIN_SECRET_STRING`。
@@ -405,7 +405,7 @@ CREATE TABLE records (
 
 ```bash
 # 重新获取 Token
-python3 scripts/get_garmin_token.py
+python3 scripts/garmin/get_garmin_token.py
 
 # 更新 .env 和 GitHub Secrets
 ```
@@ -435,10 +435,10 @@ python3 scripts/get_garmin_token.py
 
 ```bash
 # 清理旧数据 (保留最近 1 年)
-node scripts/db-manager.js --clean --keep-days 365
+node scripts/common/db-manager.js --clean --keep-days 365
 
 # 压缩数据库
-node scripts/db-manager.js --vacuum
+node scripts/common/db-manager.js --vacuum
 ```
 
 ### Q5: 如何导出数据？

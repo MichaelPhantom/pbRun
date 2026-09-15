@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 test.describe('统计页面', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/stats');
+    await page.goto('/pbrun/stats');
     await page.waitForTimeout(1000);
   });
 

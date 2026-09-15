@@ -39,7 +39,7 @@ npm install
 # GARMIN_EMAIL=your_email@example.com
 # GARMIN_PASSWORD=your_password
 
-python3 scripts/get_garmin_token.py
+python3 scripts/garmin/get_garmin_token.py
 ```
 
 脚本会从 .env 读取 `GARMIN_EMAIL` / `GARMIN_PASSWORD`（未配置时按提示输入），并输出 `GARMIN_SECRET_STRING`。
@@ -251,7 +251,7 @@ bash scripts/deploy-prod.sh --verify   # 仅做健康检查 (首页 200 + 主 CS
 GARMIN_EMAIL=your_email@example.com
 GARMIN_PASSWORD=your_password
 
-# Garmin 认证 Token（运行 python3 scripts/get_garmin_token.py 获得）
+# Garmin 认证 Token（运行 python3 scripts/garmin/get_garmin_token.py 获得）
 GARMIN_SECRET_STRING="your_token_here"
 
 # 心率参数
@@ -311,7 +311,7 @@ https://your-project.vercel.app/api/vdot?days=30
 
 **解决方案**:
 
-1. 重新运行 `python3 scripts/get_garmin_token.py` 获取新 Token
+1. 重新运行 `python3 scripts/garmin/get_garmin_token.py` 获取新 Token
 2. 更新 GitHub Secrets 中的 `GARMIN_SECRET_STRING`
 3. 手动重新运行 workflow
 

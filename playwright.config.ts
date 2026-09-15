@@ -3,6 +3,10 @@ import { defineConfig, devices } from '@playwright/test';
 /**
  * @see https://playwright.dev/docs/test-configuration
  */
+// next.config.ts 的 basePath=/pbrun; e2e spec 用显式 "/pbrun/xxx" 前缀
+// (2026-09-15 修: 此前 spec 用 "/list" 且 baseURL 无前缀 → 全 404 → e2e 不可运行).
+// 注: 不用 baseURL+path (Playwright 对 "/xxx" 绝对路径会丢弃 baseURL 的 path)。
+
 export default defineConfig({
   testDir: './tests/e2e',
   fullyParallel: true,

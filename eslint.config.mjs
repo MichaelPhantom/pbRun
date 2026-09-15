@@ -26,6 +26,11 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
     "mcp-server/dist/**",
+    // 生成物/构建缓存(2026-09-15: 此前未忽略 → lint 扫描 coverage 产物刷 warning)
+    "coverage/**",
+    ".cache/**",
+    "app/data/**",
+    "node_modules/**",
   ]),
 ]);
 

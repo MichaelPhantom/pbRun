@@ -1,7 +1,7 @@
 "use client";
 
 import { useEchart } from "@/app/lib/components/charts/useEchart";
-import { cssVar, resolveColor } from "@/app/lib/echarts-theme";
+import { cssVar } from "@/app/lib/echarts-theme";
 import type { EChartsOption } from "echarts";
 
 export interface HeatmapDay {
@@ -31,12 +31,11 @@ export function YearHeatmap({
       const mobile = typeof window !== "undefined" && window.innerWidth <= 640;
       let range: string | [string, string] = String(year);
       let cellW: number | "auto" = "auto";
-      let showYearLabel = false;
+      const showYearLabel = false;
       let showDayLabel = true;
       let monthFontSize = 10;
       let calLeft = 20;
       let calRight = 20;
-      let h = height;
 
       if (mobile) {
         const now = new Date();
@@ -49,7 +48,6 @@ export function YearHeatmap({
         monthFontSize = 9;
         calLeft = 10;
         calRight = 10;
-        h = 130;
       }
 
       return {

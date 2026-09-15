@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 test.describe('活动详情页', () => {
   test('应显示活动基本信息或返回列表', async ({ page }) => {
     // 先访问列表页
-    await page.goto('/list');
+    await page.goto('/pbrun/list');
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(1000);
 
@@ -23,7 +23,7 @@ test.describe('活动详情页', () => {
   });
 
   test('应显示图表或活动数据', async ({ page }) => {
-    await page.goto('/list');
+    await page.goto('/pbrun/list');
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(1000);
 
@@ -41,8 +41,8 @@ test.describe('活动详情页', () => {
   });
 
   test('应支持返回列表页', async ({ page }) => {
-    await page.goto('/list');
+    await page.goto('/pbrun/list');
     await page.waitForLoadState('networkidle');
-    await expect(page).toHaveURL('/list');
+    await expect(page).toHaveURL(/\/pbrun\/list$/);
   });
 });

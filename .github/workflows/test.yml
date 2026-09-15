@@ -1,0 +1,42 @@
+# pbRun CI — 质量门禁(types + lint + unit tests)
+#
+# 2026-09-15 新增: 此前仓库仅有一个被 secrets gate 禁用的数据同步 workflow,
+# lint 长期红(3 errors)、383 单测无 CI 守护。本 workflow 让 PR/push 必过质量门禁。
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      # CI 只跑不需要原生 DB/密钥的门禁; app/data 为块存储软链(CI 无), 故单测须可脱 DB。
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 类型检查(tsc)
+        run: npx tsc --noEmit
+
+      - name: Lint(eslint)
+        run: npm run lint
+
+      - name: 单元测试(jest)
+        run: npm test
+
+      - name: 构建(next build)
+        run: npm run build
+        env:
+          # 构建期占位(真实值在部署环境); 避免缺 env 导致构建失败
+          NEXT_TELEMETRY_DISABLED: '1'

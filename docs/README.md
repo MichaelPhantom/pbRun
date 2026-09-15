@@ -214,13 +214,13 @@ node scripts/sync-garmin.js --force
 
 ```bash
 # 验证数据完整性
-node scripts/validate-data.js
+node scripts/garmin/validate-data.js
 
 # 清理旧数据（保留最近 1 年）
-node scripts/db-manager.js --clean --keep-days 365
+node scripts/common/db-manager.js --clean --keep-days 365
 
 # 压缩数据库
-node scripts/db-manager.js --vacuum
+node scripts/common/db-manager.js --vacuum
 ```
 
 ---

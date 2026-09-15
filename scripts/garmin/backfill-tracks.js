@@ -14,7 +14,6 @@
  */
 require('dotenv').config();
 const fs = require('fs');
-const fsp = require('fs').promises;
 const path = require('path');
 const Database = require('better-sqlite3');
 const GarminFITParser = require('./fit-parser');
