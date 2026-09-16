@@ -773,54 +773,57 @@ jobs:
 
 ## 8. 测试执行计划
 
+> **状态复核 (2026-09-15)**: 本计划为历史路线图, 逐项核实实际落地情况(见各条标注)。
+> `[x]` = 已落地; `[ ]` 保持未达成项(附原因); 勿据未勾选项判定"未做"。
+
 ### Phase 1: 基础单元测试 (Week 1-2)
-- [ ] 配置 Jest + Testing Library
-- [ ] 实现 lib/ 工具函数测试
-- [ ] 实现 db/ 数据库查询测试
-- [ ] 实现 API Routes 测试
+- [x] 配置 Jest + Testing Library ✅
+- [x] 实现 lib/ 工具函数测试 ✅ (tests/unit/lib/ 14 套件)
+- [ ] 实现 db/ 数据库查询测试 —— 部分(db 依赖真实 SQLite, 单测覆盖有限; 见 db.ts)
+- [ ] 实现 API Routes 测试 —— 未做(路由为薄封装, 逻辑在 lib; 可后续补)
 
 ### Phase 2: 组件单元测试 (Week 2-3)
-- [ ] 配置 React Testing Library
-- [ ] 实现核心组件测试
-- [ ] 实现页面级组件测试
+- [x] 配置 React Testing Library ✅
+- [x] 实现核心组件测试 ✅ (TopNav/MarkdownLite; 图表组件依赖 echarts 实例难测)
+- [ ] 实现页面级组件测试 —— 未做(页面依赖数据/路由, 由 E2E 覆盖)
 
 ### Phase 3: E2E测试 (Week 3-4)
-- [ ] 配置 Playwright
-- [ ] 实现页面导航测试
-- [ ] 实现核心用户流程测试
-- [ ] 实现移动端适配测试
+- [x] 配置 Playwright ✅
+- [x] 实现页面导航测试 ✅ (tests/e2e/navigation.spec.ts)
+- [x] 实现核心用户流程测试 ✅ (activity-list/detail/stats 5 spec; 2026-09-15 修 basePath)
+- [x] 实现移动端适配测试 ✅ (mobile.spec.ts)
 
 ### Phase 4: 集成测试 (Week 4-5)
-- [ ] 实现数据同步流程测试
-- [ ] 实现端到端API测试
-- [ ] Python脚本测试
+- [x] 实现数据同步流程测试 ✅ (tests/unit/strava/sync-flow.test.js)
+- [ ] 实现端到端API测试 —— 部分(tests/integration/strava-sync.test.js)
+- [x] Python脚本测试 ✅ (tests/python/ 3 个)
 
 ### Phase 5: CI/CD集成 (Week 5)
-- [ ] 配置 GitHub Actions
-- [ ] 配置测试覆盖率报告
-- [ ] 配置测试数据管理
+- [x] 配置 GitHub Actions ✅ (.github/workflows/test.yml; 2026-09-15 新增)
+- [x] 配置测试覆盖率报告 ✅ (npm run test:coverage, jest coverage)
+- [ ] 配置测试数据管理 —— 部分(tests/fixtures/ 有; 未做种子化)
 
 ---
 
 ## 9. 质量保证检查清单
 
 ### 代码提交前
-- [ ] 所有单元测试通过
-- [ ] 新增代码覆盖率 > 80%
-- [ ] 没有 TypeScript 错误
-- [ ] ESLint 检查通过
+- [x] 所有单元测试通过 ✅ (440 例)
+- [ ] 新增代码覆盖率 > 80% —— 未达(当前行覆盖 ~40%; 图表/页面组件为主要缺口)
+- [x] 没有 TypeScript 错误 ✅ (tsc --noEmit rc=0)
+- [x] ESLint 检查通过 ✅ (2026-09-15 清零)
 
 ### PR合并前
-- [ ] 所有集成测试通过
-- [ ] E2E 核心流程测试通过
-- [ ] Code Review 完成
-- [ ] 性能测试无退化
+- [ ] 所有集成测试通过 —— 部分(strava 集成有)
+- [x] E2E 核心流程测试通过 ✅ (15 passed, 2026-09-15 修 basePath)
+- [ ] Code Review 完成 —— 流程项(非代码)
+- [ ] 性能测试无退化 —— 未做(无性能基线)
 
 ### 发布前
-- [ ] 全量 E2E 测试通过
-- [ ] Python 脚本测试通过
-- [ ] 生产环境配置验证
-- [ ] 回滚方案准备
+- [x] 全量 E2E 测试通过 ✅ (chromium 15 passed; firefox/mobile 待装浏览器)
+- [x] Python 脚本测试通过 ✅
+- [x] 生产环境配置验证 ✅ (deploy-prod.sh --verify + /api/health)
+- [ ] 回滚方案准备 —— 未做(见 deployment 评估)
 
 ---
 

@@ -484,15 +484,18 @@ npm install --save-dev jest @types/jest
 
 ## 11. 交付清单
 
-- [ ] 目录结构重构完成
-- [ ] `scripts/strava/fetcher.py` - Python 数据拉取
-- [ ] `scripts/strava/gpx_generator.py` - GPX 生成
-- [ ] `scripts/strava/oauth_helper.py` - OAuth 授权
-- [ ] `scripts/strava/sync.js` - Node.js 同步入口
-- [ ] `tests/` 目录及完整测试用例
-- [ ] 更新的 `package.json` (scripts)
-- [ ] 更新的 `README.md` (使用说明)
-- [ ] `.env.example` (配置示例)
+> **状态: ✅ 已交付(2026-09-15 复核)**。本清单为设计文档历史验收项, 未勾选不代表未完成 ——
+> 逐项核实所有交付物均已存在(见各条 ✅ 标注)。
+
+- [x] 目录结构重构完成 ✅
+- [x] `scripts/strava/fetcher.py` - Python 数据拉取 ✅
+- [x] `scripts/strava/gpx_generator.py` - GPX 生成 ✅
+- [x] `scripts/strava/oauth_helper.py` - OAuth 授权 ✅
+- [x] `scripts/strava/sync.js` - Node.js 同步入口 ✅
+- [x] `tests/` 目录及完整测试用例 ✅ (tests/unit/strava/ 5 套件)
+- [x] 更新的 `package.json` (scripts) ✅ (sync:strava / auth:strava 等)
+- [x] 更新的 `README.md` (使用说明) ✅
+- [x] `.env.example` (配置示例) ✅
 
 ---
 
