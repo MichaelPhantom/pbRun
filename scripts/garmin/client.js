@@ -4,8 +4,6 @@
  */
 
 const axios = require('axios');
-const fs = require('fs').promises;
-const path = require('path');
 
 const GARMIN_TOKEN_URL = 'https://diauth.garmin.com/di-oauth2-service/oauth/token';
 
@@ -94,19 +92,9 @@ class GarminClient {
    * 将新 token 写回 .env（若存在且可写）
    */
   async _persistTokenToEnv(newToken) {
-    const envPath = path.join(process.cwd(), '.env');
-    try {
-      let content = await fs.readFile(envPath, 'utf-8');
-      if (/^\s*GARMIN_SECRET_STRING\s*=/.m.test(content)) {
-        content = content.replace(/^(GARMIN_SECRET_STRING\s*=).*$/m, `$1${newToken}`);
-      } else {
-        content = content.trimEnd() + (content.endsWith('\n') ? '' : '\n') + `GARMIN_SECRET_STRING=${newToken}\n`;
-      }
-      await fs.writeFile(envPath, content, 'utf-8');
-      return true;
-    } catch (e) {
-      return false;
-    }
+    // 委托共享工具 (scripts/common/utils.js) 做 .env upsert, 避免重复实现。
+    const { persistEnvVar } = require('../common/utils');
+    return persistEnvVar('GARMIN_SECRET_STRING', newToken);
   }
 
   /**

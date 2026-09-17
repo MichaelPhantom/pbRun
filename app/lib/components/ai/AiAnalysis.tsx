@@ -69,7 +69,16 @@ export function AiAnalysis({ activityId }: { activityId: number }) {
         body: JSON.stringify({ model }),
         signal: ac.signal,
       });
-      if (resp.headers.get('X-Model-Fallback') === '1') setFellBack(true);
+      // 回退判定: 契约头 X-Model-Fallback=1; 兜底兼容仅下发
+      // X-Model-Requested/Used 的旧实现 (两者存在且不同即视为回退)。
+      const requested = resp.headers.get('X-Model-Requested');
+      const used = resp.headers.get('X-Model-Used');
+      if (
+        resp.headers.get('X-Model-Fallback') === '1' ||
+        (requested !== null && used !== null && requested !== used)
+      ) {
+        setFellBack(true);
+      }
       if (!resp.ok) {
         const j = (await resp.json().catch(() => ({}))) as {
           error?: string;

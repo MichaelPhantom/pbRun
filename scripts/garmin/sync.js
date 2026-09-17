@@ -481,3 +481,5 @@ if (require.main === module) {
 }
 
 module.exports = GarminSync;
+module.exports.main = main;
+module.exports.GarminSync = GarminSync;

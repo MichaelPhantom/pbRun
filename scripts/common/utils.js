@@ -91,6 +91,46 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+/**
+ * Persist an environment variable into the project's .env file (upsert a single
+ * KEY=value line), without disturbing other lines.
+ *
+ * Used to store rotated OAuth tokens (Garmin / Strava) so the next run picks up
+ * the refreshed credential instead of a stale one.
+ *
+ * @param {string} key - Env var name (e.g. "STRAVA_REFRESH_TOKEN")
+ * @param {string} value - New value
+ * @param {string} [envPath] - Path to .env (default: <cwd>/.env)
+ * @returns {Promise<boolean>} true if written, false on any failure
+ */
+async function persistEnvVar(key, value, envPath) {
+  const fs = require('fs').promises;
+  const path = require('path');
+  const target = envPath || path.join(process.cwd(), '.env');
+  try {
+    // Guard against regex-injection / accidental multi-line values.
+    if (!/^[A-Z0-9_]+$/.test(key) || typeof value !== 'string' || /[\r\n]/.test(value)) {
+      return false;
+    }
+    let content = '';
+    try {
+      content = await fs.readFile(target, 'utf-8');
+    } catch {
+      content = '';
+    }
+    const lineRe = new RegExp(`^\\s*${key}\\s*=.*$`, 'm');
+    if (lineRe.test(content)) {
+      content = content.replace(lineRe, `${key}=${value}`);
+    } else {
+      content = content.replace(/\s*$/, '') + (content.trim() ? '\n' : '') + `${key}=${value}\n`;
+    }
+    await fs.writeFile(target, content, 'utf-8');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 module.exports = {
   colors,
   log,
@@ -99,4 +139,5 @@ module.exports = {
   formatPace,
   parsePace,
   sleep,
+  persistEnvVar,
 };

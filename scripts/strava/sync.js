@@ -12,7 +12,7 @@ const path = require('path');
 
 const VDOTCalculator = require('../common/vdot-calculator');
 const DatabaseManager = require('../common/db-manager');
-const { log, logSection, formatDuration } = require('../common/utils');
+const { log, logSection, formatDuration, persistEnvVar } = require('../common/utils');
 
 // Colors for output
 const colors = {
@@ -58,6 +58,23 @@ class StravaSync {
     this.vdotCalculator = null;
     if (this.maxHr && this.restingHr) {
       this.vdotCalculator = new VDOTCalculator(this.maxHr, this.restingHr);
+    }
+  }
+
+  /**
+   * Persist a rotated refresh token (returned by the Python fetcher) to both
+   * process.env and .env, so subsequent syncs authenticate successfully.
+   * No-op when the token is absent/unchanged. Failures are logged, not fatal.
+   */
+  async _persistRotatedToken(newToken) {
+    if (!newToken || newToken === this.refreshToken) return;
+    this.refreshToken = newToken;
+    process.env.STRAVA_REFRESH_TOKEN = newToken;
+    const ok = await persistEnvVar('STRAVA_REFRESH_TOKEN', newToken);
+    if (ok) {
+      log('Strava refresh token 已轮换, 已更新 .env', 'green');
+    } else {
+      log('警告: Strava refresh token 已轮换, 但写入 .env 失败 (请手动更新)', 'yellow');
     }
   }
 
@@ -110,7 +127,7 @@ class StravaSync {
         stderr += data.toString();
       });
 
-      child.on('close', (code) => {
+      child.on('close', async (code) => {
         if (code !== 0) {
           // Check for specific errors
           if (stderr.includes('401') || stderr.includes('unauthorized')) {
@@ -134,15 +151,19 @@ class StravaSync {
             reject(new Error(data.error));
             return;
           }
-
           // Handle batch result (with activities array) or single result
           if (data.activities && Array.isArray(data.activities)) {
+            // Strava may rotate the refresh token; persist it so the next run
+            // doesn't fail with a stale token (fetcher returns it as
+            // _new_refresh_token in the payload).
+            await this._persistRotatedToken(data._new_refresh_token);
             resolve({
               type: 'batch',
               activities: data.activities,
               count: data.count
             });
           } else {
+            await this._persistRotatedToken(data._new_refresh_token);
             resolve({
               type: 'single',
               activity: data

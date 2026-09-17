@@ -84,7 +84,8 @@ export async function POST(
   }
   // 主模型失败（不可达/超时/上游 5xx）且非 auto 时，用 auto 重试一次。
   // 4xx（参数/模型名错误）不重试，重试也必然失败。
-  if ((!upstream || !upstream.ok) && model !== 'auto') {
+  const primaryFailedRetryable = !upstream || (upstream.status >= 500 && !upstream.ok);
+  if (primaryFailedRetryable && model !== 'auto') {
     try {
       const retry = await tryUpstream(buildAnalysisRequestBody('auto', messages));
       if (retry.ok && retry.body) {
@@ -114,6 +115,9 @@ export async function POST(
     'X-Accel-Buffering': 'no', // 经 Nginx 时禁用缓冲, 保证流式
   };
   if (fallback) {
+    // X-Model-Fallback 是前端判定「已自动回退」的契约头 (见 AiAnalysis.tsx);
+    // X-Model-Requested/Used 仅作可观测性辅助。
+    headers['X-Model-Fallback'] = '1';
     headers['X-Model-Requested'] = model;
     headers['X-Model-Used'] = usedModel;
   }
