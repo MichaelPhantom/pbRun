@@ -33,13 +33,42 @@ import { periodKeyOf } from './date-utils';
 // Database connection (singleton)
 let db: Database.Database | null = null;
 
+/** 数据源文件路径 (供健康探针/错误诊断复用)。 */
+export function getDatabasePath(): string {
+  return (
+    process.env.DB_PATH || path.join(process.cwd(), 'app', 'data', 'activities.db')
+  );
+}
+
+/**
+ * 数据库不可用 (文件缺失/不可读) 时抛出。
+ * 供 error boundary 与 API 层区分「用户数据问题」与「程序 bug」。
+ */
+export class DatabaseUnavailableError extends Error {
+  code = 'DB_UNAVAILABLE' as const;
+  constructor(message: string) {
+    super(message);
+    this.name = 'DatabaseUnavailableError';
+  }
+}
+
+/**
+ * 数据库文件是否存在且可读。用于页面在渲染前优雅降级 (而非抛错崩页)。
+ */
+export function isDatabaseAvailable(): boolean {
+  try {
+    return fs.existsSync(getDatabasePath());
+  } catch {
+    return false;
+  }
+}
+
 function getDatabase(): Database.Database {
   if (!db) {
-    const dbPath =
-      process.env.DB_PATH || path.join(process.cwd(), 'app', 'data', 'activities.db');
+    const dbPath = getDatabasePath();
 
     if (!fs.existsSync(dbPath)) {
-      throw new Error(
+      throw new DatabaseUnavailableError(
         `Database file not found: ${dbPath}. ` +
           'For Vercel deployment: add app/data/activities.db to the repo (e.g. allow in .gitignore) or set DB_PATH to a path that exists.'
       );

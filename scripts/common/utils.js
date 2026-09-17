@@ -131,6 +131,31 @@ async function persistEnvVar(key, value, envPath) {
   }
 }
 
+/**
+ * Backup a SQLite database file to <dbPath>.bak.<timestamp>, so destructive
+ * operations (clear / rewrite) are recoverable.
+ *
+ * @param {string} dbPath - Path to the database file
+ * @returns {string|null} Backup path, or null if source missing / copy failed
+ */
+function backupDatabase(dbPath) {
+  const fs = require('fs');
+  try {
+    if (!fs.existsSync(dbPath)) return null;
+    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+    let bakPath = `${dbPath}.bak.${ts}`;
+    // 同一毫秒内多次备份时避免互相覆盖。
+    let n = 1;
+    while (fs.existsSync(bakPath)) {
+      bakPath = `${dbPath}.bak.${ts}-${n++}`;
+    }
+    fs.copyFileSync(dbPath, bakPath);
+    return bakPath;
+  } catch {
+    return null;
+  }
+}
+
 module.exports = {
   colors,
   log,
@@ -140,4 +165,5 @@ module.exports = {
   parsePace,
   sleep,
   persistEnvVar,
+  backupDatabase,
 };

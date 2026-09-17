@@ -69,7 +69,7 @@ function checkEnvVars() {
     log('  export GARMIN_SECRET_STRING="your_token"', 'cyan');
     log('  export MAX_HR="190"', 'cyan');
     log('  export RESTING_HR="55"', 'cyan');
-    log('\n获取 token: python scripts/get_garmin_token.py', 'yellow');
+    log('\n获取 token: python scripts/garmin/get_garmin_token.py', 'yellow');
     process.exit(1);
   }
 
@@ -82,8 +82,17 @@ function checkDatabaseExists() {
   return fs.existsSync(dbPath);
 }
 
-/** 清空所有业务数据表（activities / activity_laps / activity_records），保留文件与表结构 */
+/** 清空所有业务数据表（activities / activity_laps / activity_records），保留文件与表结构。
+ *  清空前自动备份 DB，保证误操作可回滚。 */
 function clearDatabaseData(dbPath) {
+  const { backupDatabase } = require('../common/utils');
+  const bak = backupDatabase(dbPath);
+  if (bak) {
+    log(`\n✓ 已备份数据库 → ${bak}`, 'green');
+    log(`  如需回滚: cp "${bak}" "${dbPath}"`, 'cyan');
+  } else {
+    log('\n⚠ 未能创建数据库备份 (文件不存在或不可复制)，继续清空', 'yellow');
+  }
   const db = new Database(dbPath);
   try {
     // 顺序：先删有外键依赖的，再删主表

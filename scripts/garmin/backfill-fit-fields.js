@@ -112,6 +112,8 @@ async function main() {
   console.log(`\n✓ 完成: 回填 ${updated} / 跳过 ${skipped} / 失败 ${failed}` + (dryRun ? ' (dry-run)' : ''));
   console.log(`  逐秒记录重写: ${recordsUpdated} 个活动`);
   db.close();
+  // 失败项反映到退出码, 供 CI/cron 察觉部分失败 (原实现恒 0)。
+  if (failed > 0) process.exitCode = 1;
 }
 
 main().catch(e => {

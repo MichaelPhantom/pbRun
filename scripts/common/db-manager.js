@@ -321,16 +321,36 @@ class DatabaseManager {
 
   /**
    * 只更新指定字段（不整体 upsert），用于回填场景。
-   * patch: { column: value }，仅允许 activities 表已存在的列。
+   * patch: { column: value }。列名经 PRAGMA 白名单校验, 非 activities 表
+   * 实际列一律忽略 —— 防止拼接任意列名 (原实现无校验, 与其 JSDoc 声明不符)。
+   * @returns {{ updated: string[], rejected: string[] }}
    */
   updateActivityFields(activityId, patch) {
-    const cols = Object.keys(patch);
-    if (cols.length === 0) return;
+    if (!patch || typeof patch !== 'object') return { updated: [], rejected: [] };
+    const allowed = this._activityColumns();
+    const cols = Object.keys(patch).filter(c => allowed.has(c));
+    const rejected = Object.keys(patch).filter(c => !allowed.has(c));
+    if (rejected.length > 0) {
+      console.warn(
+        `[db-manager] updateActivityFields 忽略非 activities 列: ${rejected.join(', ')}`
+      );
+    }
+    if (cols.length === 0) return { updated: [], rejected };
     const setClause = cols.map(c => `${c} = ?`).join(', ');
     const stmt = this.db.prepare(
       `UPDATE activities SET ${setClause}, updated_at = CURRENT_TIMESTAMP WHERE activity_id = ?`
     );
     stmt.run(...cols.map(c => patch[c]), activityId);
+    return { updated: cols, rejected };
+  }
+
+  /** activities 表实际列名集合 (缓存)。 */
+  _activityColumns() {
+    if (!this._activityColsCache) {
+      const rows = this.db.prepare('PRAGMA table_info(activities)').all();
+      this._activityColsCache = new Set(rows.map(r => r.name));
+    }
+    return this._activityColsCache;
   }
 
   insertLaps(activityId, lapsData) {
