@@ -38,9 +38,17 @@ export function YearHeatmap({
       let calRight = 20;
 
       if (mobile) {
+        // 手机端截取「最近 6 个月」——必须锚定在**当前显示的年份**,
+        // 而非硬编码 now (查看历史年份时会因日历范围与数据不符而全部空白)。
         const now = new Date();
-        const end = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-        const start = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+        const isCurrentYear = year === now.getFullYear();
+        // 当前年份: 截到今日; 历史年份(或未来年份): 截到该年最后一天。
+        const end = isCurrentYear
+          ? `${year}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
+          : `${year}-12-31`;
+        // 起点 = 终点往前 5 个月的首日
+        const anchor = isCurrentYear ? now : new Date(year, 11, 31);
+        const start = new Date(anchor.getFullYear(), anchor.getMonth() - 5, 1);
         const startStr = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}-01`;
         range = [startStr, end];
         cellW = 10;

@@ -15,7 +15,10 @@ export function RecentActivityCard({ activity }: { activity: Activity }) {
     >
       <div className="flex items-start justify-between gap-2">
         <h3 className="line-clamp-1 min-w-0 text-sm font-medium text-fg">{name}</h3>
-        <time className="shrink-0 text-[11px] text-fg-muted">
+        <time
+          className="shrink-0 text-[11px] text-fg-muted"
+          dateTime={activity.start_time_local ?? activity.start_time ?? undefined}
+        >
           {formatListDateTime(activity.start_time_local ?? activity.start_time)}
         </time>
       </div>
@@ -25,7 +28,9 @@ export function RecentActivityCard({ activity }: { activity: Activity }) {
           {formatDuration(duration)} · {formatPaceShort(activity.average_pace)}
         </span>
       </div>
-      {(activity.vdot_value != null || activity.training_load != null) && (
+      {(activity.vdot_value != null ||
+        activity.training_load != null ||
+        activity.average_heart_rate != null) && (
         <div className="flex flex-wrap gap-3 text-[11px] text-fg-secondary">
           {activity.vdot_value != null && (
             <span>
@@ -34,7 +39,7 @@ export function RecentActivityCard({ activity }: { activity: Activity }) {
           )}
           {activity.training_load != null && (
             <span>
-              负荷 <span className="tnum font-medium text-fg-secondary">{activity.training_load.toFixed(0)}</span>
+              负荷 <span className="tnum font-medium text-fg-secondary">{activity.training_load.toFixed(1)}</span>
             </span>
           )}
           {activity.average_heart_rate != null && (

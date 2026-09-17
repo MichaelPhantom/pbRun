@@ -122,8 +122,17 @@ function buildLineChart(
 function buildPaceChart(chartRef: HTMLDivElement, xData: number[], paceData: (number | null)[]) {
   // 配速语义: 数值越小越快。Y 轴倒序 (inverse), 让"越快越靠上", 与跑步直觉一致
   const valid = paceData.filter((v): v is number => v != null);
-  let paceMin = Math.floor(Math.min(...valid) / 60) * 60;
-  let paceMax = Math.ceil(Math.max(...valid) / 60) * 60;
+  // 空数组守卫: Math.min(...[]) === Infinity 会让轴 min/max 变成 ±Infinity。
+  // 同时用 reduce 而非展开, 避免超长数组 (数万记录) 触发 arguments 上限 RangeError。
+  if (valid.length === 0) return () => {};
+  let minV = Infinity;
+  let maxV = -Infinity;
+  for (const v of valid) {
+    if (v < minV) minV = v;
+    if (v > maxV) maxV = v;
+  }
+  let paceMin = Math.floor(minV / 60) * 60;
+  let paceMax = Math.ceil(maxV / 60) * 60;
   if (paceMax - paceMin < 60) {
     // 数据跨度不足一分钟时留出上下边距, 避免曲线贴边或轴无法渲染
     paceMin = Math.max(0, paceMin - 60);

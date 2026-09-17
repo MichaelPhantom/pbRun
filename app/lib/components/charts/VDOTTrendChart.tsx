@@ -17,18 +17,38 @@ export default function VDOTTrendChart({ data, groupBy }: VDOTTrendChartProps) {
   const chartInstance = useRef<echarts.ECharts | null>(null);
 
   useEffect(() => {
-    if (!chartRef.current) return;
+    const el = chartRef.current;
+    if (!el) return;
 
-    // Initialize chart
+    // 初始化实例
     if (!chartInstance.current) {
-      chartInstance.current = echarts.init(chartRef.current, getPbrunTheme());
+      chartInstance.current = echarts.init(el, getPbrunTheme());
     }
 
     const chart = chartInstance.current;
 
+    // 仅保留有有效 avg_vdot 的点 (聚合层可能在空周期返回 null → 此前 .toFixed 崩溃)
+    const points = data.filter(
+      (d) => d.avg_vdot != null && Number.isFinite(d.avg_vdot),
+    );
+
+    if (points.length === 0) {
+      // 无数据: 清空图表并显示占位, 不崩溃
+      chart.clear();
+      chart.setOption({
+        title: {
+          text: '暂无 VDOT 数据',
+          left: 'center',
+          top: 'middle',
+          textStyle: { color: resolveColor('var(--fg-muted)', '#888'), fontSize: 12, fontWeight: 'normal' },
+        },
+      });
+      return;
+    }
+
     // Prepare data：只展示平均 VDOT
-    const periods = data.map(d => d.period);
-    const avgVdot = data.map(d => d.avg_vdot.toFixed(1));
+    const periods = points.map(d => d.period);
+    const avgVdot = points.map(d => d.avg_vdot.toFixed(1));
 
     const option: echarts.EChartsOption = {
       tooltip: {

@@ -32,13 +32,31 @@ class ApiSource {
 
   async listActivities() {
     const all = [];
+    const seen = new Set();
     let start = 0;
-    while (true) {
+    // 硬上限: 防止服务端忽略 start / 伪造满页导致无限循环 + 内存膨胀。
+    const MAX_PAGES = 1000;
+    let pages = 0;
+    while (pages++ < MAX_PAGES) {
       const batch = await this.client.getActivities(start, this.batchSize);
       if (!batch || batch.length === 0) break;
-      all.push(...batch.map(normalizeActivityMeta));
+      let added = 0;
+      for (const raw of batch) {
+        const meta = normalizeActivityMeta(raw);
+        const id = meta.activityId;
+        if (id != null && seen.has(id)) continue; // 去重: 防分页错位重复
+        if (id != null) seen.add(id);
+        all.push(meta);
+        added++;
+      }
+      // 终止条件: 返回不足一页说明已到末尾 (此前缺失 → 服务端未推进 start 则死循环);
+      // 或整页皆为重复 (服务端忽略 start)。
+      if (batch.length < this.batchSize || added === 0) break;
       start += this.batchSize;
       if (this.sleepMs > 0) await new Promise((r) => setTimeout(r, this.sleepMs));
+    }
+    if (pages > MAX_PAGES) {
+      console.warn(`[api-source] 分页超过 ${MAX_PAGES} 页上限, 已停止 (可能服务端未推进 start)`);
     }
     return all;
   }

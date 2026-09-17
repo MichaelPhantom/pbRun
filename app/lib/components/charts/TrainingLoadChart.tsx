@@ -44,7 +44,10 @@ export function TrainingLoadChart({ data, height = 280 }: { data: TrainingLoadPo
           trigger: "axis",
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           formatter: (params: any) => {
-            const p = data.find((d) => d.date === (Array.isArray(params) ? params[0]?.axisValue : params?.axisValue));
+            // 用轴索引定位, 而非按 date 值查找 —— 重复日期会命中错误的点。
+            const arr = Array.isArray(params) ? params : [params];
+            const idx = typeof arr[0]?.dataIndex === "number" ? arr[0].dataIndex : -1;
+            const p = idx >= 0 ? data[idx] : undefined;
             if (!p) return "";
             const f = (n: number) => n.toFixed(0);
             return `${p.date}<br/>CTL <b>${f(p.ctl)}</b> · ATL <b>${f(p.atl)}</b><br/>TSB <b style="color:${p.tsb >= 0 ? good : crit}">${p.tsb >= 0 ? "+" : ""}${f(p.tsb)}</b> (${p.tsb >= 15 ? "新鲜" : p.tsb >= -10 ? "平衡" : "疲劳"})`;
@@ -59,7 +62,8 @@ export function TrainingLoadChart({ data, height = 280 }: { data: TrainingLoadPo
             fontSize: 10,
             color: fgMuted,
             formatter: (v: string) => v.slice(5), // MM-DD
-            interval: (i: number) => i % Math.ceil(dates.length / 8) === 0,
+            // 空数据时 Math.ceil(0/8)=0 → i%0=NaN, 永不出标签; 兜底为 1 保证可见。
+            interval: (i: number) => i % Math.max(1, Math.ceil(dates.length / 8)) === 0,
           },
         },
         yAxis: {

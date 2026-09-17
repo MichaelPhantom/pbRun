@@ -2,7 +2,7 @@
 
 import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, Suspense } from 'react';
 import ZoneTrendCharts from '@/app/lib/components/charts/ZoneTrendCharts';
 import type { ZoneTrendSeriesPoint } from '@/app/lib/components/charts/ZoneTrendCharts';
 import { HR_ZONE_NAMES, hrZoneBadgeStyle } from '@/app/lib/hr-zones';
@@ -16,7 +16,7 @@ function getDefaultHalfYearRange(): { startDate: string; endDate: string } {
   return { startDate, endDate };
 }
 
-export default function ZoneTrendPage() {
+function ZoneTrendContent() {
   const params = useParams();
   const searchParams = useSearchParams();
   const zoneParam = params.zone as string;
@@ -38,9 +38,12 @@ export default function ZoneTrendPage() {
 
   useEffect(() => {
     if (!validZone) return;
+    // 用 AbortController 取消旧请求 —— 否则旧请求若后返回会覆盖新 zone 的图表
+    // (无序响应竞态)。所有 setState 都在异步回调内, 避免 effect 内同步 setState。
+    const ac = new AbortController();
     const query = new URLSearchParams({ startDate, endDate, groupBy }).toString();
     // 前缀与 next.config.ts basePath 同步 (next/link 自动加, 手写 fetch 手动拼)
-    fetch(`/pbrun/api/analysis/hr-zones?${query}`)
+    fetch(`/pbrun/api/analysis/hr-zones?${query}`, { signal: ac.signal })
       .then((res) => {
         if (!res.ok) throw new Error(res.statusText);
         return res.json();
@@ -58,12 +61,18 @@ export default function ZoneTrendPage() {
             avg_stride_length: d.avg_stride_length,
           }));
         setSeriesData(filtered);
-        if (zoneRanges[zone]) {
-          setRangeBpm(`${zoneRanges[zone].min}-${zoneRanges[zone].max}`);
-        }
+        // 即使新 zone 无范围也要重置 (此前仅在存在时设置, 会残留上一 zone 的 BPM)
+        setRangeBpm(zoneRanges[zone] ? `${zoneRanges[zone].min}-${zoneRanges[zone].max}` : '');
+        setError(null);
       })
-      .catch((e) => setError(e instanceof Error ? e.message : '加载失败'))
-      .finally(() => setLoading(false));
+      .catch((e) => {
+        if ((e as Error).name === 'AbortError') return;
+        setError(e instanceof Error ? e.message : '加载失败');
+      })
+      .finally(() => {
+        if (!ac.signal.aborted) setLoading(false);
+      });
+    return () => ac.abort();
   }, [zone, validZone, startDate, endDate, groupBy]);
 
   if (zone < 1 || zone > 5) {
@@ -99,9 +108,18 @@ export default function ZoneTrendPage() {
 
       {loading ? (
         <div className="py-12 text-center text-fg-muted">加载中…</div>
-      ) : (
+      ) : error ? null : (
         <ZoneTrendCharts seriesData={seriesData} chartHeight={260} />
       )}
     </div>
+  );
+}
+
+// useSearchParams 需要 Suspense 边界 (否则静态渲染/构建会报错)。
+export default function ZoneTrendPage() {
+  return (
+    <Suspense fallback={<div className="py-12 text-center text-fg-muted">加载中…</div>}>
+      <ZoneTrendContent />
+    </Suspense>
   );
 }

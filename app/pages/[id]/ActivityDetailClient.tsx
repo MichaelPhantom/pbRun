@@ -41,7 +41,7 @@ export default function ActivityDetailClient({ activity, laps, records, track }:
     { value: durationMinutes > 0 ? (durationMinutes % 1 === 0 ? String(Math.round(durationMinutes)) : durationMinutes.toFixed(1)) : '--', unit: durationMinutes > 0 ? '分' : undefined, label: '时长' },
     { value: activity.average_heart_rate != null ? String(Math.round(activity.average_heart_rate)) : '--', unit: activity.average_heart_rate != null ? 'bpm' : undefined, label: '平均心率' },
     { value: activity.training_load != null ? activity.training_load.toFixed(1) : '--', label: '训练负荷' },
-    { value: activity.total_ascent != null ? String(Math.round(activity.total_ascent)) : '0', unit: 'm', label: '累计爬升' },
+    { value: activity.total_ascent != null ? String(Math.round(activity.total_ascent)) : '--', unit: activity.total_ascent != null ? 'm' : undefined, label: '累计爬升' },
     { value: activity.average_cadence != null ? String(Math.round(activity.average_cadence)) : '--', unit: activity.average_cadence != null ? 'spm' : undefined, label: '步频' },
     { value: activity.average_stride_length != null ? activity.average_stride_length.toFixed(2) : '--', unit: activity.average_stride_length != null ? 'm' : undefined, label: '步幅' },
     { value: activity.average_power != null ? String(Math.round(activity.average_power)) : '--', unit: activity.average_power != null ? 'W' : undefined, label: '平均功率' },

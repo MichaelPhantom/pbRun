@@ -32,9 +32,13 @@ export function AiAnalysis({ activityId }: { activityId: number }) {
   const [fellBack, setFellBack] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  // 每次 generate 递增; 用于丢弃过期请求的 setState (abort 是异步的, 旧循环可能
+  // 在新请求开始后才观察到 AbortError, 从而覆盖新结果)。
+  const genIdRef = useRef(0);
 
   useEffect(() => {
-    fetch('/pbrun/api/llm/models')
+    const ac = new AbortController();
+    fetch('/pbrun/api/llm/models', { signal: ac.signal })
       .then((r) => r.json())
       .then((j) => {
         const list: ModelInfo[] = j.models ?? [];
@@ -44,13 +48,25 @@ export function AiAnalysis({ activityId }: { activityId: number }) {
         setModels(list);
         setConfigured(!!j.configured);
       })
-      .catch(() => setConfigured(false));
+      .catch((e) => {
+        if ((e as Error).name !== 'AbortError') setConfigured(false);
+      });
+    return () => ac.abort();
+  }, []);
+
+  // 卸载时中止进行中的分析 (否则连接与上游 120s 调用会继续, 且对已卸载组件 setState)
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
   }, []);
 
   async function generate() {
     abortRef.current?.abort();
     const ac = new AbortController();
     abortRef.current = ac;
+    const myGen = ++genIdRef.current;
+    const isStale = () => myGen !== genIdRef.current;
     setStatus('streaming');
     setContent('');
     setReasoning('');
@@ -86,40 +102,77 @@ export function AiAnalysis({ activityId }: { activityId: number }) {
         };
         throw new Error(friendlyAnalysisError(resp.status, j?.error, j?.detail));
       }
-      const reader = resp.body!.getReader();
+      if (!resp.body) throw new Error('响应为空');
+
+      const reader = resp.body.getReader();
       const dec = new TextDecoder();
       let buf = '';
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        const lines = buf.split('\n');
-        buf = lines.pop() ?? '';
-        for (const line of lines) {
-          const s = line.trim();
-          if (!s.startsWith('data:')) continue;
-          const payload = s.slice(5).trim();
-          if (payload === '[DONE]') continue;
-          try {
-            const json = JSON.parse(payload);
-            if (json.error) throw new Error(String(json.error));
-            if (json.model && !routed) routed = String(json.model);
-            const delta: Record<string, string | undefined> | undefined = json.choices?.[0]?.delta;
-            if (delta) {
-              const c = delta.content;
-              const r = delta.reasoning_content ?? delta.reasoning;
-              if (c) { text += c; setContent(text); }
-              if (r) { think += r; setReasoning(think); }
+      let streamErr: string | null = null;
+
+      const handleLine = (line: string) => {
+        const s = line.trim();
+        if (!s.startsWith('data:')) return;
+        const payload = s.slice(5).trim();
+        if (payload === '' || payload === '[DONE]') return;
+        let json: {
+          error?: unknown;
+          model?: string;
+          choices?: { delta?: Record<string, string | undefined> }[];
+        };
+        try {
+          json = JSON.parse(payload);
+        } catch {
+          return; // 非 JSON 行 (注释/keepalive)
+        }
+        // 上游中途以 SSE 帧回报错误 (如 {"error":"rate limited"}): 须向上抛出,
+        // 否则会被"非 JSON 行忽略"的 catch 吞掉并伪装成空结果。
+        if (json.error) throw new Error(String(json.error));
+        if (json.model && !routed) routed = String(json.model);
+        const delta = json.choices?.[0]?.delta;
+        if (delta) {
+          const c = delta.content;
+          const r = delta.reasoning_content ?? delta.reasoning;
+          if (c) { text += c; if (!isStale()) setContent(text); }
+          if (r) { think += r; if (!isStale()) setReasoning(think); }
+        }
+      };
+
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          const lines = buf.split('\n');
+          buf = lines.pop() ?? '';
+          for (const line of lines) {
+            if (isStale()) return;
+            try {
+              handleLine(line);
+            } catch (err) {
+              streamErr = err instanceof Error ? err.message : String(err);
+              throw err;
             }
-          } catch {
-            // 非 JSON 行 (注释/keepalive), 忽略
           }
         }
+        // 流结束: flush 解码器残留字节 + 处理最后一个无换行结尾的行
+        buf += dec.decode();
+        for (const line of buf.split('\n')) {
+          if (isStale()) return;
+          handleLine(line);
+        }
+      } catch (err) {
+        if (streamErr) throw err; // 上游错误帧: 走外层错误处理
+        if ((err as Error).name === 'AbortError') throw err;
+        // 读取中途失败: 若已收到部分内容则保留, 否则抛出
+        if (!text) throw err;
       }
+
+      if (isStale()) return;
       if (routed) setRoutedModel(routed);
       setStatus(text ? 'done' : 'error');
       if (!text) setError(think ? '模型仅输出思考过程, 未能生成分析结论' : '分析结果为空');
     } catch (e) {
+      if (isStale()) return;
       if ((e as Error).name === 'AbortError') {
         if (routed) setRoutedModel(routed);
         if (think) setReasoning(think);

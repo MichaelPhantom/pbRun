@@ -157,7 +157,9 @@ class GarminClient {
   }
 
   /**
-   * Download FIT file for an activity
+   * Download FIT file for an activity.
+   * 404 (该活动无 FIT 文件) 返回 null; 其余错误 (认证/网络/5xx) 向上抛出,
+   * 以免认证过期被伪装成"无 FIT"而导致同步静默截断。
    */
   async downloadFitFile(activityId) {
     try {
@@ -169,8 +171,11 @@ class GarminClient {
         return response.data;
       });
     } catch (error) {
+      if (error.response && error.response.status === 404) {
+        return null; // 无该活动的 FIT 文件, 属正常
+      }
       console.error(`Error downloading FIT file for activity ${activityId}: ${error.message}`);
-      return null;
+      throw error;
     }
   }
 

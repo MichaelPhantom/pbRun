@@ -58,34 +58,43 @@ export default function ListClient({
 
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const loadingMoreRef = useRef(false);
 
   // 展开月份时拉取该月数据 (从事件处理触发, 避免在 effect 内同步 setState)
   const loadAndExpandMonth = useCallback((monthKey: string) => {
     setExpandedMonth(monthKey);
     if (activitiesByMonth[monthKey]) return;
-    let cancelled = false;
     setLoadingMonth(monthKey);
+    setError(null);
     fetchMonthActivities(monthKey)
       .then((data) => {
-        if (!cancelled) {
-          setActivitiesByMonth((prev) => ({ ...prev, [monthKey]: data }));
-        }
+        setActivitiesByMonth((prev) => ({ ...prev, [monthKey]: data }));
       })
       .catch((e) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : '加载失败');
+        setError(e instanceof Error ? e.message : '加载失败');
       })
       .finally(() => {
-        if (!cancelled) setLoadingMonth((m) => (m === monthKey ? null : m));
+        setLoadingMonth((m) => (m === monthKey ? null : m));
       });
-    return () => {
-      cancelled = true;
-    };
   }, [activitiesByMonth]);
 
+  // 点击已展开月份则收起 (此前无法折叠)
+  const toggleMonth = useCallback((monthKey: string) => {
+    if (expandedMonth === monthKey) {
+      setExpandedMonth(null);
+      return;
+    }
+    loadAndExpandMonth(monthKey);
+  }, [expandedMonth, loadAndExpandMonth]);
+
   const loadMoreMonths = useCallback(() => {
-    if (loadingMore) return;
+    // 用 ref 做同步锁: IntersectionObserver 可能在同一 tick 内多次触发 (React 状态
+    // 尚未提交, loadingMore 闭包仍为 false), 导致重复追加同一页 + React key 冲突。
+    if (loadingMoreRef.current) return;
     if (monthSummaries.length >= totalMonths) return;
+    loadingMoreRef.current = true;
     setLoadingMore(true);
+    setError(null);
     const params = new URLSearchParams({
       limit: String(MONTHS_PAGE_SIZE),
       offset: String(monthSummaries.length),
@@ -97,11 +106,18 @@ export default function ListClient({
       })
       .then((json) => {
         const list = json.data ?? [];
-        setMonthSummaries((prev) => [...prev, ...list]);
+        // 去重: 防止任何重复 key 追加
+        setMonthSummaries((prev) => {
+          const seen = new Set(prev.map((m) => m.monthKey));
+          return [...prev, ...list.filter((m: MonthSummary) => !seen.has(m.monthKey))];
+        });
       })
       .catch((e) => setError(e instanceof Error ? e.message : '加载失败'))
-      .finally(() => setLoadingMore(false));
-  }, [loadingMore, monthSummaries.length, totalMonths]);
+      .finally(() => {
+        loadingMoreRef.current = false;
+        setLoadingMore(false);
+      });
+  }, [monthSummaries.length, totalMonths]);
 
   useEffect(() => {
     const el = loadMoreRef.current;
@@ -135,7 +151,8 @@ export default function ListClient({
       const q = searchQuery.trim().toLowerCase();
       out = out.filter((a) => (a.name || '').toLowerCase().includes(q));
     }
-    return out.sort(
+    // 复制后再排序 —— 否则无过滤时 out === 状态数组, sort 会原地改写 React state。
+    return [...out].sort(
       (x, y) =>
         new Date(y.start_time_local ?? y.start_time).getTime() -
         new Date(x.start_time_local ?? x.start_time).getTime()
@@ -198,7 +215,7 @@ export default function ListClient({
               <section key={summary.monthKey} className="flex flex-col gap-2">
                 <button
                   type="button"
-                  onClick={() => loadAndExpandMonth(summary.monthKey)}
+                  onClick={() => toggleMonth(summary.monthKey)}
                   aria-expanded={isExpanded}
                   className="card-hover flex w-full items-center justify-between rounded-lg border border-border bg-surface px-4 py-3 text-left"
                 >
@@ -225,7 +242,9 @@ export default function ListClient({
                       <div className="flex flex-col gap-3">
                         {filteredItemsForMonth.length === 0 ? (
                           <div className="rounded-xl border border-border bg-surface py-8 text-center text-sm text-fg-muted">
-                            该月暂无匹配活动
+                            {(typeFilter !== 'all' || searchQuery.trim())
+                              ? '该月无匹配活动（当前筛选条件生效中）'
+                              : '该月暂无活动'}
                           </div>
                         ) : (
                           filteredItemsForMonth.map((a) => (
