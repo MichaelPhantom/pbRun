@@ -29,6 +29,12 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen bg-bg text-fg`}
       >
+        <a
+          href="#main-content"
+          className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[100] focus:rounded-md focus:bg-[var(--brand)] focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-[var(--brand-fg)]"
+        >
+          跳到主要内容
+        </a>
         <header className="sticky top-0 z-50 border-b border-border bg-bg/80 backdrop-blur-md supports-[backdrop-filter]:bg-bg/70">
           <div className="mx-auto flex h-14 w-full max-w-5xl items-center justify-between gap-2 px-3 sm:px-4">
             <Link href="/" className="flex items-center gap-1.5 font-semibold">
@@ -42,7 +48,13 @@ export default function RootLayout({
             <TopNav />
           </div>
         </header>
-        <main className="mx-auto max-w-5xl px-3 py-4 sm:px-4 sm:py-6">{children}</main>
+        <main
+          id="main-content"
+          tabIndex={-1}
+          className="mx-auto max-w-5xl px-3 py-4 outline-none sm:px-4 sm:py-6"
+        >
+          {children}
+        </main>
       </body>
     </html>
   );

@@ -104,7 +104,7 @@ export function TrainingLoadChart({ data, height = 280 }: { data: TrainingLoadPo
     [data],
     { height },
   );
-  return <div ref={ref} style={style} />;
+  return <div ref={ref} role="img" aria-label="训练负荷 (CTL/ATL/TSB) 趋势图" style={style} />;
 }
 
 export default TrainingLoadChart;

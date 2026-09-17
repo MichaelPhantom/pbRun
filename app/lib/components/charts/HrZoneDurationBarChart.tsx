@@ -122,5 +122,5 @@ export default function HrZoneDurationBarChart({ data }: HrZoneDurationBarChartP
     };
   }, []);
 
-  return <div ref={chartRef} style={{ width: '100%', height: '200px', position: 'relative', zIndex: 0 }} />;
+  return <div ref={chartRef} role="img" aria-label="各心率区间跑步时长柱状图" style={{ width: '100%', height: '200px', position: 'relative', zIndex: 0 }} />;
 }

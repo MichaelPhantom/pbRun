@@ -266,7 +266,7 @@ export default function ActivityTrendCharts({ records }: ActivityTrendChartsProp
       {hasHr && (
         <section>
           <h2 className="mb-2 text-sm font-medium text-fg">心率趋势</h2>
-          <div ref={hrRef} style={{ width: '100%', height: '200px', position: 'relative', zIndex: 0 }} />
+          <div ref={hrRef} role="img" aria-label="心率随距离变化趋势图" style={{ width: '100%', height: '200px', position: 'relative', zIndex: 0 }} />
         </section>
       )}
       {hasPace && (
@@ -275,13 +275,13 @@ export default function ActivityTrendCharts({ records }: ActivityTrendChartsProp
             <h2 className="text-sm font-medium text-fg">配速趋势</h2>
             <span className="text-[11px] text-fg-muted">曲线越靠上 = 配速越快（Y 轴倒序）</span>
           </div>
-          <div ref={paceRef} style={{ width: '100%', height: '200px', position: 'relative', zIndex: 0 }} />
+          <div ref={paceRef} role="img" aria-label="配速随距离变化趋势图" style={{ width: '100%', height: '200px', position: 'relative', zIndex: 0 }} />
         </section>
       )}
       {hasCadence && (
         <section>
           <h2 className="mb-2 text-sm font-medium text-fg">步频趋势</h2>
-          <div ref={cadenceRef} style={{ width: '100%', height: '200px', position: 'relative', zIndex: 0 }} />
+          <div ref={cadenceRef} role="img" aria-label="步频随距离变化趋势图" style={{ width: '100%', height: '200px', position: 'relative', zIndex: 0 }} />
         </section>
       )}
       {hasStride && (

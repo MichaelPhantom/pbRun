@@ -91,7 +91,7 @@ export function YearHeatmap({
   );
   return (
     <div className="overflow-x-auto">
-      <div ref={ref} style={style} />
+      <div ref={ref} role="img" aria-label={`${year} 年每日跑量热力图`} style={style} />
     </div>
   );
 }

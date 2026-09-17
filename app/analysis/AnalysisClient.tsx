@@ -113,6 +113,7 @@ export default function AnalysisClient({
 
   return (
     <div className="flex flex-col gap-4 sm:gap-5">
+      <h1 className="sr-only">训练分析</h1>
       {/* 时间范围 */}
       <SectionCard title="分析范围" action={<Segmented items={rangeItems} value={String(timeRangeDays)} size="sm" />}>
         <div className="flex items-center gap-2 text-xs text-fg-secondary">

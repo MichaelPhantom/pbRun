@@ -145,7 +145,11 @@ export default function ListClient({
   return (
     <div className="flex min-w-0 flex-col gap-6">
       <div className="flex flex-wrap items-center gap-3">
+        <label className="sr-only" htmlFor="activity-type-filter">
+          活动类型筛选
+        </label>
         <select
+          id="activity-type-filter"
           value={typeFilter}
           onChange={(e) => setTypeFilter(e.target.value)}
           className="tnum rounded-lg border border-border bg-surface px-3 py-2 text-sm text-fg-secondary"
@@ -158,10 +162,14 @@ export default function ListClient({
           ))}
         </select>
         <div className="ml-auto flex flex-1 min-w-0 max-w-xs items-center rounded-lg border border-border bg-surface px-3 py-2">
+          <label className="sr-only" htmlFor="activity-search">
+            搜索活动
+          </label>
           <span className="mr-2 text-fg-muted" aria-hidden>
             🔍
           </span>
           <input
+            id="activity-search"
             type="search"
             placeholder="搜索"
             value={searchQuery}
@@ -191,6 +199,7 @@ export default function ListClient({
                 <button
                   type="button"
                   onClick={() => loadAndExpandMonth(summary.monthKey)}
+                  aria-expanded={isExpanded}
                   className="card-hover flex w-full items-center justify-between rounded-lg border border-border bg-surface px-4 py-3 text-left"
                 >
                   <span className="font-medium text-fg">

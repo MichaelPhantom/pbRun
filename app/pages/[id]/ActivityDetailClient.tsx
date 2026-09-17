@@ -122,6 +122,7 @@ export default function ActivityDetailClient({ activity, laps, records, track }:
         ) : (
           <div className="-mx-1 overflow-x-auto sm:mx-0">
             <table className="w-full border-collapse text-center text-[11px] sm:text-sm">
+              <caption className="sr-only">每公里分段数据</caption>
               <thead>
                 <tr className="border-b border-border">
                   {[
@@ -133,7 +134,7 @@ export default function ActivityDetailClient({ activity, laps, records, track }:
                     { t: '步频', u: 'spm' },
                     { t: '爬升', u: 'm' },
                   ].map((h) => (
-                    <th key={h.t} className={`whitespace-nowrap px-1.5 py-2 font-medium text-fg-secondary sm:px-2 ${h.s ?? ''}`}>
+                    <th key={h.t} scope="col" className={`whitespace-nowrap px-1.5 py-2 font-medium text-fg-secondary sm:px-2 ${h.s ?? ''}`}>
                       {h.t}
                       <span className="block text-center text-[9px] font-normal text-fg-muted">{h.u}</span>
                     </th>

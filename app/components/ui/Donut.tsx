@@ -80,7 +80,7 @@ export function Donut({
     [data, centerLabel, centerValue],
     { height },
   );
-  return <div ref={ref} style={style} />;
+  return <div ref={ref} role="img" aria-label={centerLabel ? `${centerLabel}分布环图` : "分布环图"} style={style} />;
 }
 
 export default Donut;

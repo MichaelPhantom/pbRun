@@ -93,6 +93,7 @@ export default async function DashboardPage() {
 
   return (
     <div className="flex flex-col gap-4 sm:gap-5">
+      <h1 className="sr-only">pbRun 跑步数据仪表盘</h1>
       {/* Hero: VDOT + 预测 */}
       <SectionCard accent title="跑力仪表盘" action={<Badge variant="brand">{year} 赛季</Badge>}>
         <div className="flex flex-col gap-5 lg:flex-row lg:items-stretch lg:gap-6">

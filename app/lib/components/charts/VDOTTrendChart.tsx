@@ -114,6 +114,8 @@ export default function VDOTTrendChart({ data, groupBy }: VDOTTrendChartProps) {
   return (
     <div
       ref={chartRef}
+      role="img"
+      aria-label="VDOT 跑力趋势图"
       style={{ width: '100%', height: '200px', position: 'relative', zIndex: 0 }}
     />
   );

@@ -132,15 +132,15 @@ export default function ZoneTrendCharts({ seriesData, chartHeight = 320 }: ZoneT
           <span className="text-sm font-medium text-fg-secondary">配速</span>
           <span className="text-[11px] text-fg-muted">越靠上越快（Y 轴倒序）</span>
         </div>
-        <div ref={paceRef} style={{ width: '100%', height: `${chartHeight}px`, position: 'relative', zIndex: 0 }} />
+        <div ref={paceRef} role="img" aria-label="该心率区间的配速趋势图" style={{ width: '100%', height: `${chartHeight}px`, position: 'relative', zIndex: 0 }} />
       </div>
       <div>
         <div className="mb-2 text-sm font-medium text-fg-secondary">步频</div>
-        <div ref={cadenceRef} style={{ width: '100%', height: `${chartHeight}px`, position: 'relative', zIndex: 0 }} />
+        <div ref={cadenceRef} role="img" aria-label="该心率区间的步频趋势图" style={{ width: '100%', height: `${chartHeight}px`, position: 'relative', zIndex: 0 }} />
       </div>
       <div>
         <div className="mb-2 text-sm font-medium text-fg-secondary">步幅</div>
-        <div ref={strideRef} style={{ width: '100%', height: `${chartHeight}px`, position: 'relative', zIndex: 0 }} />
+        <div ref={strideRef} role="img" aria-label="该心率区间的步幅趋势图" style={{ width: '100%', height: `${chartHeight}px`, position: 'relative', zIndex: 0 }} />
       </div>
     </div>
   );

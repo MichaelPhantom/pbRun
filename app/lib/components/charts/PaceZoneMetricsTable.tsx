@@ -28,12 +28,13 @@ export default function PaceZoneMetricsTable({ data }: PaceZoneMetricsTableProps
   return (
     <div className="overflow-x-auto rounded-xl border border-border bg-surface">
       <table className="tnum w-full min-w-[260px] text-sm border-collapse">
+        <caption className="sr-only">各配速区间的心率、步频与步幅统计</caption>
         <thead>
           <tr className="border-b border-border">
-            <th className="w-36 min-w-[9rem] px-3 py-2.5 text-left font-medium text-fg-secondary">配速区间</th>
-            <th className="px-3 py-2.5 text-center font-medium text-fg-secondary">心率</th>
-            <th className="px-3 py-2.5 text-center font-medium text-fg-secondary">步频</th>
-            <th className="px-3 py-2.5 text-right font-medium text-fg-secondary">步幅</th>
+            <th scope="col" className="w-36 min-w-[9rem] px-3 py-2.5 text-left font-medium text-fg-secondary">配速区间</th>
+            <th scope="col" className="px-3 py-2.5 text-center font-medium text-fg-secondary">心率</th>
+            <th scope="col" className="px-3 py-2.5 text-center font-medium text-fg-secondary">步频</th>
+            <th scope="col" className="px-3 py-2.5 text-right font-medium text-fg-secondary">步幅</th>
           </tr>
         </thead>
         <tbody>
