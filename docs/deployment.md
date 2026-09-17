@@ -315,7 +315,7 @@ https://your-project.vercel.app/api/vdot?days=30
 2. 更新 GitHub Secrets 中的 `GARMIN_SECRET_STRING`
 3. 手动重新运行 workflow
 
-### Q2: Vercel 部署成功，但页面显示 "500 Internal Server Error"
+### Q2: Vercel 部署成功，但页面显示 "500 Internal Server Error" / "数据尚未就绪"
 
 **原因**: 数据库文件不存在或损坏。
 
@@ -324,6 +324,11 @@ https://your-project.vercel.app/api/vdot?days=30
 1. 确认 `app/data/activities.db` 文件已提交到 Git
 2. 检查文件大小是否 > 0 KB
 3. 在本地运行 `npm run init:data` 初始化数据，然后提交到 Git
+
+> 自 2026-09-17 起, 数据库缺失不再抛裸错: 页面会经应用级错误边界
+> (`app/error.tsx`) 渲染「数据尚未就绪」友好提示 (含同步命令与 `DB_PATH`
+> 指引), `/api/health?deep=1` 返回 `503 degraded`; 其他未预期错误显示可重试的
+> 通用错误页。`app/loading.tsx` 亦提供全站骨架屏。
 
 ### Q3: API 返回空数据
 
@@ -378,6 +383,25 @@ schedule:
 ```
 
 提交修改后，新的计划会自动生效。
+
+### Q8: 破坏性操作（清库/回填）如何回滚？
+
+自 2026-09-17 起，所有破坏性脚本都会**自动先备份**：
+
+| 操作 | 脚本 | 备份产物 |
+|------|------|----------|
+| 清空数据库重新同步 | `npm run init:data` | `<db>.bak.<ts>`（清空前） |
+| 回填 FIT 新字段 | `backfill-fit-fields.js` | 重写逐秒记录前 |
+| 回填 VDOT/训练负荷 | `backfill-vdot.js` | 同上 |
+
+回滚命令（脚本会在输出中打印具体路径）：
+
+```bash
+cp "app/data/activities.db.bak.<timestamp>" app/data/activities.db
+```
+
+> 说明：`backfill-*.js` 与 `init-garmin-data.js` 现在会在存在失败项时返回
+> **非零退出码**，便于 CI/cron 察觉部分失败（此前恒为 0，静默成功）。
 
 ---
 

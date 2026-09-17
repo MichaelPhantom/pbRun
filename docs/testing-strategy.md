@@ -773,19 +773,20 @@ jobs:
 
 ## 8. 测试执行计划
 
-> **状态复核 (2026-09-15)**: 本计划为历史路线图, 逐项核实实际落地情况(见各条标注)。
+> **状态复核 (2026-09-17)**: 本计划为历史路线图, 逐项核实实际落地情况(见各条标注)。
 > `[x]` = 已落地; `[ ]` 保持未达成项(附原因); 勿据未勾选项判定"未做"。
+> 当前: 33 套件 / 474 例全绿。
 
 ### Phase 1: 基础单元测试 (Week 1-2)
 - [x] 配置 Jest + Testing Library ✅
-- [x] 实现 lib/ 工具函数测试 ✅ (tests/unit/lib/ 14 套件)
-- [ ] 实现 db/ 数据库查询测试 —— 部分(db 依赖真实 SQLite, 单测覆盖有限; 见 db.ts)
-- [ ] 实现 API Routes 测试 —— 未做(路由为薄封装, 逻辑在 lib; 可后续补)
+- [x] 实现 lib/ 工具函数测试 ✅ (tests/unit/lib/ 16 套件)
+- [x] 实现 db/ 数据库查询测试 ✅ (tests/unit/lib/db*.test.ts + db-availability)
+- [x] 实现 API Routes 测试 ✅ (tests/unit/api/analysis-fallback: 模型回退契约 4 例)
 
 ### Phase 2: 组件单元测试 (Week 2-3)
 - [x] 配置 React Testing Library ✅
-- [x] 实现核心组件测试 ✅ (TopNav/MarkdownLite; 图表组件依赖 echarts 实例难测)
-- [ ] 实现页面级组件测试 —— 未做(页面依赖数据/路由, 由 E2E 覆盖)
+- [x] 实现核心组件测试 ✅ (TopNav/MarkdownLite/zone-tables-a11y/list-filters-a11y)
+- [ ] 实现页面级组件测试 —— 部分(列表筛选/空态已测; 数据密集型页面仍由 E2E 覆盖)
 
 ### Phase 3: E2E测试 (Week 3-4)
 - [x] 配置 Playwright ✅
@@ -808,7 +809,7 @@ jobs:
 ## 9. 质量保证检查清单
 
 ### 代码提交前
-- [x] 所有单元测试通过 ✅ (440 例)
+- [x] 所有单元测试通过 ✅ (474 例, 33 套件; 含 NODE_ENV 自洽修复)
 - [ ] 新增代码覆盖率 > 80% —— 未达(当前行覆盖 ~40%; 图表/页面组件为主要缺口)
 - [x] 没有 TypeScript 错误 ✅ (tsc --noEmit rc=0)
 - [x] ESLint 检查通过 ✅ (2026-09-15 清零)
