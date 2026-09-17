@@ -31,11 +31,22 @@ class GarminClient {
       timeout: 240000,
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Authorization': `Bearer ${this.accessToken}`,
         'origin': 'https://sso.garmin.com',
         'nk': 'NT'
       }
     });
+    // Authorization 必须放在 defaults.headers.common —— axios 合并时 common 会被
+    // 各请求继承, 且刷新 token 时同一位置更新才生效 (若设在 create 配置的
+    // 顶层 defaults.headers, 会优先于 common, 导致刷新写入 common 后旧 token
+    // 仍然胜出 → 刷新形同 no-op, 过期后每次重试都再次 401)。
+    this.client.defaults.headers.common['Authorization'] = `Bearer ${this.accessToken}`;
+    this._refreshPromise = null; // 刷新互斥 (见 _requestWithRefresh)
+  }
+
+  /** 在唯一权威位置更新 Authorization 头 (创建与刷新共用)。 */
+  _setAuthHeader(token) {
+    this.accessToken = token;
+    this.client.defaults.headers.common['Authorization'] = `Bearer ${token}`;
   }
 
   /**
@@ -76,8 +87,7 @@ class GarminClient {
         expires_in: data.expires_in,
         expires_at: data.expires_at || (now + (data.expires_in || 86400))
       };
-      this.accessToken = this.oauth2Token.access_token;
-      this.client.defaults.headers.common['Authorization'] = `Bearer ${this.accessToken}`;
+      this._setAuthHeader(this.oauth2Token.access_token);
       const newPayload = Buffer.from(JSON.stringify([this.oauthToken, this.oauth2Token])).toString('base64');
       return newPayload;
     } catch (err) {
@@ -98,14 +108,21 @@ class GarminClient {
   }
 
   /**
-   * 请求时若 401 则尝试刷新 token 并重试一次
+   * 请求时若 401 则尝试刷新 token 并重试一次。
+   * 刷新加互斥 (refreshPromise): Garmin 的 refresh_token 会轮换, 并发 401 若各自
+   * 刷新会用已消费的旧 refresh_token 互相失效; 复用同一个进行中的刷新即可。
    */
   async _requestWithRefresh(fn) {
     try {
       return await fn();
     } catch (error) {
       if (error.response && error.response.status === 401) {
-        const newToken = await this.refreshAccessToken();
+        if (!this._refreshPromise) {
+          this._refreshPromise = this.refreshAccessToken().finally(() => {
+            this._refreshPromise = null;
+          });
+        }
+        const newToken = await this._refreshPromise;
         if (newToken) {
           process.env.GARMIN_SECRET_STRING = newToken;
           const persisted = await this._persistTokenToEnv(newToken);

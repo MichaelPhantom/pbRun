@@ -223,6 +223,11 @@ class GarminSync {
               log(`${progress} ✗ ${activity.activityName}${timePart} 失败`, 'red');
             }
           } catch (error) {
+            // 会话失效: 立即中止整个同步 (向上抛出), 以便编排脚本触发重登 ——
+            // 否则会对剩余每个活动都失败一次并最终仍报 success。
+            if (error && error.sessionFail) {
+              throw error;
+            }
             const timeStr = formatActivityTime(activity);
             const timePart = timeStr ? ` ${timeStr} -` : ' -';
             log(`${progress} ✗ ${activity.activityName}${timePart} ${error.message}`, 'red');

@@ -354,11 +354,11 @@ class DatabaseManager {
   }
 
   insertLaps(activityId, lapsData) {
-    // Delete existing laps
+    // DELETE 与 INSERT 必须在同一事务内 —— 否则插入失败时回滚不回删除,
+    // 导致该活动原有 laps 被永久清空 (静默数据丢失)。
     const deleteStmt = this.db.prepare('DELETE FROM activity_laps WHERE activity_id = ?');
-    deleteStmt.run(activityId);
-
     if (!lapsData || lapsData.length === 0) {
+      deleteStmt.run(activityId);
       return;
     }
 
@@ -371,21 +371,22 @@ class DatabaseManager {
       VALUES (${placeholders})
     `);
 
-    const insertMany = this.db.transaction((laps) => {
+    const replaceMany = this.db.transaction((laps) => {
+      deleteStmt.run(activityId);
       for (const lap of laps) {
         const values = columns.map(col => lap[col]);
         insertStmt.run(...values);
       }
     });
 
-    insertMany(lapsData);
+    replaceMany(lapsData);
   }
 
   insertActivityRecords(activityId, recordsData) {
+    // 同 insertLaps: 删除与插入同事务, 防插入失败导致原有逐秒记录被清空。
     const deleteStmt = this.db.prepare('DELETE FROM activity_records WHERE activity_id = ?');
-    deleteStmt.run(activityId);
-
     if (!recordsData || recordsData.length === 0) {
+      deleteStmt.run(activityId);
       return;
     }
 
@@ -397,6 +398,7 @@ class DatabaseManager {
     `);
 
     const insertMany = this.db.transaction((rows) => {
+      deleteStmt.run(activityId);
       for (const row of rows) {
         insertStmt.run(
           row.activity_id,

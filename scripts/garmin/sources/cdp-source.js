@@ -27,7 +27,7 @@ const DOWNLOAD_API = '/gc-api/download-service/files/activity/';
 const FETCH_SCRIPT = (url) => `(async () => {
   try {
     const csrf = (document.querySelector('meta[name=csrf-token]') || {}).content || '';
-    const r = await fetch('${url}', {
+    const r = await fetch(${JSON.stringify(url)}, {
       credentials: 'include',
       headers: { 'NK': 'NT', 'Connect-Csrf-Token': csrf }
     });
@@ -39,6 +39,11 @@ const FETCH_SCRIPT = (url) => `(async () => {
     return JSON.stringify({ s: 0, b: String(e) });
   }
 })()`;
+
+/** 会话失效判定: HTTP 0(网络)/302(SSO 重定向)/401/403 */
+function isSessionFailStatus(status) {
+  return status === 0 || status === 302 || status === 401 || status === 403;
+}
 
 class CDPClient {
   constructor(cdpUrl, tabMatch = 'garmin', home = null) {
@@ -83,6 +88,16 @@ class CDPClient {
         else resolve(msg.result);
       }
     };
+    // WebSocket 关闭/错误时立即拒绝所有挂起请求 —— 否则它们会各自等到 120s 超时,
+    // 一次隧道掉线会让整个同步卡死数分钟。
+    const failAll = (reason) => {
+      for (const [id, { reject }] of this.pending) {
+        this.pending.delete(id);
+        reject(new Error(reason));
+      }
+    };
+    ws.onclose = () => failAll('CDP WebSocket 已关闭 (隧道/标签页断开)');
+    ws.onerror = () => failAll('CDP WebSocket 错误');
     this.ws = ws;
     this.tab = tab;
     // 若选中 tab 不在 connect.garmin 业务域, 导航回 home 等待会话恢复 (cookie 在则自动登录)
@@ -125,13 +140,20 @@ class CDPClient {
     const qs = new URLSearchParams(params).toString();
     const full = `${url}${qs ? `?${qs}` : ''}`;
     const raw = await this.evalAsync(FETCH_SCRIPT(full), timeoutMs);
-    const parsed = JSON.parse(raw || '{}');
+    let parsed;
+    try {
+      parsed = JSON.parse(raw || '{}');
+    } catch {
+      // 页面求值结果不可解析 (异常页/上下文丢失): 归类为会话失败而非崩溃。
+      return { ok: false, status: 0, parseError: true };
+    }
     if (parsed.s !== 200) return { ok: false, status: parsed.s };
     const text = parsed.b64 ? Buffer.from(parsed.b64, 'base64').toString('utf-8') : (parsed.b || '');
     try {
       return { ok: true, status: parsed.s, data: JSON.parse(text) };
     } catch {
-      return { ok: true, status: parsed.s, data: null, raw: text };
+      // 200 但非 JSON: 多为登录/拦截 HTML 页 —— 标记 nonJson, 由调用方按会话失效处理。
+      return { ok: false, status: parsed.s, nonJson: true, raw: text.slice(0, 200) };
     }
   }
 
@@ -174,6 +196,10 @@ class CdpSource {
         return false;
       }
       const r = await this.client.fetchJson(BASE + LIST_API, { start: 0, limit: 1 });
+      if (r.nonJson) {
+        console.error('\n⚠ 国区接口返回非 JSON (疑似登录/拦截页), 会话可能已过期。\n  请在 ZSXF 上运行 cft/garmin/ws_login.py 重登后再试。\n');
+        return false;
+      }
       return r.ok;
     } catch (e) {
       console.error(`CDP 连接失败: ${e.message}`);
@@ -194,11 +220,16 @@ class CdpSource {
     await this._ensure();
     const all = [];
     let start = 0;
-    while (true) {
+    // 硬上限: 防止服务端忽略 start / 永远返回满页导致无限循环。
+    const MAX_PAGES = 500;
+    let pages = 0;
+    while (pages++ < MAX_PAGES) {
       const r = await this.client.fetchJson(BASE + LIST_API, { start, limit: this.batchSize }, this.timeoutMs);
       if (!r.ok) {
-        if (r.status === 0 || r.status === 302 || r.status === 401 || r.status === 403) {
-          throw new SESSION_FAIL_ERROR(`国区会话失效 (HTTP ${r.status})`);
+        // 200-非-JSON (登录页) 亦视作会话失效 —— 否则会被误判为"空列表"而静默当成
+        // 同步成功 (0 条), 用户以为已同步实则会话过期。
+        if (r.nonJson || isSessionFailStatus(r.status)) {
+          throw new SESSION_FAIL_ERROR(`国区会话失效 (${r.nonJson ? '非 JSON 响应' : `HTTP ${r.status}`})`);
         }
         throw new Error(`活动列表 HTTP ${r.status}`);
       }
@@ -209,13 +240,27 @@ class CdpSource {
       start += this.batchSize;
       await new Promise((res) => setTimeout(res, this.pauseMs));
     }
+    if (pages > MAX_PAGES) {
+      console.warn(`[cdp-source] 活动列表超过 ${MAX_PAGES} 页上限, 已停止`);
+    }
     return all;
   }
 
   async downloadFit(activityId) {
+    // 防御: activityId 会被拼进页面 fetch URL, 非数字值 (含引号) 可能破坏页面脚本。
+    if (!/^\d+$/.test(String(activityId))) {
+      throw new Error(`非法活动 ID: ${activityId}`);
+    }
     await this._ensure();
     const r = await this.client.download(BASE + DOWNLOAD_API + activityId, this.timeoutMs);
-    if (!r.ok) return null;
+    if (!r.ok) {
+      // 会话在列表拉取后失效: 必须抛 SESSION_FAIL (而非 null), 否则 sync 会逐个
+      // 失败到底且仍报 success, 无法触发重登。
+      if (isSessionFailStatus(r.status)) {
+        throw new SESSION_FAIL_ERROR(`国区会话失效 (HTTP ${r.status})`);
+      }
+      return null; // 该活动确无 FIT 等非会话类失败
+    }
     return normalizeFitBuffer(r.buffer);
   }
 
