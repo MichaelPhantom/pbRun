@@ -1,9 +1,11 @@
 /**
  * POST /api/activities/:id/analysis
- * 基于本次活动数据 (配速/心率/步频/VDOT/分段) 调用本机 freellm 生成 AI 教练分析,
- * 以 SSE 流式返回 (透传 freellmapi 的 OpenAI 兼容流)。
+ * 基于本次活动数据 (配速/心率/步频/VDOT/分段) 与【跑者画像】调用本机 freellm
+ * 生成 AI 教练分析, 以 SSE 流式返回 (透传 freellmapi 的 OpenAI 兼容流)。
  *
- * Body: { model?: string }  默认 "auto" (路由器择优)。
+ * Body:
+ *   { model?: string }                                 初次分析 (默认 auto)
+ *   { model?: string, question: string, history: [] }  追加追问 (多轮对话)
  * 凭证 (FREELLMAPI_KEY) 在 .env, 不入库; 服务端持密钥, 浏览器只与本路由通信。
  */
 import { NextRequest, NextResponse } from 'next/server';
@@ -11,9 +13,11 @@ import { getActivityById, getActivityLaps } from '@/app/lib/db';
 import {
   buildAnalysisMessages,
   buildAnalysisRequestBody,
+  buildFollowupMessages,
   getFreellmConfig,
+  type ChatMessage,
 } from '@/app/lib/llm';
-import { buildRecentContextBlock } from '@/app/lib/coach-context';
+import { buildRunnerProfile, formatRunnerProfile } from '@/app/lib/runner-profile';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,21 +43,29 @@ export async function POST(
   }
 
   let model = 'auto';
+  let question = '';
+  let history: ChatMessage[] = [];
   try {
     const body = await request.json();
     if (body && typeof body.model === 'string' && body.model.length <= 64) {
       model = body.model;
     }
+    if (body && typeof body.question === 'string') {
+      question = body.question.trim();
+    }
+    if (body && Array.isArray(body.history)) {
+      history = body.history as ChatMessage[];
+    }
   } catch {
     // 无 body 或非 JSON, 用默认模型
   }
 
-  // 近期状态上下文（内部吞错：失败时为空串，不阻塞主流程）。
-  const messages = buildAnalysisMessages(
-    activity,
-    laps,
-    buildRecentContextBlock(activity),
-  );
+  // 跑者画像（长期基础 + 近期状态；内部吞错降级，失败时为空串，不阻塞主流程）。
+  const profileBlock = formatRunnerProfile(buildRunnerProfile(activity));
+  // 有 question → 多轮追问 (保留 system+活动数据+历史); 否则初次分析。
+  const messages = question
+    ? buildFollowupMessages(activity, laps, profileBlock, history, question)
+    : buildAnalysisMessages(activity, laps, profileBlock);
 
   // 请求体由 buildAnalysisRequestBody 构造：思考模型自动加
   // reasoning_effort low（否则 reasoning 占满预算致 length 截断）；
