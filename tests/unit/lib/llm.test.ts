@@ -1,4 +1,4 @@
-import { buildAnalysisMessages } from '@/app/lib/llm';
+import { buildAnalysisMessages, buildFollowupMessages } from '@/app/lib/llm';
 import type { Activity, ActivityLap } from '@/app/lib/types';
 
 /** 最小可用 Activity 桩（DB 原单位：distance 为公里）。 */
@@ -66,19 +66,28 @@ describe('buildAnalysisMessages', () => {
     expect(user.content).toContain('0.7-1.2km');
   });
 
-  test('contextBlock 非空时追加【近期状态】', () => {
+  test('profileBlock 非空时置于活动数据之前', () => {
     const [, user] = buildAnalysisMessages(
       fakeActivity(),
       [],
-      '【近期状态】\n近7天: 32.5 km / 3 次',
+      '【跑者画像】\n生涯: 累计 1000 km / 200 次',
     );
-    expect(user.content).toContain('【近期状态】');
-    expect(user.content).toContain('近7天: 32.5 km / 3 次');
+    expect(user.content).toContain('【跑者画像】');
+    expect(user.content).toContain('累计 1000 km / 200 次');
+    // 画像应在【活动】之前
+    expect(user.content.indexOf('【跑者画像】')).toBeLessThan(user.content.indexOf('【活动】'));
   });
 
-  test('contextBlock 缺省时不出现【近期状态】', () => {
+  test('profileBlock 缺省时不出现【跑者画像】', () => {
     const [, user] = buildAnalysisMessages(fakeActivity(), []);
-    expect(user.content).not.toContain('【近期状态】');
+    expect(user.content).not.toContain('【跑者画像】');
+  });
+
+  test('system prompt 含因材施教与深度分析要求', () => {
+    const [system] = buildAnalysisMessages(fakeActivity(), []);
+    expect(system.content).toContain('因材施教');
+    expect(system.content).toContain('跑者画像');
+    expect(system.content).toContain('心率漂移');
   });
 
   test('无分段时给出占位提示', () => {
@@ -110,5 +119,47 @@ describe('buildAnalysisMessages', () => {
     expect(user.content).toContain('Z1:');
     expect(user.content).toContain('Z2:--');
     expect(user.content).toContain('Z3:');
+  });
+});
+
+describe('buildFollowupMessages', () => {
+  test('保留 system + 活动数据 + 历史 + 新问题', () => {
+    const history = [
+      { role: 'user' as const, content: '分析结果' },
+      { role: 'assistant' as const, content: '结论如下' },
+    ];
+    const msgs = buildFollowupMessages(fakeActivity(), fakeLaps(), '', history, '心率漂移说明什么?');
+    expect(msgs[0].role).toBe('system');
+    expect(msgs[1].content).toContain('【活动】');
+    // 历史轮次保留
+    expect(msgs.some((m) => m.content === '分析结果')).toBe(true);
+    expect(msgs.some((m) => m.content === '结论如下')).toBe(true);
+    // 最后一条为本次问题
+    expect(msgs[msgs.length - 1]).toEqual({ role: 'user', content: '心率漂移说明什么?' });
+  });
+
+  test('画像块注入 activity 上下文', () => {
+    const msgs = buildFollowupMessages(fakeActivity(), [], '【跑者画像】X', [], '追问');
+    expect(msgs[1].content).toContain('【跑者画像】X');
+  });
+
+  test('过滤非法 role 与超长历史, 只保留最近 12 轮', () => {
+    const history = Array.from({ length: 20 }, (_, i) => ({
+      role: 'user' as const,
+      content: `q${i}`,
+    }));
+    // 夹带一条非法 role 与超长内容
+    (history as unknown[]).push({ role: 'system', content: 'bad' });
+    (history as unknown[]).push({ role: 'user', content: 'x'.repeat(9000) });
+    const msgs = buildFollowupMessages(fakeActivity(), [], '', history as never, '新问题');
+    // system + 活动 + ≤12 历史 + 问题
+    expect(msgs.length).toBeLessThanOrEqual(2 + 12 + 1);
+    expect(msgs.some((m) => m.content === 'bad')).toBe(false);
+    expect(msgs.some((m) => m.content.length > 8000)).toBe(false);
+  });
+
+  test('新问题被截断到 2000 字符', () => {
+    const msgs = buildFollowupMessages(fakeActivity(), [], '', [], 'z'.repeat(5000));
+    expect(msgs[msgs.length - 1].content.length).toBe(2000);
   });
 });

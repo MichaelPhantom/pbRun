@@ -221,6 +221,22 @@ html { scroll-behavior: smooth; scroll-padding-top: 5rem; }
   .seg-btn[data-active="true"] {
     color: var(--brand);
   }
+  /* AI 对话消息操作按钮 (复制/重生成/反馈) */
+  .action-btn {
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    padding: 1px 6px;
+    font-size: 11px;
+    line-height: 1.6;
+    color: var(--fg-muted);
+    transition: color .12s ease, background .12s ease, border-color .12s ease;
+  }
+  .action-btn:hover {
+    color: var(--fg);
+    background: var(--surface-3);
+    border-color: var(--border-strong, var(--border));
+  }
 }
 
 /* ECharts 容器内 tooltip 文字色由主题接管, 这里只防溢出 */
