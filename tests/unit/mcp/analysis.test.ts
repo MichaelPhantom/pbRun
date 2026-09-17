@@ -6,6 +6,7 @@ import {
   eachDay,
   hrZoneRanges,
   isDateStr,
+  offsetToPage,
   localDateStr,
 } from '../../../mcp-server/analysis';
 import type { PeriodStats, TrainingLoadPoint } from '../../../app/lib/types';
@@ -31,6 +32,31 @@ describe('mcp-server/analysis 纯逻辑', () => {
 
     test('startDate 晚于 endDate 应抛错', () => {
       expect(() => assertDateRange('2026-01-31', '2026-01-01', 't')).toThrow('不能晚于');
+    });
+
+    test('回归: 拒绝不可能的日历日 (此前只校验格式)', () => {
+      expect(isDateStr('2024-02-30')).toBe(false);
+      expect(isDateStr('2026-13-01')).toBe(false);
+      expect(isDateStr('2024-02-29')).toBe(true); // 闰年
+      expect(() => assertDateRange('2024-02-30', '2024-12-31', 't')).toThrow();
+    });
+  });
+
+  describe('offsetToPage', () => {
+    test('offset 为 limit 整数倍时正确换算', () => {
+      expect(offsetToPage(0, 20)).toBe(1);
+      expect(offsetToPage(20, 20)).toBe(2);
+      expect(offsetToPage(40, 20)).toBe(3);
+    });
+
+    test('回归: offset 非 limit 倍数 → 抛错 (此前静默丢弃中间记录)', () => {
+      expect(() => offsetToPage(25, 10)).toThrow('整数倍');
+      expect(() => offsetToPage(30, 20)).toThrow('整数倍');
+    });
+
+    test('非法 limit/offset → 抛错', () => {
+      expect(() => offsetToPage(0, 0)).toThrow();
+      expect(() => offsetToPage(-1, 20)).toThrow();
     });
   });
 
@@ -67,22 +93,21 @@ describe('mcp-server/analysis 纯逻辑', () => {
       expect(r.truncated).toBe(false);
     });
 
-    test('超出 maxPoints 时自动加大步长且结果约等于上限 (+1 为末点)', () => {
+    test('超出 maxPoints 时自动加大步长且结果不超过上限 (含末点)', () => {
       const records = Array.from({ length: 1000 }, (_, i) => rec(i)) as never;
       const r = downsampleRecords(records, 1, 100);
-      expect(r.step).toBe(10);
-      expect(r.sampled).toBe(101);
+      expect(r.sampled).toBeLessThanOrEqual(100); // 回归: 此前为 101 (超上限)
       expect(r.total_original).toBe(1000);
       expect(r.truncated).toBe(true);
-      expect(r.records[1]).toEqual({ record_index: 10 });
+      expect(r.records[0]).toEqual({ record_index: 0 });
       expect(r.records[r.records.length - 1]).toEqual({ record_index: 999 });
     });
 
     test('自动降采样时强制包含首末点 (尾部极值不丢失)', () => {
       const records = Array.from({ length: 4635 }, (_, i) => rec(i)) as never;
       const r = downsampleRecords(records, 1, 500);
-      expect(r.step).toBe(10);
       expect(r.truncated).toBe(true);
+      expect(r.sampled).toBeLessThanOrEqual(500);
       expect(r.records[0]).toEqual({ record_index: 0 });
       expect(r.records[r.records.length - 1]).toEqual({ record_index: 4634 });
     });
@@ -108,9 +133,8 @@ describe('mcp-server/analysis 纯逻辑', () => {
     test('samplingInterval 导致超限时同样自动放大并标记截断', () => {
       const records = Array.from({ length: 10000 }, (_, i) => rec(i)) as never;
       const r = downsampleRecords(records, 30, 100);
-      expect(r.step).toBe(100);
       expect(r.truncated).toBe(true);
-      expect(r.sampled).toBeLessThanOrEqual(100 + 1);
+      expect(r.sampled).toBeLessThanOrEqual(100); // 回归: 不超过上限
       expect(r.records[r.records.length - 1]).toEqual({ record_index: 9999 });
     });
   });

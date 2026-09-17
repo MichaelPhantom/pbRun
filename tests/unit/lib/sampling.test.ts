@@ -33,8 +33,9 @@ describe('sampling', () => {
     const recs = Array.from({ length: 1000 }, (_, i) => i);
     const r = downsampleRecords(recs, 1, 100);
     expect(r.truncated).toBe(true);
-    expect(r.step).toBe(Math.ceil(1000 / 100)); // 10
-    expect(r.sampled).toBeLessThanOrEqual(101); // 抽样 + 可能补末点
+    // 步长按 (total-1)/(maxPoints-1) 预留首末点, 保证结果 <= maxPoints
+    expect(r.step).toBe(Math.ceil((1000 - 1) / (100 - 1))); // 11
+    expect(r.sampled).toBeLessThanOrEqual(100);
   });
 
   test('强制包含首末点(尾部极值不丢)', () => {

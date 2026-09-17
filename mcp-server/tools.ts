@@ -31,7 +31,9 @@ import {
   downsampleRecords,
   hrZoneRanges,
   localDateStr,
+  offsetToPage,
 } from './analysis';
+import { resolveMaxHr } from '../app/lib/hr-zones';
 
 /** 统一成功输出 (JSON) */
 function ok(data: unknown) {
@@ -56,13 +58,9 @@ async function run(fn: () => unknown) {
 const PERIOD_ENUM = z.enum(['week', 'month', 'year', 'total']);
 const GROUP_BY_ENUM = z.enum(['week', 'month']);
 
-/** MAX_HR fallback 与 app/lib/db.ts 保持一致, 生产环境通过 env 覆盖 */
-const MAX_HR_FALLBACK = 190;
-
+/** MAX_HR 解析统一走 app/lib/hr-zones.resolveMaxHr, 与 DB 层口径一致 */
 function maxHrFromEnv(): number {
-  const raw = process.env.MAX_HR;
-  const n = raw != null && raw !== '' ? Number(raw) : NaN;
-  return Number.isFinite(n) && n > 0 ? n : MAX_HR_FALLBACK;
+  return resolveMaxHr();
 }
 
 export async function registerTools(server: McpServer): Promise<void> {
@@ -83,7 +81,9 @@ export async function registerTools(server: McpServer): Promise<void> {
       run(() => {
         assertDateRange(args.startDate, args.endDate, 'list_activities');
         const { limit = 20, offset = 0, type, startDate, endDate } = args;
-        const page = Math.floor(offset / limit) + 1;
+        // offset 必须是 limit 的整数倍 (getActivities 只接受 page); 非法时显式报错,
+        // 避免 (page-1)*limit < offset 静默丢弃中间记录。
+        const page = offsetToPage(offset, limit);
         return getActivities({ page, limit, type, startDate, endDate });
       })
   );

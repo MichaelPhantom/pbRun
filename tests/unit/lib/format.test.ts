@@ -36,6 +36,12 @@ describe('format', () => {
       expect(formatPace(305)).toBe('5:05 /km');
       expect(formatPace(359)).toBe('5:59 /km');
     });
+
+    test('回归: 秒数四舍五入到 60 时正确进位 (不出现 5:60)', () => {
+      expect(formatPace(359.6)).toBe('6:00 /km');
+      expect(formatPace(59.6, false)).toBe('1:00');
+      expect(formatPace(299.5, false)).toBe('5:00');
+    });
   });
 
   describe('formatPaceShort', () => {

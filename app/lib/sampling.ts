@@ -23,16 +23,19 @@ export function downsampleRecords<T>(
   let step = Math.max(1, samplingInterval);
   const truncated = Math.ceil(total / step) > maxPoints;
   if (truncated) {
-    step = Math.ceil(total / maxPoints);
+    // 预留首末两个点位, 中间按 (maxPoints-2) 等距 —— 保证结果**不超过** maxPoints
+    // (原实现 append 末点后会得到 maxPoints+1, 与文档"最多 maxPoints"矛盾)。
+    step = Math.max(1, Math.ceil((total - 1) / Math.max(1, maxPoints - 1)));
   }
   let sampled: T[];
   if (step === 1) {
     sampled = records;
   } else {
     sampled = records.filter((_, i) => i % step === 0);
-    const lastSampled = sampled[sampled.length - 1];
     const lastRecord = records[total - 1];
-    if (lastSampled !== lastRecord) {
+    if (sampled[sampled.length - 1] !== lastRecord) {
+      // 若追加末点会超限, 先移除倒数第二个采样点再追加, 保持 <= maxPoints
+      if (sampled.length >= maxPoints) sampled.pop();
       sampled.push(lastRecord);
     }
   }

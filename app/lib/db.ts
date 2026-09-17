@@ -354,9 +354,15 @@ export function getPersonalRecords(period: 'week' | 'month' | 'year' | 'total' |
     case 'year':
       startDate = new Date(now.getFullYear(), 0, 1);
       break;
-    case '6months':
-      startDate = new Date(now.getFullYear(), now.getMonth() - 6, now.getDate());
+    case '6months': {
+      // 月末溢出防护: new Date(y, m-6, d) 在 d>目标月天数时会顺延到下月初
+      // (如 7/31 → 3/2), 使窗口悄悄少算数周。改为定位到「6 个月前那一天, 超出则
+      // 取该月最后一天」。
+      const targetMonth = now.getMonth() - 6;
+      const lastDay = new Date(now.getFullYear(), targetMonth + 1, 0).getDate();
+      startDate = new Date(now.getFullYear(), targetMonth, Math.min(now.getDate(), lastDay));
       break;
+    }
     default:
       startDate = new Date(0);
   }

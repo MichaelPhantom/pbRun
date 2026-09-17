@@ -5,14 +5,16 @@
 import type { PeriodStats, TrainingLoadPoint } from '../app/lib/types';
 import { downsampleRecords } from '../app/lib/sampling';
 import { hrZoneRanges } from '../app/lib/hr-zones';
+import { isValidDateParam } from '../app/lib/query-params';
 
 export { downsampleRecords, hrZoneRanges };
 
-/** YYYY-MM-DD 日期串 */
+/** YYYY-MM-DD 日期串 (格式) */
 export const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+/** 格式正确且为真实日历日 (拒绝 2026-02-30 等) */
 export function isDateStr(value: string): boolean {
-  return DATE_RE.test(value);
+  return isValidDateParam(value);
 }
 
 /** 校验日期参数 (可选字段可为 undefined), 非法时抛错 */
@@ -22,14 +24,28 @@ export function assertDateRange(
   toolName: string
 ): void {
   if (startDate !== undefined && !isDateStr(startDate)) {
-    throw new Error(`${toolName}: startDate 格式应为 YYYY-MM-DD, 实际为 "${startDate}"`);
+    throw new Error(`${toolName}: startDate 应为合法的 YYYY-MM-DD 日期, 实际为 "${startDate}"`);
   }
   if (endDate !== undefined && !isDateStr(endDate)) {
-    throw new Error(`${toolName}: endDate 格式应为 YYYY-MM-DD, 实际为 "${endDate}"`);
+    throw new Error(`${toolName}: endDate 应为合法的 YYYY-MM-DD 日期, 实际为 "${endDate}"`);
   }
   if (startDate !== undefined && endDate !== undefined && startDate > endDate) {
     throw new Error(`${toolName}: startDate (${startDate}) 不能晚于 endDate (${endDate})`);
   }
+}
+
+/**
+ * offset → page 转换 (list_activities)。getActivities 只接受 page, 因此 offset
+ * 必须是 limit 的整数倍, 否则 (page-1)*limit < offset 会**静默跳过**中间记录。
+ * 非法 offset 显式抛错而非静默截断。
+ */
+export function offsetToPage(offset: number, limit: number): number {
+  if (limit < 1) throw new Error(`limit 必须 >= 1, 实际为 ${limit}`);
+  if (offset < 0) throw new Error(`offset 必须 >= 0, 实际为 ${offset}`);
+  if (offset % limit !== 0) {
+    throw new Error(`offset (${offset}) 必须是 limit (${limit}) 的整数倍`);
+  }
+  return offset / limit + 1;
 }
 
 /** 本地时区 YYYY-MM-DD */

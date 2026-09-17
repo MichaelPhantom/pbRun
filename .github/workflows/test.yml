@@ -29,6 +29,9 @@ jobs:
       - name: 类型检查(tsc)
         run: npx tsc --noEmit
 
+      - name: MCP Server 构建(tsc -p mcp-server)
+        run: npm run build:mcp
+
       - name: Lint(eslint)
         run: npm run lint
 

@@ -5,8 +5,10 @@
 /** 配速：秒/公里 → "5:30" 或 "5:30 /km" */
 export function formatPace(secondsPerKm: number | null | undefined, withUnit = true): string {
   if (secondsPerKm == null || Number.isNaN(secondsPerKm)) return '--';
-  const min = Math.floor(secondsPerKm / 60);
-  const sec = Math.round(secondsPerKm % 60);
+  // 先整体取整再拆分, 否则 Math.round(秒%60) 可能得到 60 (如 359.6 → "5:60")。
+  const total = Math.round(secondsPerKm);
+  const min = Math.floor(total / 60);
+  const sec = total % 60;
   const s = `${min}:${sec.toString().padStart(2, '0')}`;
   return withUnit ? `${s} /km` : s;
 }
