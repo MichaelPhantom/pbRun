@@ -335,11 +335,13 @@ npm run dev
 - ✅ **心率区间** - 分析有氧/无氧训练占比
 - ✅ **配速分布** - 识别舒适配速区间
 - ✅ **训练建议** - 基于 Daniels 训练法的配速建议
-- ✅ **AI 教练分析** - 活动详情页基于本次配速/心率/步频/VDOT、累计距离分段、
-  近 7 天跑量/当日 TSB/上次跑步（【近期状态】上下文），调用本机 freellm 网关
-  生成中文解读与训练建议（SSE 流式，思考过程实时展示，模型可选，默认 auto）。
-  思考模型自动压思考（`reasoning_effort: low`，防截断）；主模型故障时自动
-  回退 auto 并明示。凭证见 `.env` 的 `FREELLMAPI_KEY`，故障排查见 `docs/faq.md#11`
+- ✅ **AI 教练分析** - 活动详情页的**对话式** AI 教练：结合【跑者画像】（生涯跑量、
+  个人纪录、跑力 VDOT 走势、近期跑量、疲劳度 TSB、跑步习惯）与本次活动的配速/心率/
+  步频/分段，生成因材施教的专业解读（运动表现解读/亮点/不足与改进/下次训练处方/
+  长期建议），并可**多轮追问**。支持 SSE 流式、思考过程折叠、停止/继续、复制/
+  重生成（更精炼/更深入）、👍👎、按系列分组的模型选择（各系列最新 2 版）。调用
+  本机 freellm 网关，模型默认 auto；主模型故障自动回退。凭证见 `.env` 的
+  `FREELLMAPI_KEY`，故障排查见 `docs/faq.md#11`
 
 ## 项目结构
 
@@ -350,7 +352,12 @@ pbRun/
 │   ├── list/              # 活动列表页面
 │   ├── analysis/          # 数据分析页面
 │   ├── stats/             # 统计页面
-│   └── lib/               # 工具库 (数据库、格式化)
+│   └── lib/               # 工具库 (数据库、格式化、AI 教练)
+│       ├── db.ts              # SQLite 数据访问
+│       ├── llm.ts             # AI prompt/请求体/模型策展接入
+│       ├── runner-profile.ts  # 跑者画像 (个人基础数据)
+│       ├── model-curation.ts  # 模型策展 (各系列最新 2 版)
+│       └── components/ai/     # AI 对话 UI (分析/追问/思考块/模型选择)
 ├── scripts/               # 数据同步脚本
 │   ├── common/            # 通用模块
 │   │   ├── db-manager.js  # 数据库操作
@@ -410,8 +417,8 @@ pbRun/
 | `GET /api/analysis/hr-zones` | 心率区间分析 | `startDate`, `endDate`, `groupBy` |
 | `GET /api/analysis/pace-zones` | 配速区间分析 | `startDate`, `endDate`, `vdot` |
 | `GET /api/analysis/vdot-trend` | 跑力趋势 | `startDate`, `endDate`, `groupBy` |
-| `GET /api/activities/[id]/analysis` | AI 教练分析(含模型回退头) | - |
-| `GET /api/llm/models` | 可用 LLM 模型列表 | - |
+| `POST /api/activities/[id]/analysis` | AI 教练分析/追问 (SSE 流式, 含模型回退头) | body: `{model?, question?, history?}` |
+| `GET /api/llm/models` | 可用 LLM 模型列表 (各系列最新 2 版, 已策展) | - |
 | `GET /api/health` | 存活/就绪探针(2026-09-15 新增) | `deep=1` 校验 DB 可读 |
 
 完整 API 文档: [docs/api-reference.md](docs/api-reference.md)

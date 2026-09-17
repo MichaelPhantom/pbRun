@@ -104,3 +104,25 @@
   当日 TSB、上次跑步，`app/lib/coach-context.ts`，失败自动降级为空）；
   主模型 502/超时自动回退 auto 并在脚注明示（`X-Model-Fallback` 头）；
   模型下拉按推荐排序并标注思考模型。详见 `tests/unit/lib/coach-context.test.ts`。
+
+### 12. AI 教练升级为「世界级教练 + 跑者画像 + 对话式」（2026-09-17）
+
+- **提示词升级**: `app/lib/llm.ts` 的 system prompt 从「活动点评」升级为世界级精英
+  教练（运动科学 + 实战执教 + 数据诊断），新增【因材施教原则】（以个人水平为参照
+  系解读、判定训练性质与执行质量、数据与画像矛盾时给原因）与【分析深度要求】
+  （强度性质/配速执行/心率漂移/跑步经济性/综合表现/与近期状态关系 逐项覆盖）。
+- **跑者画像**: 新增 `app/lib/runner-profile.ts`，分析前汇总生涯跑量/次数/起始年份、
+  个人纪录、VDOT 当前与 30 天趋势、近 7/28 天跑量、CTL/ATL/TSB、惯常步频心率、
+  上次跑步等，注入 prompt 首部（取代旧 `coach-context` 简版近况块）。全部查询容错
+  降级，失败不阻塞。`app/lib/coach-context.ts` 保留但不再被路由引用。
+- **对话式交互**: `app/lib/components/ai/` 新增 `ThinkingBlock`（思考折叠，流式中
+  自动展开、结束收起并显示用时）、`ModelSelector`（按系列分组可搜索）、
+  `useStickToBottom`（流式自动滚底）、`useModelCatalog`（模型列表 + 选择持久化）。
+  `AiAnalysis` 重构为对话线程：多轮追问（Enter 发送）、停止/继续、复制/重生成/
+  更精炼/更深入/👍👎、追问草稿与结果本地缓存、`role=log` 直播区域。
+- **模型策展**: 新增 `app/lib/model-curation.ts`，只保留各**具体模型系列最新 2 个
+  版本**，剔除聚合器（auto/fusion/free-router…）、同底模多渠道夹具（-wb/-juzi/-qd/
+  -trae）与代码/安全/视觉等专用模型。网关原 298 项 → 26 项。`auto` 仍作为默认
+  （服务端路由择优），但不再出现在「具体模型」列表中。
+- **测试**: `tests/unit/lib/{model-curation,runner-profile}.test.ts`、
+  `tests/unit/components/ai-analysis.test.tsx`、`tests/unit/lib/llm.test.ts` 追问用例。
