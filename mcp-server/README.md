@@ -55,21 +55,23 @@ AI 专用 (2 个): `compare_periods` (跨期对比), `get_training_load_analysis
 
 | 接口 | 上限 | 识别信号 | 取全量方式 |
 |------|------|----------|-----------|
-| `list_activities` | 默认每页 20 条 | `pagination.total` 为总数, 对比 `data.length` | `offset` 翻页 (limit 最大 100) |
-| `get_activity_records` | 默认最多 500 点, 超出**自动等距采样** (含首末点) | `truncated: true` (元数据 `total_original`/`sampled`/`step`) | `maxPoints` ≥ 活动时长秒数 (上限 5000, 如 60 分钟跑传 3600) |
+| `list_activities` | 默认每页 20 条 | `pagination.total` 为总数, 对比 `data.length` | `offset` 翻页 (limit 最大 100; **offset 须为 limit 整数倍**, 否则报错以免静默丢记录) |
+| `get_activity_records` | 默认最多 500 点, 超出**自动等距采样** (含首末点, 结果**不超过** maxPoints) | `truncated: true` (元数据 `total_original`/`sampled`/`step`) | `maxPoints` ≥ 活动时长秒数 (上限 5000, 如 60 分钟跑传 3600) |
 | `get_vdot_history` | 默认最近 50 条 | `total` 为总条数, 对比 `returned` | `offset` 翻页 (limit 最大 100) |
-| `get_month_summaries` | 默认最近 12 个月 | 返回月份数 < 期望范围 | `limit`/`offset` 扩展 (最大 100) |
+| `get_month_summaries` | 默认最近 12 个月 | `total` 为总月数, 对比返回条数 | `limit`/`offset` 扩展 (最大 100) |
 
 规则: 调用方每次都要检查元数据 (pagination.total / total / truncated) 判断是否
-取满; `get_activity_records` 的 `step > 1` 或 `truncated: true` 表示已非秒级全量,
-基于其计算最大心率/极值时必须提高 `maxPoints`。
+取满; `get_activity_records` 的 `truncated: true` 表示已非秒级全量, 基于其计算
+最大心率/极值时必须提高 `maxPoints`。(注意: 主动传入 `samplingInterval > 1` 时
+`step > 1` 但 `truncated` 仍可能为 false, 应以后者为准。)
 
 ## 数据单位约定
 
 | 字段 | 单位 |
 |------|------|
 | `Activity.distance` | 公里 (db.ts 原始值) |
-| `ActivityLap.distance` / `get_activity_records` / 统计接口 distance | 米 |
+| `ActivityLap.distance` / `get_activity_records` / `get_vdot_history.distance` / 统计接口 distance | 米 |
+| `MonthSummary.totalDistance` | 公里 (唯一例外, 与 `activities.distance` 同源) |
 | `average_pace` | 秒/公里 |
 | 时长 | 秒 |
 | `total_ascent` / `average_stride_length` | 米 |

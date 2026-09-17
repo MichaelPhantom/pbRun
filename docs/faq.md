@@ -126,3 +126,24 @@
   （服务端路由择优），但不再出现在「具体模型」列表中。
 - **测试**: `tests/unit/lib/{model-curation,runner-profile}.test.ts`、
   `tests/unit/components/ai-analysis.test.tsx`、`tests/unit/lib/llm.test.ts` 追问用例。
+
+### 13. MCP Server / 同步脚本健壮性修复（2026-09-17）
+
+- **MCP dist 陈旧会跑旧逻辑**: `mcp-server/dist/` 被 `.gitignore` 排除，`tsc` 产物
+  不会自动更新。若修改了 `app/lib/db.ts` 等被 MCP 复用的模块，**必须**重新
+  `npm run build:mcp`，否则 MCP 仍运行旧代码（曾导致 `get_vdot_history` 返回公里而
+  非米、pace-zone 按 lap 计数）。CI（`test.yml`）已加入 `npm run build:mcp` 步骤。
+- **Garmin token 刷新**: 修复 Authorization 写入位置（原设在 axios 顶层 defaults，
+  刷新写 common → 旧 token 胜出，刷新形同 no-op）；刷新加互斥防并发用已轮换的
+  refresh_token 互相失效。见 `tests/unit/garmin/client-token-refresh.test.js`。
+- **DB 写入原子性**: `insertLaps`/`insertActivityRecords` 的 DELETE 与 INSERT 纳入
+  同一事务，避免插入失败时原有数据被清空。见
+  `tests/unit/common/db-manager-atomicity.test.js`。
+- **CDP 会话失效**: 200-非-JSON（登录页）与 downloadFit 的 0/302/401/403 现在统一
+  抛 `SESSION_FAIL_ERROR`，同步脚本据此中止并触发重登，而非静默"成功 0 条"。
+  见 `tests/unit/garmin/cdp-session.test.js`。
+- **MCP 工具**: `list_activities` 要求 `offset` 为 `limit` 整数倍（否则报错，避免
+  静默丢记录）；`assertDateRange` 改为真实日历校验（拒绝 2026-02-30）；
+  `downsampleRecords` 结果不超过 `maxPoints`。
+- **格式化**: `formatPace` 修复秒数四舍五入到 60 的进位（不再出现 "5:60"）；
+  `getPersonalRecords('6months')` 修复月末溢出（7/31 现正确回到 1/31）。
