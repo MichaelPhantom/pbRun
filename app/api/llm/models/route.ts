@@ -11,5 +11,8 @@ export const dynamic = 'force-dynamic';
 export async function GET() {
   const configured = !!getFreellmConfig();
   const models = await fetchModels();
-  return NextResponse.json({ models, configured });
+  return NextResponse.json(
+    { models, configured },
+    { headers: { 'Cache-Control': 'no-store' } },
+  );
 }

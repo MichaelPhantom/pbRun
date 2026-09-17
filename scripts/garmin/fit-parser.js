@@ -734,13 +734,15 @@ class GarminFITParser {
       result.power_zone_boundaries = JSON.stringify(sessionZone.power_zone_high_boundary);
     }
 
-    // 各区间停留时间（秒）：去掉尾部 null，并收敛浮点噪声
+    // 各区间停留时间（秒）：仅去掉**尾部** null（区间数组按索引对应 Z1..Zn，
+    // 中间的 null 必须保留占位，否则后续区间会错位），并收敛浮点噪声。
     const zoneSeconds = (arr) => {
       if (!Array.isArray(arr)) return null;
-      const cleaned = arr
-        .filter(v => v != null)
-        .map(v => Math.round(Number(v) * 10) / 10);
-      return cleaned.length ? JSON.stringify(cleaned) : null;
+      const cleaned = arr.slice();
+      while (cleaned.length > 0 && cleaned[cleaned.length - 1] == null) cleaned.pop();
+      if (cleaned.length === 0) return null;
+      const out = cleaned.map(v => (v == null ? null : Math.round(Number(v) * 10) / 10));
+      return JSON.stringify(out);
     };
     const hrZoneTime = zoneSeconds(sessionZone.time_in_hr_zone);
     if (hrZoneTime) result.time_in_hr_zone = hrZoneTime;

@@ -2,6 +2,8 @@ import {
   vdotToPaceSecPerKm,
   getPaceZoneBoundsFromVdot,
   getPaceZoneCenterFromVdot,
+  predictRaceTimeSec,
+  predictRaceTimes,
 } from '@/app/lib/vdot-pace';
 
 describe('vdot-pace', () => {
@@ -128,6 +130,47 @@ describe('vdot-pace', () => {
       // 相同区间，VDOT越高配速越快
       expect(centers70[3]).toBeLessThan(centers50[3]);
       expect(centers50[3]).toBeLessThan(centers30[3]);
+    });
+  });
+
+  describe('predictRaceTimeSec', () => {
+    test('VDOT=50 的 5K 预测落在合理区间 (14–26 分钟)', () => {
+      const s = predictRaceTimeSec(50, 5000);
+      expect(s).not.toBeNull();
+      expect(s!).toBeGreaterThan(14 * 60);
+      expect(s!).toBeLessThan(26 * 60);
+    });
+
+    test('距离越长预测越慢 (单调)', () => {
+      const k5 = predictRaceTimeSec(50, 5000)!;
+      const k10 = predictRaceTimeSec(50, 10000)!;
+      const hm = predictRaceTimeSec(50, 21097.5)!;
+      expect(k5).toBeLessThan(k10);
+      expect(k10).toBeLessThan(hm);
+    });
+
+    test('回归: NaN/Infinity 输入返回 null (此前返回 NaN/垃圾值)', () => {
+      expect(predictRaceTimeSec(NaN, 5000)).toBeNull();
+      expect(predictRaceTimeSec(Infinity, 5000)).toBeNull();
+      expect(predictRaceTimeSec(50, Infinity)).toBeNull();
+      expect(predictRaceTimeSec(50, NaN)).toBeNull();
+    });
+
+    test('非正输入返回 null', () => {
+      expect(predictRaceTimeSec(0, 5000)).toBeNull();
+      expect(predictRaceTimeSec(-5, 5000)).toBeNull();
+      expect(predictRaceTimeSec(50, 0)).toBeNull();
+    });
+
+    test('回归: 极端距离 (根不在括号内) 返回 null 而非无意义中点', () => {
+      // 500km @ VDOT 50: 耗时远超 8h 括号, f(hi) 不异号 → null
+      expect(predictRaceTimeSec(50, 500000)).toBeNull();
+    });
+
+    test('predictRaceTimes 返回 4 项且均非空 (VDOT=50)', () => {
+      const list = predictRaceTimes(50);
+      expect(list).toHaveLength(4);
+      list.forEach((r) => expect(r.seconds).not.toBeNull());
     });
   });
 });

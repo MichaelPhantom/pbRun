@@ -74,17 +74,23 @@ const _vo2Of = (vMpm: number) => -4.6 + 0.182258 * vMpm + 0.000104 * vMpm * vMpm
 
 /** 给定 VDOT 与距离(米), 返回预测完赛秒数 (二分法, 单调递减根)。 */
 export function predictRaceTimeSec(vdot: number, distanceMeters: number): number | null {
+  if (!Number.isFinite(vdot) || !Number.isFinite(distanceMeters)) return null;
   if (vdot <= 0 || distanceMeters <= 0) return null;
   const f = (t: number) => _vo2Of(distanceMeters / t) - vdot * _fracOf(t);
   let lo = 0.5; // 30s 上限 (不可能更快, 保证 f(lo)>0)
   let hi = 480; // 8h 下限 (全马步行级, 保证 f(hi)<0)
+  // 括号端点须异号, 否则根不在区间内 —— 返回 null 而非无意义中点 (如超长距离/极端 VDOT)。
+  const fLo = f(lo);
+  const fHi = f(hi);
+  if (fLo <= 0 || fHi >= 0) return null;
   // 收敛区间内根 (f 单调递减)
   for (let i = 0; i < 80; i++) {
     const mid = (lo + hi) / 2;
     if (f(mid) > 0) lo = mid;
     else hi = mid;
   }
-  return ((lo + hi) / 2) * 60; // 秒
+  const seconds = ((lo + hi) / 2) * 60;
+  return Number.isFinite(seconds) ? seconds : null;
 }
 
 export interface RacePrediction {

@@ -23,8 +23,21 @@ export function RouteMap({ track, height = 360 }: { track: ActivityTrack; height
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const coords = track.coords;
-    if (!coords || coords.length < 2) return;
+    const rawCoords = track.coords;
+    if (!rawCoords || rawCoords.length < 2) return;
+
+    // 过滤非有限/越界坐标: 坏点会让 Leaflet 的 latLngBounds/fitBounds 抛
+    // "Invalid LatLng object" 并冒泡到 React 错误边界。
+    const coords = rawCoords.filter(
+      ([lat, lng]) =>
+        Number.isFinite(lat) &&
+        Number.isFinite(lng) &&
+        lat >= -90 &&
+        lat <= 90 &&
+        lng >= -180 &&
+        lng <= 180,
+    );
+    if (coords.length < 2) return;
 
     // WGS-84 → GCJ-02 (高德瓦片坐标系)
     const gcj = wgs84CoordsToGcj02(coords);

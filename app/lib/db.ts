@@ -442,28 +442,30 @@ export function getPaceZoneStats(
   ).all(startDate, endDate + 'T23:59:59.999Z') as LapRow[];
 
   const zoneStats: Record<number, {
-    activity_count: number;
+    activityIds: Set<number>;
     total_duration: number;
     total_distance: number;
-    avg_pace: number[];
-    avg_heart_rate: number[];
-    avg_cadence: number[];
-    avg_stride: number[];
+    // 按 lap 时长加权的累加器 (时长/距离为 0 的 lap 退化为等权)
+    wPaceSum: number; wPaceDur: number;
+    wHrSum: number; wHrDur: number;
+    wCadSum: number; wCadDur: number;
+    wStrideSum: number; wStrideDur: number;
   }> = {};
   for (let z = 1; z <= 5; z++) {
     zoneStats[z] = {
-      activity_count: 0,
+      activityIds: new Set<number>(),
       total_duration: 0,
       total_distance: 0,
-      avg_pace: [],
-      avg_heart_rate: [],
-      avg_cadence: [],
-      avg_stride: [],
+      wPaceSum: 0, wPaceDur: 0,
+      wHrSum: 0, wHrDur: 0,
+      wCadSum: 0, wCadDur: 0,
+      wStrideSum: 0, wStrideDur: 0,
     };
   }
 
   for (const lap of rows) {
-    const pace = lap.average_pace!;
+    const pace = lap.average_pace;
+    if (pace == null) continue;
     let zone = 0;
     for (let z = 1; z <= 5; z++) {
       const b = bounds[z];
@@ -474,16 +476,31 @@ export function getPaceZoneStats(
     }
     if (zone === 0) continue;
     const s = zoneStats[zone];
-    s.activity_count += 1;
+    // activity_count 应为「去重活动数」(与 getHrZoneStats 口径一致);
+    // 此前按 lap 累加, 导致同一活动的多个 lap 重复计入。
+    s.activityIds.add(lap.activity_id);
+    const w = lap.duration > 0 ? lap.duration : 1; // 权重: lap 时长
     s.total_duration += lap.duration;
     s.total_distance += lap.distance;
-    s.avg_pace.push(pace);
-    if (lap.average_heart_rate != null) s.avg_heart_rate.push(lap.average_heart_rate);
-    if (lap.average_cadence != null) s.avg_cadence.push(lap.average_cadence);
-    if (lap.average_stride_length != null) s.avg_stride.push(lap.average_stride_length);
+    s.wPaceSum += pace * w;
+    s.wPaceDur += w;
+    if (lap.average_heart_rate != null) {
+      s.wHrSum += lap.average_heart_rate * w;
+      s.wHrDur += w;
+    }
+    if (lap.average_cadence != null) {
+      s.wCadSum += lap.average_cadence * w;
+      s.wCadDur += w;
+    }
+    if (lap.average_stride_length != null) {
+      s.wStrideSum += lap.average_stride_length * w;
+      s.wStrideDur += w;
+    }
   }
 
   const centers = getPaceZoneCenterFromVdot(vdot);
+  const avg = (sum: number, weight: number): number | null =>
+    weight > 0 ? sum / weight : null;
   return [1, 2, 3, 4, 5].map((zone) => {
     const s = zoneStats[zone];
     const b = bounds[zone];
@@ -492,13 +509,13 @@ export function getPaceZoneStats(
       target_pace_sec_per_km: centers[zone] ?? 0,
       pace_min_sec_per_km: b?.paceMin ?? 0,
       pace_max_sec_per_km: b?.paceMax ?? 0,
-      activity_count: s.activity_count,
+      activity_count: s.activityIds.size,
       total_duration: s.total_duration,
       total_distance: s.total_distance,
-      avg_pace: s.avg_pace.length > 0 ? s.avg_pace.reduce((a, x) => a + x, 0) / s.avg_pace.length : null,
-      avg_cadence: s.avg_cadence.length > 0 ? s.avg_cadence.reduce((a, x) => a + x, 0) / s.avg_cadence.length : null,
-      avg_stride_length: s.avg_stride.length > 0 ? s.avg_stride.reduce((a, x) => a + x, 0) / s.avg_stride.length : null,
-      avg_heart_rate: s.avg_heart_rate.length > 0 ? s.avg_heart_rate.reduce((a, x) => a + x, 0) / s.avg_heart_rate.length : null,
+      avg_pace: avg(s.wPaceSum, s.wPaceDur),
+      avg_cadence: avg(s.wCadSum, s.wCadDur),
+      avg_stride_length: avg(s.wStrideSum, s.wStrideDur),
+      avg_heart_rate: avg(s.wHrSum, s.wHrDur),
     };
   });
 }

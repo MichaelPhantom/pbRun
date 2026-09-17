@@ -92,4 +92,23 @@ describe('buildAnalysisMessages', () => {
     expect(msgs[0].role).toBe('system');
     expect(msgs[1].role).toBe('user');
   });
+
+  test('心率区间时间正常渲染 Z1..Zn', () => {
+    const [, user] = buildAnalysisMessages(
+      fakeActivity({ time_in_hr_zone: JSON.stringify([100, 200, 300]) } as never),
+      [],
+    );
+    expect(user.content).toContain('Z1:');
+    expect(user.content).toContain('Z3:');
+  });
+
+  test('回归: 区间中间 null 保留占位为 "--" (不错位)', () => {
+    const [, user] = buildAnalysisMessages(
+      fakeActivity({ time_in_hr_zone: JSON.stringify([100, null, 300]) } as never),
+      [],
+    );
+    expect(user.content).toContain('Z1:');
+    expect(user.content).toContain('Z2:--');
+    expect(user.content).toContain('Z3:');
+  });
 });

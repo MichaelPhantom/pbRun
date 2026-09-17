@@ -28,7 +28,7 @@ export function useEchart(
   // deps 变更 → 仅重设 option (不重建实例)
   useEffect(() => {
     const chart = chartRef.current;
-    if (!chart) return;
+    if (!chart || chart.isDisposed()) return;
     try {
       chart.setOption(builderRef.current(), true);
     } catch (e) {
@@ -53,11 +53,17 @@ export function useEchart(
     };
     mount();
 
-    const ro = new ResizeObserver(() => chartRef.current?.resize());
+    const ro = new ResizeObserver(() => {
+      // dispose 后 chartRef 可能仍指向旧实例 (onTheme 窗口期), 用 isDisposed 守卫
+      const chart = chartRef.current;
+      if (chart && !chart.isDisposed()) chart.resize();
+    });
     ro.observe(el);
 
     const onTheme = () => {
-      chartRef.current?.dispose();
+      const prev = chartRef.current;
+      chartRef.current = null; // 先置空, 防止 RO/其它回调在重建窗口期访问已 dispose 实例
+      if (prev && !prev.isDisposed()) prev.dispose();
       mount();
     };
     const mq = window.matchMedia?.("(prefers-color-scheme: dark)");
@@ -69,8 +75,9 @@ export function useEchart(
       ro.disconnect();
       mo.disconnect();
       mq?.removeEventListener?.("change", onTheme);
-      chartRef.current?.dispose();
+      const chart = chartRef.current;
       chartRef.current = null;
+      if (chart && !chart.isDisposed()) chart.dispose();
     };
   }, []);
 

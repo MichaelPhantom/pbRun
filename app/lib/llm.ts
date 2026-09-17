@@ -89,9 +89,12 @@ function fmtNum(v?: number | null, digits = 0, unit = ''): string {
 function fmtZoneTimes(json?: string | null): string {
   if (!json) return '--';
   try {
-    const arr = JSON.parse(json) as number[];
+    const arr = JSON.parse(json) as (number | null)[];
     if (!Array.isArray(arr) || arr.length === 0) return '--';
-    return arr.map((s, i) => `Z${i + 1}:${formatDuration(s)}`).join('  ');
+    // 区间数组按索引对应 Z1..Zn; 中间 null 保留占位输出 '--', 避免区间错位。
+    return arr
+      .map((s, i) => `Z${i + 1}:${s == null ? '--' : formatDuration(s)}`)
+      .join('  ');
   } catch {
     return '--';
   }

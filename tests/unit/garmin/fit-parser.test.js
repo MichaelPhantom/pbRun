@@ -180,6 +180,30 @@ describe('fit-parser: _extractZoneBoundaries（区间边界 + 停留时间 + 阈
     expect(out.functional_threshold_power).toBeUndefined();
   });
 
+  test('回归: 仅去尾部 null, 中间 null 保留占位 (不使区间错位)', () => {
+    const out = p._extractZoneBoundaries({
+      time_in_zone: [
+        {
+          reference_mesg: 18,
+          // Z2 中间缺失(null): 必须保留占位, 否则 Z3/Z4 会被错标为 Z2/Z3
+          time_in_hr_zone: [100, null, 300, 400, 500, null, null],
+        },
+      ],
+    });
+    const arr = JSON.parse(out.time_in_hr_zone);
+    // 尾部两个 null 被去除; 中间 null 保留
+    expect(arr).toEqual([100, null, 300, 400, 500]);
+    expect(arr[1]).toBeNull();
+    expect(arr[2]).toBe(300);
+  });
+
+  test('全 null → 不输出该字段', () => {
+    const out = p._extractZoneBoundaries({
+      time_in_zone: [{ reference_mesg: 18, time_in_hr_zone: [null, null, null] }],
+    });
+    expect(out.time_in_hr_zone).toBeUndefined();
+  });
+
   test('无 time_in_zone 时返回空对象', () => {
     expect(p._extractZoneBoundaries({})).toEqual({});
   });
