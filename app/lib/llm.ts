@@ -7,6 +7,7 @@
  */
 import type { Activity, ActivityLap } from '@/app/lib/types';
 import { formatPace, formatDuration } from '@/app/lib/format';
+import { curateModels } from '@/app/lib/model-curation';
 
 const SYSTEM_PROMPT = `你是一位持有认证的跑步教练与运动数据分析师, 精通 Daniels VDOT 训练体系与心率区间理论 (Z1 轻松 / Z2 有氧 / Z3 节奏 / Z4 乳酸阈 / Z5 最大摄氧)。
 
@@ -51,9 +52,11 @@ export interface LlmModelInfo {
   thinking: boolean;
   /** 推荐：非思考模型，分析任务更稳更省 */
   recommended: boolean;
+  /** 所属系列 (用于前端分组显示) */
+  series?: string;
 }
 
-/** 拉取 freellmapi 可用模型列表 (供前端选择器)。 */
+/** 拉取 freellmapi 模型列表并策展 (各系列最新 2 版, 剔除聚合/夹具, 见 model-curation)。 */
 export async function fetchModels(): Promise<LlmModelInfo[]> {
   const cfg = getFreellmConfig();
   if (!cfg) return [];
@@ -64,20 +67,21 @@ export async function fetchModels(): Promise<LlmModelInfo[]> {
   if (!r || !r.ok) return [];
   const j = (await r
     .json()
-    .catch(() => null)) as { data?: Array<{ id: string; name?: string; available?: boolean }> } | null;
+    .catch(() => null)) as
+    | { data?: Array<{ id: string; name?: string; available?: boolean }> }
+    | null;
   const data = j?.data ?? [];
-  return data
-    .filter((m) => m && m.id && m.available !== false)
-    .map((m) => {
-      const thinking = isThinkingModel(m.id);
-      return {
-        id: m.id,
-        name: m.name || m.id,
-        available: m.available !== false,
-        thinking,
-        recommended: !thinking,
-      };
-    });
+  return curateModels(data).map((m) => {
+    const thinking = isThinkingModel(m.id);
+    return {
+      id: m.id,
+      name: m.name,
+      available: true,
+      thinking,
+      recommended: !thinking,
+      series: m.series,
+    };
+  });
 }
 
 function fmtNum(v?: number | null, digits = 0, unit = ''): string {
