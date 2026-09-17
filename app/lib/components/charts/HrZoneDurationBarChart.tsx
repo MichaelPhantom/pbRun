@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react';
 import * as echarts from 'echarts';
 import { formatDuration } from '@/app/lib/format';
+import { HR_ZONE_NAMES } from '@/app/lib/hr-zones';
 import { registerPbrunThemes, getPbrunTheme, HR_ZONE_THEME } from '@/app/lib/echarts-theme';
 
 registerPbrunThemes();
@@ -12,14 +13,6 @@ export interface HrZoneDurationItem {
   zone: number;
   total_duration: number;
 }
-
-const HR_ZONE_NAMES: Record<number, string> = {
-  1: 'Z1(轻松)',
-  2: 'Z2(有氧)',
-  3: 'Z3(节奏)',
-  4: 'Z4(乳酸阈)',
-  5: 'Z5(VoMax)',
-};
 
 // 心率区间色 (主题感知, 取自 echarts-theme 校验通过的 Z1-Z5 ramp; 非 zinc 旧温阶)
 function hrZoneColor(zone: number): string {

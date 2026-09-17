@@ -1,25 +1,11 @@
 'use client';
 
-import type { CSSProperties } from 'react';
 import type { PaceZoneStat } from '@/app/lib/types';
 import { formatPace } from '@/app/lib/format';
+import { hrZoneBadgeStyle, HR_ZONE_NAMES } from '@/app/lib/hr-zones';
 
 interface PaceZoneMetricsTableProps {
   data: PaceZoneStat[];
-}
-
-const PACE_ZONE_NAMES: Record<number, string> = {
-  1: 'Z1(轻松)',
-  2: 'Z2(有氧)',
-  3: 'Z3(节奏)',
-  4: 'Z4(乳酸阈)',
-  5: 'Z5(VoMax)',
-};
-
-/** HR 区间色 (--z1..--z5 校验通过 ramp), 与 Badge zone 变体同源 */
-function zoneBadgeStyle(zone: number): CSSProperties {
-  const v = `var(--z${Math.min(Math.max(zone, 1), 5)})`;
-  return { backgroundColor: `color-mix(in srgb, ${v} 14%, transparent)`, color: v };
 }
 
 function formatPaceRange(paceMin: number, paceMax: number): string {
@@ -54,8 +40,8 @@ export default function PaceZoneMetricsTable({ data }: PaceZoneMetricsTableProps
           {rows.map((row) => (
             <tr key={row.zone} className="transition-colors hover:bg-surface-3">
               <td className="w-36 min-w-[9rem] px-3 py-2">
-                <span className="block w-full rounded px-1.5 py-0.5" style={zoneBadgeStyle(row.zone)}>
-                  <span className="block leading-tight font-medium">{PACE_ZONE_NAMES[row.zone]}</span>
+                <span className="block w-full rounded px-1.5 py-0.5" style={hrZoneBadgeStyle(row.zone, 14)}>
+                  <span className="block leading-tight font-medium">{HR_ZONE_NAMES[row.zone]}</span>
                   <span className="block text-xs leading-tight opacity-80">
                     {formatPaceRange(row.pace_min_sec_per_km, row.pace_max_sec_per_km)}
                     <span className="text-[11px]"> /km</span>

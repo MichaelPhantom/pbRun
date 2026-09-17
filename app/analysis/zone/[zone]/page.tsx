@@ -2,23 +2,10 @@
 
 import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { useEffect, useState, useMemo, type CSSProperties } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import ZoneTrendCharts from '@/app/lib/components/charts/ZoneTrendCharts';
 import type { ZoneTrendSeriesPoint } from '@/app/lib/components/charts/ZoneTrendCharts';
-
-const HR_ZONE_NAMES: Record<number, string> = {
-  1: 'Z1(轻松)',
-  2: 'Z2(有氧)',
-  3: 'Z3(节奏)',
-  4: 'Z4(乳酸阈)',
-  5: 'Z5(VoMax)',
-};
-
-/** HR 区间色 (--z1..--z5 校验通过 ramp), 与 Badge zone 变体同源 */
-function zoneBadgeStyle(zone: number): CSSProperties {
-  const v = `var(--z${Math.min(Math.max(zone, 1), 5)})`;
-  return { backgroundColor: `color-mix(in srgb, ${v} 16%, transparent)`, color: v };
-}
+import { HR_ZONE_NAMES, hrZoneBadgeStyle } from '@/app/lib/hr-zones';
 
 function getDefaultHalfYearRange(): { startDate: string; endDate: string } {
   const now = new Date();
@@ -95,7 +82,7 @@ export default function ZoneTrendPage() {
   return (
     <div className="mx-auto w-full max-w-3xl flex flex-col gap-6 p-6">
       <div className="flex flex-wrap items-center gap-3">
-        <span className="inline-block rounded px-3 py-1.5 text-base font-medium" style={zoneBadgeStyle(zone)}>
+        <span className="inline-block rounded px-3 py-1.5 text-base font-medium" style={hrZoneBadgeStyle(zone, 16)}>
           {zoneName}
           {rangeBpm && <span className="ml-1 block text-xs opacity-90">{rangeBpm}</span>}
         </span>

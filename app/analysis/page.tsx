@@ -1,6 +1,7 @@
 import { getHrZoneStats, getVDOTTrend, getStats, getPaceZoneStats, getTrainingLoads } from '@/app/lib/db';
 import { getDateRangeFromDays, parseTimeRangeDays } from '@/app/lib/date-utils';
 import { computeTrainingLoads, type TrainingLoadSummary } from '@/app/lib/training-load';
+import { hrZoneRangeMap, resolveMaxHr } from '@/app/lib/hr-zones';
 import AnalysisClient from './AnalysisClient';
 
 export const dynamic = 'force-dynamic';
@@ -8,18 +9,6 @@ export const dynamic = 'force-dynamic';
 const GROUP_BY = 'week' as const;
 // CTL(τ=42) 预热: 在所选区间起点前多取 90 天, 保证 EWMA 已收敛; 仅显示所选区间。
 const WARMUP_DAYS = 90;
-
-function buildZoneRanges(): Record<number, { min: number; max: number }> {
-  const maxHr = process.env.MAX_HR ? parseInt(process.env.MAX_HR, 10) : 190;
-  const p = (x: number) => Math.round((x / 100) * maxHr);
-  return {
-    1: { min: 1, max: p(70) - 1 },
-    2: { min: p(70), max: p(80) - 1 },
-    3: { min: p(80), max: p(87) - 1 },
-    4: { min: p(87), max: p(93) - 1 },
-    5: { min: p(93), max: maxHr },
-  };
-}
 
 function subDays(ymd: string, days: number): string {
   const d = new Date(ymd + 'T00:00:00Z');
@@ -53,7 +42,7 @@ export default async function AnalysisPage({ searchParams }: PageProps) {
     paceZoneData = getPaceZoneStats(currentVdot, startDate, endDate);
   }
 
-  const zoneRanges = buildZoneRanges();
+  const zoneRanges = hrZoneRangeMap(resolveMaxHr());
 
   return (
     <AnalysisClient

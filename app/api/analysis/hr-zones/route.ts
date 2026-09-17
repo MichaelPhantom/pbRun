@@ -6,7 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getHrZoneStats } from '@/app/lib/db';
-import { hrZoneRanges } from '@/app/lib/hr-zones';
+import { hrZoneRangeMap, resolveMaxHr } from '@/app/lib/hr-zones';
 import type { HrZoneAnalysisParams } from '@/app/lib/types';
 
 export async function GET(request: NextRequest) {
@@ -55,10 +55,7 @@ export async function GET(request: NextRequest) {
     const data = getHrZoneStats(params);
 
     // 心率区间 BPM 范围：与 lib/db getHrZone 及 MCP 工具一致（共享 app/lib/hr-zones）
-    const maxHr = process.env.MAX_HR ? parseInt(process.env.MAX_HR, 10) : 190;
-    const zoneRanges: Record<number, { min: number; max: number }> = Object.fromEntries(
-      hrZoneRanges(maxHr).map((r) => [r.zone, { min: r.minBpm, max: r.maxBpm ?? maxHr }])
-    );
+    const zoneRanges = hrZoneRangeMap(resolveMaxHr());
 
     const summary = {
       total_activities: data.reduce((sum, item) => sum + item.activity_count, 0),

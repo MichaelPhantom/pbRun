@@ -28,6 +28,7 @@ import {
 } from './types';
 import { getPaceZoneBoundsFromVdot, getPaceZoneCenterFromVdot } from './vdot-pace';
 import { periodKeyOf } from './date-utils';
+import { hrZoneOf, resolveMaxHr } from './hr-zones';
 
 
 // Database connection (singleton)
@@ -553,7 +554,7 @@ function periodKey(dateStr: string, groupBy: 'week' | 'month'): string {
 export function getHrZoneStats(params: HrZoneAnalysisParams): HrZoneStat[] {
   const { startDate, endDate, groupBy } = params;
   const db = getDatabase();
-  const maxHr = process.env.MAX_HR ? parseInt(process.env.MAX_HR, 10) : 190;
+  const maxHr = resolveMaxHr();
 
   let dateFilter = '';
   const queryParams: string[] = [];
@@ -585,15 +586,7 @@ export function getHrZoneStats(params: HrZoneAnalysisParams): HrZoneStat[] {
     average_heart_rate: number;
   }[];
 
-  const hrPercent = (hr: number) => (hr / maxHr) * 100;
-  const getHrZone = (avgHr: number): number => {
-    const p = hrPercent(avgHr);
-    if (p < 70) return 1;
-    if (p < 80) return 2;
-    if (p < 87) return 3;
-    if (p < 93) return 4;
-    return 5;
-  };
+  const getHrZone = (avgHr: number): number => hrZoneOf(avgHr, maxHr);
 
   const statsMap = new Map<string, HrZoneStat>();
   const activitySets = new Map<string, Set<number>>();

@@ -1,9 +1,9 @@
 'use client';
 
-import type { CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import type { HrZoneStat } from '@/app/lib/types';
 import { formatPace } from '@/app/lib/format';
+import { hrZoneRangeBpmLabel, hrZoneBadgeStyle, HR_ZONE_NAMES } from '@/app/lib/hr-zones';
 
 interface HrZoneMetricsTableProps {
   data: HrZoneStat[];
@@ -13,38 +13,9 @@ interface HrZoneMetricsTableProps {
   trendLinkParams?: { startDate: string; endDate: string; groupBy: string };
 }
 
-const DEFAULT_MAX_HR = 190;
-
-/** 仅在后端未返回 zoneRanges 时使用 */
-function getHrZoneRangeBpmFallback(zone: number, maxHr: number = DEFAULT_MAX_HR): string {
-  const p = (x: number) => Math.round((x / 100) * maxHr);
-  switch (zone) {
-    case 1: return `1-${p(70) - 1}`;
-    case 2: return `${p(70)}-${p(80) - 1}`;
-    case 3: return `${p(80)}-${p(87) - 1}`;
-    case 4: return `${p(87)}-${p(93) - 1}`;
-    case 5: return `${p(93)}-${maxHr}`;
-    default: return '';
-  }
-}
-
 function getRangeBpm(zone: number, zoneRanges: HrZoneMetricsTableProps['zoneRanges']): string {
   if (zoneRanges && zoneRanges[zone]) return `${zoneRanges[zone].min}-${zoneRanges[zone].max}`;
-  return getHrZoneRangeBpmFallback(zone);
-}
-
-const HR_ZONE_NAMES: Record<number, string> = {
-  1: 'Z1(轻松)',
-  2: 'Z2(有氧)',
-  3: 'Z3(节奏)',
-  4: 'Z4(乳酸阈)',
-  5: 'Z5(VoMax)',
-};
-
-/** HR 区间色 (--z1..--z5 校验通过 ramp), 与 Badge zone 变体同源 */
-function zoneBadgeStyle(zone: number): CSSProperties {
-  const v = `var(--z${Math.min(Math.max(zone, 1), 5)})`;
-  return { backgroundColor: `color-mix(in srgb, ${v} 14%, transparent)`, color: v };
+  return hrZoneRangeBpmLabel(zone);
 }
 
 export default function HrZoneMetricsTable({ data, zoneRanges, trendLinkParams }: HrZoneMetricsTableProps) {
@@ -147,7 +118,7 @@ export default function HrZoneMetricsTable({ data, zoneRanges, trendLinkParams }
                 onKeyDown={href ? (e) => e.key === 'Enter' && router.push(href) : undefined}
               >
                 <td className="w-36 min-w-[9rem] px-3 py-2">
-                  <span className="block w-full rounded px-1.5 py-0.5" style={zoneBadgeStyle(row.zone)}>
+                  <span className="block w-full rounded px-1.5 py-0.5" style={hrZoneBadgeStyle(row.zone, 14)}>
                     <span className="block leading-tight font-medium">{row.name}</span>
                     <span className="block text-xs leading-tight opacity-80">{row.rangeBpm}</span>
                   </span>
