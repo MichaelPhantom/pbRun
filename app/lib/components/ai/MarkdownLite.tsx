@@ -46,15 +46,35 @@ export function MarkdownLite({ text }: { text: string }) {
       const trimmed = lines[i].trim();
       if (trimmed === '') { i++; continue; }
 
+      // 水平分割线
+      if (/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {
+        els.push(<hr key={key++} className="my-3 border-border" />);
+        i++;
+        continue;
+      }
+
       // 标题
       const h = /^(#{1,4})\s+(.*)$/.exec(trimmed);
       if (h) {
         const level = h[1].length;
         const content = h[2];
+        // 含 emoji 的一级/二级标题视为「章节标题」: 加粗 + 品牌色左边框
+        const hasEmoji = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(content);
         if (level <= 2) {
-          els.push(<h3 key={key++} className="mb-1 mt-3 text-sm font-semibold text-fg">{renderInline(content, `h${key}`)}</h3>);
+          const cls = hasEmoji
+            ? 'mb-1.5 mt-4 border-l-2 border-[var(--brand)] pl-2 text-[13px] font-semibold text-fg'
+            : 'mb-1 mt-3 text-sm font-semibold text-fg';
+          els.push(
+            <h3 key={key++} className={cls}>
+              {renderInline(content, `h${key}`)}
+            </h3>,
+          );
         } else {
-          els.push(<h4 key={key++} className="mb-0.5 mt-2 text-xs font-semibold text-fg-secondary">{renderInline(content, `h${key}`)}</h4>);
+          els.push(
+            <h4 key={key++} className="mb-0.5 mt-2 text-xs font-semibold text-fg-secondary">
+              {renderInline(content, `h${key}`)}
+            </h4>,
+          );
         }
         i++;
         continue;
@@ -69,7 +89,23 @@ export function MarkdownLite({ text }: { text: string }) {
         }
         els.push(
           <ul key={key++} className="my-1 list-disc space-y-0.5 pl-5">
-            {items.map((it, j) => <li key={j} className="text-sm leading-relaxed text-fg-secondary">{renderInline(it, `li${key}-${j}`)}</li>)}
+            {items.map((it, j) => {
+              // ✅/⚠️/💡 开头不重复渲染项目符号
+              const emojiLead = /^([✅⚠️💡🎯📈🏃📅📊❌🔴🟢])\s*/u.exec(it);
+              if (emojiLead) {
+                return (
+                  <li key={j} className="list-none -ml-5 text-sm leading-relaxed text-fg-secondary">
+                    <span aria-hidden className="mr-1">{emojiLead[1]}</span>
+                    {renderInline(it.slice(emojiLead[0].length), `li${key}-${j}`)}
+                  </li>
+                );
+              }
+              return (
+                <li key={j} className="text-sm leading-relaxed text-fg-secondary">
+                  {renderInline(it, `li${key}-${j}`)}
+                </li>
+              );
+            })}
           </ul>,
         );
         continue;

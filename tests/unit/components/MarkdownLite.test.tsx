@@ -79,4 +79,24 @@ describe('MarkdownLite', () => {
     expect(container.textContent).toContain('第一段');
     expect(container.textContent).toContain('第二段');
   });
+
+  test('emoji 章节标题渲染为带品牌左边框的标题', () => {
+    const { container } = render(<MarkdownLite text={'## 📊 一句话总评\n内容'} />);
+    const h = container.querySelector('h3');
+    expect(h?.textContent).toContain('一句话总评');
+    expect(h?.className).toContain('border-[var(--brand)]');
+  });
+
+  test('--- 渲染为水平分割线', () => {
+    const { container } = render(<MarkdownLite text={'上\n\n---\n\n下'} />);
+    expect(container.querySelector('hr')).toBeTruthy();
+  });
+
+  test('✅/⚠️ 开头的列表项去掉重复项目符号', () => {
+    const { container } = render(<MarkdownLite text={'- ✅ 亮点一\n- ⚠️ 问题一'} />);
+    const items = container.querySelectorAll('li');
+    expect(items.length).toBe(2);
+    expect(items[0].className).toContain('list-none');
+    expect(items[0].textContent).toContain('亮点一');
+  });
 });
