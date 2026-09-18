@@ -8,7 +8,9 @@ import { ThinkingBlock } from './ThinkingBlock';
 import { ModelSelector } from './ModelSelector';
 import { useModelCatalog } from './useModelCatalog';
 import { useStickToBottom } from './useStickToBottom';
+import { suggestFollowups } from './followup-suggestions';
 import type { ChatMessage } from '@/app/lib/llm';
+import type { Activity } from '@/app/lib/types';
 
 type Status = 'idle' | 'streaming' | 'done' | 'error';
 
@@ -42,7 +44,20 @@ function looksTruncated(text: string): boolean {
  * 初次分析 + 多轮追问的对话式体验; SSE 流式渲染, 支持停止/继续、复制/重生成、
  * 思考过程折叠、模型选择、自动滚底、草稿与结果本地持久化、无障碍直播区域。
  */
-export function AiAnalysis({ activityId }: { activityId: number }) {
+export function AiAnalysis({
+  activityId,
+  activity,
+  profileSignal,
+}: {
+  activityId: number;
+  activity?: Activity;
+  profileSignal?: {
+    tsb: number | null;
+    intensityZ45Pct: number | null;
+    weeklyVolumeChangePct: number | null;
+    vdotTrend: 'up' | 'down' | 'flat' | null;
+  };
+}) {
   const { models, configured, model, choose } = useModelCatalog();
 
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -336,6 +351,30 @@ export function AiAnalysis({ activityId }: { activityId: number }) {
   const hasAnalysis = turns.some((t) => t.role === 'assistant');
   const lastAssistant = [...turns].reverse().find((t) => t.role === 'assistant');
 
+  // 不忙且分析完成时, 生成上下文相关的追问建议 (一键发起后续对话)。
+  // 仅用客户端可得信息 (活动摘要 + 分析文本), 不额外请求画像 (画像在服务端 prompt 内)。
+  const suggestions =
+    !busy && lastAssistant && !lastAssistant.error && lastAssistant.content
+      ? suggestFollowups({
+          analysisText: lastAssistant.content.slice(-2500),
+          activity: {
+            distanceKm: activity?.distance ?? 0,
+            averagePace: activity?.average_pace ?? null,
+            averageHeartRate: activity?.average_heart_rate ?? null,
+            averageCadence: activity?.average_cadence ?? null,
+            vdot: activity?.vdot_value ?? null,
+            hasHrData: activity?.average_heart_rate != null,
+          },
+          // 画像信号 (若有) 使建议更具针对性; 缺失时退化为通用高质量问题
+          profile: {
+            intensityZ45Pct: profileSignal?.intensityZ45Pct ?? null,
+            weeklyVolumeChangePct: profileSignal?.weeklyVolumeChangePct ?? null,
+            tsb: profileSignal?.tsb ?? null,
+            vdotTrend: profileSignal?.vdotTrend ?? null,
+          },
+        })
+      : [];
+
   return (
     <SectionCard
       title="AI 教练分析"
@@ -492,29 +531,54 @@ export function AiAnalysis({ activityId }: { activityId: number }) {
 
       {/* 追问输入: 已有分析且不忙时展示 */}
       {configured && hasAnalysis && (
-        <div className="mt-3 flex items-end gap-2 border-t border-border pt-3">
-          <textarea
-            value={question}
-            onChange={(e) => setQuestion(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                submitQuestion();
-              }
-            }}
-            rows={1}
-            placeholder="继续追问，如「这次心率漂移说明什么？」（Enter 发送，Shift+Enter 换行）"
-            aria-label="追问教练"
-            disabled={busy}
-            className="min-h-[2.25rem] flex-1 resize-none rounded-md border border-border bg-surface px-2.5 py-1.5 text-sm text-fg placeholder:text-fg-muted disabled:opacity-50"
-          />
-          <button
-            onClick={submitQuestion}
-            disabled={busy || !question.trim()}
-            className="rounded-md bg-[var(--brand)] px-3 py-1.5 text-sm font-medium text-[var(--brand-fg)] hover:bg-[var(--brand-strong)] disabled:opacity-50"
-          >
-            发送
-          </button>
+        <div className="mt-3 border-t border-border pt-3">
+          {/* 智能追问建议: 一键发起有价值的问题 */}
+          {suggestions.length > 0 && (
+            <div className="mb-2 flex flex-wrap gap-1.5">
+              {suggestions.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => {
+                    if (busy) return;
+                    setQuestion('');
+                    const history = turns.map(
+                      (t) => ({ role: t.role, content: t.content } as ChatMessage),
+                    );
+                    runStream({ model, question: s, history });
+                  }}
+                  disabled={busy}
+                  className="rounded-full border border-border bg-surface px-2.5 py-1 text-xs text-fg-secondary transition-colors hover:border-[var(--brand)] hover:text-[var(--brand)] disabled:opacity-50"
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="flex items-end gap-2">
+            <textarea
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  submitQuestion();
+                }
+              }}
+              rows={1}
+              placeholder="继续追问，如「这次心率漂移说明什么？」（Enter 发送，Shift+Enter 换行）"
+              aria-label="追问教练"
+              disabled={busy}
+              className="min-h-[2.25rem] flex-1 resize-none rounded-md border border-border bg-surface px-2.5 py-1.5 text-sm text-fg placeholder:text-fg-muted disabled:opacity-50"
+            />
+            <button
+              onClick={submitQuestion}
+              disabled={busy || !question.trim()}
+              className="rounded-md bg-[var(--brand)] px-3 py-1.5 text-sm font-medium text-[var(--brand-fg)] hover:bg-[var(--brand-strong)] disabled:opacity-50"
+            >
+              发送
+            </button>
+          </div>
         </div>
       )}
 

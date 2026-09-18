@@ -14,14 +14,22 @@ const RouteMap = dynamic(() => import('@/app/lib/components/map/RouteMap').then(
   loading: () => <div className="h-[360px] animate-pulse rounded-xl bg-surface-2" />,
 });
 
+interface ProfileSignal {
+  tsb: number | null;
+  intensityZ45Pct: number | null;
+  weeklyVolumeChangePct: number | null;
+  vdotTrend: 'up' | 'down' | 'flat' | null;
+}
+
 interface ActivityDetailClientProps {
   activity: Activity;
   laps: ActivityLap[];
   records: ActivityRecord[];
   track: ActivityTrack | null;
+  profileSignal?: ProfileSignal;
 }
 
-export default function ActivityDetailClient({ activity, laps, records, track }: ActivityDetailClientProps) {
+export default function ActivityDetailClient({ activity, laps, records, track, profileSignal }: ActivityDetailClientProps) {
   const distanceKm = activity.distance ?? 0;
   const durationSec = activity.moving_time ?? activity.duration ?? 0;
   const durationMinutes = durationSec / 60;
@@ -165,7 +173,7 @@ export default function ActivityDetailClient({ activity, laps, records, track }:
       </SectionCard>
 
       {/* AI 教练分析 (本机 freellm, 模型可选) */}
-      <AiAnalysis activityId={activity.activity_id} />
+      <AiAnalysis activityId={activity.activity_id} activity={activity} profileSignal={profileSignal} />
     </div>
   );
 }

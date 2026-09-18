@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import { getActivityById, getActivityLaps, getActivityRecords, getActivityTrack } from '@/app/lib/db';
 import { downsampleRecords } from '@/app/lib/sampling';
+import { buildRunnerProfile } from '@/app/lib/runner-profile';
 import ActivityDetailClient from './ActivityDetailClient';
 
 export const dynamic = 'force-dynamic';
@@ -33,5 +34,30 @@ export default async function ActivityDetailPage({ params }: PageProps) {
 
   const { records: chartRecords } = downsampleRecords(records, 1, DETAIL_RECORDS_MAX_POINTS);
 
-  return <ActivityDetailClient activity={activity} laps={laps} records={chartRecords} track={track} />;
+  // 轻量画像信号, 供 AI 追问建议使用 (完整画像在分析路由内构建; 此处仅取少量派生值)。
+  let profileSignal: { tsb: number | null; intensityZ45Pct: number | null; weeklyVolumeChangePct: number | null; vdotTrend: 'up' | 'down' | 'flat' | null } | undefined;
+  try {
+    const p = buildRunnerProfile(activity);
+    const z45 = p.intensityDist
+      .filter((z) => z.zone >= 4)
+      .reduce((s, z) => s + z.pct, 0);
+    profileSignal = {
+      tsb: p.tsb,
+      intensityZ45Pct: p.intensityDist.length > 0 ? Math.round(z45) : null,
+      weeklyVolumeChangePct: p.weeklyVolumeChangePct,
+      vdotTrend: p.vdotTrend,
+    };
+  } catch {
+    profileSignal = undefined;
+  }
+
+  return (
+    <ActivityDetailClient
+      activity={activity}
+      laps={laps}
+      records={chartRecords}
+      track={track}
+      profileSignal={profileSignal}
+    />
+  );
 }
