@@ -17,6 +17,10 @@ describe('friendlyAnalysisError', () => {
     expect(friendlyAnalysisError(504)).toContain('120s');
   });
 
+  test('429 给出限流可操作提示', () => {
+    expect(friendlyAnalysisError(429)).toContain('限流');
+  });
+
   test('其他错误原样透传服务端文案', () => {
     expect(friendlyAnalysisError(404, 'Activity not found')).toBe('Activity not found');
   });

@@ -109,4 +109,30 @@ describe('POST /api/activities/:id/analysis — 模型回退契约', () => {
     expect(res.status).toBe(400);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  test('主模型 429 限流 → 等待后回退 auto 重试', async () => {
+    let call = 0;
+    const fetchMock = jest.fn(async () => {
+      call += 1;
+      if (call === 1) return new Response('rate limited', { status: 429 });
+      return sseResponse();
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const res = await POST(makeRequest('gemini-2.5-pro'), ctx);
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('X-Model-Fallback')).toBe('1');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  }, 10000);
+
+  test('429 且 auto 仍失败 → 502 + 可操作错误文案', async () => {
+    global.fetch = jest.fn(async () => new Response('rate limited', { status: 429 })) as unknown as typeof fetch;
+
+    const res = await POST(makeRequest('gemini-2.5-pro'), ctx);
+    const body = await res.json();
+
+    expect(res.status).toBe(502);
+    expect(String(body.error)).toContain('限流');
+  }, 10000);
 });

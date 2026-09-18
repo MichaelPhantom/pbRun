@@ -20,6 +20,9 @@ export function friendlyAnalysisError(
   if (status === 504) {
     return '分析超时（上游 120s 无响应），请稍后重试或切换模型';
   }
+  if (status === 429) {
+    return '模型暂受限流，请稍后重试或切换其他模型';
+  }
   if (status === 502 || status === 503) {
     return `分析通道故障${serverError ? `（${serverError}）` : ''}，建议切换模型为 auto 或 glm-5.1-wb（非思考模型，更稳定）后重试${tail}`;
   }

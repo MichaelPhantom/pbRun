@@ -94,10 +94,18 @@ export async function POST(
   } catch {
     upstream = null; // 不可达/超时：下沉到 fallback 逻辑统一处理
   }
-  // 主模型失败（不可达/超时/上游 5xx）且非 auto 时，用 auto 重试一次。
-  // 4xx（参数/模型名错误）不重试，重试也必然失败。
-  const primaryFailedRetryable = !upstream || (upstream.status >= 500 && !upstream.ok);
+
+  // 主模型失败时的回退策略:
+  // - 5xx/超时/不可达 (非 auto): 用 auto 路由择优重试 (auto 会自动避开故障模型)。
+  // - 429 限流: 先短暂等待重试一次同一 auto (限流多为瞬时), 仍失败则透传。
+  // - 4xx (参数/模型名错误): 不重试, 重试必然失败。
+  const isRateLimited = upstream?.status === 429;
+  const primaryFailedRetryable = !upstream || (upstream.status >= 500 && !upstream.ok) || isRateLimited;
   if (primaryFailedRetryable && model !== 'auto') {
+    if (isRateLimited) {
+      // 限流: 等待 ~800ms 让上游冷却, 再用 auto 重试
+      await new Promise((r) => setTimeout(r, 800));
+    }
     try {
       const retry = await tryUpstream(buildAnalysisRequestBody('auto', messages));
       if (retry.ok && retry.body) {
@@ -114,9 +122,15 @@ export async function POST(
     const detail = upstream
       ? await upstream.text().catch(() => '')
       : 'freellmapi 不可达或 120s 超时';
+    const status = upstream?.status ?? 502;
+    // 限流: 给出可操作提示 (切换模型/稍后重试), 而非仅透传上游 JSON。
+    const error =
+      status === 429
+        ? '模型暂受限流，请稍后重试或切换其他模型'
+        : `上游错误 ${upstream?.status ?? 'TIMEOUT'}`;
     return NextResponse.json(
-      { error: `上游错误 ${upstream?.status ?? 'TIMEOUT'}`, detail: detail.slice(0, 300) },
-      { status: upstream && upstream.status < 500 ? upstream.status : 502 },
+      { error, detail: detail.slice(0, 300) },
+      { status: status < 500 && status !== 429 ? status : 502 },
     );
   }
 
