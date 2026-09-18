@@ -85,9 +85,16 @@ describe('buildAnalysisMessages', () => {
 
   test('system prompt 含因材施教与深度分析要求', () => {
     const [system] = buildAnalysisMessages(fakeActivity(), []);
-    expect(system.content).toContain('因材施教');
+    // 个性化解读以跑者画像为基准
     expect(system.content).toContain('跑者画像');
+    expect(system.content).toContain('个性化');
+    // 深度分析: 心率漂移 / 脱耦 / 跑步经济性 / 训练性质判定
     expect(system.content).toContain('心率漂移');
+    expect(system.content).toContain('脱耦');
+    expect(system.content).toContain('跑步经济性');
+    expect(system.content).toContain('训练性质');
+    // 可执行处方
+    expect(system.content).toContain('下次训练处方');
   });
 
   test('无分段时给出占位提示', () => {
