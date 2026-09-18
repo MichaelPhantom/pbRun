@@ -189,7 +189,9 @@ function buildPaceChart(chartRef: HTMLDivElement, xData: number[], paceData: (nu
         smooth: true,
         symbol: 'none',
         lineStyle: { width: 2, color: paceLineColor },
-        areaStyle: { opacity: 0.12, color: paceLineColor },
+        // Y 轴 inverse 后, 阴影默认填充方向会翻到线上方。显式 origin:'end' (轴最大值 =
+        // 最慢配速, 倒序后在屏幕底部) 使阴影始终填充在曲线**下方**, 符合惯例。
+        areaStyle: { opacity: 0.12, color: paceLineColor, origin: 'end' },
       },
     ],
   };
