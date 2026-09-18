@@ -107,6 +107,67 @@ describe('buildRunnerProfile', () => {
     expect(p.vdotNow).toBeNull();
     expect(p.personalBests).toEqual([]);
   });
+
+  test('周环比: 本周 vs 上周跑量变化', () => {
+    (db.getActivities as jest.Mock).mockImplementation((params: { limit: number }) => {
+      if (params.limit >= 500) return { data: [] };
+      return {
+        data: [
+          // 本次 (排除): 09-17
+          { activity_id: 100, start_time: '2026-09-17T10:00:00Z', start_time_local: '2026-09-17T18:00:00', distance: 10 },
+          // 本周 (近 7 天): 09-12, 共 20km
+          { activity_id: 91, start_time: '2026-09-12T10:00:00Z', start_time_local: '2026-09-12T18:00:00', distance: 20 },
+          // 上周 (7-14 天前): 09-05, 共 10km
+          { activity_id: 90, start_time: '2026-09-05T10:00:00Z', start_time_local: '2026-09-05T18:00:00', distance: 10 },
+        ],
+      };
+    });
+    const p = buildRunnerProfile(baseActivity);
+    expect(p.last7Km).toBe(20);
+    // (20-10)/10 = +100%
+    expect(p.weeklyVolumeChangePct).toBe(100);
+  });
+
+  test('强度分布: 汇总近 28 天心率区间时长占比', () => {
+    (db.getActivities as jest.Mock).mockImplementation((params: { limit: number }) => {
+      if (params.limit >= 500) return { data: [] };
+      return {
+        data: [
+          { activity_id: 91, start_time: '2026-09-12T10:00:00Z', start_time_local: '2026-09-12T18:00:00', distance: 10, time_in_hr_zone: JSON.stringify([100, 200, 300, 400, 0]) },
+          { activity_id: 90, start_time: '2026-09-10T10:00:00Z', start_time_local: '2026-09-10T18:00:00', distance: 10, time_in_hr_zone: JSON.stringify([100, 200, 300, 400, 0]) },
+        ],
+      };
+    });
+    const p = buildRunnerProfile(baseActivity);
+    // 合计 Z1=200 Z2=400 Z3=600 Z4=800 Z5=0 → 总 2000
+    expect(p.intensityDist.find((z) => z.zone === 4)?.pct).toBe(40);
+    expect(p.intensityDist.find((z) => z.zone === 1)?.pct).toBe(10);
+    // Z5 占比 0 → 被过滤
+    expect(p.intensityDist.find((z) => z.zone === 5)).toBeUndefined();
+  });
+
+  test('配速趋势: 近 30 天 vs 31-60 天均值', () => {
+    (db.getActivities as jest.Mock).mockImplementation((params: { limit: number }) => {
+      if (params.limit >= 500) return { data: [] };
+      return {
+        data: [
+          { activity_id: 91, start_time: '2026-09-12T10:00:00Z', start_time_local: '2026-09-12T18:00:00', distance: 10, average_pace: 300 },
+          { activity_id: 80, start_time: '2026-08-01T10:00:00Z', start_time_local: '2026-08-01T18:00:00', distance: 10, average_pace: 360 },
+        ],
+      };
+    });
+    const p = buildRunnerProfile(baseActivity);
+    expect(p.recentPaceSec).toBe(300);
+    expect(p.earlierPaceSec).toBe(360);
+  });
+
+  test('强度分布字段缺失时为空数组 (降级)', () => {
+    (db.getActivities as jest.Mock).mockImplementation((params: { limit: number }) => {
+      if (params.limit >= 500) return { data: [] };
+      return { data: [{ activity_id: 91, start_time: '2026-09-12T10:00:00Z', distance: 10 }] };
+    });
+    expect(buildRunnerProfile(baseActivity).intensityDist).toEqual([]);
+  });
 });
 
 describe('formatRunnerProfile', () => {

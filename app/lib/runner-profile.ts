@@ -24,6 +24,8 @@ export interface RunnerProfile {
   last7Runs: number;
   last28Km: number;
   last28Runs: number;
+  /** 周环比: 本周(近7天) vs 上周(7-14天前) 跑量变化百分比 (null=无上周数据) */
+  weeklyVolumeChangePct: number | null;
   /** 训练负荷 */
   ctl: number | null;
   atl: number | null;
@@ -33,12 +35,17 @@ export interface RunnerProfile {
   vdotNow: number | null;
   vdot30dAgo: number | null;
   vdotTrend: 'up' | 'down' | 'flat' | null;
+  /** 近 30 天平均配速 (秒/公里) 与更早 30 天的对比, 用于判断配速趋势 */
+  recentPaceSec: number | null;
+  earlierPaceSec: number | null;
   /** 个人纪录 (label → 用时文本) */
   personalBests: { label: string; time: string; date: string }[];
   /** 习惯 */
   longestKm: number | null;
   typicalCadence: number | null;
   typicalHr: number | null;
+  /** 近 28 天训练强度分布 (按心率区间时长占比, %) */
+  intensityDist: { zone: number; pct: number }[];
   /** 当前活动之前的最近一次 (非本次) */
   prev: { date: string; name: string | null; km: number; pace: string | null } | null;
 }
@@ -81,7 +88,10 @@ export function buildRunnerProfile(exclude: Activity): RunnerProfile {
   }
 
   // ---- 近期跑量 (7/28 天, 排除本次) ----
-  const { last7Km, last7Runs, last28Km, last28Runs, prev } = recentVolume(exclude, day);
+  const { last7Km, last7Runs, last28Km, last28Runs, prev, weeklyVolumeChangePct, recentPaceSec, earlierPaceSec } = recentVolume(exclude, day);
+
+  // ---- 近 28 天强度分布 (按心率区间时长) ----
+  const intensityDist = computeIntensityDist(exclude, day);
 
   // ---- 训练负荷 (近 120 天回看保证 CTL 收敛) ----
   let ctl: number | null = null;
@@ -155,6 +165,7 @@ export function buildRunnerProfile(exclude: Activity): RunnerProfile {
     last7Runs,
     last28Km,
     last28Runs,
+    weeklyVolumeChangePct,
     ctl,
     atl,
     tsb,
@@ -162,36 +173,55 @@ export function buildRunnerProfile(exclude: Activity): RunnerProfile {
     vdotNow,
     vdot30dAgo,
     vdotTrend,
+    recentPaceSec,
+    earlierPaceSec,
     personalBests,
     longestKm,
     typicalCadence,
     typicalHr,
+    intensityDist,
     prev,
   };
 }
 
 function recentVolume(exclude: Activity, day: string) {
   let last7Km = 0, last7Runs = 0, last28Km = 0, last28Runs = 0;
+  let prevWeekKm = 0; // 7-14 天前
+  let recentPaceSum = 0, recentPaceN = 0; // 近 30 天
+  let earlierPaceSum = 0, earlierPaceN = 0; // 31-60 天前
   let prev: RunnerProfile['prev'] = null;
   let prevTime = -Infinity;
   try {
     const base = new Date(`${day}T00:00:00Z`);
-    const from28 = ymd(addDays(base, -28));
-    // 取近 28 天全部 (单人 < 200 条), 排除本次, 按时间窗口归集
+    const from60 = ymd(addDays(base, -60));
+    const from7 = addDays(base, -7).getTime();
+    const from14 = addDays(base, -14).getTime();
+    const from30 = addDays(base, -30).getTime();
+    const from60ms = addDays(base, -60).getTime();
+    const selfTime = new Date(exclude.start_time_local || exclude.start_time || 0).getTime();
+    // 取近 60 天 (单人 < 300 条), 排除本次, 按时窗归集
     const res = getActivities({
       page: 1,
-      limit: 200,
-      startDate: `${from28}T00:00:00`,
+      limit: 300,
+      startDate: `${from60}T00:00:00`,
       endDate: exclude.start_time,
     });
-    const from7 = addDays(base, -7).getTime();
-    const selfTime = new Date(exclude.start_time_local || exclude.start_time || 0).getTime();
     for (const a of res.data) {
       if (a.activity_id === exclude.activity_id) continue;
       const t = new Date(a.start_time_local || a.start_time || 0).getTime();
+      if (Number.isNaN(t)) continue;
       const km = a.distance ?? 0;
+      // 近 7 / 28 天
       if (t >= from7) { last7Km += km; last7Runs += 1; }
-      last28Km += km; last28Runs += 1;
+      // 周环比: 7-14 天前
+      if (t >= from14 && t < from7) prevWeekKm += km;
+      // 近 28 天 (含近 7 天)
+      if (t >= from30) { last28Km += km; last28Runs += 1; }
+      // 配速趋势: 近 30 天 vs 31-60 天
+      if (a.average_pace != null && a.average_pace > 0) {
+        if (t >= from30) { recentPaceSum += a.average_pace; recentPaceN += 1; }
+        else if (t >= from60ms) { earlierPaceSum += a.average_pace; earlierPaceN += 1; }
+      }
       // 最近一次 (时间最接近且早于本次)
       if (t < selfTime && t > prevTime) {
         prevTime = t;
@@ -206,13 +236,65 @@ function recentVolume(exclude: Activity, day: string) {
   } catch {
     /* 降级 */
   }
+  const weeklyVolumeChangePct =
+    prevWeekKm > 0 ? Math.round(((last7Km - prevWeekKm) / prevWeekKm) * 100) : null;
   return {
     last7Km: Math.round(last7Km * 10) / 10,
     last7Runs,
     last28Km: Math.round(last28Km * 10) / 10,
     last28Runs,
+    weeklyVolumeChangePct,
+    recentPaceSec: recentPaceN > 0 ? recentPaceSum / recentPaceN : null,
+    earlierPaceSec: earlierPaceN > 0 ? earlierPaceSum / earlierPaceN : null,
     prev,
   };
+}
+
+/**
+ * 近 28 天训练强度分布: 按每个活动的心率区间时长 (time_in_hr_zone JSON) 汇总
+ * Z1-Z5 的占比 (%)。缺失区间数据的活动跳过。用于判断训练结构 (80/20 原则等)。
+ */
+function computeIntensityDist(exclude: Activity, day: string): { zone: number; pct: number }[] {
+  try {
+    const base = new Date(`${day}T00:00:00Z`);
+    const from28 = ymd(addDays(base, -28));
+    const res = getActivities({
+      page: 1,
+      limit: 300,
+      startDate: `${from28}T00:00:00`,
+      endDate: exclude.start_time,
+    });
+    const totals = [0, 0, 0, 0, 0];
+    let any = false;
+    for (const a of res.data) {
+      if (a.activity_id === exclude.activity_id) continue;
+      const raw = a.time_in_hr_zone;
+      if (!raw) continue;
+      let arr: (number | null)[];
+      try {
+        arr = JSON.parse(raw);
+      } catch {
+        continue;
+      }
+      if (!Array.isArray(arr)) continue;
+      // 最基础活动通常有 5 个心率区间; 取前 5 个 (中间 null 保留占位)
+      for (let i = 0; i < Math.min(5, arr.length); i++) {
+        const v = arr[i];
+        if (typeof v === 'number' && v >= 0) {
+          totals[i] += v;
+          any = true;
+        }
+      }
+    }
+    if (!any) return [];
+    const sum = totals.reduce((a, b) => a + b, 0);
+    if (sum <= 0) return [];
+    return totals
+      .map((t, i) => ({ zone: i + 1, pct: Math.round((t / sum) * 1000) / 10 }))
+      .filter((z) => z.pct > 0);
+  } catch {
+    return [];
+  }
 }
 
 function formatPaceSafe(secPerKm: number): string {
@@ -244,6 +326,18 @@ export function formatRunnerProfile(profile: RunnerProfile): string {
       `近期: 近7天 ${profile.last7Km} km/${profile.last7Runs} 次; ` +
         `近28天 ${profile.last28Km} km/${profile.last28Runs} 次`,
     );
+    if (profile.weeklyVolumeChangePct != null) {
+      const c = profile.weeklyVolumeChangePct;
+      const dir = c > 0 ? `+${c}%（增量）` : c < 0 ? `${c}%（减量）` : '持平';
+      line(`周环比: 本周较上周 ${dir}`);
+    }
+  }
+  if (profile.intensityDist.length > 0) {
+    line(
+      '近28天强度分布: ' +
+        profile.intensityDist.map((z) => `Z${z.zone} ${z.pct}%`).join(' / ') +
+        '（判断训练结构, 如 80/20 轻松/强度比）',
+    );
   }
   if (hasLoad) {
     const t = profile.tsbLabel ? `（${profile.tsbLabel}）` : '';
@@ -258,6 +352,14 @@ export function formatRunnerProfile(profile: RunnerProfile): string {
     line(
       `跑力: 当前 VDOT ${profile.vdotNow}` +
         (profile.vdot30dAgo != null ? `（约30天前 ${profile.vdot30dAgo}, ${trend}）` : ''),
+    );
+  }
+  if (profile.recentPaceSec != null && profile.earlierPaceSec != null) {
+    const diff = profile.recentPaceSec - profile.earlierPaceSec;
+    const dir = Math.abs(diff) < 3 ? '基本持平' : diff < 0 ? `变快 ${Math.abs(Math.round(diff))}s/km` : `变慢 ${Math.round(diff)}s/km`;
+    line(
+      `配速趋势: 近30天均配速 ${formatPaceSafe(profile.recentPaceSec)}` +
+        `（较31-60天前 ${formatPaceSafe(profile.earlierPaceSec)}, ${dir}）`,
     );
   }
   if (hasPr) {
