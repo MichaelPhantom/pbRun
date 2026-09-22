@@ -52,6 +52,7 @@ describe('computeCategoryComparison', () => {
     { name: 'A - 乳酸阈值', distanceKm: 8, durationSeconds: 2880, distanceMeters: 8000, avgPaceSecPerKm: 360, avgHeartRate: 170, avgCadence: 180, vdot: 42, trainingLoad: 60 },
     { name: 'B - 乳酸阈值', distanceKm: 7, durationSeconds: 2520, distanceMeters: 7000, avgPaceSecPerKm: 350, avgHeartRate: 168, avgCadence: 182, vdot: 43, trainingLoad: 58 },
     { name: 'C - 基础训练', distanceKm: 6, durationSeconds: 2160, distanceMeters: 6000, avgPaceSecPerKm: 400, avgHeartRate: 140, avgCadence: 175, vdot: null, trainingLoad: 40 },
+    { name: 'D - 基础训练', distanceKm: 6, durationSeconds: 2200, distanceMeters: 6000, avgPaceSecPerKm: 410, avgHeartRate: 138, avgCadence: 176, vdot: null, trainingLoad: 42 },
   ];
 
   test('按类别分组并聚合', () => {
@@ -71,10 +72,27 @@ describe('computeCategoryComparison', () => {
     expect(r.stats[0].count).toBeGreaterThanOrEqual(r.stats[r.stats.length - 1].count);
   });
 
+  test('里程/时长占比合计约 100%', () => {
+    const r = computeCategoryComparison(samples);
+    const kmSum = r.stats.reduce((a, s) => a + s.kmSharePct, 0);
+    const timeSum = r.stats.reduce((a, s) => a + s.timeSharePct, 0);
+    expect(kmSum).toBeCloseTo(100, 0);
+    expect(timeSum).toBeCloseTo(100, 0);
+  });
+
+  test('效率最高类别被标记 (样本≥2)', () => {
+    const r = computeCategoryComparison(samples);
+    // threshold 效率 ≈ (1000/355)/169 ≈ 0.0166; easy ≈ (1000/400)/140 ≈ 0.0179 → easy 更高
+    expect(r.bestEfficiencyCategory).toBe('easy');
+    expect(r.stats.find((s) => s.category === 'easy')!.isBestEfficiency).toBe(true);
+    expect(r.stats.find((s) => s.category === 'threshold')!.isBestEfficiency).toBe(false);
+  });
+
   test('空输入', () => {
     const r = computeCategoryComparison([]);
     expect(r.stats).toEqual([]);
     expect(r.totalActivities).toBe(0);
+    expect(r.bestEfficiencyCategory).toBeNull();
   });
 });
 

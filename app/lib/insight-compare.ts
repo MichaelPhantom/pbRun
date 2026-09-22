@@ -81,6 +81,10 @@ export function computeCategoryComparison(samples: CategorySample[]): CategoryCo
     (groups.get(cat) ?? groups.set(cat, []).get(cat)!).push(s);
   }
 
+  // 总量基准 (用于占比)
+  const grandKm = samples.reduce((a, r) => a + r.distanceKm, 0);
+  const grandDur = samples.reduce((a, r) => a + (r.durationSeconds || 0), 0);
+
   const stats: CategoryStats[] = [];
   for (const [category, rows] of groups.entries()) {
     const totalKm = rows.reduce((a, r) => a + r.distanceKm, 0);
@@ -128,13 +132,24 @@ export function computeCategoryComparison(samples: CategorySample[]): CategoryCo
       avgVdot: mean(rows.map((r) => r.vdot).filter((v): v is number => v != null)),
       avgTrainingLoad: mean(rows.map((r) => r.trainingLoad).filter((v): v is number => v != null)),
       efficiency: effN > 0 ? effSum / effN : null,
+      kmSharePct: grandKm > 0 ? Math.round((totalKm / grandKm) * 1000) / 10 : 0,
+      timeSharePct: grandDur > 0 ? Math.round((durSum / grandDur) * 1000) / 10 : 0,
+      isBestEfficiency: false,
     });
-    void durSum;
+  }
+
+  // 效率最高类别 (仅统计样本 >= 2 且有效率值的类别)
+  const effCandidates = stats.filter((s) => s.efficiency != null && s.count >= 2);
+  let bestEfficiencyCategory: TrainingCategory | null = null;
+  if (effCandidates.length >= 2) {
+    const best = effCandidates.reduce((a, b) => ((a.efficiency ?? 0) >= (b.efficiency ?? 0) ? a : b));
+    bestEfficiencyCategory = best.category;
+    best.isBestEfficiency = true;
   }
 
   // 按活动数降序
   stats.sort((a, b) => b.count - a.count);
-  return { stats, totalActivities: samples.length };
+  return { stats, totalActivities: samples.length, bestEfficiencyCategory };
 }
 
 // ---------------------------------------------------------------------------

@@ -368,6 +368,8 @@ export default function InsightClient({
               { key: 'label', label: '类别' },
               { key: 'count', label: '次数' },
               { key: 'km', label: '总里程', unit: 'km' },
+              { key: 'kmShare', label: '里程占比', unit: '%' },
+              { key: 'timeShare', label: '时长占比', unit: '%' },
               { key: 'pace', label: '均配速', unit: 'min/km' },
               { key: 'hr', label: '均心率', unit: 'bpm' },
               { key: 'vdot', label: '均VDOT' },
@@ -375,10 +377,18 @@ export default function InsightClient({
             ]}
             rows={categories.stats.map((c) => ({
               key: c.category,
+              highlight: c.isBestEfficiency,
               cells: {
-                label: <span className="font-medium text-fg">{c.label}</span>,
+                label: (
+                  <span className="inline-flex items-center gap-1.5 font-medium text-fg">
+                    {c.label}
+                    {c.isBestEfficiency && <Badge variant="good">最经济</Badge>}
+                  </span>
+                ),
                 count: c.count,
                 km: c.totalKm.toFixed(1),
+                kmShare: c.kmSharePct.toFixed(1),
+                timeShare: c.timeSharePct.toFixed(1),
                 pace: fmtPace(c.avgPaceSecPerKm),
                 hr: c.avgHeartRate != null ? c.avgHeartRate.toFixed(0) : '--',
                 vdot: c.avgVdot != null ? c.avgVdot.toFixed(1) : '--',
@@ -386,6 +396,9 @@ export default function InsightClient({
               },
             }))}
           />
+          <p className="mt-2 text-[10px] text-fg-muted">
+            标注「最经济」= 同类样本 ≥2 中效率（速度/心率）最高；占比为该类别在所选区间的里程/时长份额。
+          </p>
         </SectionCard>
       )}
 

@@ -72,7 +72,8 @@ export function formatInsightForCoach(insight: InsightResponse): string {
     L.push('训练类别:');
     for (const c of categories.stats) {
       L.push(
-        `  - ${c.label}: ${c.count} 次, 均距 ${n(c.avgDistanceKm, 2)}km, 均配速 ${fmtPace(c.avgPaceSecPerKm)}/km, ` +
+        `  - ${c.label}${c.isBestEfficiency ? '(最经济)' : ''}: ${c.count} 次, 里程占比 ${n(c.kmSharePct, 1)}%, ` +
+          `时长占比 ${n(c.timeSharePct, 1)}%, 均距 ${n(c.avgDistanceKm, 2)}km, 均配速 ${fmtPace(c.avgPaceSecPerKm)}/km, ` +
           `均心率 ${n(c.avgHeartRate, 0)}bpm, 均VDOT ${n(c.avgVdot, 1)}, 效率 ${n(c.efficiency, 4)}`,
       );
     }

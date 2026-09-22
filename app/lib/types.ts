@@ -464,12 +464,16 @@ export interface CategoryStats {
   avgVdot: number | null;
   avgTrainingLoad: number | null;
   efficiency: number | null;                      // 有氧效率 (m/s per bpm) 越高越强
+  kmSharePct: number;                             // 该类别里程占比 (%)
+  timeSharePct: number;                           // 该类别时长占比 (%)
+  isBestEfficiency: boolean;                      // 是否为效率最高类别 (≥2 类且有有效率时)
 }
 
 /** 类别对比: 各类别画像 + 强度分布。 */
 export interface CategoryComparison {
   stats: CategoryStats[];
   totalActivities: number;
+  bestEfficiencyCategory: TrainingCategory | null; // 效率最高的类别
 }
 
 /** 单条路线的聚合。 */

@@ -92,9 +92,10 @@ const insight: InsightResponse = {
   ],
   categories: {
     stats: [
-      { category: 'easy', label: '轻松/基础', count: 70, totalKm: 500, avgDistanceKm: 7.1, avgPaceSecPerKm: 360, avgHeartRate: 145, avgCadence: 178, avgVdot: 41, avgTrainingLoad: 60, efficiency: 0.0191 },
+      { category: 'easy', label: '轻松/基础', count: 70, totalKm: 500, avgDistanceKm: 7.1, avgPaceSecPerKm: 360, avgHeartRate: 145, avgCadence: 178, avgVdot: 41, avgTrainingLoad: 60, efficiency: 0.0191, kmSharePct: 80, timeSharePct: 82, isBestEfficiency: true },
     ],
     totalActivities: 70,
+    bestEfficiencyCategory: 'easy',
   },
   weather: {
     buckets: [
