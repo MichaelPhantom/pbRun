@@ -14,6 +14,7 @@
 - [活动相关 API](#活动相关-api)
 - [统计相关 API](#统计相关-api)
 - [分析相关 API](#分析相关-api)
+- [洞察相关 API](#洞察相关-api)
 - [错误处理](#错误处理)
 
 ---
@@ -608,6 +609,102 @@ GET /api/analysis/vdot-trend
 - `ma7`: 7 天移动平均值
 - `ma30`: 30 天移动平均值
 - `trend`: 趋势方向 (`up` / `down` / `stable`)
+
+---
+
+## 洞察相关 API
+
+洞察接口的核心特征：**不写任何缓存表**，所有指标在请求时由 `app/lib/insight*.ts` 读取 `activities` / `activity_laps` / `activity_records` 实时计算，因此数据同步入库后即刻生效。全部响应带 `Cache-Control: no-store`。
+
+### 12. 训练洞察
+
+动态生成指定时间窗内的全部训练洞察指标。
+
+**请求**
+
+```http
+GET /api/insight?days=90
+GET /api/insight?startDate=2026-06-01&endDate=2026-09-22
+```
+
+**查询参数**
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `days` | number | 否 | 预设窗口，取值 30 / 90 / 180，默认 90 |
+| `startDate` / `endDate` | string | 否 | 显式区间 `YYYY-MM-DD`（同时提供时优先于 `days`） |
+
+**响应结构（`data`）**
+
+| 字段 | 说明 |
+|------|------|
+| `range` | 实际计算区间 `{startDate, endDate}` |
+| `activityCount` | 区间内活动数 |
+| `vdot` | VDOT 趋势：`raw` 散点、`perMonth` 月聚合、`slopePer30d` 斜率、`plateau` 平台期 |
+| `load` | 训练负荷：`weekly` 周聚合、`acute`/`chronic`/`acwr`/`acwrTone`、`zDistribution` 强度分布 |
+| `decoupling` | 有氧解耦：`points` 明细、`meanPct`、`trendPer30d` |
+| `form` | 跑姿按月趋势（步频/步幅/触地/垂直振幅/垂直比） |
+| `paceHr` | 配速-心率回归模型：`slope`/`intercept`/`r`/`predictions`/`thresholdPaceSecPerKm` |
+| `categories` | 训练类别对比（阈值/间歇/长距离/节奏/VO₂max/轻松），含时长加权配速/心率与有氧效率 |
+| `weather` | 气温分档对比（心率/配速/效率） |
+| `routes` | 常跑路线对比（次数/最佳/均值/配速趋势） |
+| `periodization` | 周期化：周跑量/负荷/CTL/ATL/TSB、峰值、增幅、波动 |
+| `findings` | 动态洞察建议数组：`{id, severity, title, detail, metric?, action?}` |
+
+**响应示例（节选）**
+
+```json
+{
+  "data": {
+    "range": { "startDate": "2026-06-01", "endDate": "2026-09-22" },
+    "activityCount": 125,
+    "vdot": { "slopePer30d": 0.18, "latest": 41.2, "plateau": true, "perMonth": [] },
+    "load": { "acwr": 0.99, "acwrTone": "optimal", "lowIntensityPct": 3.5, "highIntensityPct": 45.2 },
+    "findings": [
+      { "id": "intensity-low", "severity": "warn", "title": "轻松跑占比偏低", "metric": "Z1–Z2 3.5%" }
+    ]
+  }
+}
+```
+
+### 13. 全局 AI 综合教练
+
+基于【跑者画像】与【全局洞察指标】的对话式综合教练，返回 SSE 流（OpenAI 兼容 `data:` 分片）。
+
+**请求**
+
+```http
+POST /api/insight/coach
+Content-Type: application/json
+
+{ "model": "auto", "days": 90 }
+{ "model": "auto", "days": 90, "question": "我的短板是什么？", "history": [] }
+```
+
+**响应头**
+
+- `Content-Type: text/event-stream`
+- 模型回退时附加 `X-Model-Fallback: 1` / `X-Model-Requested` / `X-Model-Used`
+- 未配置凭证（缺 `FREELLMAPI_KEY`）时返回 `503`
+
+### 14. 活动详情深挖
+
+返回单次活动的分段角色分析、主课漂移、心率区间占比、逐秒解耦与同路线历史对比。
+
+**请求**
+
+```http
+GET /api/activities/{id}/insight
+```
+
+**响应结构（`data`）**
+
+| 字段 | 说明 |
+|------|------|
+| `lapAnalysis` | 分段角色（`warmup`/`work`/`recovery`/`cooldown`/`steady`）、主课段数/距离/均配速/心率漂移、最快段 |
+| `comparison` | 同路线（或同距离）对比：`basis`、`peers`、`rank` 配速排名、`paceDeltaSecPerKm`、`hrDeltaBpm` |
+| `decouplingPct` | 逐秒有氧解耦（%） |
+| `hrZoneBreakdown` | 心率区间占比 `{zone, seconds, pct}[]` |
 
 ---
 

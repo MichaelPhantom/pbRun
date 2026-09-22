@@ -13,6 +13,7 @@
 ### 核心文档
 
 - **[API 接口文档](api-reference.md)** - 完整的 API 参考
+- **[训练洞察与 AI 教练](insight.md)** - 动态洞察指标与 AI 教练体系
 - **[VDOT 计算说明](vdot-calculation.md)** - 跑力计算原理和使用
 - **[常见问题](faq.md)** - 常见问题解答
 
@@ -33,6 +34,7 @@
 | 文档 | 说明 |
 |------|------|
 | [API 接口文档](api-reference.md) | 完整的 RESTful API 参考 |
+| [训练洞察与 AI 教练](insight.md) | 动态洞察指标体系 + AI 教练体系 (活动级/全局) |
 | [VDOT 计算说明](vdot-calculation.md) | VDOT 跑力计算公式和训练建议 |
 | [MCP Server 设计](mcp-design.md) | AI 客户端接入 (15 个 tools, 已实施) |
 | [测试方案](testing-strategy.md) | Jest + Playwright 测试架构 |

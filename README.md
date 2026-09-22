@@ -24,7 +24,7 @@
 
 *完美适配桌面端和移动端，支持手机、平板、电脑访问*
 
-**主要功能**：仪表盘首页 | 活动列表 | 路线地图 | VDOT 分析 | 心率区间 | 训练负荷 | 训练配速 | 统计数据
+**主要功能**：仪表盘首页 | 活动列表 | 路线地图 | VDOT 分析 | 心率区间 | 训练负荷 | 训练配速 | 统计数据 | 训练洞察（动态）| AI 综合教练
 
 </div>
 
@@ -344,6 +344,16 @@ npm run dev
   停止/继续、复制/重生成（更精炼/更深入）、👍👎、按系列分组的模型选择（各系列
   最新 2 版）。调用本机 freellm 网关，模型默认 auto；主模型限流/故障自动回退。
   凭证见 `.env` 的 `FREELLMAPI_KEY`，故障排查见 `docs/faq.md#11`
+- ✅ **训练洞察（动态）** - 独立「洞察」菜单：所有指标**请求时实时计算、无缓存表**，随数据同步自动更新。包含
+  **跑力 VDOT 趋势**（线性拟合 + 平台期判定）、**训练负荷与周期**（ACWR 急慢性比 + 强度分布 + 周期化周 CTL/ATL/TSB）、
+  **有氧效率**（长跑逐秒解耦 Pa:HR 漂移）、**跑姿技术趋势**（步频/触地/垂直比）、**配速-心率回归模型**（反推阈值配速），
+  以及**训练类别对比**（阈值/间歇/长距离/节奏/VO₂max/轻松，时长加权 + 有氧效率）、**气温影响对比**（分档心率/配速/效率）、
+  **常跑路线对比**（路线指纹聚合 + 配速趋势 + 最佳）、**周期化分析**。所有结论由 `findings` 引擎动态生成（严重度分级 + 可执行建议）
+- ✅ **全局 AI 综合教练** - 洞察页的**对话式**综合教练：把【跑者画像】+【全局洞察指标】（跑力/负荷/结构/类别/气温/路线/解耦）
+  整体喂给世界顶级教练框架，给出**跨全部历史**的能力演进、训练结构评估、优势短板与未来 2-4 周处方 + 3 个月规划。
+  与活动页 AI 同源（共享 SSE 流解析/模型选择/思考折叠/追问），端点 `POST /api/insight/coach`
+- ✅ **活动详情深挖** - 活动详情页新增「深度分析」面板：**分段角色识别**（热身/主课/恢复/冷身）、
+  **主课心率漂移**、**心率区间占比**、**逐秒有氧解耦**、**同路线/同距离历史对比**（配速排名 + 差值）
 
 ## 项目结构
 
@@ -353,13 +363,20 @@ pbRun/
 │   ├── api/               # API 路由 (RESTful)
 │   ├── list/              # 活动列表页面
 │   ├── analysis/          # 数据分析页面
+│   ├── insight/           # 训练洞察页面 (动态指标 + 全局 AI 教练)
 │   ├── stats/             # 统计页面
 │   └── lib/               # 工具库 (数据库、格式化、AI 教练)
-│       ├── db.ts              # SQLite 数据访问
-│       ├── llm.ts             # AI prompt/请求体/模型策展接入
-│       ├── runner-profile.ts  # 跑者画像 (个人基础数据)
-│       ├── model-curation.ts  # 模型策展 (各系列最新 2 版)
-│       └── components/ai/     # AI 对话 UI (分析/追问/思考块/模型选择)
+│       ├── db.ts                    # SQLite 数据访问
+│       ├── insight.ts               # 洞察纯计算 (VDOT趋势/ACWR/解耦/跑姿/配速-HR)
+│       ├── insight-compare.ts       # 洞察对比 (类别/气温/路线/周期化)
+│       ├── insight-service.ts       # 洞察编排 (DB → 计算 → 响应)
+│       ├── insight-coach.ts         # 洞察指标 → LLM 上下文文本块
+│       ├── activity-insight.ts      # 活动深挖计算 (分段角色/漂移/同路线)
+│       ├── activity-insight-service.ts # 活动深挖编排
+│       ├── llm.ts                   # AI prompt/请求体/全局教练消息/模型策展接入
+│       ├── runner-profile.ts        # 跑者画像 (个人基础数据)
+│       ├── model-curation.ts        # 模型策展 (各系列最新 2 版)
+│       └── components/ai/           # AI 对话 UI (活动分析/全局教练/思考块/模型选择/SSE 解析)
 ├── scripts/               # 数据同步脚本
 │   ├── common/            # 通用模块
 │   │   ├── db-manager.js  # 数据库操作
@@ -419,6 +436,9 @@ pbRun/
 | `GET /api/analysis/hr-zones` | 心率区间分析 | `startDate`, `endDate`, `groupBy` |
 | `GET /api/analysis/pace-zones` | 配速区间分析 | `startDate`, `endDate`, `vdot` |
 | `GET /api/analysis/vdot-trend` | 跑力趋势 | `startDate`, `endDate`, `groupBy` |
+| `GET /api/insight` | 训练洞察 (动态: VDOT趋势/负荷/解耦/跑姿/配速-HR/类别/气温/路线/周期化) | `days` (30/90/180) 或 `startDate`+`endDate` |
+| `POST /api/insight/coach` | 全局 AI 综合教练/追问 (SSE 流式, 含模型回退头) | body: `{model?, question?, history?, days?}` |
+| `GET /api/activities/[id]/insight` | 活动详情深挖 (分段角色/漂移/区间/解耦/同路线对比) | - |
 | `POST /api/activities/[id]/analysis` | AI 教练分析/追问 (SSE 流式, 含模型回退头) | body: `{model?, question?, history?}` |
 | `GET /api/llm/models` | 可用 LLM 模型列表 (各系列最新 2 版, 已策展) | - |
 | `GET /api/health` | 存活/就绪探针(2026-09-15 新增) | `deep=1` 校验 DB 可读 |
