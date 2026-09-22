@@ -114,9 +114,13 @@ export default function HrZoneMetricsTable({ data, zoneRanges, trendLinkParams }
           title: href ? `查看 ${row.name} 趋势` : undefined,
           cells: {
             zone: (
-              <span className="inline-block rounded px-1.5 py-0.5" style={hrZoneBadgeStyle(row.zone, 14)}>
-                <span className="block leading-tight font-medium">{row.name}</span>
-                <span className="block text-[9px] leading-tight opacity-80">{row.rangeBpm}</span>
+              // 单行: 区间色徽章内 "区间名 区间范围" 横向排布, 不换行
+              <span
+                className="inline-block whitespace-nowrap rounded px-1.5 py-0.5 font-medium"
+                style={hrZoneBadgeStyle(row.zone, 14)}
+              >
+                {row.name}
+                <span className="ml-1 opacity-80">{row.rangeBpm}</span>
               </span>
             ),
             pace: row.avg_pace != null ? formatPace(row.avg_pace, false) : '--',

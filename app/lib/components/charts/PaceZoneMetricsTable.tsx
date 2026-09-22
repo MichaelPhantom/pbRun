@@ -41,9 +41,13 @@ export default function PaceZoneMetricsTable({ data }: PaceZoneMetricsTableProps
         key: row.zone,
         cells: {
           zone: (
-            <span className="inline-block rounded px-1.5 py-0.5" style={hrZoneBadgeStyle(row.zone, 14)}>
-              <span className="block leading-tight font-medium">{HR_ZONE_NAMES[row.zone]}</span>
-              <span className="block text-[9px] leading-tight opacity-80">
+            // 单行: 区间色徽章内 "区间名 配速范围" 横向排布, 不换行
+            <span
+              className="inline-block whitespace-nowrap rounded px-1.5 py-0.5 font-medium"
+              style={hrZoneBadgeStyle(row.zone, 14)}
+            >
+              {HR_ZONE_NAMES[row.zone]}
+              <span className="ml-1 opacity-80">
                 {formatPaceRange(row.pace_min_sec_per_km, row.pace_max_sec_per_km)} /km
               </span>
             </span>
