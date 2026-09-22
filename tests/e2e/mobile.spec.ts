@@ -28,4 +28,29 @@ test.describe('移动端响应式', () => {
     const stats = page.locator('text=/\\d+/').first();
     await expect(stats).toBeVisible();
   });
+
+  test('活动详情分段表在移动端单行不换行', async ({ page }) => {
+    await page.goto('/pbrun/pages/900000001');
+    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(1500);
+
+    const table = page.locator('table').filter({ has: page.locator('thead th', { hasText: '角色' }) });
+    await expect(table).toBeVisible();
+    // 每个数据单元格高度应≈单行 (无换行)
+    const heights = await table.locator('tbody tr:first-child td').evaluateAll((tds) =>
+      tds.map((td) => Math.round((td as HTMLElement).getBoundingClientRect().height)),
+    );
+    for (const h of heights) expect(h).toBeLessThanOrEqual(40);
+    // 外层容器可横向滚动
+    const overflowX = await table.evaluate((t) => getComputedStyle((t.parentElement as HTMLElement)).overflowX);
+    expect(overflowX).toBe('auto');
+  });
+
+  test('洞察页表格在移动端正常渲染', async ({ page }) => {
+    await page.goto('/pbrun/insight?days=180');
+    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(2000);
+    await expect(page.getByRole('heading', { name: '训练类别对比' })).toBeVisible();
+    await expect(page.locator('table').filter({ has: page.locator('thead th', { hasText: '里程占比' }) })).toBeVisible();
+  });
 });

@@ -4,59 +4,42 @@ test.describe('活动列表页', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/pbrun/list');
     await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(1000);
   });
 
-  test('应显示月份列表', async ({ page }) => {
-    // 等待页面加载完成
-    await page.waitForTimeout(1000);
-    // 检查页面主体内容
-    const body = await page.content();
-    expect(body).toMatch(/\d{4}年|\d{4}-\d{2}|月份/);
+  test('应显示月份列表 (含月度汇总)', async ({ page }) => {
+    // 夹具: 2026年9月 / 46.90 公里 / 5 次
+    await expect(page.getByText(/2026年9月/)).toBeVisible();
+    await expect(page.getByText(/46\.90/)).toBeVisible();
   });
 
-  test('点击月份应展开活动列表', async ({ page }) => {
-    await page.waitForTimeout(1000);
-
-    // 尝试找到可点击的月份元素
-    const monthElements = page.locator('button, [role="button"]').first();
-    if (await monthElements.isVisible().catch(() => false)) {
-      await monthElements.click();
-      await page.waitForTimeout(500);
-    }
-
-    // 测试通过如果页面正常响应
-    await expect(page.locator('body')).toBeVisible();
+  test('应展示活动条目 (夹具 5 条)', async ({ page }) => {
+    // 活动行以 button 渲染, 含活动名
+    await expect(page.getByText('两江新区 - 乳酸阈值').first()).toBeVisible();
+    await expect(page.getByText('渝中区 - 长距离跑')).toBeVisible();
+    await expect(page.getByText('九龙坡区 - 恢复')).toBeVisible();
   });
 
   test('应支持搜索过滤功能', async ({ page }) => {
-    // 查找搜索输入框
-    const searchInput = page.locator('input[type="text"]').first();
-
-    // 如果存在搜索框则测试
-    const isVisible = await searchInput.isVisible().catch(() => false);
-    if (isVisible) {
-      await searchInput.fill('run');
-      await page.waitForTimeout(500);
-    }
-
-    // 测试通过
-    expect(true).toBe(true);
+    const searchInput = page.getByPlaceholder('搜索');
+    await expect(searchInput).toBeVisible();
+    await searchInput.fill('渝中区');
+    await page.waitForTimeout(400);
+    // 过滤后仅剩匹配项
+    await expect(page.getByText('渝中区 - 长距离跑')).toBeVisible();
+    await expect(page.getByText('两江新区 - 乳酸阈值')).toHaveCount(0);
+    // 清空恢复
+    await searchInput.fill('');
+    await page.waitForTimeout(300);
+    await expect(page.getByText('两江新区 - 乳酸阈值').first()).toBeVisible();
   });
 
   test('点击活动应跳转到详情页', async ({ page }) => {
-    await page.waitForTimeout(1000);
+    await page.getByText('两江新区 - 乳酸阈值').first().click();
+    await expect(page).toHaveURL(/\/pages\/\d+/);
+  });
 
-    // 尝试找到活动链接
-    const activityLinks = page.locator('a[href*="/pages/"]').first();
-    const isVisible = await activityLinks.isVisible().catch(() => false);
-
-    if (isVisible) {
-      await activityLinks.click();
-      // 验证URL变化
-      await expect(page).toHaveURL(/\/pages\/\d+/);
-    } else {
-      // 如果没有活动链接，跳过此测试
-      test.skip();
-    }
+  test('活动类型筛选控件存在', async ({ page }) => {
+    await expect(page.getByText('活动类型筛选')).toBeVisible();
   });
 });

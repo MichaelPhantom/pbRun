@@ -288,53 +288,48 @@ describe('API - /api/activities', () => {
 
 ## 3. E2E UI测试 (Playwright)
 
-### 3.1 配置
+### 3.1 配置与运行
 
-**playwright.config.ts**
+E2E 采用**自包含**方式：Playwright 的 `webServer` 会
+
+1. 生成夹具数据库 `tests/fixtures/activities.db`（`scripts/testing/make-fixture-db.js`，
+   真实 schema + 5 条确定性样本，含同路线活动以触发多张对比表）；
+2. 构建到隔离产物目录 `.next-e2e`（`scripts/testing/e2e-build.sh`，并处理本机 `app/data` 软链）；
+3. 以 `DB_PATH` 指向夹具库、`next start` 起服务（生产产物，非 dev）。
+
+故 CI 无需真实数据库即可运行全部 e2e；本地用 `npm run test:e2e`（默认三浏览器项目，
+CI 只跑 chromium）。
+
+**playwright.config.ts（关键部分）**
 ```typescript
-import { defineConfig, devices } from '@playwright/test';
-
 export default defineConfig({
   testDir: './tests/e2e',
-  fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
-  reporter: 'html',
-  use: {
-    baseURL: 'http://localhost:3000',
-    trace: 'on-first-retry',
-    screenshot: 'only-on-failure',
-  },
+  use: { baseURL: 'http://localhost:3000', trace: 'on-first-retry', screenshot: 'only-on-failure' },
   projects: [
-    {
-      name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
-    },
-    {
-      name: 'firefox',
-      use: { ...devices['Desktop Firefox'] },
-    },
-    {
-      name: 'webkit',
-      use: { ...devices['Desktop Safari'] },
-    },
-    {
-      name: 'Mobile Chrome',
-      use: { ...devices['Pixel 5'] },
-    },
-    {
-      name: 'Mobile Safari',
-      use: { ...devices['iPhone 12'] },
-    },
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+    { name: 'firefox', use: { ...devices['Desktop Firefox'] } },
+    { name: 'Mobile Chrome', use: { ...devices['Pixel 5'] } },
   ],
   webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:3000',
+    command: [
+      '[ -f tests/fixtures/activities.db ] || node scripts/testing/make-fixture-db.js',
+      'bash scripts/testing/e2e-build.sh',
+      'DIST_DIR=.next-e2e DB_PATH="$(pwd)/tests/fixtures/activities.db" next start -p 3000 -H 127.0.0.1',
+    ].join(' && '),
+    url: 'http://localhost:3000/pbrun',
     reuseExistingServer: !process.env.CI,
+    timeout: 180000,
   },
 });
 ```
+
+**覆盖范围**：`navigation`（导航/各页可达 + 内容）、`activity-list`（月份汇总/搜索过滤/跳转）、
+`activity-detail`（概览/分段表/趋势/AI）、`tables`（10 张数据表的结构与内容断言、
+单行不换行、行高亮）、`stats`（概览/周期切换/个人纪录）、`mobile`（移动端单行不换行）。
+夹具数据固定，故断言可精确到具体数值（如 46.90 公里 / 5 次 / 18.6 km）。
 
 ### 3.2 测试用例设计
 

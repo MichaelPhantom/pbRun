@@ -11,12 +11,20 @@ cd "$ROOT"
 
 DIST_DIR="${DIST_DIR:-.next-e2e}"
 DATA_LINK_BAK="$ROOT/app/data.link.bak"
+TSCONFIG_BAK="$ROOT/.tsconfig.e2e.bak"
+
+# next build 会重写 tsconfig.json (展开数组/加 include), 造成无关 git 改动。
+# 构建前备份、构建后还原, 保持工作区干净。
+[ -f "$ROOT/tsconfig.json" ] && cp "$ROOT/tsconfig.json" "$TSCONFIG_BAK"
 
 restore() {
   if [ -e "$DATA_LINK_BAK" ] && [ ! -L "$ROOT/app/data" ]; then
     rmdir "$ROOT/app/data" 2>/dev/null || true
     rm -rf "$ROOT/app/data"
     mv "$DATA_LINK_BAK" "$ROOT/app/data"
+  fi
+  if [ -f "$TSCONFIG_BAK" ]; then
+    mv "$TSCONFIG_BAK" "$ROOT/tsconfig.json"
   fi
 }
 trap restore EXIT

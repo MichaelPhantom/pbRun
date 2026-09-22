@@ -22,20 +22,30 @@ test.describe('页面导航', () => {
   test('应能访问运动分析页面', async ({ page }) => {
     await page.goto('/pbrun/analysis');
     await page.waitForLoadState('networkidle');
-    await expect(page.locator('body')).toBeVisible();
+    await expect(page.getByRole('heading', { name: '当前跑力' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '训练负荷 (Fitness / Freshness)' })).toBeVisible();
   });
 
   test('应能访问运动洞察页面', async ({ page }) => {
     await page.goto('/pbrun/insight');
     await page.waitForLoadState('networkidle');
-    await expect(page.locator('body')).toBeVisible();
-    await expect(page.locator('body')).toContainText(/洞察/);
+    await expect(page.getByRole('heading', { name: '关键洞察' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '训练类别对比' })).toBeVisible();
   });
 
   test('应能访问运动统计页面', async ({ page }) => {
     await page.goto('/pbrun/stats');
     await page.waitForLoadState('networkidle');
-    await expect(page.locator('body')).toBeVisible();
+    await expect(page.getByText('周数据统计')).toBeVisible();
+    await expect(page.getByText('个人纪录')).toBeVisible();
+  });
+
+  test('顶部导航含全部菜单项', async ({ page }) => {
+    await page.goto('/pbrun');
+    const nav = page.locator('nav').first();
+    for (const label of ['记录', '分析', '洞察', '统计', '配速']) {
+      await expect(nav.getByRole('link', { name: label })).toBeVisible();
+    }
   });
 
   test('无效页面应显示404或重定向', async ({ page }) => {

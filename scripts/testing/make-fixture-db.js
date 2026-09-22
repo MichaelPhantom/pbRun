@@ -25,7 +25,8 @@ const db = new DatabaseManager(outPath);
 // 夹具需补齐, 否则详情页 getActivityTrack 报 "no such column: track"。
 db.db.exec('ALTER TABLE activities ADD COLUMN track TEXT');
 
-// 两份样本: 一次有 VDOT/心率的阈值课 + 一次长距离
+// 样本 (5 条): 涵盖阈值/长距离/基础/恢复, 含同路线 (两江新区 x3) 以触发
+// 详情页「同路线对比」表, 并覆盖训练类别/周期化/占比等多张洞察表。
 const samples = [
   {
     activity_id: 900000001,
@@ -84,6 +85,74 @@ const samples = [
     training_load: 150,
     total_training_effect: 4.2,
     time_in_hr_zone: JSON.stringify([20, 60, 2400, 2600, 1200, 200, 0]),
+  },
+  // 第 3/4 条: 与活动 1 同路线 (两江新区) → 触发详情页「同路线对比」表 (需 >=2 同行)
+  {
+    activity_id: 900000003,
+    name: '两江新区 - 基础训练',
+    activity_type: 'running',
+    sport_type: '跑步',
+    sub_sport_type: '路跑',
+    start_time: '2026-09-15T12:00:00.000Z',
+    start_time_local: '2026-09-15T20:00:00',
+    distance: 7.2,
+    duration: 2600,
+    moving_time: 2580,
+    elapsed_time: 2600,
+    average_pace: 361,
+    average_heart_rate: 148,
+    average_cadence: 180,
+    average_stride_length: 0.92,
+    average_temperature: 25,
+    calories: 470,
+    vdot_value: 41.0,
+    training_load: 55,
+    time_in_hr_zone: JSON.stringify([10, 60, 1400, 600, 400, 100, 0]),
+  },
+  {
+    activity_id: 900000004,
+    name: '两江新区 - 乳酸阈值',
+    activity_type: 'running',
+    sport_type: '跑步',
+    sub_sport_type: '路跑',
+    start_time: '2026-09-10T12:00:00.000Z',
+    start_time_local: '2026-09-10T20:00:00',
+    distance: 7.6,
+    duration: 2700,
+    moving_time: 2680,
+    elapsed_time: 2700,
+    average_pace: 355,
+    average_heart_rate: 162,
+    average_cadence: 182,
+    average_stride_length: 0.94,
+    average_temperature: 27,
+    calories: 500,
+    vdot_value: 41.5,
+    training_load: 62,
+    time_in_hr_zone: JSON.stringify([10, 30, 1100, 700, 700, 160, 0]),
+  },
+  // 第 5 条: 恢复跑 (轻松类), 丰富类别/占比
+  {
+    activity_id: 900000005,
+    name: '九龙坡区 - 恢复',
+    activity_type: 'running',
+    sport_type: '跑步',
+    sub_sport_type: '路跑',
+    start_time: '2026-09-08T12:00:00.000Z',
+    start_time_local: '2026-09-08T20:00:00',
+    distance: 5.5,
+    duration: 2100,
+    moving_time: 2080,
+    elapsed_time: 2100,
+    average_pace: 382,
+    average_heart_rate: 132,
+    average_cadence: 176,
+    average_stride_length: 0.9,
+    average_temperature: 23,
+    calories: 340,
+    vdot_value: null,
+    training_load: 38,
+    time_in_hr_zone: JSON.stringify([100, 900, 800, 300, 0, 0, 0]),
   },
 ];
 

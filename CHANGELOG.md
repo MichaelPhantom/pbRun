@@ -18,6 +18,10 @@
 - 标准工程文件：`CONTRIBUTING.md`、`SECURITY.md`、`CHANGELOG.md`、`.editorconfig`、
   `.nvmrc`、`.github/dependabot.yml`。
 - e2e 夹具库生成器 `scripts/testing/make-fixture-db.js` 与 CI 的 `e2e` 作业（Playwright）。
+- **e2e 内容断言**：新增 `tests/e2e/tables.spec.ts`（10 张数据表的结构/内容/单行不换行/行高亮）
+  与 `tests/e2e/helpers/tables.ts`；夹具扩充至 5 条样本（含同路线）以触发多张对比表；
+  重写 `activity-list`/`activity-detail`/`stats`/`navigation`/`mobile` 规格为真实内容断言。
+  e2e 用例 19 → 36。
 - `npm run typecheck` / `npm run test:ci` 脚本；`package.json` 增加 `engines.node >= 22`。
 
 ### Changed
