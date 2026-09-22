@@ -3,11 +3,13 @@
  */
 
 import { computeDecouplingPct, decouplingTone, mean, type RecordSample } from './insight';
+import { classifyActivity } from './insight-compare';
 import type {
   ActivityComparison,
   ActivityLapAnalysis,
   ActivityInsightResponse,
   ActivityLap,
+  ComparisonPeer,
 } from './types';
 
 export interface LapInput {
@@ -89,7 +91,8 @@ export function analyzeLaps(laps: LapInput[]): ActivityLapAnalysis {
   };
 }
 
-export interface ComparisonPeer {
+/** 对比输入行 (peer)。category 由名称推断 (缺失则内部补算)。 */
+export interface ComparisonPeerInput {
   activityId: number;
   date: string;
   name: string;
@@ -114,26 +117,22 @@ export function computeComparison(
   basis: ActivityComparison['basis'],
   label: string,
   current: CurrentActivity,
-  peers: ComparisonPeer[],
+  peers: ComparisonPeerInput[],
 ): ActivityComparison | null {
   if (peers.length === 0) return null;
 
   const all = [
-    {
-      activityId: current.activityId,
-      date: current.date,
-      name: '本次',
-      distanceKm: current.distanceKm,
-      paceSecPerKm: current.paceSecPerKm,
-      heartRate: current.heartRate,
-    },
-    ...peers,
-  ].sort((a, b) => (a.date < b.date ? -1 : 1));
+    { activityId: current.activityId, date: current.date, name: '本次', distanceKm: current.distanceKm, paceSecPerKm: current.paceSecPerKm, heartRate: current.heartRate, category: classifyActivity('本次', current.distanceKm) },
+    ...peers.map((p) => ({ ...p, category: classifyActivity(p.name, p.distanceKm) })),
+  ];
 
+  // 配速排名 (含本次), 1=最快
   const paced = all.filter((p) => p.paceSecPerKm != null && p.paceSecPerKm > 0);
   let rank: ActivityComparison['rank'] = null;
-  if (current.paceSecPerKm != null && paced.length > 0) {
+  let bestActivityId: number | null = null;
+  if (paced.length > 0) {
     const ordered = [...paced].sort((a, b) => a.paceSecPerKm! - b.paceSecPerKm!);
+    bestActivityId = ordered[0].activityId;
     const idx = ordered.findIndex((p) => p.activityId === current.activityId);
     if (idx >= 0) rank = { byPace: idx + 1, total: ordered.length };
   }
@@ -143,14 +142,60 @@ export function computeComparison(
   const peersPaceMean = mean(peersPace);
   const peersHrMean = mean(peersHr);
 
+  // 组均/组最佳 (含本次)
+  const allPace = paced.map((p) => p.paceSecPerKm!);
+  const groupAvgPaceSecPerKm = mean(allPace);
+  const groupBestPaceSecPerKm = allPace.length ? Math.min(...allPace) : null;
+
+  // 分类对标: 仅取与本次同训练类别的样本, 给出同类排名/同类均值 (更公平的同类比较)
+  const currentCategory = classifyActivity('本次', current.distanceKm);
+  const sameCatPaced = paced.filter((p) => p.category === currentCategory && p.paceSecPerKm! > 0);
+  let sameCategory: ActivityComparison['sameCategory'] = null;
+  if (sameCatPaced.length >= 2) {
+    const ordered = [...sameCatPaced].sort((a, b) => a.paceSecPerKm! - b.paceSecPerKm!);
+    const idx = ordered.findIndex((p) => p.activityId === current.activityId);
+    const avg = mean(sameCatPaced.map((p) => p.paceSecPerKm!));
+    sameCategory = {
+      category: currentCategory,
+      count: sameCatPaced.length,
+      rank: idx >= 0 ? { byPace: idx + 1, total: ordered.length } : null,
+      avgPaceSecPerKm: avg,
+      deltaSecPerKm:
+        current.paceSecPerKm != null && avg != null ? current.paceSecPerKm - avg : null,
+    };
+  }
+
+  // 按日期倒序取最近 8 条, 每条带「相对本次」的配速差 (负=该次比本次快)
+  const recentPeers: ComparisonPeer[] = [...peers]
+    .sort((a, b) => (a.date < b.date ? 1 : -1))
+    .slice(0, 8)
+    .map((p) => ({
+      activityId: p.activityId,
+      date: p.date,
+      name: p.name,
+      category: classifyActivity(p.name, p.distanceKm),
+      distanceKm: p.distanceKm,
+      paceSecPerKm: p.paceSecPerKm,
+      heartRate: p.heartRate,
+      paceDeltaSecPerKm:
+        current.paceSecPerKm != null && p.paceSecPerKm != null
+          ? p.paceSecPerKm - current.paceSecPerKm
+          : null,
+    }));
+
   return {
     basis,
     label,
-    peers: peers.slice(-8),
+    peers: recentPeers,
     rank,
     paceDeltaSecPerKm:
       current.paceSecPerKm != null && peersPaceMean != null ? current.paceSecPerKm - peersPaceMean : null,
     hrDeltaBpm: current.heartRate != null && peersHrMean != null ? current.heartRate - peersHrMean : null,
+    groupAvgPaceSecPerKm,
+    groupBestPaceSecPerKm,
+    bestActivityId,
+    currentCategory,
+    sameCategory,
   };
 }
 

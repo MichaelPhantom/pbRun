@@ -552,21 +552,39 @@ export interface ActivityLapAnalysis {
   bestLapIndex: number | null;
 }
 
+/** 同路线 (或同类型) 历史对比中的同行活动。 */
+export interface ComparisonPeer {
+  activityId: number;
+  date: string;                                   // YYYY-MM-DD
+  name: string;
+  category: TrainingCategory;                      // 训练类别 (由名称推断)
+  distanceKm: number;
+  paceSecPerKm: number | null;
+  heartRate: number | null;
+  paceDeltaSecPerKm: number | null;                // 该行 vs 本次 (负=比本次快)
+}
+
 /** 同路线 (或同类型) 历史对比。 */
 export interface ActivityComparison {
   basis: 'route' | 'category' | 'distance';
   label: string;
-  peers: {
-    activityId: number;
-    date: string;
-    name: string;
-    distanceKm: number;
-    paceSecPerKm: number | null;
-    heartRate: number | null;
-  }[];
+  peers: ComparisonPeer[];
   rank: { byPace: number; total: number } | null; // 本次在该组中的配速排名 (1=最快)
   paceDeltaSecPerKm: number | null;               // 本次 vs 组均配速 (负=更快)
   hrDeltaBpm: number | null;                      // 本次 vs 组均心率
+  groupAvgPaceSecPerKm: number | null;            // 组均配速 (含本次)
+  groupBestPaceSecPerKm: number | null;           // 组内最快配速
+  bestActivityId: number | null;                  // 组内最快配速对应的活动 (含本次)
+  /** 分类对标: 本次训练类别 (由名称推断)。 */
+  currentCategory: TrainingCategory;
+  /** 分类对标: 同类别内的配速排名与组均 (更公平的同类比较); 同类样本<2 时为 null。 */
+  sameCategory: {
+    category: TrainingCategory;
+    count: number;                                // 含本次的同类次数
+    rank: { byPace: number; total: number } | null;
+    avgPaceSecPerKm: number | null;
+    deltaSecPerKm: number | null;                 // 本次 vs 同类均配速 (负=更快)
+  } | null;
 }
 
 /** 活动详情深挖 API 响应。 */

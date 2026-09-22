@@ -3,6 +3,7 @@
 import type { PaceZoneStat } from '@/app/lib/types';
 import { formatPace } from '@/app/lib/format';
 import { hrZoneBadgeStyle, HR_ZONE_NAMES } from '@/app/lib/hr-zones';
+import { DataTable, type DataTableColumn } from '@/app/components/ui/DataTable';
 
 interface PaceZoneMetricsTableProps {
   data: PaceZoneStat[];
@@ -25,48 +26,33 @@ export default function PaceZoneMetricsTable({ data }: PaceZoneMetricsTableProps
     );
   }
 
+  const columns: DataTableColumn[] = [
+    { key: 'zone', label: '配速区间', className: 'min-w-[9rem]' },
+    { key: 'hr', label: '心率', unit: 'bpm' },
+    { key: 'cadence', label: '步频', unit: 'spm' },
+    { key: 'stride', label: '步幅', unit: 'm' },
+  ];
+
   return (
-    <div className="overflow-x-auto rounded-xl border border-border bg-surface">
-      <table className="tnum w-full min-w-[260px] text-sm border-collapse">
-        <caption className="sr-only">各配速区间的心率、步频与步幅统计</caption>
-        <thead>
-          <tr className="border-b border-border">
-            <th scope="col" className="w-36 min-w-[9rem] px-3 py-2.5 text-left font-medium text-fg-secondary">配速区间</th>
-            <th scope="col" className="px-3 py-2.5 text-center font-medium text-fg-secondary">心率</th>
-            <th scope="col" className="px-3 py-2.5 text-center font-medium text-fg-secondary">步频</th>
-            <th scope="col" className="px-3 py-2.5 text-right font-medium text-fg-secondary">步幅</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.zone} className="transition-colors hover:bg-surface-3">
-              <td className="w-36 min-w-[9rem] px-3 py-2">
-                <span className="block w-full rounded px-1.5 py-0.5" style={hrZoneBadgeStyle(row.zone, 14)}>
-                  <span className="block leading-tight font-medium">{HR_ZONE_NAMES[row.zone]}</span>
-                  <span className="block text-xs leading-tight opacity-80">
-                    {formatPaceRange(row.pace_min_sec_per_km, row.pace_max_sec_per_km)}
-                    <span className="text-[11px]"> /km</span>
-                  </span>
-                </span>
-              </td>
-              <td className="px-3 py-2 text-center text-fg-secondary">
-                {row.avg_heart_rate != null ? Math.round(row.avg_heart_rate) : '--'}
-              </td>
-              <td className="px-3 py-2 text-center text-fg-secondary">
-                {row.avg_cadence != null ? row.avg_cadence.toFixed(0) : '--'}
-              </td>
-              <td className="px-3 py-2 text-right">
-                {row.avg_stride_length != null ? (
-                  <>
-                    {row.avg_stride_length.toFixed(2)}
-                    <span className="ml-0.5 text-xs text-fg-muted">m</span>
-                  </>
-                ) : '--'}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <DataTable
+      caption="各配速区间的心率、步频与步幅统计"
+      columns={columns}
+      rows={rows.map((row) => ({
+        key: row.zone,
+        cells: {
+          zone: (
+            <span className="inline-block rounded px-1.5 py-0.5" style={hrZoneBadgeStyle(row.zone, 14)}>
+              <span className="block leading-tight font-medium">{HR_ZONE_NAMES[row.zone]}</span>
+              <span className="block text-[9px] leading-tight opacity-80">
+                {formatPaceRange(row.pace_min_sec_per_km, row.pace_max_sec_per_km)} /km
+              </span>
+            </span>
+          ),
+          hr: row.avg_heart_rate != null ? Math.round(row.avg_heart_rate) : '--',
+          cadence: row.avg_cadence != null ? row.avg_cadence.toFixed(0) : '--',
+          stride: row.avg_stride_length != null ? row.avg_stride_length.toFixed(2) : '--',
+        },
+      }))}
+    />
   );
 }

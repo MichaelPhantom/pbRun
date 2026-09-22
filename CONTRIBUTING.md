@@ -47,6 +47,10 @@ cp .env.example .env
 - **单位约定**：`activities.distance` 为公里；`activity_laps.distance` 为米；聚合接口距离返回米。
 - **单一真源**：VDOT 模型常量在 `app/lib/vdot-constants.json`（TS 与同步脚本共用，勿各自硬编码）。
 - **缓存**：洞察/统计类分析**不写缓存表**，请求时实时计算（见 `docs/insight.md`）。
+- **表格统一**：所有数据表一律用 `app/components/ui/DataTable`（对齐「分段数据」表风格：居中、紧凑、
+  单位副标题、`whitespace-nowrap` 保证单行不换行、`overflow-x-auto` 兼容移动端），勿手写 `<table>`；
+  列定义见 `DataTableColumn`，行定义见 `DataTableRow`。
+- **UI 原语**：卡片/数字/徽章/分段控件统一用 `app/components/ui/{SectionCard,StatCard,Badge,Segmented}`。
 
 ## 提交规范
 

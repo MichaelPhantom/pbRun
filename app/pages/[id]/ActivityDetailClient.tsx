@@ -6,6 +6,7 @@ import { formatPace, formatDuration, formatDateTime, formatListDateTime } from '
 import type { Activity, ActivityLap, ActivityRecord, ActivityTrack, ActivityInsightResponse } from '@/app/lib/types';
 import { SectionCard } from '@/app/components/ui/SectionCard';
 import { Badge } from '@/app/components/ui/Badge';
+import { DataTable } from '@/app/components/ui/DataTable';
 import ActivityTrendCharts from '@/app/lib/components/charts/ActivityTrendCharts';
 import { ActivityInsightPanel, ROLE_LABEL, ROLE_TONE } from '@/app/lib/components/charts/ActivityInsightPanel';
 import { AiAnalysis } from '@/app/lib/components/ai/AiAnalysis';
@@ -160,58 +161,43 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
         {laps.length === 0 ? (
           <div className="py-8 text-center text-sm text-fg-muted">暂无分段数据</div>
         ) : (
-          <div className="-mx-1 overflow-x-auto sm:mx-0">
-            <table className="w-full border-collapse text-center text-[11px] sm:text-sm">
-              <caption className="sr-only">每公里分段数据</caption>
-              <thead>
-                <tr className="border-b border-border">
-                  {[
-                    { t: '#', s: 'w-6' },
-                    { t: '角色' },
-                    { t: '距离', u: 'km' },
-                    { t: '配速', u: 'min/km' },
-                    { t: '时长', u: 'min' },
-                    { t: '心率', u: 'bpm' },
-                    { t: '步频', u: 'spm' },
-                    { t: '爬升', u: 'm' },
-                  ].map((h) => (
-                    <th key={h.t} scope="col" className={`whitespace-nowrap px-1.5 py-2 font-medium text-fg-secondary sm:px-2 ${h.s ?? ''}`}>
-                      {h.t}
-                      <span className="block text-center text-[9px] font-normal text-fg-muted">{h.u ?? '\u00A0'}</span>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {laps.map((lap) => {
-                  const isBest = lap.lap_index === bestLapIndex;
-                  const role = roleByLap.get(lap.lap_index);
-                  return (
-                    <tr key={lap.id} className={`border-b border-border/50 transition-colors hover:bg-surface-2 ${isBest ? 'bg-[var(--good-soft)]' : ''}`}>
-                      <td className="w-6 px-1 py-1.5 text-center font-medium tnum text-fg">{lap.lap_index}</td>
-                      <td className="whitespace-nowrap px-1 py-1.5 text-center sm:px-2">
-                        {role ? (
-                          <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium leading-none sm:text-[11px] ${ROLE_CELL_CLASS[ROLE_TONE[role]]}`}>
-                            {ROLE_LABEL[role]}
-                          </span>
-                        ) : (
-                          <span className="text-fg-muted">--</span>
-                        )}
-                      </td>
-                      <td className="tnum whitespace-nowrap px-1.5 py-1.5 text-center sm:px-2">{((lap.distance ?? 0) / 1000).toFixed(2)}</td>
-                      <td className={`tnum whitespace-nowrap px-1.5 py-1.5 text-center sm:px-2 ${isBest ? 'font-semibold text-[var(--good)]' : 'text-fg-secondary'}`}>
-                        {formatPace(lap.average_pace, false)}
-                      </td>
-                      <td className="tnum whitespace-nowrap px-1.5 py-1.5 text-center text-fg-secondary sm:px-2">{formatDuration(lap.duration)}</td>
-                      <td className="tnum whitespace-nowrap px-1.5 py-1.5 text-center sm:px-2">{lap.average_heart_rate != null ? Math.round(lap.average_heart_rate) : '--'}</td>
-                      <td className="tnum whitespace-nowrap px-1.5 py-1.5 text-center sm:px-2">{lap.average_cadence != null ? Math.round(lap.average_cadence) : '--'}</td>
-                      <td className="tnum whitespace-nowrap px-1.5 py-1.5 text-center sm:px-2">{lap.total_ascent != null ? Math.round(lap.total_ascent) : '--'}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <DataTable
+            caption="每公里分段数据"
+            columns={[
+              { key: 'i', label: '#', className: 'w-6' },
+              { key: 'role', label: '角色' },
+              { key: 'dist', label: '距离', unit: 'km' },
+              { key: 'pace', label: '配速', unit: 'min/km' },
+              { key: 'dur', label: '时长', unit: 'min' },
+              { key: 'hr', label: '心率', unit: 'bpm' },
+              { key: 'cad', label: '步频', unit: 'spm' },
+              { key: 'asc', label: '爬升', unit: 'm' },
+            ]}
+            rows={laps.map((lap) => {
+              const isBest = lap.lap_index === bestLapIndex;
+              const role = roleByLap.get(lap.lap_index);
+              return {
+                key: lap.id,
+                highlight: isBest,
+                cells: {
+                  i: <span className="font-medium text-fg">{lap.lap_index}</span>,
+                  role: role ? (
+                    <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium leading-none sm:text-[11px] ${ROLE_CELL_CLASS[ROLE_TONE[role]]}`}>
+                      {ROLE_LABEL[role]}
+                    </span>
+                  ) : (
+                    <span className="text-fg-muted">--</span>
+                  ),
+                  dist: ((lap.distance ?? 0) / 1000).toFixed(2),
+                  pace: <span className={isBest ? 'font-semibold text-[var(--good)]' : 'text-fg-secondary'}>{formatPace(lap.average_pace, false)}</span>,
+                  dur: formatDuration(lap.duration),
+                  hr: lap.average_heart_rate != null ? Math.round(lap.average_heart_rate) : '--',
+                  cad: lap.average_cadence != null ? Math.round(lap.average_cadence) : '--',
+                  asc: lap.total_ascent != null ? Math.round(lap.total_ascent) : '--',
+                },
+              };
+            })}
+          />
         )}
       </SectionCard>
 

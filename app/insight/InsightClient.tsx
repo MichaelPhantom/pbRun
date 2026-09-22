@@ -4,6 +4,7 @@ import { useMemo } from 'react';
 import { SectionCard } from '@/app/components/ui/SectionCard';
 import { StatCard } from '@/app/components/ui/StatCard';
 import { Badge } from '@/app/components/ui/Badge';
+import { DataTable } from '@/app/components/ui/DataTable';
 import { Segmented } from '@/app/components/ui/Segmented';
 import { InsightTrendChart } from '@/app/lib/components/charts/InsightTrendChart';
 import { InsightBarChart } from '@/app/lib/components/charts/InsightBarChart';
@@ -319,37 +320,36 @@ export default function InsightClient({
             ]}
             ariaLabel="周期化周跑量与 TSB 趋势图"
           />
-          <div className="mt-4 overflow-x-auto rounded-xl border border-border bg-surface">
-            <table className="w-full text-xs">
-              <caption className="sr-only">最近周期周维度训练负荷</caption>
-              <thead className="bg-surface-2 text-fg-secondary">
-                <tr>
-                  <th scope="col" className="px-3 py-2 text-left font-medium">周</th>
-                  <th scope="col" className="px-3 py-2 text-right font-medium">跑量</th>
-                  <th scope="col" className="px-3 py-2 text-right font-medium">负荷</th>
-                  <th scope="col" className="px-3 py-2 text-right font-medium">次数</th>
-                  <th scope="col" className="px-3 py-2 text-right font-medium">CTL</th>
-                  <th scope="col" className="px-3 py-2 text-right font-medium">ATL</th>
-                  <th scope="col" className="px-3 py-2 text-right font-medium">TSB</th>
-                </tr>
-              </thead>
-              <tbody>
-                {periodization.weeks.slice(-8).reverse().map((w) => (
-                  <tr key={w.week} className="border-t border-border">
-                    <td className="tnum px-3 py-2 text-fg-secondary">{w.week}</td>
-                    <td className="tnum px-3 py-2 text-right">{w.km.toFixed(1)} km</td>
-                    <td className="tnum px-3 py-2 text-right">{w.tl}</td>
-                    <td className="tnum px-3 py-2 text-right">{w.activities}</td>
-                    <td className="tnum px-3 py-2 text-right">{w.ctl.toFixed(0)}</td>
-                    <td className="tnum px-3 py-2 text-right">{w.atl.toFixed(0)}</td>
-                    <td className={`tnum px-3 py-2 text-right font-medium ${w.tsb >= 0 ? 'text-[var(--good)]' : 'text-[var(--warn)]'}`}>
-                      {w.tsb >= 0 ? '+' : ''}{w.tsb.toFixed(0)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable
+            className="mt-4"
+            caption="最近周期周维度训练负荷"
+            columns={[
+              { key: 'week', label: '周' },
+              { key: 'km', label: '跑量', unit: 'km' },
+              { key: 'tl', label: '负荷' },
+              { key: 'n', label: '次数' },
+              { key: 'ctl', label: 'CTL' },
+              { key: 'atl', label: 'ATL' },
+              { key: 'tsb', label: 'TSB' },
+            ]}
+            rows={periodization.weeks.slice(-8).reverse().map((w) => ({
+              key: w.week,
+              cells: {
+                week: w.week,
+                km: w.km.toFixed(1),
+                tl: w.tl,
+                n: w.activities,
+                ctl: w.ctl.toFixed(0),
+                atl: w.atl.toFixed(0),
+                tsb: (
+                  <span className={`font-medium ${w.tsb >= 0 ? 'text-[var(--good)]' : 'text-[var(--warn)]'}`}>
+                    {w.tsb >= 0 ? '+' : ''}
+                    {w.tsb.toFixed(0)}
+                  </span>
+                ),
+              },
+            }))}
+          />
         </SectionCard>
       )}
 
@@ -362,37 +362,30 @@ export default function InsightClient({
           <div className="mb-4">
             <InsightBarChart data={categoryBars} ariaLabel="训练类别活动数分布" height={180} valueSuffix=" 次" />
           </div>
-          <div className="overflow-x-auto rounded-xl border border-border bg-surface">
-            <table className="w-full text-xs">
-              <caption className="sr-only">训练类别对比明细</caption>
-              <thead className="bg-surface-2 text-fg-secondary">
-                <tr>
-                  <th scope="col" className="px-3 py-2 text-left font-medium">类别</th>
-                  <th scope="col" className="px-3 py-2 text-right font-medium">次数</th>
-                  <th scope="col" className="px-3 py-2 text-right font-medium">总里程</th>
-                  <th scope="col" className="px-3 py-2 text-right font-medium">均配速</th>
-                  <th scope="col" className="px-3 py-2 text-right font-medium">均心率</th>
-                  <th scope="col" className="px-3 py-2 text-right font-medium">均VDOT</th>
-                  <th scope="col" className="px-3 py-2 text-right font-medium">效率</th>
-                </tr>
-              </thead>
-              <tbody>
-                {categories.stats.map((c) => (
-                  <tr key={c.category} className="border-t border-border">
-                    <td className="px-3 py-2 font-medium text-fg">{c.label}</td>
-                    <td className="tnum px-3 py-2 text-right">{c.count}</td>
-                    <td className="tnum px-3 py-2 text-right">{c.totalKm.toFixed(1)} km</td>
-                    <td className="tnum px-3 py-2 text-right">{fmtPace(c.avgPaceSecPerKm)}/km</td>
-                    <td className="tnum px-3 py-2 text-right">{c.avgHeartRate != null ? c.avgHeartRate.toFixed(0) : '--'}</td>
-                    <td className="tnum px-3 py-2 text-right">{c.avgVdot != null ? c.avgVdot.toFixed(1) : '--'}</td>
-                    <td className="tnum px-3 py-2 text-right text-fg-secondary">
-                      {c.efficiency != null ? c.efficiency.toFixed(4) : '--'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable
+            caption="训练类别对比明细"
+            columns={[
+              { key: 'label', label: '类别' },
+              { key: 'count', label: '次数' },
+              { key: 'km', label: '总里程', unit: 'km' },
+              { key: 'pace', label: '均配速', unit: 'min/km' },
+              { key: 'hr', label: '均心率', unit: 'bpm' },
+              { key: 'vdot', label: '均VDOT' },
+              { key: 'eff', label: '效率', unit: 'm/s·bpm⁻¹' },
+            ]}
+            rows={categories.stats.map((c) => ({
+              key: c.category,
+              cells: {
+                label: <span className="font-medium text-fg">{c.label}</span>,
+                count: c.count,
+                km: c.totalKm.toFixed(1),
+                pace: fmtPace(c.avgPaceSecPerKm),
+                hr: c.avgHeartRate != null ? c.avgHeartRate.toFixed(0) : '--',
+                vdot: c.avgVdot != null ? c.avgVdot.toFixed(1) : '--',
+                eff: c.efficiency != null ? c.efficiency.toFixed(4) : '--',
+              },
+            }))}
+          />
         </SectionCard>
       )}
 
@@ -486,33 +479,27 @@ export default function InsightClient({
               ariaLabel="有氧解耦趋势图"
               height={200}
             />
-            <div className="mt-4 overflow-x-auto rounded-xl border border-border bg-surface">
-              <table className="w-full text-xs">
-                <caption className="sr-only">长跑有氧解耦明细</caption>
-                <thead className="bg-surface-2 text-fg-secondary">
-                  <tr>
-                    <th scope="col" className="px-3 py-2 text-left font-medium">日期</th>
-                    <th scope="col" className="px-3 py-2 text-right font-medium">距离</th>
-                    <th scope="col" className="px-3 py-2 text-right font-medium">配速</th>
-                    <th scope="col" className="px-3 py-2 text-right font-medium">解耦</th>
-                    <th scope="col" className="px-3 py-2 text-right font-medium">评价</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {decoupling.points.slice(-8).reverse().map((p) => (
-                    <tr key={p.activityId} className="border-t border-border">
-                      <td className="tnum px-3 py-2 text-fg-secondary">{p.date}</td>
-                      <td className="tnum px-3 py-2 text-right">{(p.distanceMeters / 1000).toFixed(2)} km</td>
-                      <td className="tnum px-3 py-2 text-right">{fmtPace(p.paceSecPerKm)}/km</td>
-                      <td className="tnum px-3 py-2 text-right font-medium">{p.decouplingPct.toFixed(1)}%</td>
-                      <td className="px-3 py-2 text-right">
-                        <Badge variant={DECOUPLING_TONE[p.tone]}>{DECOUPLING_LABEL[p.tone]}</Badge>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <DataTable
+              className="mt-4"
+              caption="长跑有氧解耦明细"
+              columns={[
+                { key: 'date', label: '日期' },
+                { key: 'dist', label: '距离', unit: 'km' },
+                { key: 'pace', label: '配速', unit: 'min/km' },
+                { key: 'dc', label: '解耦', unit: '%' },
+                { key: 'tone', label: '评价' },
+              ]}
+              rows={decoupling.points.slice(-8).reverse().map((p) => ({
+                key: p.activityId,
+                cells: {
+                  date: p.date,
+                  dist: (p.distanceMeters / 1000).toFixed(2),
+                  pace: fmtPace(p.paceSecPerKm),
+                  dc: <span className="font-medium">{p.decouplingPct.toFixed(1)}</span>,
+                  tone: <Badge variant={DECOUPLING_TONE[p.tone]}>{DECOUPLING_LABEL[p.tone]}</Badge>,
+                },
+              }))}
+            />
           </>
         ) : (
           <div className="py-8 text-center text-sm text-fg-muted">所选区间暂无 ≥10km 的长跑数据</div>
@@ -553,25 +540,20 @@ export default function InsightClient({
               />
               <StatCard value={paceHr.thresholdHr ?? '--'} label="阈值心率" unit="bpm" />
             </div>
-            <div className="overflow-x-auto rounded-xl border border-border bg-surface">
-              <table className="w-full text-xs">
-                <caption className="sr-only">配速对应预测心率</caption>
-                <thead className="bg-surface-2 text-fg-secondary">
-                  <tr>
-                    <th scope="col" className="px-3 py-2 text-left font-medium">配速</th>
-                    <th scope="col" className="px-3 py-2 text-right font-medium">预测心率</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {paceHr.predictions.map((p) => (
-                    <tr key={p.paceSecPerKm} className="border-t border-border">
-                      <td className="tnum px-3 py-2">{fmtPace(p.paceSecPerKm)}/km</td>
-                      <td className="tnum px-3 py-2 text-right font-medium">{p.hr.toFixed(0)} bpm</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <DataTable
+              caption="配速对应预测心率"
+              columns={[
+                { key: 'pace', label: '配速', unit: 'min/km' },
+                { key: 'hr', label: '预测心率', unit: 'bpm' },
+              ]}
+              rows={paceHr.predictions.map((p) => ({
+                key: p.paceSecPerKm,
+                cells: {
+                  pace: fmtPace(p.paceSecPerKm),
+                  hr: <span className="font-medium">{p.hr.toFixed(0)}</span>,
+                },
+              }))}
+            />
             <p className="mt-2 text-[11px] text-fg-muted">
               回归式：HR = {paceHr.intercept.toFixed(0)} {paceHr.slope >= 0 ? '+' : '−'}{' '}
               {Math.abs(paceHr.slope).toFixed(1)} × 配速(分/公里)

@@ -79,6 +79,68 @@ describe('computeComparison', () => {
     const r = computeComparison('route', 'x', slow, peers)!;
     expect(r.paceDeltaSecPerKm!).toBeGreaterThan(0);
   });
+
+  test('组均/组最佳 + 最佳活动 id', () => {
+    const r = computeComparison('route', 'x', current, peers)!;
+    // 组 = [340, 355, 350] → 均 348.33, 最佳 340(本次)
+    expect(r.groupAvgPaceSecPerKm).toBeCloseTo(348.33, 1);
+    expect(r.groupBestPaceSecPerKm).toBe(340);
+    expect(r.bestActivityId).toBe(99);
+  });
+
+  test('peers 按日期倒序且带类别与相对本次差值', () => {
+    const named = [
+      { activityId: 1, date: '2026-07-01', name: '两江新区 - 乳酸阈值', distanceKm: 8, paceSecPerKm: 355, heartRate: 175 },
+      { activityId: 2, date: '2026-08-01', name: '两江新区 - 基础训练', distanceKm: 8, paceSecPerKm: 350, heartRate: 172 },
+    ];
+    const r = computeComparison('route', 'x', current, named)!;
+    // 倒序: 8/01 (id2) 在前
+    expect(r.peers[0].activityId).toBe(2);
+    expect(r.peers[0].category).toBe('easy');
+    expect(r.peers[1].category).toBe('threshold');
+    // 相对本次 (340): peer 350 → +10 (比本次慢)
+    expect(r.peers[0].paceDeltaSecPerKm).toBeCloseTo(10, 1);
+    // peer 355 → +15
+    expect(r.peers[1].paceDeltaSecPerKm).toBeCloseTo(15, 1);
+  });
+
+  test('分类对标: 同类排名与同类均值', () => {
+    // current 无名称 → category 'other' (distance 8 < 15)。构造同类 peers。
+    const cur = { ...current, distanceKm: 8, paceSecPerKm: 340 };
+    const sameCat = [
+      { activityId: 1, date: '2026-07-01', name: 'X - 其他跑', distanceKm: 8, paceSecPerKm: 355, heartRate: 170 },
+      { activityId: 2, date: '2026-08-01', name: 'Y - 其他跑', distanceKm: 8, paceSecPerKm: 330, heartRate: 170 },
+      { activityId: 3, date: '2026-08-05', name: '两江新区 - 乳酸阈值', distanceKm: 8, paceSecPerKm: 360, heartRate: 170 },
+    ];
+    const r = computeComparison('route', 'x', cur, sameCat)!;
+    expect(r.currentCategory).toBeDefined();
+    // 同类 (类别相同) 样本 >= 2 → 非空
+    expect(r.sameCategory).not.toBeNull();
+    expect(r.sameCategory!.count).toBeGreaterThanOrEqual(2);
+    expect(r.sameCategory!.avgPaceSecPerKm).not.toBeNull();
+  });
+
+  test('同类样本不足时 sameCategory 为 null', () => {
+    const cur = { ...current, paceSecPerKm: 340 };
+    const mixed = [
+      { activityId: 1, date: '2026-07-01', name: '两江新区 - 乳酸阈值', distanceKm: 8, paceSecPerKm: 355, heartRate: 175 },
+    ];
+    const r = computeComparison('route', 'x', cur, mixed)!;
+    expect(r.sameCategory).toBeNull();
+  });
+
+  test('peers 最多 8 条', () => {
+    const many = Array.from({ length: 12 }, (_, i) => ({
+      activityId: i + 1,
+      date: `2026-0${(i % 9) + 1}-01`,
+      name: 'X - 基础训练',
+      distanceKm: 8,
+      paceSecPerKm: 350 + i,
+      heartRate: 150,
+    }));
+    const r = computeComparison('route', 'x', current, many)!;
+    expect(r.peers.length).toBe(8);
+  });
 });
 
 describe('hrZoneBreakdown', () => {

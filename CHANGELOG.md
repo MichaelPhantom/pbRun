@@ -21,6 +21,11 @@
 - `npm run typecheck` / `npm run test:ci` 脚本；`package.json` 增加 `engines.node >= 22`。
 
 ### Changed
+- **全站表格统一**：新增 `app/components/ui/DataTable`（对齐「分段数据」表风格：居中、紧凑、
+  单位副标题、单行不换行、`overflow-x-auto` 移动端兼容），并将全部 10 张数据表迁移至该组件
+  （活动详情分段表/同路线对比、分析页心率/配速区间表、洞察页 4 张表）。
+- **活动详情页**：分段角色并入「分段数据」表，消除与「深度分析」的重复分段表（详见下）。
+- **同路线对比表**：重做为分段表风格，新增「类别」「vs 本次」列与组均/组最佳/同类对标。
 - **VDOT 模型常量统一为单一真源** `app/lib/vdot-constants.json`（TS 展示与 JS 同步脚本共用），
   消除此前两处常量分叉导致的配速区间/入库 VDOT 口径不一致。
 - jest 增加 `coverageThreshold`（全局 statements ≥ 67%、`app/lib/` ≥ 74%），防止覆盖率回归。

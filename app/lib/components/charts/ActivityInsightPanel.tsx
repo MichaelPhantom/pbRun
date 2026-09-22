@@ -3,8 +3,10 @@
 import { SectionCard } from '@/app/components/ui/SectionCard';
 import { StatCard } from '@/app/components/ui/StatCard';
 import { Badge } from '@/app/components/ui/Badge';
+import { DataTable } from '@/app/components/ui/DataTable';
 import { InsightBarChart } from './InsightBarChart';
-import type { ActivityInsightResponse } from '@/app/lib/types';
+import { CATEGORY_LABELS } from '@/app/lib/insight-compare';
+import type { ActivityInsightResponse, TrainingCategory } from '@/app/lib/types';
 
 export const ROLE_LABEL: Record<string, string> = {
   warmup: '热身',
@@ -96,10 +98,10 @@ export function ActivityInsightPanel({ data }: { data: ActivityInsightResponse |
         </div>
       </div>
 
-      {/* 同路线对比 */}
+      {/* 同路线对比 (分类对标) */}
       {comparison && comparison.peers.length > 0 && (
         <div className="mt-4 border-t border-border pt-3">
-          <div className="mb-2 flex flex-wrap items-center gap-2">
+          <div className="mb-3 flex flex-wrap items-center gap-2">
             <p className="text-xs font-medium text-fg-secondary">
               {comparison.basis === 'route' ? '同路线对比' : '同距离对比'}（{comparison.label}）
             </p>
@@ -119,31 +121,76 @@ export function ActivityInsightPanel({ data }: { data: ActivityInsightResponse |
               </Badge>
             )}
           </div>
-          <div className="overflow-x-auto rounded-xl border border-border bg-surface">
-            <table className="w-full text-xs">
-              <caption className="sr-only">历史同行对比</caption>
-              <thead className="bg-surface-2 text-fg-secondary">
-                <tr>
-                  <th scope="col" className="px-3 py-2 text-left font-medium">日期</th>
-                  <th scope="col" className="px-3 py-2 text-left font-medium">名称</th>
-                  <th scope="col" className="px-3 py-2 text-right font-medium">距离</th>
-                  <th scope="col" className="px-3 py-2 text-right font-medium">配速</th>
-                  <th scope="col" className="px-3 py-2 text-right font-medium">心率</th>
-                </tr>
-              </thead>
-              <tbody>
-                {comparison.peers.map((p) => (
-                  <tr key={p.activityId} className="border-t border-border">
-                    <td className="tnum px-3 py-2 text-fg-secondary">{p.date}</td>
-                    <td className="px-3 py-2 text-fg">{p.name}</td>
-                    <td className="tnum px-3 py-2 text-right">{p.distanceKm.toFixed(2)} km</td>
-                    <td className="tnum px-3 py-2 text-right">{fmtPace(p.paceSecPerKm)}/km</td>
-                    <td className="tnum px-3 py-2 text-right">{p.heartRate != null ? Math.round(p.heartRate) : '--'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+
+          {/* 分类对标: 本次 vs 同组 (含组均/组最佳) + 同类公平比较 */}
+          <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <StatCard
+              value={fmtPace(comparison.groupAvgPaceSecPerKm)}
+              unit="/km"
+              label="组均配速"
+              hint={`${comparison.peers.length} 次同行`}
+            />
+            <StatCard value={fmtPace(comparison.groupBestPaceSecPerKm)} unit="/km" label="组内最佳" />
+            <StatCard
+              value={
+                comparison.paceDeltaSecPerKm != null
+                  ? `${comparison.paceDeltaSecPerKm <= 0 ? '' : '+'}${comparison.paceDeltaSecPerKm.toFixed(1)}`
+                  : '--'
+              }
+              unit="s/km"
+              label="本次 vs 组均"
+            />
+            <StatCard
+              value={comparison.sameCategory ? fmtPace(comparison.sameCategory.avgPaceSecPerKm) : '--'}
+              unit="/km"
+              label={`同类均速${comparison.sameCategory ? `（${CATEGORY_LABELS[comparison.sameCategory.category]}）` : ''}`}
+              hint={
+                comparison.sameCategory?.rank
+                  ? `同类第 ${comparison.sameCategory.rank.byPace}/${comparison.sameCategory.rank.total}`
+                  : '同类样本不足'
+              }
+              accent
+            />
           </div>
+
+          <DataTable
+            caption="历史同行对比"
+            columns={[
+              { key: 'date', label: '日期' },
+              { key: 'cat', label: '类别' },
+              { key: 'dist', label: '距离', unit: 'km' },
+              { key: 'pace', label: '配速', unit: 'min/km' },
+              { key: 'hr', label: '心率', unit: 'bpm' },
+              { key: 'delta', label: 'vs 本次', unit: 's/km' },
+            ]}
+            rows={comparison.peers.map((p) => {
+              const isBest = p.activityId === comparison.bestActivityId;
+              const delta = p.paceDeltaSecPerKm;
+              return {
+                key: p.activityId,
+                highlight: isBest,
+                cells: {
+                  date: p.date.slice(5),
+                  cat: (
+                    <span className="inline-block rounded bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium leading-none text-fg-secondary sm:text-[11px]">
+                      {CATEGORY_LABELS[p.category as TrainingCategory]}
+                    </span>
+                  ),
+                  dist: p.distanceKm.toFixed(2),
+                  pace: <span className={isBest ? 'font-semibold text-[var(--good)]' : 'text-fg'}>{fmtPace(p.paceSecPerKm)}</span>,
+                  hr: p.heartRate != null ? Math.round(p.heartRate) : '--',
+                  delta: (
+                    <span className={delta == null ? 'text-fg-muted' : delta < 0 ? 'text-[var(--warn)]' : 'text-[var(--good)]'}>
+                      {delta == null ? '--' : `${delta > 0 ? '+' : ''}${delta.toFixed(1)}`}
+                    </span>
+                  ),
+                },
+              };
+            })}
+          />
+          <p className="mt-1.5 text-[10px] text-fg-muted">
+            「vs 本次」为该次配速相对本次的差值：正=比本次慢，负=比本次快（绿=慢、黄=快）。
+          </p>
         </div>
       )}
     </SectionCard>

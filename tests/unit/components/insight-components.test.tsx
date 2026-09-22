@@ -177,10 +177,24 @@ describe('ActivityInsightPanel', () => {
     comparison: {
       basis: 'route',
       label: '两江新区',
-      peers: [{ activityId: 1, date: '2026-08-24', name: '两江新区 - 乳酸阈值', distanceKm: 7, paceSecPerKm: 345, heartRate: 159 }],
-      rank: { byPace: 1, total: 2 },
+      peers: [
+        { activityId: 1, date: '2026-08-24', name: '两江新区 - 乳酸阈值', category: 'threshold', distanceKm: 7, paceSecPerKm: 345, heartRate: 159, paceDeltaSecPerKm: 5 },
+        { activityId: 2, date: '2026-09-02', name: '两江新区 - 基础训练', category: 'easy', distanceKm: 5.5, paceSecPerKm: 352, heartRate: 140, paceDeltaSecPerKm: 12 },
+      ],
+      rank: { byPace: 1, total: 3 },
       paceDeltaSecPerKm: -5,
       hrDeltaBpm: 4,
+      groupAvgPaceSecPerKm: 340,
+      groupBestPaceSecPerKm: 340,
+      bestActivityId: 99,
+      currentCategory: 'threshold',
+      sameCategory: {
+        category: 'threshold',
+        count: 2,
+        rank: { byPace: 1, total: 2 },
+        avgPaceSecPerKm: 345,
+        deltaSecPerKm: -5,
+      },
     },
     decouplingPct: 12.3,
     hrZoneBreakdown: [{ zone: 4, seconds: 1800, pct: 60 }, { zone: 3, seconds: 1200, pct: 40 }],
@@ -194,6 +208,21 @@ describe('ActivityInsightPanel', () => {
     expect(screen.getByText('有氧解耦（逐秒）')).toBeInTheDocument();
     // 分段角色表已并入「分段数据」表, 面板不再重复渲染
     expect(screen.queryByText('分段角色分析')).toBeNull();
+  });
+
+  test('同路线对比表: 分类对标列 + 组均/组最佳/同类', () => {
+    render(<ActivityInsightPanel data={data} />);
+    // 分类对标 stat
+    expect(screen.getByText('组均配速')).toBeInTheDocument();
+    expect(screen.getByText('组内最佳')).toBeInTheDocument();
+    expect(screen.getByText('本次 vs 组均')).toBeInTheDocument();
+    expect(screen.getByText(/同类均速/)).toBeInTheDocument();
+    expect(screen.getByText(/同类第 1\/2/)).toBeInTheDocument();
+    // 类别标签 (阈值/轻松)
+    expect(screen.getByText('乳酸阈值')).toBeInTheDocument();
+    expect(screen.getByText('轻松/基础')).toBeInTheDocument();
+    // 相对本次差值列存在
+    expect(screen.getByText('vs 本次')).toBeInTheDocument();
   });
 
   test('data 为 null 时静默隐藏 (不渲染 section)', () => {
