@@ -1,7 +1,7 @@
 /**
  * 洞察相关组件渲染测试 (jsdom; mock echarts / fetch / next/navigation)。
  */
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 
 const setOption = jest.fn();
 jest.mock('echarts', () => ({
@@ -186,24 +186,18 @@ describe('ActivityInsightPanel', () => {
     hrZoneBreakdown: [{ zone: 4, seconds: 1800, pct: 60 }, { zone: 3, seconds: 1200, pct: 40 }],
   };
 
-  test('加载后渲染分段/区间/对比', async () => {
-    (global as unknown as { fetch: jest.Mock }).fetch = jest.fn(async () =>
-      new Response(JSON.stringify({ data }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
-    ) as unknown as typeof fetch;
-
-    render(<ActivityInsightPanel activityId={99} />);
-    await waitFor(() => expect(screen.getByText('最快分段')).toBeInTheDocument());
+  test('有数据时渲染主课摘要/区间/对比', () => {
+    render(<ActivityInsightPanel data={data} />);
+    expect(screen.getByText('最快分段')).toBeInTheDocument();
+    expect(screen.getByText('主课段数')).toBeInTheDocument();
     expect(screen.getByText(/同路线对比/)).toBeInTheDocument();
     expect(screen.getByText('有氧解耦（逐秒）')).toBeInTheDocument();
+    // 分段角色表已并入「分段数据」表, 面板不再重复渲染
+    expect(screen.queryByText('分段角色分析')).toBeNull();
   });
 
-  test('请求失败时静默隐藏', async () => {
-    (global as unknown as { fetch: jest.Mock }).fetch = jest.fn(async () =>
-      new Response('err', { status: 500 }),
-    ) as unknown as typeof fetch;
-
-    const { container } = render(<ActivityInsightPanel activityId={99} />);
-    await waitFor(() => expect(container.querySelector('section')).toBeNull());
-    expect(screen.queryByText('深度分析')).toBeNull();
+  test('data 为 null 时静默隐藏 (不渲染 section)', () => {
+    const { container } = render(<ActivityInsightPanel data={null} />);
+    expect(container.querySelector('section')).toBeNull();
   });
 });

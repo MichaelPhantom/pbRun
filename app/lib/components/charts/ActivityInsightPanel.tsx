@@ -1,20 +1,19 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import { SectionCard } from '@/app/components/ui/SectionCard';
 import { StatCard } from '@/app/components/ui/StatCard';
 import { Badge } from '@/app/components/ui/Badge';
 import { InsightBarChart } from './InsightBarChart';
 import type { ActivityInsightResponse } from '@/app/lib/types';
 
-const ROLE_LABEL: Record<string, string> = {
+export const ROLE_LABEL: Record<string, string> = {
   warmup: '热身',
   work: '主课',
   recovery: '恢复',
   cooldown: '冷身',
   steady: '匀速',
 };
-const ROLE_TONE: Record<string, 'neutral' | 'brand' | 'good' | 'warn'> = {
+export const ROLE_TONE: Record<string, 'neutral' | 'brand' | 'good' | 'warn'> = {
   warmup: 'neutral',
   work: 'brand',
   recovery: 'warn',
@@ -30,37 +29,13 @@ function fmtPace(secPerKm: number | null | undefined): string {
 }
 
 /**
- * 活动详情深挖面板 —— 分段角色分析 / 主课漂移 / 心率区间 / 同路线对比。
- * 通过 /api/activities/[id]/insight 懒加载, 失败时静默隐藏。
+ * 活动详情深挖面板 (展示型) —— 主课漂移 / 心率区间 / 同路线对比。
+ * 数据由 ActivityDetailClient 统一 fetch 后传入 (与「分段数据」表共用同一次请求,
+ * 避免重复拉取); 分段角色列已并入上方「分段数据」表, 此处不再重复展示。
+ * 传入 data 为 null 时不渲染 (加载中/失败静默隐藏)。
  */
-export function ActivityInsightPanel({ activityId }: { activityId: number }) {
-  const [data, setData] = useState<ActivityInsightResponse | null>(null);
-  const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
-
-  useEffect(() => {
-    const ac = new AbortController();
-    (async () => {
-      try {
-        const res = await fetch(`/pbrun/api/activities/${activityId}/insight`, { signal: ac.signal });
-        if (!res.ok) throw new Error('fetch failed');
-        const j = (await res.json()) as { data: ActivityInsightResponse };
-        setData(j.data);
-        setState('ready');
-      } catch (e) {
-        if ((e as Error).name !== 'AbortError') setState('error');
-      }
-    })();
-    return () => ac.abort();
-  }, [activityId]);
-
-  if (state === 'loading') {
-    return (
-      <SectionCard title="深度分析" accent>
-        <div className="py-6 text-center text-sm text-fg-muted">加载中…</div>
-      </SectionCard>
-    );
-  }
-  if (state === 'error' || !data) return null;
+export function ActivityInsightPanel({ data }: { data: ActivityInsightResponse | null }) {
+  if (!data) return null;
 
   const { lapAnalysis, comparison, decouplingPct, hrZoneBreakdown } = data;
 
@@ -91,39 +66,8 @@ export function ActivityInsightPanel({ activityId }: { activityId: number }) {
         <StatCard value={lapAnalysis.workHrDrift != null ? `${lapAnalysis.workHrDrift >= 0 ? '+' : ''}${lapAnalysis.workHrDrift.toFixed(0)}` : '--'} unit="bpm" label="主课心率漂移" />
       </div>
 
-      {/* 分段角色 */}
-      <div className="overflow-x-auto rounded-xl border border-border bg-surface">
-        <table className="w-full text-xs">
-          <caption className="sr-only">分段角色分析</caption>
-          <thead className="bg-surface-2 text-fg-secondary">
-            <tr>
-              <th scope="col" className="px-3 py-2 text-left font-medium">#</th>
-              <th scope="col" className="px-3 py-2 text-left font-medium">角色</th>
-              <th scope="col" className="px-3 py-2 text-right font-medium">距离</th>
-              <th scope="col" className="px-3 py-2 text-right font-medium">配速</th>
-              <th scope="col" className="px-3 py-2 text-right font-medium">心率</th>
-              <th scope="col" className="px-3 py-2 text-right font-medium">步频</th>
-            </tr>
-          </thead>
-          <tbody>
-            {lapAnalysis.laps.map((l) => (
-              <tr key={l.lapIndex} className="border-t border-border">
-                <td className="tnum px-3 py-2 text-fg-secondary">{l.lapIndex}</td>
-                <td className="px-3 py-2">
-                  <Badge variant={ROLE_TONE[l.role]}>{ROLE_LABEL[l.role]}</Badge>
-                </td>
-                <td className="tnum px-3 py-2 text-right">{(l.distanceMeters / 1000).toFixed(2)} km</td>
-                <td className="tnum px-3 py-2 text-right">{fmtPace(l.paceSecPerKm)}/km</td>
-                <td className="tnum px-3 py-2 text-right">{l.heartRate != null ? Math.round(l.heartRate) : '--'}</td>
-                <td className="tnum px-3 py-2 text-right">{l.cadence != null ? Math.round(l.cadence) : '--'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {/* 心率区间 + 解耦 */}
-      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+      {/* 心率区间 + 解耦 (分段角色已并入上方「分段数据」表) */}
+      <div className="grid gap-4 sm:grid-cols-2">
         <div>
           <p className="mb-2 text-xs font-medium text-fg-secondary">心率区间占比</p>
           {zoneBars.length > 0 ? (

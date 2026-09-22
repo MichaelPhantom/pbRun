@@ -1,12 +1,13 @@
 'use client';
 
 import dynamic from 'next/dynamic';
+import { useEffect, useState } from 'react';
 import { formatPace, formatDuration, formatDateTime, formatListDateTime } from '@/app/lib/format';
-import type { Activity, ActivityLap, ActivityRecord, ActivityTrack } from '@/app/lib/types';
+import type { Activity, ActivityLap, ActivityRecord, ActivityTrack, ActivityInsightResponse } from '@/app/lib/types';
 import { SectionCard } from '@/app/components/ui/SectionCard';
 import { Badge } from '@/app/components/ui/Badge';
 import ActivityTrendCharts from '@/app/lib/components/charts/ActivityTrendCharts';
-import { ActivityInsightPanel } from '@/app/lib/components/charts/ActivityInsightPanel';
+import { ActivityInsightPanel, ROLE_LABEL, ROLE_TONE } from '@/app/lib/components/charts/ActivityInsightPanel';
 import { AiAnalysis } from '@/app/lib/components/ai/AiAnalysis';
 
 // 路线地图纯 SVG 客户端组件 (无 leaflet 依赖); 仅在客户端渲染避免 SSR window 引用
@@ -22,6 +23,14 @@ interface ProfileSignal {
   vdotTrend: 'up' | 'down' | 'flat' | null;
 }
 
+/** 分段角色单元格配色 (与「深度分析」原角色徽章同源, 紧凑化为表格内联样式)。 */
+const ROLE_CELL_CLASS: Record<string, string> = {
+  neutral: 'bg-surface-2 text-fg-secondary',
+  brand: 'bg-[var(--brand-soft)] text-[var(--brand-strong)]',
+  good: 'bg-[rgba(12,163,12,0.12)] text-[var(--good)]',
+  warn: 'bg-[rgba(250,178,25,0.16)] text-[var(--warn)]',
+};
+
 interface ActivityDetailClientProps {
   activity: Activity;
   laps: ActivityLap[];
@@ -34,6 +43,28 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
   const distanceKm = activity.distance ?? 0;
   const durationSec = activity.moving_time ?? activity.duration ?? 0;
   const durationMinutes = durationSec / 60;
+
+  // 深挖数据 (分段角色/主课漂移/区间/解耦/同路线对比): 详情页统一拉取一次, 供
+  // 「分段数据」表的角色列与「深度分析」面板共用, 避免重复请求。失败时静默降级。
+  const [insight, setInsight] = useState<ActivityInsightResponse | null>(null);
+  useEffect(() => {
+    const ac = new AbortController();
+    (async () => {
+      try {
+        const res = await fetch(`/pbrun/api/activities/${activity.activity_id}/insight`, { signal: ac.signal });
+        if (!res.ok) return;
+        const j = (await res.json()) as { data: ActivityInsightResponse };
+        setInsight(j.data);
+      } catch {
+        /* 忽略: 角色列与深挖面板为渐进增强, 失败不阻断详情页 */
+      }
+    })();
+    return () => ac.abort();
+  }, [activity.activity_id]);
+
+  // 分段角色映射 (lap_index → 角色), 供「分段数据」表展示
+  const roleByLap = new Map<number, ActivityInsightResponse['lapAnalysis']['laps'][number]['role']>();
+  insight?.lapAnalysis.laps.forEach((l) => roleByLap.set(l.lapIndex, l.role));
 
   // 最快分段 (最低 average_pace, 仅有效值)
   let bestLapIndex = -1;
@@ -136,6 +167,7 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
                 <tr className="border-b border-border">
                   {[
                     { t: '#', s: 'w-6' },
+                    { t: '角色' },
                     { t: '距离', u: 'km' },
                     { t: '配速', u: 'min/km' },
                     { t: '时长', u: 'min' },
@@ -145,7 +177,7 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
                   ].map((h) => (
                     <th key={h.t} scope="col" className={`whitespace-nowrap px-1.5 py-2 font-medium text-fg-secondary sm:px-2 ${h.s ?? ''}`}>
                       {h.t}
-                      <span className="block text-center text-[9px] font-normal text-fg-muted">{h.u}</span>
+                      <span className="block text-center text-[9px] font-normal text-fg-muted">{h.u ?? '\u00A0'}</span>
                     </th>
                   ))}
                 </tr>
@@ -153,9 +185,19 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
               <tbody>
                 {laps.map((lap) => {
                   const isBest = lap.lap_index === bestLapIndex;
+                  const role = roleByLap.get(lap.lap_index);
                   return (
                     <tr key={lap.id} className={`border-b border-border/50 transition-colors hover:bg-surface-2 ${isBest ? 'bg-[var(--good-soft)]' : ''}`}>
                       <td className="w-6 px-1 py-1.5 text-center font-medium tnum text-fg">{lap.lap_index}</td>
+                      <td className="whitespace-nowrap px-1 py-1.5 text-center sm:px-2">
+                        {role ? (
+                          <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium leading-none sm:text-[11px] ${ROLE_CELL_CLASS[ROLE_TONE[role]]}`}>
+                            {ROLE_LABEL[role]}
+                          </span>
+                        ) : (
+                          <span className="text-fg-muted">--</span>
+                        )}
+                      </td>
                       <td className="tnum whitespace-nowrap px-1.5 py-1.5 text-center sm:px-2">{((lap.distance ?? 0) / 1000).toFixed(2)}</td>
                       <td className={`tnum whitespace-nowrap px-1.5 py-1.5 text-center sm:px-2 ${isBest ? 'font-semibold text-[var(--good)]' : 'text-fg-secondary'}`}>
                         {formatPace(lap.average_pace, false)}
@@ -173,8 +215,8 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
         )}
       </SectionCard>
 
-      {/* 深度分析: 分段角色 / 主课漂移 / 区间 / 同路线对比 */}
-      <ActivityInsightPanel activityId={activity.activity_id} />
+      {/* 深度分析: 主课漂移 / 区间 / 解耦 / 同路线对比 (角色列已并入上方分段表) */}
+      <ActivityInsightPanel data={insight} />
 
       {/* AI 教练分析 (本机 freellm, 模型可选) */}
       <AiAnalysis activityId={activity.activity_id} activity={activity} profileSignal={profileSignal} />

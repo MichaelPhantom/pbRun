@@ -14,7 +14,6 @@ import os from 'os';
 import path from 'path';
 
 // 用真实 DatabaseManager 建表 (与生产同源)
-// eslint-disable-next-line @typescript-eslint/no-var-requires
 const DatabaseManager = require('../../../scripts/common/db-manager.js');
 
 let tmpDb: string;
