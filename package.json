@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "rm -f .next/dev/lock 2>/dev/null; next dev --webpack",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
     "init:data": "DEBUG_GARMIN_LIST=1 node scripts/garmin/init-garmin-data.js",
