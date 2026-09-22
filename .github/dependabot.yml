@@ -1,0 +1,30 @@
+# Dependabot: 自动依赖更新 PR (npm + GitHub Actions)
+# 分组以减少噪音: 生产依赖 / 开发依赖 / 类型包 + Actions 各一组。
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      prod-deps:
+        dependency-type: production
+      dev-deps:
+        dependency-type: development
+      types:
+        patterns:
+          - "@types/*"
+    ignore:
+      # better-sqlite3 与 fit-file-parser 大版本涉及原生 ABI / 解析契约,
+      # 需人工验证同步链路, 不做自动大版本升级 (见 CONTRIBUTING)。
+      - dependency-name: better-sqlite3
+        update-types: ["version-update:semver-major"]
+      - dependency-name: fit-file-parser
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly

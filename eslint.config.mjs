@@ -11,7 +11,7 @@ const eslintConfig = defineConfig([
     // catch (e) 参数可省略不用于 eslint 目的 (catch binding)。
     // tests/setup.ts 是测试基础设施: 用 require 注入 Node Web Streams polyfill,
     // globalThis 上无对应类型, any 断言是唯一可行写法。
-    files: ["scripts/**/*.js", "tests/**/*.js", "tests/setup.ts"],
+    files: ["scripts/**/*.js", "tests/**/*.js", "tests/**/*.ts", "tests/**/*.tsx", "tests/setup.ts"],
     rules: {
       "@typescript-eslint/no-require-imports": "off",
       "@typescript-eslint/no-unused-vars": ["error", { caughtErrors: "none" }],
@@ -31,6 +31,10 @@ const eslintConfig = defineConfig([
     ".cache/**",
     "app/data/**",
     "node_modules/**",
+    // e2e 隔离产物目录 (playwright.config 使用 DIST_DIR=.next-e2e)
+    ".next-e2e/**",
+    // e2e 夹具库 (二进制 SQLite)
+    "tests/fixtures/*.db",
   ]),
 ]);
 

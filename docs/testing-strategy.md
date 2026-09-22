@@ -5,12 +5,14 @@
 ```
 tests/
 ├── unit/                    # 单元测试 (Jest)
-│   ├── lib/                # 工具函数测试
+│   ├── lib/                # 工具函数 + 数据访问(db*.test.ts) + 洞察计算测试
 │   ├── components/         # React组件测试
 │   ├── api/                # API路由测试
-│   ├── db/                 # 数据库层测试
+│   ├── common/             # scripts/common 测试 (db-manager/utils/vdot 等)
 │   ├── garmin/             # Garmin同步测试
-│   └── strava/             # Strava同步测试
+│   ├── strava/             # Strava同步测试
+│   ├── mcp/                # MCP Server 测试
+│   └── phase1-directory-structure.test.js
 ├── integration/            # 集成测试 (Jest)
 │   ├── api-flows/          # API流程测试
 │   ├── sync-flows/         # 数据同步流程测试
@@ -162,7 +164,7 @@ describe('vdot-pace', () => {
 
 #### lib/db.ts
 ```typescript
-// tests/unit/db/db-queries.test.ts
+// tests/unit/lib/db-queries.test.ts
 describe('Database Queries', () => {
   let mockDb: any;
 

@@ -15,6 +15,7 @@
 
 # next.js
 /.next/
+/.next-e2e/
 /out/
 
 # production
@@ -70,6 +71,15 @@ app/data/*.db
 app/data/*.db-*
 app/data/*.db.bak.*
 app/data/.backups/
+
+# e2e 夹具库 (由 scripts/testing/make-fixture-db.js 生成, CI 按需重建)
+tests/fixtures/*.db
+
+# Playwright 产物
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
 
 # MCP server build output
 mcp-server/dist/
