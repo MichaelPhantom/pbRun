@@ -33,10 +33,21 @@ export default defineConfig({
       use: { ...devices['Pixel 5'] },
     },
   ],
+  // e2e 用「生产构建 + 夹具库」启动, 与真实产物一致且自包含:
+  //  1) 无 DB 时生成夹具库 (scripts/testing/make-fixture-db.js)
+  //  2) 构建到隔离目录 .next-e2e (DIST_DIR), 避免与开发/生产 .next 冲突
+  //  3) DB_PATH 指向夹具库, next start 提供服务
   webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:3000',
+    command: [
+      '[ -f tests/fixtures/activities.db ] || node scripts/testing/make-fixture-db.js',
+      'bash scripts/testing/e2e-build.sh',
+      'DIST_DIR=.next-e2e DB_PATH="$(pwd)/tests/fixtures/activities.db" next start -p 3000 -H 127.0.0.1',
+    ].join(' && '),
+    url: 'http://localhost:3000/pbrun',
     reuseExistingServer: !process.env.CI,
-    timeout: 120000,
+    timeout: 180000,
+    env: {
+      NEXT_TELEMETRY_DISABLED: '1',
+    },
   },
 });

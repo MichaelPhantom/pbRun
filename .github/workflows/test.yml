@@ -43,3 +43,34 @@ jobs:
         env:
           # 构建期占位(真实值在部署环境); 避免缺 env 导致构建失败
           NEXT_TELEMETRY_DISABLED: '1'
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: 安装依赖
+        run: npm ci
+
+      # 生成夹具库 (真实 schema + 样本) → 构建到隔离目录 → next start → Playwright
+      # (playwright webServer 负责启动; CI 无真实 DB, 故用夹具库保证页面可渲染)
+      - name: 安装 Playwright 浏览器(chromium)
+        run: npx playwright install --with-deps chromium
+
+      - name: 端到端测试(Playwright)
+        run: npx playwright test --project=chromium
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+
+      - name: 上传 Playwright 报告(失败时)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
