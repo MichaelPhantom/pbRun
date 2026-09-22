@@ -25,6 +25,13 @@ test.describe('页面导航', () => {
     await expect(page.locator('body')).toBeVisible();
   });
 
+  test('应能访问运动洞察页面', async ({ page }) => {
+    await page.goto('/pbrun/insight');
+    await page.waitForLoadState('networkidle');
+    await expect(page.locator('body')).toBeVisible();
+    await expect(page.locator('body')).toContainText(/洞察/);
+  });
+
   test('应能访问运动统计页面', async ({ page }) => {
     await page.goto('/pbrun/stats');
     await page.waitForLoadState('networkidle');

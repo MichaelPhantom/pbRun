@@ -26,6 +26,7 @@ import {
   TrainingLoadPoint,
   ActivityTrack,
 } from './types';
+import type { VdotSample } from './insight';
 import { getPaceZoneBoundsFromVdot, getPaceZoneCenterFromVdot } from './vdot-pace';
 import { periodKeyOf } from './date-utils';
 import { hrZoneOf, resolveMaxHr } from './hr-zones';
@@ -865,6 +866,259 @@ function toInclusiveEnd(endDate: string, fnName: string): string {
   }
   return endDate + 'T23:59:59.999Z';
 }
+
+// ===========================================================================
+// 洞察 (Insight) 数据读取 —— 仅取原始行, 计算全部在 app/lib/insight.ts
+// ===========================================================================
+
+/** 指定区间内有 VDOT 的样本 (供 VDOT 趋势拟合)。 */
+export function getVdotSamples(startDate: string, endDate: string): VdotSample[] {
+  const db = getDatabase();
+  const end = toInclusiveEnd(endDate, 'getVdotSamples');
+  validateRange(startDate, endDate, 'getVdotSamples');
+  const rows = db.prepare(
+    `SELECT start_time_local AS date, vdot_value AS vdot
+     FROM activities
+     WHERE vdot_value IS NOT NULL AND start_time >= ? AND start_time <= ?
+     ORDER BY start_time_local`
+  ).all(startDate, end) as { date: string; vdot: number }[];
+  return rows
+    .filter((r) => r.date)
+    .map((r) => ({ date: r.date, vdot: r.vdot }));
+}
+
+/** 指定区间内逐日活动负荷 (供 ACWR / 周聚合)。 */
+export function getDailyLoads(startDate: string, endDate: string): TrainingLoadPoint[] {
+  return getTrainingLoads(startDate, endDate);
+}
+
+/** 全区间 (不限日期) 各心率区间累计秒数, 7 元素 (索引 0=Z1)。 */
+export function getHrZoneTotals(startDate: string, endDate: string): number[] {
+  const db = getDatabase();
+  const end = toInclusiveEnd(endDate, 'getHrZoneTotals');
+  validateRange(startDate, endDate, 'getHrZoneTotals');
+  const rows = db.prepare(
+    `SELECT time_in_hr_zone FROM activities
+     WHERE time_in_hr_zone IS NOT NULL AND start_time >= ? AND start_time <= ?`
+  ).all(startDate, end) as { time_in_hr_zone: string }[];
+  const totals = [0, 0, 0, 0, 0, 0, 0];
+  for (const row of rows) {
+    try {
+      const arr = JSON.parse(row.time_in_hr_zone) as number[];
+      for (let i = 0; i < totals.length; i++) totals[i] += arr[i] ?? 0;
+    } catch {
+      // 忽略损坏的 JSON
+    }
+  }
+  return totals;
+}
+
+/** 长跑活动 (供有氧解耦分析)。 */
+export interface LongRunRow {
+  activityId: number;
+  date: string;
+  distanceMeters: number;
+  durationSeconds: number;
+}
+
+/** 指定区间内距离 >= minKm 的活动 (含时长/距离), 供解耦计算。 */
+export function getLongRuns(
+  startDate: string,
+  endDate: string,
+  minKm = 10,
+): LongRunRow[] {
+  const db = getDatabase();
+  const end = toInclusiveEnd(endDate, 'getLongRuns');
+  validateRange(startDate, endDate, 'getLongRuns');
+  const rows = db.prepare(
+    `SELECT activity_id, start_time_local, distance, duration
+     FROM activities
+     WHERE distance >= ? AND duration > 0 AND start_time >= ? AND start_time <= ?
+     ORDER BY start_time_local`
+  ).all(minKm, startDate, end) as {
+    activity_id: number;
+    start_time_local: string;
+    distance: number;
+    duration: number;
+  }[];
+  return rows.map((r) => ({
+    activityId: r.activity_id,
+    date: r.start_time_local,
+    distanceMeters: (r.distance ?? 0) * 1000,
+    durationSeconds: r.duration ?? 0,
+  }));
+}
+
+/** 指定区间内活动的跑姿指标样本 (供跑姿趋势)。 */
+export function getFormSamples(startDate: string, endDate: string): {
+  date: string;
+  cadence: number | null;
+  strideLength: number | null;
+  groundContactMs: number | null;
+  verticalOscillation: number | null;
+  verticalRatio: number | null;
+}[] {
+  const db = getDatabase();
+  const end = toInclusiveEnd(endDate, 'getFormSamples');
+  validateRange(startDate, endDate, 'getFormSamples');
+  const rows = db.prepare(
+    `SELECT start_time_local, average_cadence, average_stride_length,
+            average_ground_contact_time, average_vertical_oscillation, average_vertical_ratio
+     FROM activities
+     WHERE start_time >= ? AND start_time <= ?
+     ORDER BY start_time_local`
+  ).all(startDate, end) as {
+    start_time_local: string;
+    average_cadence: number | null;
+    average_stride_length: number | null;
+    average_ground_contact_time: number | null;
+    average_vertical_oscillation: number | null;
+    average_vertical_ratio: number | null;
+  }[];
+  return rows.map((r) => ({
+    date: r.start_time_local,
+    cadence: r.average_cadence,
+    strideLength: r.average_stride_length,
+    groundContactMs: r.average_ground_contact_time,
+    verticalOscillation: r.average_vertical_oscillation,
+    verticalRatio: r.average_vertical_ratio,
+  }));
+}
+
+/** 指定区间内稳态跑样本 (距离 >= minKm), 供配速-心率回归。 */
+export function getPaceHrSamples(
+  startDate: string,
+  endDate: string,
+  minKm = 8,
+): { paceSecPerKm: number; heartRate: number }[] {
+  const db = getDatabase();
+  const end = toInclusiveEnd(endDate, 'getPaceHrSamples');
+  validateRange(startDate, endDate, 'getPaceHrSamples');
+  const rows = db.prepare(
+    `SELECT distance, duration, average_heart_rate
+     FROM activities
+     WHERE distance >= ? AND duration > 0 AND average_heart_rate > 0
+       AND start_time >= ? AND start_time <= ?
+     ORDER BY start_time_local`
+  ).all(minKm, startDate, end) as {
+    distance: number;
+    duration: number;
+    average_heart_rate: number;
+  }[];
+  return rows
+    .map((r) => {
+      const meters = (r.distance ?? 0) * 1000;
+      return {
+        paceSecPerKm: meters > 0 ? r.duration / (meters / 1000) : 0,
+        heartRate: r.average_heart_rate,
+      };
+    })
+    .filter((s) => s.paceSecPerKm > 0 && s.heartRate > 0);
+}
+
+/** 指定区间内的活动总数。 */
+export function getActivityCountInRange(startDate: string, endDate: string): number {
+  const db = getDatabase();
+  const end = toInclusiveEnd(endDate, 'getActivityCountInRange');
+  validateRange(startDate, endDate, 'getActivityCountInRange');
+  const row = db.prepare(
+    'SELECT COUNT(*) AS count FROM activities WHERE start_time >= ? AND start_time <= ?'
+  ).get(startDate, end) as { count: number };
+  return row?.count ?? 0;
+}
+
+/**
+ * 读取单次活动的有效逐秒记录 (心率/速度), 供解耦计算。
+ * 仅返回后续计算所需的列, 避免一次性载入无关字段。
+ */
+export function getActivityRecordSamples(activityId: number): {
+  elapsed_sec: number;
+  heart_rate: number | null;
+  speed: number | null;
+  distance: number | null;
+}[] {
+  const db = getDatabase();
+  const rows = db.prepare(
+    `SELECT elapsed_sec, heart_rate, speed, distance
+     FROM activity_records
+     WHERE activity_id = ?
+     ORDER BY record_index`
+  ).all(activityId) as {
+    elapsed_sec: number;
+    heart_rate: number | null;
+    speed: number | null;
+    distance: number | null;
+  }[];
+  return rows;
+}
+
+/** 阈值心率 (取最近一次有阈值的活动); 无则返回 null。 */
+export function getLatestThresholdHr(): number | null {
+  const db = getDatabase();
+  const row = db.prepare(
+    `SELECT threshold_heart_rate FROM activities
+     WHERE threshold_heart_rate IS NOT NULL AND threshold_heart_rate > 0
+     ORDER BY start_time DESC LIMIT 1`
+  ).get() as { threshold_heart_rate?: number } | undefined;
+  return row?.threshold_heart_rate ?? null;
+}
+
+/** 洞察 v2: 类别对比样本 (含温度供气温分档复用)。 */
+export interface InsightActivityRow {
+  activityId: number;
+  name: string | null;
+  date: string;
+  distanceKm: number;
+  durationSeconds: number;
+  avgPaceSecPerKm: number | null;
+  avgHeartRate: number | null;
+  avgCadence: number | null;
+  vdot: number | null;
+  trainingLoad: number | null;
+  temperatureC: number | null;
+}
+
+/** 指定区间内全部活动 (洞察 v2 对比分析用的统一数据源)。 */
+export function getInsightActivityRows(startDate: string, endDate: string): InsightActivityRow[] {
+  const db = getDatabase();
+  const end = toInclusiveEnd(endDate, 'getInsightActivityRows');
+  validateRange(startDate, endDate, 'getInsightActivityRows');
+  const rows = db.prepare(
+    `SELECT activity_id, name, start_time_local, distance, duration,
+            average_pace, average_heart_rate, average_cadence, vdot_value,
+            training_load, average_temperature
+     FROM activities
+     WHERE start_time >= ? AND start_time <= ?
+     ORDER BY start_time_local`
+  ).all(startDate, end) as {
+    activity_id: number;
+    name: string | null;
+    start_time_local: string;
+    distance: number | null;
+    duration: number | null;
+    average_pace: number | null;
+    average_heart_rate: number | null;
+    average_cadence: number | null;
+    vdot_value: number | null;
+    training_load: number | null;
+    average_temperature: number | null;
+  }[];
+  return rows.map((r) => ({
+    activityId: r.activity_id,
+    name: r.name,
+    date: r.start_time_local,
+    distanceKm: r.distance ?? 0,
+    durationSeconds: r.duration ?? 0,
+    avgPaceSecPerKm: r.average_pace,
+    avgHeartRate: r.average_heart_rate,
+    avgCadence: r.average_cadence,
+    vdot: r.vdot_value,
+    trainingLoad: r.training_load,
+    temperatureC: r.average_temperature,
+  }));
+}
+
+/** 洞察 v2: 计算周期化所需的逐日负荷 + 周维度 CTL/ATL/TSB (由调用方计算)。 */
 
 /**
  * Close database connection.

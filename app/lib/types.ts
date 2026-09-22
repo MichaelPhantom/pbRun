@@ -332,3 +332,248 @@ export interface ActivityTrack {
   elev?: [number, number][];                   // [elapsed_sec, altitude_m] 海拔剖面
   n: number;                                   // 原始记录点数 (回填前)
 }
+
+// ===========================================================================
+// 洞察 (Insight) —— 训练数据的动态分析层
+// 所有指标均由 app/lib/db.ts 读取原始行 + app/lib/insight.ts 实时计算,
+// 不写任何缓存表、不硬编码数值。
+// ===========================================================================
+
+/** 洞察查询参数 */
+export interface InsightParams {
+  startDate: string;                             // YYYY-MM-DD (含)
+  endDate: string;                               // YYYY-MM-DD (含)
+}
+
+/** VDOT 随时间的线性趋势（最小二乘） */
+export interface VdotTrendFit {
+  raw: { date: string; vdot: number }[];         // 原始散点（时间升序）
+  perMonth: { period: string; avg: number; max: number; min: number; n: number }[]; // 按月聚合
+  slopePer30d: number;                           // 每 30 天变化量
+  intercept: number;
+  latest: number | null;                         // 最新一次 VDOT
+  mean: number | null;                           // 区间均值
+  plateau: boolean;                              // 是否处于平台期（近期斜率近零）
+}
+
+/** 急慢性负荷比 (ACWR) 与负荷平衡 */
+export interface LoadInsight {
+  weekly: { week: string; km: number; tl: number; n: number; seconds: number }[]; // 按 ISO 周
+  acute: number;                                 // 近 7 天负荷
+  chronic: number;                               // 近 28 天周均负荷
+  acwr: number;                                  // acute / chronic
+  acwrTone: 'under' | 'optimal' | 'caution' | 'risk';
+  zDistribution: { zone: number; seconds: number; pct: number }[]; // 全区间强度分布
+  lowIntensityPct: number;                       // Z1+Z2 占比
+  highIntensityPct: number;                       // Z4+Z5 占比
+}
+
+/** 单次长跑的有氧解耦 (Pa:HR drift) */
+export interface DecouplingPoint {
+  activityId: number;
+  date: string;
+  distanceMeters: number;
+  paceSecPerKm: number;
+  decouplingPct: number;                         // 正=后半效率下降
+  tone: 'excellent' | 'good' | 'fair' | 'poor';
+}
+
+/** 有氧效率汇总 */
+export interface DecouplingInsight {
+  points: DecouplingPoint[];
+  meanPct: number | null;                        // 均值
+  trendPer30d: number | null;                    // 每 30 天变化（正=恶化）
+  sampleCount: number;
+}
+
+/** 跑姿技术指标按月趋势 */
+export interface FormTrends {
+  monthly: {
+    period: string;
+    n: number;
+    cadence: number | null;
+    strideLength: number | null;
+    groundContactMs: number | null;
+    verticalOscillation: number | null;
+    verticalRatio: number | null;
+  }[];
+}
+
+/** 配速-心率回归模型 */
+export interface PaceHrModel {
+  n: number;
+  slope: number;                                 // HR 对配速(分/公里)的斜率 (通常为负)
+  intercept: number;
+  r: number;                                     // 皮尔逊相关系数
+  predictions: { paceSecPerKm: number; hr: number }[]; // 常见配速的预测 HR
+  thresholdPaceSecPerKm: number | null;          // 由阈值心率反推的配速
+  thresholdHr: number | null;
+}
+
+/** 单条洞察建议（动态生成） */
+export interface InsightFinding {
+  id: string;
+  severity: 'positive' | 'info' | 'warn' | 'critical';
+  title: string;
+  detail: string;
+  metric?: string;                               // 关键数字展示
+  action?: string;                               // 可执行建议
+}
+
+/** 洞察 API 完整响应 */
+export interface InsightResponse {
+  range: { startDate: string; endDate: string };
+  activityCount: number;
+  vdot: VdotTrendFit;
+  load: LoadInsight;
+  decoupling: DecouplingInsight;
+  form: FormTrends;
+  paceHr: PaceHrModel;
+  findings: InsightFinding[];
+  categories?: CategoryComparison;                // 训练类别对比
+  weather?: WeatherComparison;                    // 气温分档对比
+  routes?: RouteComparison;                       // 常跑路线对比
+  periodization?: PeriodizationInsight;           // 周期化分析
+}
+
+// ---------------------------------------------------------------------------
+// 洞察 v2 —— 类别 / 气温 / 路线 / 周期化
+// ---------------------------------------------------------------------------
+
+/** 训练类别枚举 (由活动名称/类型推断)。 */
+export type TrainingCategory =
+  | 'threshold'   // 乳酸阈值
+  | 'interval'    // 冲刺/间歇/无氧
+  | 'long'        // 长距离
+  | 'tempo'       // 节奏
+  | 'vo2max'      // 最大摄氧量
+  | 'easy'        // 基础/轻松/恢复
+  | 'race'        // 比赛
+  | 'other';
+
+/** 单个训练类别的聚合画像。 */
+export interface CategoryStats {
+  category: TrainingCategory;
+  label: string;                                  // 中文标签
+  count: number;
+  totalKm: number;
+  avgDistanceKm: number;
+  avgPaceSecPerKm: number | null;                 // 时长加权均配速
+  avgHeartRate: number | null;                    // 时长加权均心率
+  avgCadence: number | null;
+  avgVdot: number | null;
+  avgTrainingLoad: number | null;
+  efficiency: number | null;                      // 有氧效率 (m/s per bpm) 越高越强
+}
+
+/** 类别对比: 各类别画像 + 强度分布。 */
+export interface CategoryComparison {
+  stats: CategoryStats[];
+  totalActivities: number;
+}
+
+/** 单条路线的聚合。 */
+export interface RouteStat {
+  routeKey: string;                               // 路线指纹 (去重键)
+  label: string;                                  // 展示名 (常见活动名)
+  count: number;
+  avgDistanceKm: number;
+  bestPaceSecPerKm: number | null;                // 最快一次均配速
+  avgPaceSecPerKm: number | null;
+  avgHeartRate: number | null;
+  lastDate: string;
+  paceTrendPer30d: number | null;                 // 该路线配速随时间的趋势 (负=变快)
+  best: { activityId: number; date: string; paceSecPerKm: number } | null;
+  recent: { activityId: number; date: string; paceSecPerKm: number; heartRate: number | null }[];
+}
+
+/** 路线对比集合。 */
+export interface RouteComparison {
+  routes: RouteStat[];                            // 按次数降序
+  stravaLikeCount?: number;                       // 有轨迹/可识别的活动数
+}
+
+/** 气温分档统计。 */
+export interface WeatherBucket {
+  bucket: string;                                 // 如 "<10°C"
+  count: number;
+  avgHeartRate: number | null;
+  avgPaceSecPerKm: number | null;
+  efficiency: number | null;                      // 效率 (m/s per bpm)
+  avgCadence: number | null;
+}
+
+/** 气温对比: 分档均值 (用于评估高温对心率/配速的影响)。 */
+export interface WeatherComparison {
+  buckets: WeatherBucket[];
+  sampleCount: number;
+}
+
+/** 周期化分析: 周维度负荷演进 + 阶段识别。 */
+export interface PeriodizationWeek {
+  week: string;
+  km: number;
+  tl: number;
+  activities: number;
+  ctl: number;                                    // 期末 CTL
+  atl: number;                                    // 期末 ATL
+  tsb: number;                                    // 期末 TSB
+}
+
+export interface PeriodizationInsight {
+  weeks: PeriodizationWeek[];
+  peakWeekKm: number;
+  avgWeekKm: number;
+  rampRatePerWeek: number;                        // 平均每周跑量增幅 (km)
+  weeklyChangeStdPct: number | null;              // 周环比波动的标准差 (%)
+}
+
+// ---------------------------------------------------------------------------
+// 活动详情深挖 (detail drill-down)
+// ---------------------------------------------------------------------------
+
+/** 单次活动的分段分析 (自动识别热身/主课/冷身)。 */
+export interface ActivityLapAnalysis {
+  laps: {
+    lapIndex: number;
+    distanceMeters: number;
+    paceSecPerKm: number | null;
+    heartRate: number | null;
+    cadence: number | null;
+    power: number | null;
+    role: 'warmup' | 'work' | 'recovery' | 'cooldown' | 'steady';
+  }[];
+  workLaps: number;                               // 主课段数
+  workDistanceMeters: number;
+  workAvgPaceSecPerKm: number | null;
+  workAvgHeartRate: number | null;
+  workHrDrift: number | null;                     // 主课段内 HR 漂移 (末段-首段)
+  bestPaceSecPerKm: number | null;
+  bestLapIndex: number | null;
+}
+
+/** 同路线 (或同类型) 历史对比。 */
+export interface ActivityComparison {
+  basis: 'route' | 'category' | 'distance';
+  label: string;
+  peers: {
+    activityId: number;
+    date: string;
+    name: string;
+    distanceKm: number;
+    paceSecPerKm: number | null;
+    heartRate: number | null;
+  }[];
+  rank: { byPace: number; total: number } | null; // 本次在该组中的配速排名 (1=最快)
+  paceDeltaSecPerKm: number | null;               // 本次 vs 组均配速 (负=更快)
+  hrDeltaBpm: number | null;                      // 本次 vs 组均心率
+}
+
+/** 活动详情深挖 API 响应。 */
+export interface ActivityInsightResponse {
+  activityId: number;
+  lapAnalysis: ActivityLapAnalysis;
+  comparison: ActivityComparison | null;
+  decouplingPct: number | null;                   // 逐秒解耦
+  hrZoneBreakdown: { zone: number; seconds: number; pct: number }[];
+}

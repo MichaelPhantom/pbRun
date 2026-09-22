@@ -17,12 +17,20 @@ describe('TopNav', () => {
     jest.clearAllMocks();
   });
 
-  test('应渲染四个导航项 (记录/分析/统计/配速)', () => {
+  test('应渲染五个导航项 (记录/分析/洞察/统计/配速)', () => {
     render(<TopNav />);
     expect(screen.getByText('记录')).toBeInTheDocument();
     expect(screen.getByText('分析')).toBeInTheDocument();
+    expect(screen.getByText('洞察')).toBeInTheDocument();
     expect(screen.getByText('统计')).toBeInTheDocument();
     expect(screen.getByText('配速')).toBeInTheDocument();
+  });
+
+  test('在 /insight 页面时应高亮"洞察"', () => {
+    mockUsePathname.mockReturnValue('/insight');
+    render(<TopNav />);
+
+    expect(screen.getByText('洞察')).toHaveAttribute('aria-current', 'page');
   });
 
   test('在 /list 页面时应高亮"记录"', () => {
@@ -84,6 +92,7 @@ describe('TopNav', () => {
 
     expect(screen.getByText('记录').closest('a')).toHaveAttribute('href', '/list');
     expect(screen.getByText('分析').closest('a')).toHaveAttribute('href', '/analysis');
+    expect(screen.getByText('洞察').closest('a')).toHaveAttribute('href', '/insight');
     expect(screen.getByText('统计').closest('a')).toHaveAttribute('href', '/stats');
     expect(screen.getByText('配速').closest('a')).toHaveAttribute('href', '/daniels');
   });

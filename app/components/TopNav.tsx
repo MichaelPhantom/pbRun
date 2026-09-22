@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 const navItems = [
   { href: "/list", label: "记录" },
   { href: "/analysis", label: "分析" },
+  { href: "/insight", label: "洞察" },
   { href: "/stats", label: "统计" },
   { href: "/daniels", label: "配速" },
 ] as const;
@@ -13,6 +14,7 @@ const navItems = [
 function isActive(href: string, pathname: string): boolean {
   if (href === "/list") return pathname === "/list" || pathname.startsWith("/pages/");
   if (href === "/analysis") return pathname.startsWith("/analysis");
+  if (href === "/insight") return pathname.startsWith("/insight");
   if (href === "/stats") return pathname.startsWith("/stats");
   if (href === "/daniels") return pathname.startsWith("/daniels");
   return pathname === href;
