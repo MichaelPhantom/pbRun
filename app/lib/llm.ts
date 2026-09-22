@@ -336,3 +336,93 @@ ${lapLines || '(无分段数据)'}`;
     { role: 'user', content: user },
   ];
 }
+
+// ---------------------------------------------------------------------------
+// 全局教练 (跨全部历史数据的综合辅导)
+// ---------------------------------------------------------------------------
+
+const GLOBAL_COACH_PROMPT = `你是一位世界顶级的精英跑步教练团队负责人，擅长基于**全部历史训练数据**进行长期、系统的个性化诊断与周期化辅导。
+
+【你的职责】
+不止分析单次训练，而是审视训练者数月乃至数年的完整轨迹：能力演进、训练结构平衡、负荷管理、短板识别、周期化安排，并给出面向未来的整体规划。
+
+【核心方法】
+1. **全局视角**：把每一类训练、每一个阶段放进整体训练体系中评估，而非孤立看待。
+2. **趋势优先**：关注随时间的变化（进步/平台/退步），用数据说话。
+3. **结构平衡**：评估强度分布（80/20 原则）、类别配比、负荷递增节奏是否科学。
+4. **短板诊断**：从类别对比、气温影响、路线对比、有氧解耦等多维数据中定位限制因素。
+5. **周期化与风险**：识别当前所处训练阶段，预警过度训练/负荷突增/结构失衡风险。
+6. **可执行规划**：给出未来 2-4 周的具体训练安排与 3 个月发展目标。
+
+【输出格式】
+## 📊 总体诊断
+用 2-3 句概括当前训练状态与最大问题/优势。
+
+## 📈 能力演进
+- VDOT 趋势、有氧效率、跑姿经济性的长期变化。
+
+## 🧩 训练结构评估
+- 强度分布是否符合 80/20；类别配比是否合理；负荷递增是否安全。
+
+## 🔍 多维数据洞察
+- 类别对比、气温影响、路线对比、有氧解耦中发现的关键点。
+
+## 💡 优势与短板
+- 明确列出 2-3 项优势、2-3 项短板（附数据）。
+
+## 🏃 未来 2-4 周训练处方
+- 具体到每周的课程类型、配速/心率区间、里程、频率。
+
+## 📅 3 个月发展目标
+- 量化目标（VDOT、比赛成绩）与达成路径。
+
+【写作纪律】
+- 数据说话，避免空话套话。
+- 结合【跑者画像】与【全局指标】因材施教。
+- 建议必须具体、可量化、可落地。
+- 语气鼓励、客观、专业。`;
+
+export interface GlobalCoachContext {
+  /** 跑者画像文本块 (runner-profile formatRunnerProfile)。 */
+  profileBlock: string;
+  /** 洞察指标文本块 (insight-coach formatInsightForCoach)。 */
+  insightBlock: string;
+  /** 数据区间描述, 如 "近 180 天"。 */
+  rangeLabel: string;
+}
+
+/** 构造全局教练分析消息 (system + user)。 */
+export function buildGlobalCoachMessages(ctx: GlobalCoachContext): ChatMessage[] {
+  const user = `${ctx.profileBlock ? ctx.profileBlock + '\n\n' : ''}${ctx.insightBlock}
+
+【分析任务】
+请基于以上【跑者画像】与【全局训练指标】（数据区间：${ctx.rangeLabel}），进行一次世界顶级教练水准的综合诊断与长期辅导。覆盖能力演进、训练结构、多维洞察、优势短板与未来规划。`;
+  return [
+    { role: 'system', content: GLOBAL_COACH_PROMPT },
+    { role: 'user', content: user },
+  ];
+}
+
+/** 构造全局教练「追问」消息 (保留 system + 全局上下文 + 历史)。 */
+export function buildGlobalCoachFollowupMessages(
+  ctx: GlobalCoachContext,
+  history: ChatMessage[],
+  question: string,
+): ChatMessage[] {
+  const base = buildGlobalCoachMessages(ctx);
+  const cleanHistory: ChatMessage[] = history
+    .filter(
+      (m) =>
+        (m.role === 'user' || m.role === 'assistant') &&
+        typeof m.content === 'string' &&
+        m.content.length > 0 &&
+        m.content.length <= 8000,
+    )
+    .slice(-12);
+  return [
+    base[0],
+    base[1],
+    ...cleanHistory,
+    { role: 'user', content: question.slice(0, 2000) },
+  ];
+}

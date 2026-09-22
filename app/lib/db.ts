@@ -1121,6 +1121,76 @@ export function getInsightActivityRows(startDate: string, endDate: string): Insi
 /** 洞察 v2: 计算周期化所需的逐日负荷 + 周维度 CTL/ATL/TSB (由调用方计算)。 */
 
 /**
+ * 查找与指定活动同路线的历史活动 (用于活动详情对比)。
+ * 路线以名称的"地点前缀"( ' - ' 之前) 为指纹; 若无法识别则回退到"同类别"。
+ * 返回按时间升序的同行活动 (不含当前活动)。
+ */
+export function getPeerActivities(
+  activityId: number,
+  routeKey: string | null,
+  distanceKm: number,
+): { activities: { activityId: number; date: string; name: string; distanceKm: number; paceSecPerKm: number | null; heartRate: number | null }[]; basis: 'route' | 'distance' } {
+  const db = getDatabase();
+  // 路线: 名称以 "<routeKey> -" 开头 或 名称恰为 routeKey; 距离相近 (±30%) 辅助
+  if (routeKey) {
+    const rows = db.prepare(
+      `SELECT activity_id, name, start_time_local, distance, average_pace, average_heart_rate
+       FROM activities
+       WHERE activity_id != ?
+         AND (name = ? OR name LIKE ?)
+       ORDER BY start_time_local`
+    ).all(activityId, routeKey, `${routeKey} -%`) as {
+      activity_id: number;
+      name: string;
+      start_time_local: string;
+      distance: number | null;
+      average_pace: number | null;
+      average_heart_rate: number | null;
+    }[];
+    if (rows.length > 0) {
+      return {
+        basis: 'route',
+        activities: rows.map((r) => ({
+          activityId: r.activity_id,
+          date: r.start_time_local,
+          name: r.name,
+          distanceKm: r.distance ?? 0,
+          paceSecPerKm: r.average_pace,
+          heartRate: r.average_heart_rate,
+        })),
+      };
+    }
+  }
+  // 回退: 相近距离 (±25%, 至少 8km 以上才比较)
+  const lo = distanceKm * 0.75;
+  const hi = distanceKm * 1.25;
+  const rows = db.prepare(
+    `SELECT activity_id, name, start_time_local, distance, average_pace, average_heart_rate
+     FROM activities
+     WHERE activity_id != ? AND distance >= ? AND distance <= ?
+     ORDER BY start_time_local DESC LIMIT 20`
+  ).all(activityId, lo, hi) as {
+    activity_id: number;
+    name: string;
+    start_time_local: string;
+    distance: number | null;
+    average_pace: number | null;
+    average_heart_rate: number | null;
+  }[];
+  return {
+    basis: 'distance',
+    activities: rows.reverse().map((r) => ({
+      activityId: r.activity_id,
+      date: r.start_time_local,
+      name: r.name,
+      distanceKm: r.distance ?? 0,
+      paceSecPerKm: r.average_pace,
+      heartRate: r.average_heart_rate,
+    })),
+  };
+}
+
+/**
  * Close database connection.
  */
 export function closeDatabase(): void {

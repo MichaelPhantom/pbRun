@@ -30,7 +30,7 @@ export function InsightTrendChart({
   valueSuffix?: string;
   ariaLabel: string;
 }) {
-  const echart = useEchart(
+  const { ref, style } = useEchart(
     () => {
       const validSeries = series.filter((s) => s.data.some((v) => v != null));
       if (x.length === 0 || validSeries.length === 0) {
@@ -82,7 +82,8 @@ export function InsightTrendChart({
     { height },
   );
 
-  return <div ref={echart.ref} style={echart.style} role="img" aria-label={ariaLabel} />;
+  void valueSuffix;
+  return <div ref={ref} style={style} role="img" aria-label={ariaLabel} />;
 }
 
 export default InsightTrendChart;

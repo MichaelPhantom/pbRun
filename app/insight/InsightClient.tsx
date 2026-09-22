@@ -7,6 +7,7 @@ import { Badge } from '@/app/components/ui/Badge';
 import { Segmented } from '@/app/components/ui/Segmented';
 import { InsightTrendChart } from '@/app/lib/components/charts/InsightTrendChart';
 import { InsightBarChart } from '@/app/lib/components/charts/InsightBarChart';
+import { GlobalCoach } from '@/app/lib/components/ai/GlobalCoach';
 import { TIME_RANGE_DAYS_OPTIONS, type TimeRangeDays } from '@/app/lib/date-utils';
 import type { InsightFinding, InsightResponse } from '@/app/lib/types';
 
@@ -58,7 +59,7 @@ export default function InsightClient({
   insight: InsightResponse;
   timeRangeDays: TimeRangeDays;
 }) {
-  const { vdot, load, decoupling, form, paceHr, findings } = insight;
+  const { vdot, load, decoupling, form, paceHr, findings, categories, weather, routes, periodization } = insight;
 
   const rangeItems = TIME_RANGE_DAYS_OPTIONS.map((d) => ({
     label: `${d}天`,
@@ -122,6 +123,37 @@ export default function InsightClient({
     [load.weekly],
   );
 
+  // 类别分布 (按活动数)
+  const categoryBars = useMemo(
+    () =>
+      (categories?.stats ?? []).slice(0, 8).map((c, i) => ({
+        label: c.label,
+        value: c.count,
+        color: `var(--cat-${(i % 8) + 1})`,
+      })),
+    [categories],
+  );
+
+  // 气温分档 (心率 vs 效率)
+  const weatherChart = useMemo(
+    () => ({
+      x: weather?.buckets.map((b) => b.bucket) ?? [],
+      hr: weather?.buckets.map((b) => (b.avgHeartRate != null ? Math.round(b.avgHeartRate * 10) / 10 : null)) ?? [],
+      pace: weather?.buckets.map((b) => (b.avgPaceSecPerKm != null ? Math.round(b.avgPaceSecPerKm) : null)) ?? [],
+    }),
+    [weather],
+  );
+
+  // 周期化: 周跑量 + TSB
+  const periodizationChart = useMemo(
+    () => ({
+      x: periodization?.weeks.map((w) => w.week) ?? [],
+      km: periodization?.weeks.map((w) => w.km) ?? [],
+      tsb: periodization?.weeks.map((w) => w.tsb) ?? [],
+    }),
+    [periodization],
+  );
+
   return (
     <div className="flex flex-col gap-4 sm:gap-5">
       <h1 className="sr-only">训练洞察</h1>
@@ -170,6 +202,9 @@ export default function InsightClient({
           </ul>
         )}
       </SectionCard>
+
+      {/* AI 综合教练 */}
+      <GlobalCoach days={timeRangeDays} />
 
       {/* VDOT 趋势 */}
       <SectionCard title="跑力 (VDOT) 趋势" accent>
@@ -250,6 +285,179 @@ export default function InsightClient({
           </div>
         </div>
       </SectionCard>
+
+      {/* 周期化 */}
+      {periodization && periodization.weeks.length > 0 && (
+        <SectionCard
+          title="周期化分析"
+          accent
+          action={
+            <Badge variant={periodization.rampRatePerWeek > 1.5 ? 'warn' : 'brand'}>
+              周均 {periodization.avgWeekKm.toFixed(1)} km
+            </Badge>
+          }
+        >
+          <div className="mb-3 grid grid-cols-3 gap-3">
+            <StatCard value={periodization.peakWeekKm.toFixed(1)} label="峰值周" unit="km" accent />
+            <StatCard
+              value={`${periodization.rampRatePerWeek >= 0 ? '+' : ''}${periodization.rampRatePerWeek.toFixed(2)}`}
+              label="周均增幅"
+              unit="km/周"
+            />
+            <StatCard
+              value={periodization.weeklyChangeStdPct != null ? periodization.weeklyChangeStdPct.toFixed(0) : '--'}
+              label="周波动"
+              unit="%"
+              hint="越小越稳定"
+            />
+          </div>
+          <InsightTrendChart
+            x={periodizationChart.x}
+            series={[
+              { name: '周跑量 (km)', data: periodizationChart.km, color: 'var(--brand)', area: true },
+              { name: 'TSB', data: periodizationChart.tsb, color: 'var(--cat-2)' },
+            ]}
+            ariaLabel="周期化周跑量与 TSB 趋势图"
+          />
+          <div className="mt-4 overflow-x-auto rounded-xl border border-border bg-surface">
+            <table className="w-full text-xs">
+              <caption className="sr-only">最近周期周维度训练负荷</caption>
+              <thead className="bg-surface-2 text-fg-secondary">
+                <tr>
+                  <th scope="col" className="px-3 py-2 text-left font-medium">周</th>
+                  <th scope="col" className="px-3 py-2 text-right font-medium">跑量</th>
+                  <th scope="col" className="px-3 py-2 text-right font-medium">负荷</th>
+                  <th scope="col" className="px-3 py-2 text-right font-medium">次数</th>
+                  <th scope="col" className="px-3 py-2 text-right font-medium">CTL</th>
+                  <th scope="col" className="px-3 py-2 text-right font-medium">ATL</th>
+                  <th scope="col" className="px-3 py-2 text-right font-medium">TSB</th>
+                </tr>
+              </thead>
+              <tbody>
+                {periodization.weeks.slice(-8).reverse().map((w) => (
+                  <tr key={w.week} className="border-t border-border">
+                    <td className="tnum px-3 py-2 text-fg-secondary">{w.week}</td>
+                    <td className="tnum px-3 py-2 text-right">{w.km.toFixed(1)} km</td>
+                    <td className="tnum px-3 py-2 text-right">{w.tl}</td>
+                    <td className="tnum px-3 py-2 text-right">{w.activities}</td>
+                    <td className="tnum px-3 py-2 text-right">{w.ctl.toFixed(0)}</td>
+                    <td className="tnum px-3 py-2 text-right">{w.atl.toFixed(0)}</td>
+                    <td className={`tnum px-3 py-2 text-right font-medium ${w.tsb >= 0 ? 'text-[var(--good)]' : 'text-[var(--warn)]'}`}>
+                      {w.tsb >= 0 ? '+' : ''}{w.tsb.toFixed(0)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </SectionCard>
+      )}
+
+      {/* 训练类别对比 */}
+      {categories && categories.stats.length > 0 && (
+        <SectionCard title="训练类别对比" accent>
+          <p className="mb-3 text-xs text-fg-secondary">
+            按训练类别聚合各类课的结构画像。平均配速/心率为时长加权，效率 = 速度/心率（越高越经济）。
+          </p>
+          <div className="mb-4">
+            <InsightBarChart data={categoryBars} ariaLabel="训练类别活动数分布" height={180} valueSuffix=" 次" />
+          </div>
+          <div className="overflow-x-auto rounded-xl border border-border bg-surface">
+            <table className="w-full text-xs">
+              <caption className="sr-only">训练类别对比明细</caption>
+              <thead className="bg-surface-2 text-fg-secondary">
+                <tr>
+                  <th scope="col" className="px-3 py-2 text-left font-medium">类别</th>
+                  <th scope="col" className="px-3 py-2 text-right font-medium">次数</th>
+                  <th scope="col" className="px-3 py-2 text-right font-medium">总里程</th>
+                  <th scope="col" className="px-3 py-2 text-right font-medium">均配速</th>
+                  <th scope="col" className="px-3 py-2 text-right font-medium">均心率</th>
+                  <th scope="col" className="px-3 py-2 text-right font-medium">均VDOT</th>
+                  <th scope="col" className="px-3 py-2 text-right font-medium">效率</th>
+                </tr>
+              </thead>
+              <tbody>
+                {categories.stats.map((c) => (
+                  <tr key={c.category} className="border-t border-border">
+                    <td className="px-3 py-2 font-medium text-fg">{c.label}</td>
+                    <td className="tnum px-3 py-2 text-right">{c.count}</td>
+                    <td className="tnum px-3 py-2 text-right">{c.totalKm.toFixed(1)} km</td>
+                    <td className="tnum px-3 py-2 text-right">{fmtPace(c.avgPaceSecPerKm)}/km</td>
+                    <td className="tnum px-3 py-2 text-right">{c.avgHeartRate != null ? c.avgHeartRate.toFixed(0) : '--'}</td>
+                    <td className="tnum px-3 py-2 text-right">{c.avgVdot != null ? c.avgVdot.toFixed(1) : '--'}</td>
+                    <td className="tnum px-3 py-2 text-right text-fg-secondary">
+                      {c.efficiency != null ? c.efficiency.toFixed(4) : '--'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </SectionCard>
+      )}
+
+      {/* 常跑路线对比 */}
+      {routes && routes.routes.length > 0 && (
+        <SectionCard title="常跑路线对比" accent>
+          <p className="mb-3 text-xs text-fg-secondary">
+            按活动名称中的地点前缀归类常跑路线。配速趋势为负表示该路线随时间变快。
+          </p>
+          <div className="flex flex-col gap-3">
+            {routes.routes.slice(0, 6).map((r) => {
+              const trendGood = r.paceTrendPer30d != null && r.paceTrendPer30d < -0.5;
+              const trendBad = r.paceTrendPer30d != null && r.paceTrendPer30d > 0.5;
+              return (
+                <div key={r.routeKey} className="rounded-lg border border-border bg-surface-2 px-4 py-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-medium text-fg">{r.label}</span>
+                    <Badge variant="neutral">{r.count} 次</Badge>
+                    {r.bestPaceSecPerKm != null && (
+                      <Badge variant="good">最佳 {fmtPace(r.bestPaceSecPerKm)}/km</Badge>
+                    )}
+                    {r.paceTrendPer30d != null && (
+                      <Badge variant={trendGood ? 'good' : trendBad ? 'warn' : 'neutral'}>
+                        {r.paceTrendPer30d >= 0 ? '变慢' : '变快'} {Math.abs(r.paceTrendPer30d).toFixed(1)}s/月
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-fg-muted">
+                    <span>均距 <span className="tnum text-fg-secondary">{r.avgDistanceKm.toFixed(2)} km</span></span>
+                    <span>均配速 <span className="tnum text-fg-secondary">{fmtPace(r.avgPaceSecPerKm)}/km</span></span>
+                    <span>均心率 <span className="tnum text-fg-secondary">{r.avgHeartRate != null ? r.avgHeartRate.toFixed(0) : '--'}</span></span>
+                    <span>最近 <span className="tnum text-fg-secondary">{r.lastDate}</span></span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </SectionCard>
+      )}
+
+      {/* 气温对比 */}
+      {weather && weather.buckets.length > 0 && (
+        <SectionCard title="气温影响对比" accent action={<Badge variant="neutral">{weather.sampleCount} 次样本</Badge>}>
+          <p className="mb-3 text-xs text-fg-secondary">
+            按气温分档统计心率与配速，量化高温带来的生理代价（同等配速下心率更高）。
+          </p>
+          <InsightTrendChart
+            x={weatherChart.x}
+            series={[
+              { name: '平均心率 (bpm)', data: weatherChart.hr, color: 'var(--cat-2)' },
+              { name: '平均配速 (s/km)', data: weatherChart.pace, color: 'var(--brand)' },
+            ]}
+            ariaLabel="气温分档心率与配速对比图"
+          />
+          <div className="mt-3 flex flex-wrap gap-2">
+            {weather.buckets.map((b) => (
+              <div key={b.bucket} className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-center">
+                <div className="text-[10px] text-fg-muted">{b.bucket}</div>
+                <div className="tnum mt-0.5 text-sm font-medium text-fg">{fmtPace(b.avgPaceSecPerKm)}/km</div>
+                <div className="tnum text-[10px] text-fg-secondary">HR {b.avgHeartRate != null ? b.avgHeartRate.toFixed(0) : '--'}</div>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+      )}
 
       {/* 有氧解耦 */}
       <SectionCard

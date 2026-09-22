@@ -6,6 +6,7 @@ import type { Activity, ActivityLap, ActivityRecord, ActivityTrack } from '@/app
 import { SectionCard } from '@/app/components/ui/SectionCard';
 import { Badge } from '@/app/components/ui/Badge';
 import ActivityTrendCharts from '@/app/lib/components/charts/ActivityTrendCharts';
+import { ActivityInsightPanel } from '@/app/lib/components/charts/ActivityInsightPanel';
 import { AiAnalysis } from '@/app/lib/components/ai/AiAnalysis';
 
 // 路线地图纯 SVG 客户端组件 (无 leaflet 依赖); 仅在客户端渲染避免 SSR window 引用
@@ -171,6 +172,9 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
           </div>
         )}
       </SectionCard>
+
+      {/* 深度分析: 分段角色 / 主课漂移 / 区间 / 同路线对比 */}
+      <ActivityInsightPanel activityId={activity.activity_id} />
 
       {/* AI 教练分析 (本机 freellm, 模型可选) */}
       <AiAnalysis activityId={activity.activity_id} activity={activity} profileSignal={profileSignal} />

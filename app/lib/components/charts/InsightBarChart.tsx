@@ -22,7 +22,7 @@ export function InsightBarChart({
   valueSuffix?: string;
   ariaLabel: string;
 }) {
-  const echart = useEchart(
+  const { ref, style } = useEchart(
     () => {
       const points = data.filter((d) => Number.isFinite(d.value));
       if (points.length === 0) {
@@ -64,7 +64,7 @@ export function InsightBarChart({
     { height },
   );
 
-  return <div ref={echart.ref} style={echart.style} role="img" aria-label={ariaLabel} />;
+  return <div ref={ref} style={style} role="img" aria-label={ariaLabel} />;
 }
 
 export default InsightBarChart;
