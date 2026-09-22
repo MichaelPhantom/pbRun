@@ -23,10 +23,10 @@ module.exports = {
     // 注意: Jest 门槛聚合口径与 coverageReporters 摘要不同 (前者含全部
     // collectCoverageFrom 文件), 以门槛报错值为准。
     global: {
-      statements: 70,
-      branches: 57,
-      functions: 65,
-      lines: 71,
+      statements: 72,
+      branches: 58,
+      functions: 68,
+      lines: 73,
     },
     // 核心逻辑层 (计算/服务/db/ai/图表) 单独更高门槛
     './app/lib/': {
