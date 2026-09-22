@@ -1,0 +1,16 @@
+{
+  "_comment": "Jack Daniels VDOT 模型常量 (单一真源)。TS (app/lib) 与 JS (scripts/common) 均从此读取，避免分叉。",
+  "_source": "Daniels' Running Formula, %VO2max-时长曲线与 VO2-速度多项式",
+  "vo2Intercept": -4.6,
+  "vo2Linear": 0.182258,
+  "vo2Quadratic": 0.000104,
+  "fracBase": 0.8,
+  "fracCoeffFast": 0.1894393,
+  "fracExpFast": -0.012778,
+  "fracCoeffSlow": 0.2989558,
+  "fracExpSlow": -0.1932605,
+  "fracMin": 0.8,
+  "fracMax": 1.0,
+  "vdotMin": 20,
+  "vdotMax": 100
+}

@@ -9,10 +9,18 @@ import { fetchModels, getFreellmConfig } from '@/app/lib/llm';
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
-  const configured = !!getFreellmConfig();
-  const models = await fetchModels();
-  return NextResponse.json(
-    { models, configured },
-    { headers: { 'Cache-Control': 'no-store' } },
-  );
+  try {
+    const configured = !!getFreellmConfig();
+    const models = await fetchModels();
+    return NextResponse.json(
+      { models, configured },
+      { headers: { 'Cache-Control': 'no-store' } },
+    );
+  } catch (error) {
+    console.error('Error fetching LLM models:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500, headers: { 'Cache-Control': 'no-store' } },
+    );
+  }
 }

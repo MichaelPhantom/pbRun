@@ -1,6 +1,11 @@
 /**
  * VDOT calculator based on heart rate zones
+ *
+ * 模型常量单一真源: app/lib/vdot-constants.json (与 app/lib/vdot-pace.ts 共用),
+ * 避免同步脚本与前端展示因常量分叉导致 VDOT/配速口径不一致。
  */
+
+const VC = require('../../app/lib/vdot-constants.json');
 
 class VDOTCalculator {
   constructor(maxHr, restingHr) {
@@ -47,24 +52,23 @@ class VDOTCalculator {
 
     if (velocityMPerMin <= 0) return null;
 
-    // Calculate VO2 using Daniels formula (velocity in m/min)
-    // VO2 = -4.60 + 0.182258 * v + 0.000104 * v²
-    const vo2 = -4.60 + 0.182258 * velocityMPerMin + 0.000104 * (velocityMPerMin ** 2);
+    // Calculate VO2 using Daniels formula (velocity in m/min), 常量见 vdot-constants.json
+    const vo2 = VC.vo2Intercept + VC.vo2Linear * velocityMPerMin + VC.vo2Quadratic * (velocityMPerMin ** 2);
 
     // Calculate percent of VO2max based on duration (standard Daniels formula)
     // %VO2max = 0.8 + 0.1894393 * e^(-0.012778*t) + 0.2989558 * e^(-0.1932605*t)
     // t 拟合区间约 3.5–240 min；超出则 clamp 至 [0.8, 1.0]，不再对短/超长活动 return null
     const t = durationMinutes;
-    let percentVo2max = 0.8
-                        + 0.1894393 * Math.exp(-0.012778 * t)
-                        + 0.2989558 * Math.exp(-0.1932605 * t);
-    percentVo2max = Math.min(1.0, Math.max(0.8, percentVo2max));
+    let percentVo2max = VC.fracBase
+                        + VC.fracCoeffFast * Math.exp(VC.fracExpFast * t)
+                        + VC.fracCoeffSlow * Math.exp(VC.fracExpSlow * t);
+    percentVo2max = Math.min(VC.fracMax, Math.max(VC.fracMin, percentVo2max));
 
     // Calculate VDOT — 纯 Daniels，不再做心率乘子修正（见审核报告：原 0.97/0.99 无依据且方向相反）
     const vdot = vo2 / percentVo2max;
 
     // Sanity check: VDOT typically ranges from 30-85 for most runners
-    if (vdot < 20 || vdot > 100) {
+    if (vdot < VC.vdotMin || vdot > VC.vdotMax) {
       return null;
     }
 

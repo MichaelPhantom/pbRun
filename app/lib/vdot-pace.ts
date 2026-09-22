@@ -2,15 +2,19 @@
  * VDOT 与配速区间换算（基于 Jack Daniels 公式）
  * VO2 = -4.60 + 0.182258*v + 0.000104*v²，v 为米/分钟
  * 由 VDOT * %VO2max = VO2(v) 反解 v，再得配速 秒/公里 = 60000/v
+ *
+ * 常量单一真源: app/lib/vdot-constants.json (scripts/common/vdot-calculator.js 同步引用),
+ * 避免 TS 与同步脚本因常量分叉导致「展示配速区间」与「入库 VDOT」口径不一致。
  */
+import VC from './vdot-constants.json';
 
 /** 给定 VDOT 与 %VO2max（0-1），返回该强度下的配速（秒/公里） */
 export function vdotToPaceSecPerKm(vdot: number, percentVo2max: number): number {
   if (vdot <= 0 || percentVo2max <= 0 || percentVo2max > 1) return 9999;
-  const c = 4.60 + vdot * percentVo2max;
-  const disc = 0.182258 ** 2 + 4 * 0.000104 * c;
+  const c = -VC.vo2Intercept + vdot * percentVo2max;
+  const disc = VC.vo2Linear ** 2 + 4 * VC.vo2Quadratic * c;
   if (disc < 0) return 9999;
-  const v = (-0.182258 + Math.sqrt(disc)) / (2 * 0.000104);
+  const v = (-VC.vo2Linear + Math.sqrt(disc)) / (2 * VC.vo2Quadratic);
   if (v <= 0) return 9999;
   return 60000 / v; // 秒/公里
 }
@@ -63,14 +67,20 @@ export function getPaceZoneCenterFromVdot(vdot: number): Record<number, number> 
  * t→∞ 时 v→0→VO2→-4.6, frac→0.8, f→-4.6-0.8*VDOT<0。
  * 故 f 单调递减 (VO2 关于 t 递减, frac 关于 t 递减), 唯一根, 二分法收敛。
  *
- * %VO2max-时长曲线 (Daniels, t 单位分钟):
- *   frac(t) = 0.8 + 0.1894398·e^(-0.012778·t) + 0.2989558·e^(-0.193055·t)
+ * %VO2max-时长曲线 (Daniels, t 单位分钟), 常量见 vdot-constants.json:
+ *   frac(t) = 0.8 + 0.1894393·e^(-0.012778·t) + 0.2989558·e^(-0.1932605·t)
  *   (5K≈17min→96%, 10K≈35min→92%, 半马≈88%, 全马≈83.6%, 与 Daniels 表吻合)
  */
 const _fracOf = (tMin: number) =>
-  Math.min(1, 0.8 + 0.1894398 * Math.exp(-0.012778 * tMin) + 0.2989558 * Math.exp(-0.193055 * tMin));
+  Math.min(
+    VC.fracMax,
+    VC.fracBase +
+      VC.fracCoeffFast * Math.exp(VC.fracExpFast * tMin) +
+      VC.fracCoeffSlow * Math.exp(VC.fracExpSlow * tMin),
+  );
 
-const _vo2Of = (vMpm: number) => -4.6 + 0.182258 * vMpm + 0.000104 * vMpm * vMpm;
+const _vo2Of = (vMpm: number) =>
+  VC.vo2Intercept + VC.vo2Linear * vMpm + VC.vo2Quadratic * vMpm * vMpm;
 
 /** 给定 VDOT 与距离(米), 返回预测完赛秒数 (二分法, 单调递减根)。 */
 export function predictRaceTimeSec(vdot: number, distanceMeters: number): number | null {
