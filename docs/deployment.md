@@ -214,8 +214,14 @@ bash scripts/deploy-prod.sh --verify   # 仅做健康检查 (首页 200 + 主 CS
 
 > ⚠️ **务必先停服再 build**：若在 `next start` 运行中覆盖 `.next`，服务内存中
 > 仍是旧前端产物，页面引用的 CSS chunk 会 404，表现为全站无样式/布局混乱。
-> 数据同步 (cft cron) 只写 DB、不碰 `.next`，无需重建或重启——统计类分析为
-> 查询时实时计算。
+> 数据同步 (cft cron) 只写 DB、不碰 `.next`，无需重建或重启——统计类分析
+> **与训练洞察 / 全局 AI 教练** 均为查询时实时计算 (无缓存表, 见
+> [insight.md](insight.md#设计原则))。
+>
+> 注：本机 `app/data` 是指向块存储 (`/mnt/oci-block/pbrun-data`) 的**符号链接**。
+> Turbopack 会拒绝追踪"越界软链"导致构建失败，故 `deploy-prod.sh` 在构建前将
+> `app/data` 临时替换为真实空目录、构建后恢复（见脚本 `stash_data_link` /
+> `restore_data_link`）。手动构建时须复用该脚本，勿直接 `next build`。
 
 日志: `journalctl --user -u pbRun -f`
 
