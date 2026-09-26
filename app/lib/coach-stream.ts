@@ -139,7 +139,10 @@ async function openAttempt(
     // 已拿到响应头: 换成首字节看门狗
     clearTimeout(timers[0]);
     const reader = resp.body.getReader();
-    const race = new Promise<{ t: 'read'; r: ReadableStreamReadResult<Uint8Array> } | { t: 'timeout' }>(
+    const race = new Promise<
+      | { t: 'read'; r: Awaited<ReturnType<typeof reader.read>> }
+      | { t: 'timeout' }
+    >(
       (resolve) => {
         timers.push(
           setTimeout(() => {
