@@ -48,6 +48,12 @@
   磁盘清理白/黑名单（`.next/cache` 等可删、`.cache/fit` 等禁删）、数据库备份保留
   策略，以及 OCI 对象存储异地副本（`cft-backup/u1rescue-20260914/` 归档、校验恢复
   与免费额度说明）。FAQ 新增 #15/#16；修复 deployment.md 一处失效锚点。
+- **API 文档补全 + 路由覆盖守护**：`docs/api-reference.md` 新增 15/16/17 三节
+ （活动 AI 深度分析 SSE、健康检查、可用模型列表——此前只散落在 README/insight/faq），
+ 目录加锚点；新增 `tests/unit/docs/api-route-coverage.test.ts` 三向守护（README 覆盖
+ 每个 `route.ts`、api-reference ∪ insight 覆盖每个路由、api-reference 引用的
+ `/api/` 路径必须真实存在，`[id]`/`{id}`/数字示例 id 归一比对），防文档虚构端点
+ 或新端点无文档。已用「注入幻影端点」突变验证守护会红灯。
 
 ### Changed
 - **CLI 脚本可被 require 而不执行**：`backfill-vdot` / `backfill-fit-fields` / `backfill-tracks` /

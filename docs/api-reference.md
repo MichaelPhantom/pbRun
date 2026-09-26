@@ -15,6 +15,8 @@
 - [统计相关 API](#统计相关-api)
 - [分析相关 API](#分析相关-api)
 - [洞察相关 API](#洞察相关-api)
+- [深度分析 API](#深度分析-api)
+- [系统与模型 API](#系统与模型-api)
 - [错误处理](#错误处理)
 
 ---
@@ -710,6 +712,90 @@ GET /api/activities/{id}/insight
 | `comparison` | 同路线（或同距离）对比：`basis`、`peers`、`rank` 配速排名、`paceDeltaSecPerKm`、`hrDeltaBpm` |
 | `decouplingPct` | 逐秒有氧解耦（%） |
 | `hrZoneBreakdown` | 心率区间占比 `{zone, seconds, pct}[]` |
+
+---
+
+## 深度分析 API
+
+### 15. 活动 AI 深度分析（SSE 流式）
+
+基于本次活动数据与【跑者画像】调用本机 freellm 网关生成教练点评，以 SSE 流式返回
+（透传 OpenAI 兼容流）；多轮追问复用同一端点。
+
+**请求**
+
+```http
+POST /api/activities/{id}/analysis
+Content-Type: application/json
+
+{ "model": "deepseek-v4.1-flash-wb" }
+{ "model": "kimi-k3", "question": "我的短板是什么？", "history": [] }
+```
+
+| 字段 | 说明 |
+|------|------|
+| `model` | [可用模型列表](#17-可用模型列表) 里的白名单值；省略或非法值清洗为默认 `deepseek-v4.1-flash-wb`，避免 400 `model_not_found` |
+| `question` / `history` | 追问时必填（首轮不传） |
+
+**行为**
+
+- SSE `text/event-stream`，事件为 OpenAI 兼容 `data: {"choices":[{"delta":…}]}`；思考过程（若有）随
+  `reasoning` 增量下发，前端折叠展示。
+- 出流策略统一在 `app/lib/coach-stream.ts`：响应头 120s、**首字节 90s** 超时即中断并回退 `auto`；
+  客户端断开向下游传播。
+- 发生回退时响应头带 `X-Model-Fallback: 1` / `X-Model-Requested` / `X-Model-Used`
+ （前端据此提示「已自动切换」）。
+- 错误：`400` 无效 id、`404` 活动不存在、`5xx`/超时见 [错误处理](#错误处理)。模型白名单、看门狗
+  与 A/B 依据见 `docs/insight.md` 与 `docs/faq.md` #17。
+
+---
+
+## 系统与模型 API
+
+### 16. 健康检查
+
+存活/就绪探针（2026-09-15 新增）；无任何探活端点时外部无法判断服务 + DB 是否健康。
+
+**请求**
+
+```http
+GET /api/health          # 浅探活（进程存活即 200，不触 DB，供高频轮询）
+GET /api/health?deep=1   # 深探活（校验 SQLite 可读）
+```
+
+**响应**
+
+| 场景 | 状态码 | 结构 |
+|------|--------|------|
+| 浅探活 | 200 | `{ status, service, time, uptime_s }` |
+| 深探活 · DB 可读 | 200 | 上述 + `{ db: "reachable", vdot_rows }` |
+| 深探活 · DB 不可达 | 503 | `{ status: "degraded", db: "unreachable", ... }` |
+
+### 17. 可用模型列表
+
+**请求**
+
+```http
+GET /api/llm/models
+```
+
+**响应**
+
+```json
+{
+  "models": [
+    { "id": "deepseek-v4.1-flash-wb", "name": "DeepSeek V4.1 Flash", "series": "DeepSeek",
+      "available": true, "thinking": false, "isDefault": true }
+  ],
+  "configured": true
+}
+```
+
+- `models` 是**固定白名单**（默认 1 + 可选 4，顺序即下拉顺序；`auto` 不出现，仅作服务端回退目标与
+  旧客户端兼容），由 `app/lib/model-curation.ts` 与网关 `/models` 对齐后返回；网关不可达时乐观
+  视为可用（`available: true`）。
+- `configured`：`FREELLMAPI_KEY` / Base URL 是否就绪；未就绪时 `models` 可能为空，客户端仍可用默认模型。
+- `Cache-Control: no-store`；异常返回 `500 { "error": ... }`。
 
 ---
 
