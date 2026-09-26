@@ -6,6 +6,14 @@
 ## [Unreleased]
 
 ### Added
+- **单测 817 → 838 例（65 套件）**：`ListClient` 交互/筛选/无限滚动 12 例、
+  首页 `DashboardPage` 取数与聚合 4 例（server component 直调 + mock db）、
+  `HrZoneDurationBarChart` option 构建/tooltip/生命周期 5 例，
+  以及 CLI 脚本「require 不执行」契约 3 例（子进程验证，见下）。
+- **覆盖率门槛口径说明**：写入 `jest.config.js` 注释与 `docs/testing-strategy.md` ——
+  命中 `./app/lib/` 路径分组的文件只归属该分组、不计入 `global`
+  （`global` 实为「除 app/lib 外的全部 `collectCoverageFrom` 文件」），
+  未被加载的文件分子分母均不计。此前配置里的旧注释口径有误，已更正。
 - **训练洞察（动态）**：新增 `/insight` 菜单与页面，所有指标请求时实时计算（无缓存表）。
   含跑力 VDOT 趋势、训练负荷与周期（ACWR + 强度分布 + CTL/ATL/TSB）、有氧解耦、
   跑姿技术趋势、配速-心率回归模型，以及**训练类别对比 / 气温影响对比 / 常跑路线对比 / 周期化分析**。
@@ -31,6 +39,14 @@
   与免费额度说明）。FAQ 新增 #15/#16；修复 deployment.md 一处失效锚点。
 
 ### Changed
+- **CLI 脚本可被 require 而不执行**：`backfill-vdot` / `backfill-fit-fields` / `backfill-tracks` /
+  `init-garmin-data` / `take-screenshots` / `make-fixture-db` / `sync-garmin` 统一改为
+  `if (require.main === module)` 守卫 + 导出可测入口（`main` / `makeFixtureDb` / `run`），
+  消除「一 require 就同步真库 / 开浏览器 / 写夹具」的副作用；CLI 直跑行为不变
+  （`node scripts/...`、`npm run init:cn`、`fixture:db` 均已实测）。
+- **覆盖率门槛提升（防回归）**：`global` branches 58 → 61、functions 68 → 70
+  （statements 72 / lines 73 维持）；`./app/lib/` 维持 82 / 84。当前实测：
+  global 73.69% / 63.01% / 72.41% / 74.81%，app/lib 83.41% / 85.51%，6 项全过。
 - **全站表格统一**：新增 `app/components/ui/DataTable`（对齐「分段数据」表风格：居中、紧凑、
   单位副标题、单行不换行、`overflow-x-auto` 移动端兼容），并将全部 10 张数据表迁移至该组件
   （活动详情分段表/同路线对比、分析页心率/配速区间表、洞察页 4 张表）。

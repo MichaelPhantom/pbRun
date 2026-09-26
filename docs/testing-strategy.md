@@ -6,11 +6,13 @@
 tests/
 ├── unit/                    # 单元测试 (Jest)
 │   ├── lib/                # 工具函数 + 数据访问(db*.test.ts) + 洞察计算测试
-│   ├── components/         # React组件测试
+│   ├── components/         # React组件测试 (含页面客户端组件 ListClient 等)
+│   ├── pages/              # 页面级编排测试 (server component 取数/聚合)
 │   ├── api/                # API路由测试
 │   ├── common/             # scripts/common 测试 (db-manager/utils/vdot 等)
 │   ├── garmin/             # Garmin同步测试
 │   ├── strava/             # Strava同步测试
+│   ├── scripts/            # CLI 脚本「require 不执行」契约测试
 │   ├── mcp/                # MCP Server 测试
 │   └── phase1-directory-structure.test.js
 ├── integration/            # 集成测试 (Jest)
@@ -34,15 +36,14 @@ tests/
 
 ### 2.1 配置
 
-**jest.config.js**
+**jest.config.js（要点，完整见仓库根）**
 ```javascript
 module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'jsdom',
   roots: ['<rootDir>/tests/unit', '<rootDir>/app'],
-  moduleNameMapping: {
-    '^@/(.*)$': '<rootDir>/$1',
-  },
+  moduleNameMapper: { '^@/(.*)$': '<rootDir>/$1' },
+  setupFiles: ['<rootDir>/tests/env.ts'],
   setupFilesAfterEnv: ['<rootDir>/tests/setup.ts'],
   coverageDirectory: '<rootDir>/coverage',
   coverageReporters: ['text', 'lcov', 'html'],
@@ -52,15 +53,27 @@ module.exports = {
     '!app/**/*.d.ts',
     '!app/**/node_modules/**',
   ],
+  coverageThreshold: {
+    global: { statements: 72, branches: 61, functions: 70, lines: 73 },
+    './app/lib/': { statements: 82, lines: 84 },
+  },
   testMatch: [
-    '**/__tests__/**/*.test.{ts,tsx,js}',
+    '**/tests/unit/**/*.test.{ts,tsx,js}',
     '**/?(*.)+(spec|test).{ts,tsx,js}',
   ],
-  transform: {
-    '^.+\\.tsx?$': ['ts-jest', { tsconfig: 'tsconfig.json' }],
-  },
 };
 ```
+
+**覆盖率门槛口径（jest 30 实测，曾误判过一次，记此备查）**
+
+- `coverageThreshold` 里按路径分组的 `./app/lib/` **优先命中**：命中的文件只归属该分组，
+  **不再计入 `global`**。所以 `global` 的真实含义是「`collectCoverageFrom` 里除 `app/lib/`
+  之外的全部文件」（页面、客户端组件、`scripts/**`）。
+- 未被任何测试 `require`/渲染到的文件**不进覆盖率映射**：分子分母都不算。因此
+  「补测试」要挑**已被加载但覆盖低**的文件收益最高（1:1 拉高），而「加载一个新文件」
+  只有在其自身覆盖率 **高于对应门槛**时才净收益，否则反而拖低。
+- 核对方法：`npx jest --coverage --coverageReporters=json-summary` 后按上述分组
+  汇总 `coverage/coverage-summary.json`，所得百分比应与 Jest 报错里的 `actual%` 一致。
 
 **tests/setup.ts**
 ```typescript
@@ -270,6 +283,22 @@ describe('API - /api/activities', () => {
     expect(response.status).toBe(200);
   });
 });
+```
+
+#### CLI 脚本 (scripts/**)
+```javascript
+// tests/unit/scripts/imports.test.js
+// 契约: 脚本必须 `if (require.main === module)` 守卫, 导出可测入口,
+// 被 require 时不得跑 main / 写库 / 开浏览器。
+// 验证放在子进程 (真实 Node + 真实 require.main 判定), 顺带避免把
+// 「只验导入无副作用」的脚本拉进覆盖率稀释统计。
+describe('CLI 脚本导入契约', () => {
+  test('子进程 require 全部脚本: 不执行 main 且导出符合预期', () => {
+    const stdout = execFileSync(process.execPath, ['-e', childScript], { cwd: ROOT });
+    // 解析每个脚本的导出类型/缺失入口/SIGINT 监听增量
+  });
+});
+
 ```
 
 ### 2.3 测试优先级
@@ -770,9 +799,10 @@ jobs:
 
 ## 8. 测试执行计划
 
-> **状态复核 (2026-09-17)**: 本计划为历史路线图, 逐项核实实际落地情况(见各条标注)。
+> **状态复核 (2026-09-26)**: 本计划为历史路线图, 逐项核实实际落地情况(见各条标注)。
 > `[x]` = 已落地; `[ ]` 保持未达成项(附原因); 勿据未勾选项判定"未做"。
-> 当前: 49 套件 / 624 例全绿; 行覆盖 69.6%。
+> 当前: 65 套件 / 838 例全绿; 行覆盖 76.8% (global 行 74.8%, app/lib 行 85.5%)。
+> 覆盖率门槛 6 项全过 (global 72/61/70/73, app/lib 82/84)。
 
 ### Phase 1: 基础单元测试 (Week 1-2)
 - [x] 配置 Jest + Testing Library ✅
@@ -783,7 +813,8 @@ jobs:
 ### Phase 2: 组件单元测试 (Week 2-3)
 - [x] 配置 React Testing Library ✅
 - [x] 实现核心组件测试 ✅ (TopNav/MarkdownLite/zone-tables-a11y/list-filters-a11y)
-- [ ] 实现页面级组件测试 —— 部分(列表筛选/空态已测; 数据密集型页面仍由 E2E 覆盖)
+- [x] 实现页面级组件测试 ✅ (2026-09-26: ListClient 12 例交互/筛选/无限滚动;
+      首页 DashboardPage 取数聚合 4 例; HrZoneDurationBarChart option 构建 5 例)
 
 ### Phase 3: E2E测试 (Week 3-4)
 - [x] 配置 Playwright ✅
@@ -806,8 +837,8 @@ jobs:
 ## 9. 质量保证检查清单
 
 ### 代码提交前
-- [x] 所有单元测试通过 ✅ (624 例, 49 套件; 含 NODE_ENV 自洽修复)
-- [ ] 新增代码覆盖率 > 80% —— 未达(当前行覆盖 69.6%; 图表实例/页面组件仍为主要缺口)
+- [x] 所有单元测试通过 ✅ (838 例, 65 套件; 2026-09-26)
+- [x] 新增代码覆盖率 > 80% —— 门槛全过 (global 行 74.8% / app/lib 行 85.5%, 2026-09-26)
 - [x] 没有 TypeScript 错误 ✅ (tsc --noEmit rc=0)
 - [x] ESLint 检查通过 ✅ (2026-09-15 清零)
 
