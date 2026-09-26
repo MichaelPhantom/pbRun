@@ -38,6 +38,8 @@ let logSpy;
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockAxios.post.mockReset();
+  mockPersistEnvVar.mockReset();
   mockInstance.defaults.headers.common = {};
   mockInstance.get.mockReset();
   errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});

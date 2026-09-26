@@ -58,9 +58,9 @@ module.exports = {
     '!app/**/node_modules/**',
   ],
   coverageThreshold: {
-    // 2026-09-27 校准: 贴近实测下方留 ~2pt 余量
-    global: { statements: 91, branches: 78, functions: 92, lines: 93 },
-    './app/lib/': { statements: 94, lines: 96 },
+    // 2026-09-27 二次校准: 贴近实测下方留 ~2pt 余量
+    global: { statements: 94, branches: 81, functions: 95, lines: 95 },
+    './app/lib/': { statements: 95, lines: 97 },
   },
   testMatch: [
     '**/tests/unit/**/*.test.{ts,tsx,js}',
@@ -806,9 +806,9 @@ jobs:
 
 > **状态复核 (2026-09-26)**: 本计划为历史路线图, 逐项核实实际落地情况(见各条标注)。
 > `[x]` = 已落地; `[ ]` 保持未达成项(附原因); 勿据未勾选项判定"未做"。
-> 当前 (2026-09-27 二次复核): 92 套件 / 1108 例全绿; 行覆盖 95.3%
-> (global 行 95.26%, app/lib 行 98.43%; 语句 global 93.45% / app/lib 96.66%)。
-> 覆盖率门槛 6 项全过 (global 91/78/92/93, app/lib 94/96)。
+> 当前 (2026-09-27 三次复核): 104 套件 / 1225 例全绿; 行覆盖 97.2%
+> (global 行 97.23%, app/lib 行 98.65%; 语句 global 95.80% / app/lib 97.01%)。
+> 覆盖率门槛 6 项全过 (global 94/81/95/95, app/lib 95/97)。
 
 ### Phase 1: 基础单元测试 (Week 1-2)
 - [x] 配置 Jest + Testing Library ✅
@@ -831,7 +831,9 @@ jobs:
       GlobalCoach、AiAnalysis 动作分支、ModelSelector)
 - [x] CLI 脚本真实单测 ✅ (2026-09-27: 从「导入契约」升级 —— `garmin/client`(401 刷新互斥/
       token 持久化播报)、`common/vdot-calculator`、`common/utils`(.env upsert/备份去重)、
-      `testing/make-fixture-db`、`sync-garmin`)
+      `testing/make-fixture-db`、`sync-garmin`、`common/db-manager`(列迁移/NULL 兜底)、
+      `garmin/sources/{api-source,cdp-source}`(分页去重/会话失效语义)、
+      `garmin/validate-data`(210 语句校验器, 干净/异常双数据集)、`take-screenshots`(Playwright 全 mock))
 
 ### Phase 3: E2E测试 (Week 3-4)
 - [x] 配置 Playwright ✅

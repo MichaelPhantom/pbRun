@@ -32,6 +32,12 @@ import type { ChatMessage } from '@/app/lib/llm';
 const CACHE_KEY = 'pbrun.ai.coach.cache';
 
 beforeEach(() => {
+  // reset 而非 clear: 清掉上一用例遗留的 mockResolvedValueOnce 队列与实现
+  mockStreamChat.mockReset();
+  mockStreamChat.mockImplementation(async (opts: { onDelta?: (t: string) => void }) => {
+    opts.onDelta?.('**结论** 每周 3 次轻松跑, 周末长距离。', '');
+    return ok();
+  });
   jest.clearAllMocks();
   localStorage.clear();
   mockCatalog.configured = true;

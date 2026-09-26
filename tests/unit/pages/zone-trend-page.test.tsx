@@ -6,7 +6,7 @@
  * 拉取成功 (BPM 重置/筛选排序映射)、无区间范围时清空 BPM、错误分支、
  * 空数据态与三图 option 构建 (tooltip formatter 实测输出)。
  */
-import { render, screen, waitFor, cleanup } from '@testing-library/react';
+import { render, screen, waitFor, cleanup, fireEvent } from '@testing-library/react';
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: jest.fn(), replace: jest.fn() }),
@@ -135,6 +135,49 @@ describe('app/analysis/zone/[zone]/page.tsx', () => {
       '<b>W</b><br/>步幅: 1.05 m',
     );
     expect(strideOpt.tooltip.formatter?.([{ axisValue: 'W', value: null }])).toContain('步幅: --');
+  });
+
+  test('步频/步幅图: 轴下限与 tooltip (含空参/空值兜底)', async () => {
+    searchRef.params = new URLSearchParams({ startDate: '2026-07-01', endDate: '2026-09-26' });
+    fetchMock.mockImplementation(() => okJson(payload));
+
+    render(<ZoneTrendPage />);
+    await waitFor(() => expect(setOption.mock.calls.length).toBeGreaterThanOrEqual(3));
+
+    const opts = setOption.mock.calls.map(
+      (c) =>
+        c[0] as {
+          tooltip: { formatter?: (p: unknown) => string };
+          yAxis: { min?: number; inverse?: boolean };
+        },
+    );
+    // 顺序: 配速 / 步频 / 步幅
+    const cadence = opts[1];
+    const stride = opts[2];
+    expect(cadence.yAxis.min).toBe(100);
+    expect(stride.yAxis.min).toBe(70);
+    expect(cadence.tooltip.formatter?.([{ axisValue: '2026-W38', value: 180 }])).toBe(
+      '<b>2026-W38</b><br/>步频: 180 步/分',
+    );
+    expect(cadence.tooltip.formatter?.([{ axisValue: '2026-W38', value: null }])).toContain('步频: --');
+    // 步幅: 数据放大 100 倍后显示回米
+    expect(stride.tooltip.formatter?.([{ axisValue: '2026-W38', value: 105 }])).toBe(
+      '<b>2026-W38</b><br/>步幅: 1.05 m',
+    );
+    expect(stride.tooltip.formatter?.([{ axisValue: '2026-W38', value: null }])).toContain('步幅: --');
+    // 空参 → 空串 (三图一致)
+    expect(cadence.tooltip.formatter?.([])).toBe('');
+    expect(stride.tooltip.formatter?.(null)).toBe('');
+  });
+
+  test('窗口 resize → 三图实例均 resize', async () => {
+    fetchMock.mockImplementation(() => okJson(payload));
+    searchRef.params = new URLSearchParams({ startDate: '2026-07-01', endDate: '2026-09-26' });
+    render(<ZoneTrendPage />);
+    await waitFor(() => expect(setOption.mock.calls.length).toBeGreaterThanOrEqual(3));
+
+    fireEvent(window, new Event('resize'));
+    expect(resize).toHaveBeenCalled();
   });
 
   test('默认半年区间 + zoneRanges 缺失 → BPM 复位为空', async () => {
