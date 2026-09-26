@@ -164,3 +164,25 @@
 - **实测**: 对真实活动，AI 准确识别被误标为「基础训练」的 5×1km 间歇课，引用
   用户 VDOT 45.8 与 PB，结合 TSB/周环比预警累积疲劳，分析垂直摆动/触地/步频，
   并依据强度分布（Z4 44% 严重失衡）给出 48 小时恢复与长期极化训练建议。
+
+## 运维（本机生产）
+
+### 15. `next build` / 大文件传输输出 `Killed`，但内存还很空闲
+
+进程被**所在 systemd 单元的 cgroup 内存限额**杀掉（本机 `opencode.service`
+仅 1.5 GiB），整机 OOM killer 根本不会介入，所以 `free -h` 看着完全正常。
+
+```bash
+journalctl -k --since "2 hours ago" | grep -i oom   # 看 oom_memcg= 指向谁
+systemd-run --user --scope -- bash scripts/deploy-prod.sh   # 挪到无上限的 user.slice 跑
+```
+
+诊断细节与后台运行写法见 [运维手册 · 构建陷阱](ops.md#构建陷阱)。
+
+### 16. 根分区 90%+，哪些能删？
+
+可安全删：`.next/cache/`、`.next/dev/`、`coverage/`、`~/.npm`、`~/.cache/pip`、
+`app/data/.backups/` 旧份（保留最近 3 份）。
+**不能删**：`.cache/fit`（同步脚本读它）、`tests/fixtures/activities.db`（CI 夹具）、
+`mcp-server/dist`、`app/data` 软链。完整白/黑名单与实测收益见
+[运维手册 · 磁盘清理白名单](ops.md#磁盘清理白名单)。

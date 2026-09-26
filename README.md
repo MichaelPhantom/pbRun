@@ -448,6 +448,7 @@ pbRun/
 ## 文档
 
 - [部署指南](docs/deployment.md) - Vercel 部署和 GitHub Actions 配置
+- [运维手册](docs/ops.md) - 服务器部署的服务管理、构建陷阱、磁盘清理与备份
 - [数据同步说明](docs/data-sync.md) - Garmin 和 Strava 数据同步原理和配置
 - [Strava 集成设计](docs/strava-integration-design.md) - Strava 数据源集成设计方案
 - [API 参考](docs/api-reference.md) - 完整的 API 接口文档

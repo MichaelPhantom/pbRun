@@ -25,7 +25,7 @@
 
 ### 2. 获取 Garmin 认证 Token
 
-请先完成下方「Vercel 部署」中的 [Fork 仓库](#1-fork-仓库)，再在本地克隆**你 Fork 的仓库**（不要直接 clone 上游），然后获取 Token：
+请先完成下方「Vercel 部署」中的 [Fork 仓库](#1-fork-仓库必做第一步)，再在本地克隆**你 Fork 的仓库**（不要直接 clone 上游），然后获取 Token：
 
 ```bash
 # 将 YOUR_USERNAME 替换为你的 GitHub 用户名
@@ -224,6 +224,9 @@ bash scripts/deploy-prod.sh --verify   # 仅做健康检查 (首页 200 + 主 CS
 > `restore_data_link`）。手动构建时须复用该脚本，勿直接 `next build`。
 
 日志: `journalctl --user -u pbRun -f`
+
+> 本机运维的其他常见坑（构建被 cgroup OOM 杀、磁盘清理白名单、数据库备份与
+> 对象存储异地副本）见 [运维手册](ops.md)。
 
 ---
 

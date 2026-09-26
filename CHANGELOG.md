@@ -23,6 +23,12 @@
   重写 `activity-list`/`activity-detail`/`stats`/`navigation`/`mobile` 规格为真实内容断言。
   e2e 用例 19 → 36。
 - `npm run typecheck` / `npm run test:ci` 脚本；`package.json` 增加 `engines.node >= 22`。
+- **运维手册 `docs/ops.md`**：本机生产环境（systemd + Nginx `/pbrun/`）的服务管理与
+  健康检查、构建陷阱（`app/data` 越界软链、单元 cgroup 1.5G 内存限额导致
+  `next build`/大文件传输被 `Killed` → 用 `systemd-run --user --scope` 绕开）、
+  磁盘清理白/黑名单（`.next/cache` 等可删、`.cache/fit` 等禁删）、数据库备份保留
+  策略，以及 OCI 对象存储异地副本（`cft-backup/u1rescue-20260914/` 归档、校验恢复
+  与免费额度说明）。FAQ 新增 #15/#16；修复 deployment.md 一处失效锚点。
 
 ### Changed
 - **全站表格统一**：新增 `app/components/ui/DataTable`（对齐「分段数据」表风格：居中、紧凑、
