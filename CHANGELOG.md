@@ -6,6 +6,17 @@
 ## [Unreleased]
 
 ### Added
+- **单测 838 → 1108 例（65 → 92 套件）**：把 0% 覆盖的应用壳与页面（`error`/`global-error`
+  两个错误边界分支、`layout`/`loading`/`not-found`、`/analysis`(+`AnalysisClient`)、
+  `/analysis/zone/[zone]`、`/pages/[id]`(+`ActivityDetailClient`)、`/stats`(+`StatsClient`)、
+  `/list`、`/insight`、`/daniels`、`/pages` 重定向）与图表/AI 组件（`RouteMap`、`ZoneTrendCharts`、
+  `ActivityTrendCharts`、`VDOTTrendChart`、`useEchart`、`YearHeatmap`、`Donut`、`InsightBarChart`、
+  `PaceZoneMetricsTable`、`TrainingLoadChart`、`useStickToBottom`、`GlobalCoach`、`AiAnalysis`
+  动作分支、`ModelSelector`）补上单测；CLI 脚本从「导入契约」升级为**单片真实单测**
+  （`garmin/client` 的 401 刷新互斥与 token 持久化播报、`vdot-calculator`、`common/utils`
+  的 `.env` upsert 与备份去重、`make-fixture-db`、`sync-garmin`）。
+  覆盖率：**global 语句 73.7 → 93.5% / 函数 72.4 → 94.5% / 分支 63.0 → 80.8%，
+  `app/lib/` 语句 83.4 → 96.7%、行 98.4%**。
 - **单测 817 → 838 例（65 套件）**：`ListClient` 交互/筛选/无限滚动 12 例、
   首页 `DashboardPage` 取数与聚合 4 例（server component 直调 + mock db）、
   `HrZoneDurationBarChart` option 构建/tooltip/生命周期 5 例，
@@ -61,6 +72,10 @@
  `jest.config.js` 单一真源、`npm run build` 在 u2 生产机须走 `scripts/deploy-prod.sh`。
 - jest 增加 `coverageThreshold`（`global` + `./app/lib/` 分组两组下限，数值的单一真源是
   `jest.config.js`，文档不另抄数字以免漂移），防止覆盖率回归。
+- **覆盖率门槛随实测再提升**：`global` 72/61/70/73 → **91/78/92/93**，
+  `./app/lib/` 82/84 → **94/96**（贴近实测值下方留 ~2pt 余量：global 实测
+  93.45/80.84/94.54/95.26，app/lib 96.66/98.43）。同时 `jest.config.js` 增加样式
+  `moduleNameMapper` stub，使 `app/layout.tsx`（import `globals.css`）可被单测加载。
 - 洞察页/文档同步：新增 `docs/insight.md`，更新 `README.md`、`docs/api-reference.md`、
   `docs/README.md`、`docs/deployment.md`。
 
@@ -76,6 +91,11 @@
   A/B 实测为准（仅 `glm-5.3-flash` 下发 `reasoning_effort`）。FAQ 新增 #17。
 
 ### Fixed
+- **`useStickToBottom` 的「回到底部」按钮曾是死代码**（由新增单测发现）：滚动监听写在
+  `useEffect(..., [])` 内并读取 `ref.current`，而消息区是条件渲染的 —— 首屏无内容时
+  `ref.current` 为 `null`，监听器此后**永不挂载**，`isAtBottom` 恒为 `true`。
+  改为 callback ref + `setEl` 状态、监听 effect 依赖 `[el]`，元素挂载后再绑定；
+  现有「回到底部」浮层随之恢复正常（`AiAnalysis`、`GlobalCoach` 共用该 hook）。
 - **`sync_running_data.yml` 从未真正「跳过」过**：job 级 `if` 不允许 `secrets` 上下文，
   原 `if: ${{ secrets.STRAVA_CLIENT_ID != '' || ... }}` 使 workflow 校验直接失败——每次
   push 都显示红叉、0 个 job，而注释声称「未配置 secrets 时跳过」。改为 `preflight` 预检

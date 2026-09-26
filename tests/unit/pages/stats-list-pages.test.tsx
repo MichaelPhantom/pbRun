@@ -7,7 +7,7 @@
  * - app/list/page.tsx: 分页 shape 双分支 ({data,total} / 裸数组)、
  *   首月预取与 initialExpandedMonth、空数据态。
  */
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 
 jest.mock('@/app/lib/db', () => ({
   getStats: jest.fn(),
@@ -116,6 +116,26 @@ describe('app/stats/page.tsx', () => {
     expect(screen.getByText('月数据统计')).toBeInTheDocument();
     expect(screen.getByText('共计跑步 12 次')).toBeInTheDocument();
     expect(screen.getByText(/最近6个月/)).toBeInTheDocument();
+  });
+
+  test('period=total → 全部口径 (个人纪录「全部」标签)', async () => {
+    db.getPersonalRecords.mockReturnValue({ ...prs, period: 'total' });
+    render(await StatsPage({ searchParams: Promise.resolve({ period: 'total' }) }));
+    expect(db.getStats).toHaveBeenCalledWith('total');
+    expect(screen.getByText('总数据统计')).toBeInTheDocument();
+    expect(screen.getByText('全部')).toBeInTheDocument();
+  });
+
+  test('period=year → 期间文案按 YYYY年MM月DD日-结束月日 格式', async () => {
+    db.getPersonalRecords.mockReturnValue({
+      ...prs,
+      period: 'year',
+      startDate: '2026-01-01',
+      endDate: '2026-09-26',
+    });
+    render(await StatsPage({ searchParams: Promise.resolve({ period: 'year' }) }));
+    expect(db.getStats).toHaveBeenCalledWith('year');
+    expect(screen.getByText('2026年01月01日-09月26日')).toBeInTheDocument();
   });
 
   test('非法 period → 回落 week', async () => {

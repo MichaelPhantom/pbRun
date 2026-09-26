@@ -42,7 +42,11 @@ module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'jsdom',
   roots: ['<rootDir>/tests/unit', '<rootDir>/app'],
-  moduleNameMapper: { '^@/(.*)$': '<rootDir>/$1' },
+  moduleNameMapper: {
+    '^@/(.*)$': '<rootDir>/$1',
+    // 样式 stub: layout.tsx 等 import globals.css, jest 无法解析样式文件
+    '\\.(css|scss|sass|less)$': '<rootDir>/tests/style-stub.js',
+  },
   setupFiles: ['<rootDir>/tests/env.ts'],
   setupFilesAfterEnv: ['<rootDir>/tests/setup.ts'],
   coverageDirectory: '<rootDir>/coverage',
@@ -54,8 +58,9 @@ module.exports = {
     '!app/**/node_modules/**',
   ],
   coverageThreshold: {
-    global: { statements: 72, branches: 61, functions: 70, lines: 73 },
-    './app/lib/': { statements: 82, lines: 84 },
+    // 2026-09-27 校准: 贴近实测下方留 ~2pt 余量
+    global: { statements: 91, branches: 78, functions: 92, lines: 93 },
+    './app/lib/': { statements: 94, lines: 96 },
   },
   testMatch: [
     '**/tests/unit/**/*.test.{ts,tsx,js}',
@@ -801,12 +806,14 @@ jobs:
 
 > **状态复核 (2026-09-26)**: 本计划为历史路线图, 逐项核实实际落地情况(见各条标注)。
 > `[x]` = 已落地; `[ ]` 保持未达成项(附原因); 勿据未勾选项判定"未做"。
-> 当前: 65 套件 / 838 例全绿; 行覆盖 76.8% (global 行 74.8%, app/lib 行 85.5%)。
-> 覆盖率门槛 6 项全过 (global 72/61/70/73, app/lib 82/84)。
+> 当前 (2026-09-27 二次复核): 92 套件 / 1108 例全绿; 行覆盖 95.3%
+> (global 行 95.26%, app/lib 行 98.43%; 语句 global 93.45% / app/lib 96.66%)。
+> 覆盖率门槛 6 项全过 (global 91/78/92/93, app/lib 94/96)。
 
 ### Phase 1: 基础单元测试 (Week 1-2)
 - [x] 配置 Jest + Testing Library ✅
-- [x] 实现 lib/ 工具函数测试 ✅ (tests/unit/lib/ 16 套件)
+- [x] 实现 lib/ 工具函数测试 ✅ (tests/unit/lib/, 含 SSE 流解析 `stream-chat` 23 例、
+      `llm` 网关配置与白名单回落、`db` 未覆盖路径补测)
 - [x] 实现 db/ 数据库查询测试 ✅ (tests/unit/lib/db*.test.ts + db-availability)
 - [x] 实现 API Routes 测试 ✅ (tests/unit/api/analysis-fallback: 模型回退契约 4 例)
 
@@ -815,6 +822,16 @@ jobs:
 - [x] 实现核心组件测试 ✅ (TopNav/MarkdownLite/zone-tables-a11y/list-filters-a11y)
 - [x] 实现页面级组件测试 ✅ (2026-09-26: ListClient 12 例交互/筛选/无限滚动;
       首页 DashboardPage 取数聚合 4 例; HrZoneDurationBarChart option 构建 5 例)
+- [x] 应用壳与路由页 ✅ (2026-09-27: error/global-error 错误边界两分支、layout/loading/
+      not-found、`/analysis`+`/analysis/zone/[zone]`、`/pages/[id]` 详情、`/stats`、`/list`、
+      `/insight`、`/daniels`、`/pages` 重定向 —— 全部从 0% 起测)
+- [x] 图表与 AI 组件 ✅ (2026-09-27: RouteMap(leaflet mock)、ZoneTrendCharts、
+      ActivityTrendCharts、VDOTTrendChart、useEchart(主题重建/dispose)、YearHeatmap、
+      Donut、InsightBarChart、PaceZoneMetricsTable、TrainingLoadChart、useStickToBottom、
+      GlobalCoach、AiAnalysis 动作分支、ModelSelector)
+- [x] CLI 脚本真实单测 ✅ (2026-09-27: 从「导入契约」升级 —— `garmin/client`(401 刷新互斥/
+      token 持久化播报)、`common/vdot-calculator`、`common/utils`(.env upsert/备份去重)、
+      `testing/make-fixture-db`、`sync-garmin`)
 
 ### Phase 3: E2E测试 (Week 3-4)
 - [x] 配置 Playwright ✅
@@ -837,8 +854,8 @@ jobs:
 ## 9. 质量保证检查清单
 
 ### 代码提交前
-- [x] 所有单元测试通过 ✅ (838 例, 65 套件; 2026-09-26)
-- [x] 新增代码覆盖率 > 80% —— 门槛全过 (global 行 74.8% / app/lib 行 85.5%, 2026-09-26)
+- [x] 所有单元测试通过 ✅ (1108 例, 92 套件; 2026-09-27)
+- [x] 新增代码覆盖率 > 80% —— 门槛全过 (global 行 95.3% / app/lib 行 98.4%, 2026-09-27)
 - [x] 没有 TypeScript 错误 ✅ (tsc --noEmit rc=0)
 - [x] ESLint 检查通过 ✅ (2026-09-15 清零)
 

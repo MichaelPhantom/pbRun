@@ -18,8 +18,9 @@ module.exports = {
     '!app/**/*.d.ts',
     '!app/**/node_modules/**',
   ],
-  // 覆盖率下限 (防回归)。整体门槛设在当前实测下方留余量;
-  // 核心纯逻辑层 (app/lib 计算/服务/db) 单独设更高门槛。
+  // 覆盖率下限 (防回归)。门槛贴近实测值下方留 ~2pt 余量 (2026-09-27 校准):
+  // global 实测 st 93.45 / br 80.84 / fn 94.54 / lines 95.26;
+  // ./app/lib/ 实测 st 96.66 / lines 98.43。核心逻辑层门槛更高。
   //
   // 口径 (jest 30 实测, 见 @jest/reporters CoverageReporter._checkThreshold):
   // 命中 coverageThreshold 路径分组的文件 (./app/lib/) 只归属该分组,
@@ -27,17 +28,17 @@ module.exports = {
   // 未被任何测试加载的文件不进覆盖率映射, 既不计分子也不计分母。
   // 因此报错里的 actual% == 文本报表按同口径汇总的百分比 (可用 python 复算核对)。
   coverageThreshold: {
-    // 全局门槛 (页面/客户端组件/脚本) 设在实测下方留 ~2pt 余量, 防回归。
+    // 全局门槛 (页面/客户端组件/脚本): 2026-09-27 由 72/61/70/73 提升至 91/78/92/93。
     global: {
-      statements: 72,
-      branches: 61,
-      functions: 70,
-      lines: 73,
+      statements: 91,
+      branches: 78,
+      functions: 92,
+      lines: 93,
     },
-    // 核心逻辑层 (计算/服务/db/ai/图表) 单独更高门槛
+    // 核心逻辑层 (计算/服务/db/ai/图表) 更高门槛: 82/84 → 94/96
     './app/lib/': {
-      statements: 82,
-      lines: 84,
+      statements: 94,
+      lines: 96,
     },
   },
   testMatch: [
