@@ -13,10 +13,18 @@ import { useCallback, useEffect, useRef, useState } from 'react';
  * - 尊重 prefers-reduced-motion。
  */
 export function useStickToBottom<T extends HTMLElement>(deps: unknown[] = []) {
-  const ref = useRef<T>(null);
+  const ref = useRef<T | null>(null);
+  // 消息区是条件渲染的 (首条内容到来前不挂载), ref.current 在 effect 首跑时可能仍为 null,
+  // 故用 state 跟踪元素本体: 监听器随元素挂载/卸载重建 (否则「回到底部」永远不会出现)。
+  const [el, setEl] = useState<T | null>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const stickRef = useRef(true);
   const programmaticRef = useRef(false);
+
+  const setRef = useCallback((node: T | null) => {
+    ref.current = node;
+    setEl(node);
+  }, []);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
     const el = ref.current;
@@ -52,9 +60,8 @@ export function useStickToBottom<T extends HTMLElement>(deps: unknown[] = []) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
 
-  // 监听用户滚动, 更新「是否贴底」与是否继续跟随
+  // 监听用户滚动, 更新「是否贴底」与是否继续跟随 (deps = 元素: 条件渲染后补挂)
   useEffect(() => {
-    const el = ref.current;
     if (!el) return;
     const onScroll = () => {
       if (programmaticRef.current) return;
@@ -64,7 +71,7 @@ export function useStickToBottom<T extends HTMLElement>(deps: unknown[] = []) {
     };
     el.addEventListener('scroll', onScroll, { passive: true });
     return () => el.removeEventListener('scroll', onScroll);
-  }, []);
+  }, [el]);
 
-  return { ref, isAtBottom, scrollToBottom };
+  return { ref: setRef, isAtBottom, scrollToBottom };
 }

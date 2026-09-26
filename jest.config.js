@@ -5,6 +5,8 @@ module.exports = {
   roots: ['<rootDir>/tests/unit', '<rootDir>/app'],
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/$1',
+    // 样式文件 stub: layout.tsx 等 import globals.css, jest 无法解析样式
+    '\\.(css|scss|sass|less)$': '<rootDir>/tests/style-stub.js',
   },
   setupFiles: ['<rootDir>/tests/env.ts'],
   setupFilesAfterEnv: ['<rootDir>/tests/setup.ts'],
