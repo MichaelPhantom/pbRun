@@ -167,8 +167,12 @@ async function main() {
   }
 }
 
-// 运行
-main().catch((error) => {
-  console.error('\n❌ 发生错误:', error);
-  process.exit(1);
-});
+module.exports = { takeScreenshot, main, screenshots, VIEWPORT, USER_AGENT, SCREENSHOTS_DIR, BASE_URL };
+
+// 仅 CLI 直跑时执行 (被 require 时不自动运行, 便于单测)
+if (require.main === module) {
+  main().catch((error) => {
+    console.error('\n❌ 发生错误:', error);
+    process.exit(1);
+  });
+}

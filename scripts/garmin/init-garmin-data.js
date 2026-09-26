@@ -293,10 +293,28 @@ async function main() {
   }
 }
 
-// Handle Ctrl+C
-process.on('SIGINT', () => {
-  log('\n\n同步已中断', 'yellow');
-  process.exit(130);
-});
+module.exports = {
+  colors,
+  log,
+  logSection,
+  checkEnvVars,
+  checkDatabaseExists,
+  clearDatabaseData,
+  askUserConfirmation,
+  handleExistingDatabase,
+  runSync,
+  showDatabaseStats,
+  showNextSteps,
+  main,
+};
 
-main();
+// 仅 CLI 直跑时执行 (被 require 时不自动运行, 便于单测)
+if (require.main === module) {
+  // Handle Ctrl+C
+  process.on('SIGINT', () => {
+    log('\n\n同步已中断', 'yellow');
+    process.exit(130);
+  });
+
+  main();
+}

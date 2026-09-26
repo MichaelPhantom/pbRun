@@ -11,8 +11,17 @@
 
 const { main } = require('./garmin/sync.js');
 
-main().catch((error) => {
-  // main() 内部已 try/catch + process.exit; 此处兜底不可预期异常。
-  console.error(error);
-  process.exit(1);
-});
+function run() {
+  return main().catch((error) => {
+    // main() 内部已 try/catch + process.exit; 此处兜底不可预期异常。
+    console.error(error);
+    process.exit(1);
+  });
+}
+
+module.exports = { run };
+
+// 仅 CLI 直跑时执行 (被 require 时不自动运行, 便于单测)
+if (require.main === module) {
+  run();
+}

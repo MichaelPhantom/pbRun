@@ -124,4 +124,9 @@ async function main() {
   // 失败项反映到退出码, 供 CI/cron 察觉部分失败 (原实现恒 0)。
   if (failed > 0) process.exitCode = 1;
 }
-main().catch(e => { console.error('Fatal', e); process.exit(1); });
+module.exports = { main, FIT_CACHE_DIR };
+
+// 仅 CLI 直跑时执行 (被 require 时不自动运行, 便于单测)
+if (require.main === module) {
+  main().catch(e => { console.error('Fatal', e); process.exit(1); });
+}

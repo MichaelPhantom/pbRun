@@ -71,4 +71,9 @@ async function main() {
   log(`回滚: cp "${bakPath}" "${DB_PATH}"`);
 }
 
-main().catch(e => { console.error('致命错误:', e); process.exit(1); });
+module.exports = { main, log };
+
+// 仅 CLI 直跑时执行 (被 require 时不自动运行, 便于单测)
+if (require.main === module) {
+  main().catch(e => { console.error('致命错误:', e); process.exit(1); });
+}

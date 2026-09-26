@@ -14,16 +14,7 @@ const path = require('path');
 const fs = require('fs');
 const DatabaseManager = require('../common/db-manager');
 
-const outPath = process.argv[2] || path.join(__dirname, '..', '..', 'tests', 'fixtures', 'activities.db');
-
-// 幂等: 已存在则先删除, 保证确定性
-if (fs.existsSync(outPath)) fs.rmSync(outPath);
-
-const db = new DatabaseManager(outPath);
-
-// 生产库的 track 列由 backfill-tracks.js 经 ALTER TABLE 添加 (非建表语句),
-// 夹具需补齐, 否则详情页 getActivityTrack 报 "no such column: track"。
-db.db.exec('ALTER TABLE activities ADD COLUMN track TEXT');
+const DEFAULT_OUT_PATH = path.join(__dirname, '..', '..', 'tests', 'fixtures', 'activities.db');
 
 // 样本 (5 条): 涵盖阈值/长距离/基础/恢复, 含同路线 (两江新区 x3) 以触发
 // 详情页「同路线对比」表, 并覆盖训练类别/周期化/占比等多张洞察表。
@@ -156,45 +147,64 @@ const samples = [
   },
 ];
 
-for (const s of samples) db.upsertActivity(s);
+/** 生成夹具库: 建表 + 写入样本 (幂等: 已存在则先删除, 保证确定性)。 */
+function makeFixtureDb(outPath = process.argv[2] || DEFAULT_OUT_PATH) {
+  if (fs.existsSync(outPath)) fs.rmSync(outPath);
 
-// 一条 lap 数据 (供 activity-insight / 分段页)
-// duration/cumulative_time/distance 为 NOT NULL 列
-let cum = 0;
-const lapDefs = [
-  { average_pace: 457, average_heart_rate: 131, average_cadence: 186, duration: 457 },
-  { average_pace: 280, average_heart_rate: 170, average_cadence: 188, duration: 280 },
-  { average_pace: 275, average_heart_rate: 178, average_cadence: 188, duration: 275 },
-  { average_pace: 436, average_heart_rate: 141, average_cadence: 184, duration: 436 },
-];
-// 注: insertLaps 从首条 lap 的键推导列, 故每条须含 activity_id
-db.insertLaps(
-  900000001,
-  lapDefs.map((l, i) => {
-    cum += l.duration;
-    return { activity_id: 900000001, lap_index: i, distance: 1000, cumulative_time: cum, ...l };
-  }),
-);
+  const db = new DatabaseManager(outPath);
 
-// 少量逐秒记录 (供 record 趋势图 / 解耦)
-const records = [];
-for (let i = 0; i < 200; i++) {
-  records.push({
-    activity_id: 900000001,
-    record_index: i,
-    elapsed_sec: i,
-    heart_rate: 150 + Math.round(i / 20),
-    cadence: 182,
-    step_length: 0.95,
-    pace: 350,
-    power: 270,
-    altitude: 300,
-    speed: 2.85,
-    distance: i * 2.85,
-  });
+  // 生产库的 track 列由 backfill-tracks.js 经 ALTER TABLE 添加 (非建表语句),
+  // 夹具需补齐, 否则详情页 getActivityTrack 报 "no such column: track"。
+  db.db.exec('ALTER TABLE activities ADD COLUMN track TEXT');
+
+  for (const s of samples) db.upsertActivity(s);
+
+  // 一条 lap 数据 (供 activity-insight / 分段页)
+  // duration/cumulative_time/distance 为 NOT NULL 列
+  let cum = 0;
+  const lapDefs = [
+    { average_pace: 457, average_heart_rate: 131, average_cadence: 186, duration: 457 },
+    { average_pace: 280, average_heart_rate: 170, average_cadence: 188, duration: 280 },
+    { average_pace: 275, average_heart_rate: 178, average_cadence: 188, duration: 275 },
+    { average_pace: 436, average_heart_rate: 141, average_cadence: 184, duration: 436 },
+  ];
+  // 注: insertLaps 从首条 lap 的键推导列, 故每条须含 activity_id
+  db.insertLaps(
+    900000001,
+    lapDefs.map((l, i) => {
+      cum += l.duration;
+      return { activity_id: 900000001, lap_index: i, distance: 1000, cumulative_time: cum, ...l };
+    }),
+  );
+
+  // 少量逐秒记录 (供 record 趋势图 / 解耦)
+  const records = [];
+  for (let i = 0; i < 200; i++) {
+    records.push({
+      activity_id: 900000001,
+      record_index: i,
+      elapsed_sec: i,
+      heart_rate: 150 + Math.round(i / 20),
+      cadence: 182,
+      step_length: 0.95,
+      pace: 350,
+      power: 270,
+      altitude: 300,
+      speed: 2.85,
+      distance: i * 2.85,
+    });
+  }
+  db.insertActivityRecords(900000001, records);
+
+  db.close();
+  console.log(`✓ fixture DB 生成: ${outPath}`);
+  console.log(`  活动 ${samples.length} 条, laps ${lapDefs.length} 段, records ${records.length} 点`);
+  return outPath;
 }
-db.insertActivityRecords(900000001, records);
 
-db.close();
-console.log(`✓ fixture DB 生成: ${outPath}`);
-console.log(`  活动 ${samples.length} 条, laps 4 段, records 200 点`);
+module.exports = { makeFixtureDb, samples, DEFAULT_OUT_PATH };
+
+// 仅 CLI 直跑时执行 (被 require 时不自动运行, 便于单测)
+if (require.main === module) {
+  makeFixtureDb();
+}
