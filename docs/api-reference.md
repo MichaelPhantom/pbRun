@@ -677,9 +677,14 @@ GET /api/insight?startDate=2026-06-01&endDate=2026-09-22
 POST /api/insight/coach
 Content-Type: application/json
 
-{ "model": "auto", "days": 90 }
-{ "model": "auto", "days": 90, "question": "我的短板是什么？", "history": [] }
+{ "model": "deepseek-v4.1-flash-wb", "days": 90 }
+{ "model": "deepseek-v4.1-flash-wb", "days": 90, "question": "我的短板是什么？", "history": [] }
 ```
+
+`model` 只接受白名单值（`app/lib/model-curation.ts`）：默认
+`deepseek-v4.1-flash-wb`，可选 `glm-5.3-flash` / `kimi-k3` /
+`gemini-3.7-flash` / `gemini-3.5-flash-lite`，以及回退目标 `auto`；
+其余值在服务端清洗为默认模型。
 
 **响应头**
 

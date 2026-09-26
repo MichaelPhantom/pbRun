@@ -70,3 +70,35 @@ describe('buildAnalysisRequestBody', () => {
     ).toBe(8000);
   });
 });
+
+/**
+ * 白名单 (model-curation) 优先生效: thinking/effort 以实测结论为准,
+ * 不再走下面的启发式 —— 尤其 deepseek-v4.1-flash-wb 绝不能下发 effort
+ * (实测会诱发 230 字符思考, 反而吃掉输出预算)。
+ */
+describe('白名单模型的 thinking/effort', () => {
+  test.each([
+    ['deepseek-v4.1-flash-wb', false],
+    ['glm-5.3-flash', true],
+    ['kimi-k3', true],
+    ['gemini-3.7-flash', false],
+    ['gemini-3.5-flash-lite', false],
+  ])('%s → isThinkingModel=%s', (id, expected) => {
+    expect(isThinkingModel(id)).toBe(expected);
+  });
+
+  test('effort 只对 glm-5.3-flash 下发', () => {
+    for (const id of ['deepseek-v4.1-flash-wb', 'kimi-k3', 'gemini-3.7-flash', 'auto']) {
+      expect(buildAnalysisRequestBody(id, [])).not.toHaveProperty('reasoning_effort');
+    }
+    expect(buildAnalysisRequestBody('glm-5.3-flash', []).reasoning_effort).toBe('low');
+  });
+
+  test('候选 id (网关改名兜底) 与规范 id 结论一致', () => {
+    expect(isThinkingModel('deepseek-v4.1-flash')).toBe(false);
+    expect(isThinkingModel('glm-5.3-flash-wb')).toBe(true);
+    expect(buildAnalysisRequestBody('deepseek-v4.1-flash', [])).not.toHaveProperty(
+      'reasoning_effort',
+    );
+  });
+});

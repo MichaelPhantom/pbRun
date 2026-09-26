@@ -4,17 +4,21 @@ describe('friendlyAnalysisError', () => {
   test('502 给出切换模型的 action 指引', () => {
     const msg = friendlyAnalysisError(502, '上游错误 502', 'fetch failed');
     expect(msg).toContain('分析通道故障');
-    expect(msg).toContain('auto');
-    expect(msg).toContain('glm-5.1-wb');
+    expect(msg).toContain('切换其他模型');
+    expect(msg).toContain('Gemini 3.5 Flash Lite');
     expect(msg).toContain('fetch failed');
+    expect(msg).not.toContain('auto');
   });
 
   test('503（未配置）同样给出指引', () => {
-    expect(friendlyAnalysisError(503, 'AI 分析未配置')).toContain('glm-5.1-wb');
+    expect(friendlyAnalysisError(503, 'AI 分析未配置')).toContain('Gemini 3.5 Flash Lite');
   });
 
   test('504 给出超时重试指引', () => {
-    expect(friendlyAnalysisError(504)).toContain('120s');
+    const msg = friendlyAnalysisError(504);
+    expect(msg).toContain('分析超时');
+    expect(msg).toContain('切换模型');
+    expect(msg).not.toContain('120s');
   });
 
   test('429 给出限流可操作提示', () => {

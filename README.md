@@ -341,9 +341,11 @@ npm run dev
   配速策略/心率有氧/跑步经济性/负荷恢复/长期趋势）生成结构化专业解读（📊总评/
   🎯性质判定/📈深度数据/💡亮点改进/🏃下次处方/📅长期方向）。支持**多轮追问**与
   **智能追问建议**（一键发起上下文相关问题）。支持 SSE 流式、思考过程折叠、
-  停止/继续、复制/重生成（更精炼/更深入）、👍👎、按系列分组的模型选择（各系列
-  最新 2 版）。调用本机 freellm 网关，模型默认 auto；主模型限流/故障自动回退。
-  凭证见 `.env` 的 `FREELLMAPI_KEY`，故障排查见 `docs/faq.md#11`
+  停止/继续、复制/重生成（更精炼/更深入）、👍👎、固定白名单的模型选择（默认
+  DeepSeek V4.1 Flash，另可选 GLM 5.3 Flash / Kimi K3 / Gemini 3.7 Flash /
+  Gemini 3.5 Flash Lite）。调用本机 freellm 网关，主模型 90s 首字节看门狗 +
+  限流/故障自动回退 `auto`。凭证见 `.env` 的 `FREELLMAPI_KEY`，故障排查见
+  `docs/faq.md#11`
 - ✅ **训练洞察（动态）** - 独立「洞察」菜单：所有指标**请求时实时计算、无缓存表**，随数据同步自动更新。包含
   **跑力 VDOT 趋势**（线性拟合 + 平台期判定）、**训练负荷与周期**（ACWR 急慢性比 + 强度分布 + 周期化周 CTL/ATL/TSB）、
   **有氧效率**（长跑逐秒解耦 Pa:HR 漂移）、**跑姿技术趋势**（步频/触地/垂直比）、**配速-心率回归模型**（反推阈值配速），
@@ -375,7 +377,7 @@ pbRun/
 │       ├── activity-insight-service.ts # 活动深挖编排
 │       ├── llm.ts                   # AI prompt/请求体/全局教练消息/模型策展接入
 │       ├── runner-profile.ts        # 跑者画像 (个人基础数据)
-│       ├── model-curation.ts        # 模型策展 (各系列最新 2 版)
+│       ├── model-curation.ts        # 模型清单 (固定白名单: 默认 + 4 可选)
 │       └── components/ai/           # AI 对话 UI (活动分析/全局教练/思考块/模型选择/SSE 解析)
 ├── scripts/               # 数据同步脚本
 │   ├── common/            # 通用模块
@@ -440,7 +442,7 @@ pbRun/
 | `POST /api/insight/coach` | 全局 AI 综合教练/追问 (SSE 流式, 含模型回退头) | body: `{model?, question?, history?, days?}` |
 | `GET /api/activities/[id]/insight` | 活动详情深挖 (分段角色/漂移/区间/解耦/同路线对比) | - |
 | `POST /api/activities/[id]/analysis` | AI 教练分析/追问 (SSE 流式, 含模型回退头) | body: `{model?, question?, history?}` |
-| `GET /api/llm/models` | 可用 LLM 模型列表 (各系列最新 2 版, 已策展) | - |
+| `GET /api/llm/models` | 可用 LLM 模型列表 (固定白名单, 默认项标 `recommended`) | - |
 | `GET /api/health` | 存活/就绪探针(2026-09-15 新增) | `deep=1` 校验 DB 可读 |
 
 完整 API 文档: [docs/api-reference.md](docs/api-reference.md)

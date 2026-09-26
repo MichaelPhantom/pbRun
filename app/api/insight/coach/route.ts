@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getInsight } from '@/app/lib/insight-service';
 import { buildRunnerProfile, formatRunnerProfile } from '@/app/lib/runner-profile';
 import {
-  buildAnalysisRequestBody,
   buildGlobalCoachFollowupMessages,
   buildGlobalCoachMessages,
   getFreellmConfig,
   type ChatMessage,
   type GlobalCoachContext,
 } from '@/app/lib/llm';
+import { runCoachStream } from '@/app/lib/coach-stream';
+import { DEFAULT_MODEL, resolveRequestedModel } from '@/app/lib/model-curation';
 import { formatInsightForCoach } from '@/app/lib/insight-coach';
 import { getDateRangeFromDays, parseTimeRangeDays } from '@/app/lib/date-utils';
 import { parseDateParam } from '@/app/lib/query-params';
@@ -20,13 +21,13 @@ export const dynamic = 'force-dynamic';
  * POST /api/insight/coach —— 全局 AI 教练 (跨全部历史数据)。
  *
  * Body (JSON, 可选):
- *  - model: 模型 id (默认 auto)
+ *  - model: 模型 id (默认 deepseek-v4.1-flash-wb; 只接受白名单值)
  *  - question: 追问内容 (有则为多轮)
  *  - history: 历史对话 [{role,content}]
  *  - days: 30|90|180 (默认 90)
  *  - startDate/endDate: 显式区间
  *
- * 返回 SSE 流 (与单活动分析一致)。
+ * 返回 SSE 流 (与单活动分析一致); 调用策略见 app/lib/coach-stream.ts。
  */
 export async function POST(request: NextRequest) {
   const cfg = getFreellmConfig();
@@ -37,7 +38,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  let model = 'auto';
+  let model = DEFAULT_MODEL;
   let question = '';
   let history: ChatMessage[] = [];
   let days = 90;
@@ -46,7 +47,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    if (body && typeof body.model === 'string' && body.model.length <= 64) model = body.model;
+    model = resolveRequestedModel(body?.model);
     if (body && typeof body.question === 'string') question = body.question.trim();
     if (body && Array.isArray(body.history)) history = body.history as ChatMessage[];
     if (body && body.days != null) days = parseTimeRangeDays(String(body.days));
@@ -94,65 +95,12 @@ export async function POST(request: NextRequest) {
     ? buildGlobalCoachFollowupMessages(ctx, history, question)
     : buildGlobalCoachMessages(ctx);
 
-  const primaryBody = buildAnalysisRequestBody(model, messages, 4500);
-
-  const { baseUrl, key } = cfg;
-  async function tryUpstream(body: unknown): Promise<Response> {
-    return fetch(`${baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(120000),
-    });
-  }
-
-  let upstream: Response | null = null;
-  let usedModel = model;
-  let fallback = false;
-  try {
-    upstream = await tryUpstream(primaryBody);
-  } catch {
-    upstream = null;
-  }
-
-  const isRateLimited = upstream?.status === 429;
-  const primaryFailedRetryable = !upstream || (upstream.status >= 500 && !upstream.ok) || isRateLimited;
-  if (primaryFailedRetryable && model !== 'auto') {
-    if (isRateLimited) await new Promise((r) => setTimeout(r, 800));
-    try {
-      const retry = await tryUpstream(buildAnalysisRequestBody('auto', messages, 4500));
-      if (retry.ok && retry.body) {
-        upstream = retry;
-        usedModel = 'auto';
-        fallback = true;
-      }
-    } catch {
-      // 保留主错误
-    }
-  }
-
-  if (!upstream || !upstream.ok || !upstream.body) {
-    const detail = upstream ? await upstream.text().catch(() => '') : 'freellmapi 不可达或 120s 超时';
-    const status = upstream?.status ?? 502;
-    const error =
-      status === 429
-        ? '模型暂受限流，请稍后重试或切换其他模型'
-        : `上游错误 ${upstream?.status ?? 'TIMEOUT'}`;
-    return NextResponse.json(
-      { error, detail: detail.slice(0, 300) },
-      { status: status < 500 && status !== 429 ? status : 502 },
-    );
-  }
-
-  const headers: Record<string, string> = {
-    'Content-Type': 'text/event-stream; charset=utf-8',
-    'Cache-Control': 'no-cache, no-transform',
-    'X-Accel-Buffering': 'no',
-  };
-  if (fallback) {
-    headers['X-Model-Fallback'] = '1';
-    headers['X-Model-Requested'] = model;
-    headers['X-Model-Used'] = usedModel;
-  }
-  return new Response(upstream.body, { headers });
+  return runCoachStream({
+    baseUrl: cfg.baseUrl,
+    key: cfg.key,
+    model,
+    messages,
+    maxTokens: 4500,
+    clientSignal: request.signal,
+  });
 }

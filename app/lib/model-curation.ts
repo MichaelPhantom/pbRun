@@ -1,14 +1,23 @@
 /**
- * 模型策展 (单一来源) — 从 freellm 网关的 298 个条目中, 只保留「各具体模型系列
- * 最新的两个版本」, 剔除聚合/路由/夹具 (shim) 与专用 (安全/翻译/代码/视觉) 模型。
+ * 模型清单 (单一来源) —— 人工挑选的固定白名单, 不再从网关 298 项里自动策展。
  *
- * 背景: freellmapi /models 返回大量噪声条目: 聚合器 (auto/fusion/free-router…)、
- * 同一底模的多渠道夹具 (-wb/-juzi/-qd/-trae)、代码/安全/视觉等专用模型。对「跑步
- * 教练分析」这类通用文本任务, 暴露 298 项既无法选择也无意义。
+ * 背景: freellmapi /models 返回大量噪声条目 (聚合器 auto/fusion/free-router、
+ * 同一底模的多渠道夹具 -wb/-juzi/-qd/-trae、代码/安全/视觉等专用模型), 暴露它们
+ * 对「跑步教练分析」既无选择价值又难维护。2026-09-26 起改为显式白名单: 默认 1 个
+ * + 可选 4 个, 顺序即下拉顺序。
  *
- * 策展策略: 用显式 SERIES 表定义值得暴露的模型族 (正则 + 版本解析), 每族取版本
- * 最高的至多 N 个可用条目; 聚合/专用模型不在表中即被排除。这样新增型号只需补一行,
- * 且选择结果稳定可测 (不依赖网关返回顺序)。
+ * 每条 preset 的 thinking / effort 不是猜测, 而是 2026-09-26 对本机网关的 A/B 实测
+ * (完整教练提示, stream, max_tokens=4000):
+ *
+ * | 模型                    | 不下发 effort          | 下发 reasoning_effort: low |
+ * |-------------------------|------------------------|----------------------------|
+ * | deepseek-v4.1-flash-wb  | 无思考, finish=stop     | **诱发** 230 字符思考 (变差) |
+ * | glm-5.3-flash           | 889 字符思考           | 思考被压到 0 (必需)          |
+ * | kimi-k3                 | 742~1150 字符思考      | 1284~1429 字符 (无效)       |
+ * | gemini-3.7-flash        | 无思考                 | 无思考 (无差异)              |
+ * | gemini-3.5-flash-lite   | 无思考                 | 无思考 (无差异)              |
+ *
+ * 结论: effort 只对 glm-5.3-flash 下发; deepseek 绝不能下发 (会诱发思考)。
  */
 
 export interface RawModel {
@@ -17,157 +26,151 @@ export interface RawModel {
   available?: boolean;
 }
 
-export interface CuratedModel {
+/** 可选模型之一 (白名单条目)。 */
+export interface ModelPreset {
+  /** 规范 id —— 下拉与请求体使用它。 */
   id: string;
+  /** 候选 id (按优先级)。[0] 即 id; 其余为网关改名/渠道迁移时的兜底,
+   *  同时构成服务端的模型白名单 (见 isAllowedModel)。 */
+  candidates: string[];
+  /** 显示名兜底 (网关未返回 name 时使用)。 */
   name: string;
-  /** 系列显示名 (用于分组) */
+  /** 分组/副标题显示名。 */
   series: string;
-  /** 系列内版本号 (可比较, 用于排序) */
-  version: number[];
-}
-/** 每系列保留的最大版本数。 */
-export const MAX_PER_SERIES = 2;
-
-/**
- * 值得暴露的模型族 (面向通用文本/推理分析)。
- * - series: 显示名
- * - test: 匹配该族某版本的 id (须为「无夹具后缀」的规范 id)
- * - versionOf: 从 id 解析可比较版本数组 (数字段); 解析失败返回 null
- * - rank: 同版本时的优先级 (越小越优), 用于稳定排序
- */
-interface SeriesDef {
-  series: string;
-  test: RegExp;
-  versionOf: (id: string) => number[] | null;
-  rank?: number;
-  /** 同版本下的档位 (越大越强, 如 pro>flash, max>plus, ultra>super), 参与去重与排序。 */
-  tierOf?: (id: string) => number;
+  /** 思考模型 (UI 标 🧠; 也决定是否给更宽的 max_tokens 预算语义)。 */
+  thinking: boolean;
+  /** 是否下发 reasoning_effort: low (实测结论见文件头)。 */
+  effort: boolean;
+  /** 默认模型 (无用户选择时使用)。 */
+  isDefault?: boolean;
 }
 
-/** "a3.7" → [3,7]; 提取所有数字段。 */
-function leadingVersion(id: string, prefix: RegExp): number[] {
-  const m = id.match(prefix);
-  if (!m || !m[1]) return [];
-  return m[1].split('.').map((s) => parseInt(s, 10)).filter((n) => !Number.isNaN(n));
-}
+/** 默认模型: 快、非思考、finish=stop, 适合固定结构的教练点评。 */
+export const DEFAULT_MODEL = 'deepseek-v4.1-flash-wb';
 
-const SERIES: SeriesDef[] = [
-  { series: 'Gemini Flash', test: /^gemini-\d+(?:\.\d+)?-flash$/, versionOf: (id) => leadingVersion(id, /^gemini-(\d+(?:\.\d+)?)-flash$/), rank: 1 },
-  { series: 'GLM', test: /^glm-\d+(?:\.\d+)?(?:-flash)?$/, versionOf: (id) => leadingVersion(id, /^glm-(\d+(?:\.\d+)?)/), rank: 2 },
-  { series: 'DeepSeek', test: /^deepseek-v\d+(?:\.\d+)?(?:-flash|-pro)?$/, versionOf: (id) => leadingVersion(id, /^deepseek-v(\d+(?:\.\d+)?)/), rank: 1, tierOf: (id) => (/pro/.test(id) ? 1 : 0) },
-  { series: 'Qwen', test: /^qwen\d+(?:\.\d+)?-(?:max|plus|397b-a17b|235b-a22b-instruct-\d+)$/, versionOf: (id) => leadingVersion(id, /^qwen(\d+(?:\.\d+)?)/), rank: 2, tierOf: (id) => (/-max/.test(id) ? 2 : /-plus/.test(id) ? 1 : 0) },
-  { series: 'Kimi', test: /^kimi-k\d+(?:\.\d+)?(?:-code)?$/, versionOf: (id) => leadingVersion(id, /^kimi-k(\d+(?:\.\d+)?)/), rank: 3 },
-  { series: 'MiniMax', test: /^minimax-m\d+(?:\.\d+)?$/, versionOf: (id) => leadingVersion(id, /^minimax-m(\d+(?:\.\d+)?)/), rank: 3 },
-  { series: 'Nemotron', test: /^nemotron-\d+(?:\.\d+)?-(?:super|ultra|lightning|nano)\d*(-\w+)*$/, versionOf: (id) => leadingVersion(id, /^nemotron-(\d+(?:\.\d+)?)/), rank: 4, tierOf: (id) => (/ultra/.test(id) ? 3 : /super/.test(id) ? 2 : /lightning/.test(id) ? 1 : 0) },
-  { series: 'Hunyuan', test: /^hunyuan-\d+(?:\.\d+)?(?:-preview)?$/, versionOf: (id) => leadingVersion(id, /^hunyuan-(\d+(?:\.\d+)?)/), rank: 4 },
-  { series: 'GPT-OSS', test: /^gpt-oss-(\d+)b$/, versionOf: (id) => leadingVersion(id, /^gpt-oss-(\d+)b$/), rank: 3 },
-  { series: 'Gemma', test: /^gemma-\d+(?:\.\d+)?-\d+b(?:-a\d+b)?(?:-it)?$/, versionOf: (id) => leadingVersion(id, /^gemma-(\d+(?:\.\d+)?)/), rank: 5, tierOf: (id) => (/-it$/.test(id) ? 1 : 0) },
-  { series: 'Mistral', test: /^(?:mistral|ministral)-\S+$/, versionOf: (id) => leadingVersion(id, /^(?:mistral|ministral)-(\d+(?:\.\d+)?)/), rank: 6 },
-  { series: 'Doubao Seed', test: /^doubao-seed-\d+(?:\.\d+)?-(?:pro|turbo)$/, versionOf: (id) => leadingVersion(id, /^doubao-seed-(\d+(?:\.\d+)?)/), rank: 5, tierOf: (id) => (/-pro/.test(id) ? 1 : 0) },
-  { series: 'Gemini Flash Lite', test: /^gemini-\d+(?:\.\d+)?-flash-lite$/, versionOf: (id) => leadingVersion(id, /^gemini-(\d+(?:\.\d+)?)-flash-lite$/), rank: 5 },
+/** 网关路由器 id —— 不进下拉列表, 但允许被请求 (回退目标 + 旧客户端兼容)。 */
+export const AUTO_MODEL = 'auto';
+
+export const MODEL_PRESETS: ModelPreset[] = [
+  {
+    id: 'deepseek-v4.1-flash-wb',
+    candidates: ['deepseek-v4.1-flash-wb', 'deepseek-v4.1-flash'],
+    name: 'DeepSeek V4.1 Flash',
+    series: 'DeepSeek',
+    thinking: false,
+    effort: false,
+    isDefault: true,
+  },
+  {
+    id: 'glm-5.3-flash',
+    candidates: ['glm-5.3-flash', 'glm-5.3-flash-qd', 'glm-5.3-flash-wb'],
+    name: 'GLM 5.3 Flash',
+    series: 'GLM',
+    thinking: true,
+    effort: true,
+  },
+  {
+    id: 'kimi-k3',
+    candidates: ['kimi-k3', 'kimi-k3-qd', 'kimi-k3-1-wb'],
+    name: 'Kimi K3',
+    series: 'Kimi',
+    thinking: true,
+    effort: false,
+  },
+  {
+    id: 'gemini-3.7-flash',
+    candidates: ['gemini-3.7-flash'],
+    name: 'Gemini 3.7 Flash',
+    series: 'Gemini Flash',
+    thinking: false,
+    effort: false,
+  },
+  {
+    id: 'gemini-3.5-flash-lite',
+    candidates: ['gemini-3.5-flash-lite'],
+    name: 'Gemini 3.5 Flash Lite',
+    series: 'Gemini Flash Lite',
+    thinking: false,
+    effort: false,
+  },
 ];
 
-// 夹具后缀: 同一底模的渠道/训练变体, 一律不暴露 (避免一个模型出现 5 条)。
-const SHIM_SUFFIX_RE = /-(?:wb|juzi|qd|maas-mas)$|-trae$|lkeap-wb$|volc-wb$/;
-
-// 专用/不安全模型: 明确排除 (代码/安全/翻译/视觉/角色扮演/未审查)。
-const SPECIAL_RE =
-  /(?:coder|code|guard|safeguard|safety|calibration|robotics|translate|vision|vl-|embed|rerank|uncensored|heretic|lora|stheno|cydonia|skyfall|magnum|eclipse|rp-|prompt-guard|content-safety|north-mini|poolside|laguna|lfm|allam|diffusiongemma|seed-evolving|dots3|muse-glimmer|compound)/i;
-
-/** 是否应排除该 id (夹具/专用/聚合)。 */
-export function isExcludedModel(id: string): boolean {
-  const s = (id || '').trim().toLowerCase();
-  if (!s) return true;
-  // 聚合/路由类 (无具体底模)
-  if (/^(?:auto|fusion|default|fast|free-router|kilo-auto|bazaarlink-auto)$/.test(s)) return true;
-  if (SHIM_SUFFIX_RE.test(s)) return true;
-  if (/trae$|subagent|searchagent|summary|router|robin|moonshotai|^z\.ai|^qwenqwen|^deepseekdeepseek|^minimaxminimax/.test(s)) return true;
-  if (SPECIAL_RE.test(s)) return true;
-  return false;
-}
-
-/** 比较两个版本数组 (a 新于 b 返回正); 缺失段视为 0, 故 [5] 与 [5,0] 等价。 */
-export function compareVersion(a: number[], b: number[]): number {
-  const n = Math.max(a.length, b.length);
-  for (let i = 0; i < n; i++) {
-    const ai = a[i] ?? 0;
-    const bi = b[i] ?? 0;
-    if (ai !== bi) return ai - bi;
-  }
-  return 0;
+/** 按 id (含候选 id) 查 preset; 未命中返回 undefined。 */
+export function findPreset(id: string): ModelPreset | undefined {
+  const s = (id || '').trim();
+  if (!s) return undefined;
+  return MODEL_PRESETS.find((p) => p.candidates.includes(s));
 }
 
 /**
- * 从网关全量模型中策展出「各系列最新 2 版」。
- * 输入顺序无关; 输出按 series rank 排序, 系列内按版本降序。
+ * 请求体里的 model 是否放行。
+ * - 白名单候选 id 与 `auto` 放行;
+ * - 其余 (旧版本残留选择、拼写错误、越权传参) 一律清洗为默认模型,
+ *   避免打到网关后 400 model_not_found 才报错。
  */
-export function curateModels(raw: RawModel[]): CuratedModel[] {
-  // 先按系列归集可用且非排除项
-  const buckets = new Map<
-    string,
-    { rank: number; items: (CuratedModel & { tier: number })[] }
-  >();
+export function isAllowedModel(id: string): boolean {
+  const s = (id || '').trim();
+  if (!s) return false;
+  if (s === AUTO_MODEL) return true;
+  return MODEL_PRESETS.some((p) => p.candidates.includes(s));
+}
 
-  for (const m of raw) {
-    const id = (m?.id || '').trim();
-    if (!id) continue;
-    if (m.available === false) continue;
-    const lower = id.toLowerCase();
-    if (isExcludedModel(lower)) continue;
+/** 清洗客户端传入的模型 id: 非法值回落到默认模型。 */
+export function resolveRequestedModel(id: unknown): string {
+  if (typeof id !== 'string') return DEFAULT_MODEL;
+  const s = id.trim();
+  if (s.length === 0 || s.length > 64) return DEFAULT_MODEL;
+  return isAllowedModel(s) ? s : DEFAULT_MODEL;
+}
 
-    for (const def of SERIES) {
-      if (!def.test.test(lower)) continue;
-      const version = def.versionOf(lower) ?? [];
-      const tier = def.tierOf ? def.tierOf(lower) : 0;
-      const bucket = buckets.get(def.series) ?? { rank: def.rank ?? 99, items: [] };
-      bucket.items.push({ id, name: m.name || id, series: def.series, version, tier });
-      buckets.set(def.series, bucket);
-      break;
-    }
-  }
+/** 白名单条目与网关实际返回对齐后的结果 (下发给前端)。 */
+export interface ResolvedModel {
+  id: string;
+  name: string;
+  series: string;
+  available: boolean;
+  thinking: boolean;
+  /** 默认模型 (前端标「默认」徽标)。 */
+  isDefault: boolean;
+}
 
-  const out: CuratedModel[] = [];
-  for (const [, bucket] of buckets) {
-    const sorted = bucket.items.sort(
-      (a, b) =>
-        compareVersion(b.version, a.version) ||
-        b.tier - a.tier ||
-        a.id.localeCompare(b.id),
-    );
-    // 去重「版本+档位」组合 (同版本同档位仅留一个), 然后:
-    // 若存在 ≥2 个不同版本 → 取最新两个版本 (各取该版本最强档);
-    // 否则 (单版本) → 取该版本下最强的两个档位。
-    const byVerTier = new Map<string, (typeof sorted)[number]>();
-    for (const it of sorted) {
-      const key = `${it.version.join('.')}#${it.tier}`;
-      if (!byVerTier.has(key)) byVerTier.set(key, it);
+/**
+ * 用网关 /models 的返回解析白名单。
+ *
+ * - 依 preset 顺序输出 (即下拉顺序), 网关返回顺序无关;
+ * - 依 candidates 优先级取第一个「存在且未标记 unavailable」的 id (网关改名兜底);
+ * - 全部候选都不可用 → 仍输出条目但 available=false (前端置灰, 便于解释);
+ * - `raw` 为空 (网关不可达/返回异常) → 乐观视为可用: 此时无法判定, 且真正的
+ *   可用性由分析请求本身给出明确错误。
+ */
+export function resolvePresets(raw: RawModel[]): ResolvedModel[] {
+  return MODEL_PRESETS.map((p) => {
+    const hit =
+      raw.length === 0
+        ? undefined
+        : p.candidates
+            .map((c) => raw.find((r) => (r?.id || '').trim() === c))
+            .find((r) => r && r.available !== false);
+    if (raw.length === 0) {
+      return {
+        id: p.id,
+        name: p.name,
+        series: p.series,
+        available: true,
+        thinking: p.thinking,
+        isDefault: !!p.isDefault,
+      };
     }
-    const distinct = Array.from(byVerTier.values());
-    const versionsSeen: string[] = [];
-    const picked: (typeof sorted)[number][] = [];
-    for (const it of distinct) {
-      const vk = it.version.join('.');
-      if (versionsSeen.includes(vk)) continue;
-      versionsSeen.push(vk);
-      picked.push(it);
-      if (versionsSeen.length >= MAX_PER_SERIES) break;
-    }
-    // 单版本且不足 2 个 → 用同版本不同档位补齐 (如 deepseek-v4-pro/flash)。
-    if (picked.length < MAX_PER_SERIES) {
-      for (const it of distinct) {
-        if (picked.length >= MAX_PER_SERIES) break;
-        if (!picked.includes(it)) picked.push(it);
-      }
-    }
-    out.push(
-      ...picked.map(({ id, name, series, version }) => ({ id, name, series, version })),
-    );
-  }
-
-  // 系列按 rank 排序 (稳定), 系列内已降序
-  return out.sort((a, b) => {
-    const ra = SERIES.find((s) => s.series === a.series)?.rank ?? 99;
-    const rb = SERIES.find((s) => s.series === b.series)?.rank ?? 99;
-    return ra - rb || a.series.localeCompare(b.series);
+    // 网关常见 name 就是裸 id (如 deepseek-v4.1-flash-wb), 此时优先用
+    // preset 的展示名, 让下拉与触发按钮不至于显示一串 id。
+    const gatewayName = hit?.name?.trim();
+    return {
+      id: hit ? hit.id : p.id,
+      name: gatewayName && gatewayName !== hit?.id ? gatewayName : p.name,
+      series: p.series,
+      available: !!hit,
+      thinking: p.thinking,
+      isDefault: !!p.isDefault,
+    };
   });
 }

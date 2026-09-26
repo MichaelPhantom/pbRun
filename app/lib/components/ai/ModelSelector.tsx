@@ -4,9 +4,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { LlmModelInfo } from '@/app/lib/llm';
 
 /**
- * 模型选择器 — 按系列分组的可搜索下拉。
- * 服务端已策展 (各系列最新 2 版), 此处按 series 分组渲染, 并标注思考模型。
- * 零依赖自实现 (未引入 cmdk/radix): 一个按钮 + 浮层 + 搜索框 + 分组列表。
+ * 模型选择器 — 固定白名单的扁平下拉。
+ * 白名单只有 5 项 (见 model-curation), 不再按系列分组; 标注默认模型、
+ * 思考模型与不可用项。仅当条目很多时才显示搜索框。
+ * 零依赖自实现 (未引入 cmdk/radix): 一个按钮 + 浮层 + 列表。
  */
 export function ModelSelector({
   models,
@@ -25,27 +26,19 @@ export function ModelSelector({
   const inputRef = useRef<HTMLInputElement>(null);
 
   const current = models.find((m) => m.id === value);
-  const currentLabel = current?.name ?? (value === 'auto' ? 'auto' : value);
+  const currentLabel = current?.name ?? (value === 'auto' ? 'auto（自动路由）' : value);
+  const showSearch = models.length > 8;
 
-  // 分组: series (无 series 归入「其他」), 保持服务端排序
-  const groups = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const filtered = models.filter(
+  const visible = useMemo(() => {
+    const q = showSearch ? query.trim().toLowerCase() : '';
+    if (!q) return models;
+    return models.filter(
       (m) =>
-        !q ||
         m.name.toLowerCase().includes(q) ||
         m.id.toLowerCase().includes(q) ||
         (m.series ?? '').toLowerCase().includes(q),
     );
-    const map = new Map<string, LlmModelInfo[]>();
-    for (const m of filtered) {
-      const g = m.series ?? '其他';
-      const arr = map.get(g) ?? [];
-      arr.push(m);
-      map.set(g, arr);
-    }
-    return Array.from(map.entries());
-  }, [models, query]);
+  }, [models, query, showSearch]);
 
   // 点击外部/ Esc 关闭
   useEffect(() => {
@@ -58,12 +51,12 @@ export function ModelSelector({
     };
     document.addEventListener('mousedown', onDown);
     document.addEventListener('keydown', onKey);
-    inputRef.current?.focus();
+    if (showSearch) inputRef.current?.focus();
     return () => {
       document.removeEventListener('mousedown', onDown);
       document.removeEventListener('keydown', onKey);
     };
-  }, [open]);
+  }, [open, showSearch]);
 
   return (
     <div ref={rootRef} className="relative">
@@ -74,7 +67,7 @@ export function ModelSelector({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label="选择模型"
-        className="flex max-w-[10rem] items-center gap-1 truncate rounded-md border border-border bg-surface px-2 py-1 text-xs text-fg hover:bg-surface-3 disabled:opacity-50"
+        className="flex max-w-[11rem] items-center gap-1 truncate rounded-md border border-border bg-surface px-2 py-1 text-xs text-fg hover:bg-surface-3 disabled:opacity-50"
       >
         <span className="truncate">{currentLabel}</span>
         {current?.thinking && (
@@ -90,53 +83,59 @@ export function ModelSelector({
       {open && (
         <div
           role="listbox"
+          aria-label="可选模型"
           className="absolute right-0 z-50 mt-1 w-64 max-w-[80vw] overflow-hidden rounded-lg border border-border bg-surface shadow-lg"
         >
-          <div className="border-b border-border p-1.5">
-            <input
-              ref={inputRef}
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="搜索模型…"
-              aria-label="搜索模型"
-              className="w-full rounded border border-border bg-surface-2 px-2 py-1 text-xs text-fg placeholder:text-fg-muted"
-            />
-          </div>
+          {showSearch && (
+            <div className="border-b border-border p-1.5">
+              <input
+                ref={inputRef}
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="搜索模型…"
+                aria-label="搜索模型"
+                className="w-full rounded border border-border bg-surface-2 px-2 py-1 text-xs text-fg placeholder:text-fg-muted"
+              />
+            </div>
+          )}
           <div className="max-h-72 overflow-y-auto p-1">
             <div className="mb-1 px-1 text-[10px] font-medium uppercase tracking-wide text-fg-muted">
-              推荐
+              模型
             </div>
-            {groups.length === 0 && (
+            {visible.length === 0 && (
               <div className="px-2 py-3 text-center text-xs text-fg-muted">无匹配模型</div>
             )}
-            {groups.map(([series, items]) => (
-              <div key={series} className="mb-1">
-                <div className="px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-fg-muted">
-                  {series}
-                </div>
-                {items.map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    role="option"
-                    aria-selected={m.id === value}
-                    onClick={() => {
-                      onSelect(m.id);
-                      setOpen(false);
-                    }}
-                    className={`flex w-full items-center justify-between gap-2 rounded px-2 py-1 text-left text-xs hover:bg-surface-3 ${
-                      m.id === value ? 'bg-[var(--brand-soft)] text-[var(--brand-strong)]' : 'text-fg'
-                    }`}
-                  >
-                    <span className="truncate">{m.name}</span>
-                    <span className="flex shrink-0 items-center gap-1 text-[10px] text-fg-muted">
-                      {m.recommended && <span title="推荐" aria-hidden>★</span>}
-                      {m.thinking && <span title="思考模型" aria-hidden>🧠</span>}
+            {visible.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                role="option"
+                aria-selected={m.id === value}
+                disabled={m.available === false}
+                title={m.available !== false ? `${m.id} · ${m.series ?? ''}` : '当前网关不可用'}
+                onClick={() => {
+                  if (m.available === false) return;
+                  onSelect(m.id);
+                  setOpen(false);
+                }}
+                className={`flex w-full items-center justify-between gap-2 rounded px-2 py-1 text-left text-xs hover:bg-surface-3 disabled:cursor-not-allowed disabled:opacity-50 ${
+                  m.id === value ? 'bg-[var(--brand-soft)] text-[var(--brand-strong)]' : 'text-fg'
+                }`}
+              >
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <span className="truncate">{m.name}</span>
+                  {m.recommended && (
+                    <span className="shrink-0 rounded bg-surface-3 px-1 text-[10px] text-fg-muted">
+                      默认
                     </span>
-                  </button>
-                ))}
-              </div>
+                  )}
+                </span>
+                <span className="flex shrink-0 items-center gap-1 text-[10px] text-fg-muted">
+                  {m.thinking && <span title="思考模型" aria-hidden>🧠</span>}
+                  {m.available === false && <span aria-hidden>不可用</span>}
+                </span>
+              </button>
             ))}
           </div>
         </div>

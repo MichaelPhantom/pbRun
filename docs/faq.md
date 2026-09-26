@@ -87,18 +87,18 @@
   运维侧需续凭证（`push_cred`，约 5h TTL），见网关日志 `RuntimeError`。
 - **现象 C（输出中途截断，`finish_reason=length`）**: 思考模型的 reasoning
   占用 `max_tokens` 同预算。本路由已将预算提到 4000（上游 shim 上限 8000）；
-  治本方法是选非思考模型：`auto`（路由常命中 gemini 非思考版）或
-  `glm-5.1-wb`（实测 finish=stop、无 reasoning、数学正确）。
+  治本方法是选非思考模型（2026-09-26 起白名单默认即 `deepseek-v4.1-flash-wb`，
+  实测无思考、`finish=stop`），或在下拉里选 Gemini（两者均非思考）。
 - **单位约定**（防复发）: `activities.distance` 为公里、`activity_laps.distance`
   为米；聚合函数在 `db.ts` 内统一转米后再返回。`Activity.distance` 的类型注释已更正。
-- **思考模型怎么用（2026-09-13 落地）**: 能用，但必须按模型下发
-  `reasoning_effort: low`。实测 `glm-5.3-flash-wb` 思考 token
-  3994→18、`finish` 由 `length` 转 `stop`、费用降约 8 倍；但该参数会诱发
-  非思考模型也输出思考过程（`glm-5.1-wb` 实测 reasoning 0→1476），
-  故 `app/lib/llm.ts` 用 `isThinkingModel` 名单精确下发，`auto` 默认不加
-  （路由目标不确定）。名单与 u1 wbwild shim catalog 对齐，见代码注释；
-  新增模型时先用网关 A/B 验证思考 token 量再同步名单，单测
-  `tests/unit/lib/thinking.test.ts`（28 用例）锁定映射。
+- **思考模型怎么用（2026-09-13 落地, 2026-09-26 收敛为白名单）**: 能用，但
+  `reasoning_effort: low` 必须**按模型精确下发**——它对 `glm-5.3-flash` 是必需
+  （实测思考 889 字符 → 0），对非思考模型反而是毒药（`deepseek-v4.1-flash-wb`
+  下发后会诱发 230 字符思考、`glm-5.1-wb` 实测 reasoning 0→1476）。因此判定
+  顺序是：先查 `app/lib/model-curation.ts` 白名单 preset（`thinking`/`effort`
+  为 2026-09-26 对本机网关 A/B 实测结论），未命中才回落 `isThinkingModel`
+  启发式；`auto` 永不下发（路由目标不确定）。单测
+  `tests/unit/lib/thinking.test.ts` 锁定映射。
 - **分析质量优化（2026-09-13）**: 分段标签改累计距离区间（laps 含 709m 等
   非整公里段，K 序号曾误导模型）；prompt 新增【近期状态】（近 7 天跑量、
   当日 TSB、上次跑步，`app/lib/coach-context.ts`，失败自动降级为空）；
@@ -186,3 +186,30 @@ systemd-run --user --scope -- bash scripts/deploy-prod.sh   # 挪到无上限的
 **不能删**：`.cache/fit`（同步脚本读它）、`tests/fixtures/activities.db`（CI 夹具）、
 `mcp-server/dist`、`app/data` 软链。完整白/黑名单与实测收益见
 [运维手册 · 磁盘清理白名单](ops.md#磁盘清理白名单)。
+
+
+## AI 教练模型与稳定性
+
+### 17. 模型选择收敛为固定白名单 + 首字节看门狗（2026-09-26）
+
+- **为什么改**: `model-curation.ts` 原来每轮从网关 298 项里自动策展（每系列最新
+  2 版 → 26 项），列表随网关改名漂移，且混入夹具/专用模型；实测默认 `auto`
+  与若干思考模型存在失败率高、输出截断、长提示不吐首字节等问题。
+- **现在是什么**: 人工挑选的**固定白名单**（`MODEL_PRESETS`，顺序即下拉顺序）：
+  - 默认 `deepseek-v4.1-flash-wb`（非思考、`finish=stop`，实测约 1800 token）
+  - 可选 `glm-5.3-flash`（思考，但下发 `reasoning_effort: low` 后思考归零）、
+    `kimi-k3`、`gemini-3.7-flash`、`gemini-3.5-flash-lite`
+  - `auto` 不进下拉，只作为**服务端回退目标**与旧客户端兼容值。
+- **服务端清洗**: `resolveRequestedModel` 只放行白名单候选 id 与 `auto`，其余
+  （旧版本残留选择、拼写错误、越权传参）在打网关之前就清洗为默认模型，
+  避免 400 `model_not_found`。见 `tests/unit/api/analysis-fallback.test.ts`。
+- **首字节看门狗**: `app/lib/coach-stream.ts` 统一两条教练路由的出流策略——
+  拿到响应头后 **90s** 内不吐第一段数据即中断主模型并改走 `auto`
+  （实测 `kimi-k3` 完整提示下 150s+ 无首字节，干等 120s 必然超时）；
+  响应头上限仍为 120s。5xx/429/不可达同样回退，4xx 不重试。
+  覆盖见 `tests/unit/api/coach-stream.test.ts`。
+- **前端**: `ModelSelector` 改扁平列表（默认徽标「默认」、🧠 思考标记、
+  不可用置灰），`useModelCatalog` 把失效的旧选择迁移回默认模型。
+- **改动前先实测**: 各模型是否思考、是否下发 effort 见
+  `app/lib/model-curation.ts` 文件头表格；换模型前先对本机网关跑一次
+  完整教练提示的 A/B（首字节时延、`finish_reason`、思考字符数）。

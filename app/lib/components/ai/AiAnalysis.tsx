@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { SectionCard } from '@/app/components/ui/SectionCard';
 import MarkdownLite from './MarkdownLite';
-import { friendlyAnalysisError } from './analysis-errors';
+import { looksTruncated, streamChat } from './stream-chat';
 import { ThinkingBlock } from './ThinkingBlock';
 import { ModelSelector } from './ModelSelector';
 import { useModelCatalog } from './useModelCatalog';
@@ -31,13 +31,6 @@ interface Turn {
 
 const DRAFT_KEY = (id: number) => `pbrun.ai.draft.${id}`;
 const CACHE_KEY = (id: number) => `pbrun.ai.cache.${id}`;
-
-/** 启发式判断文本是否被截断 (未以句末符号结尾)。参考 continue 的 StepContainer。 */
-function looksTruncated(text: string): boolean {
-  const t = text.trimEnd();
-  if (!t) return false;
-  return !/[.。!！?？:：)”"』」`]$/.test(t);
-}
 
 /**
  * AI 教练分析 — 活动详情页。
@@ -67,6 +60,7 @@ export function AiAnalysis({
   const abortRef = useRef<AbortController | null>(null);
   const genIdRef = useRef(0);
   const restoredRef = useRef(false);
+  const draftReadyRef = useRef<number | null>(null);
 
   const { ref: scrollRef, isAtBottom, scrollToBottom } = useStickToBottom<HTMLDivElement>([
     turns,
@@ -74,16 +68,26 @@ export function AiAnalysis({
 
   const busy = status === 'streaming';
 
-  // 恢复草稿
+  // 恢复草稿 (微任务内执行: 避开同步 setState-in-effect, 也避免服务端渲染时读 localStorage)
   useEffect(() => {
-    try {
-      const d = localStorage.getItem(DRAFT_KEY(activityId));
-      if (d) setQuestion(d);
-    } catch {
-      /* 忽略 */
-    }
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      try {
+        const d = localStorage.getItem(DRAFT_KEY(activityId));
+        if (d) setQuestion(d);
+      } catch {
+        /* 忽略 */
+      }
+      draftReadyRef.current = activityId;
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [activityId]);
+  // 写回草稿 (恢复完成前不写, 否则会把尚未读出的草稿覆盖掉)
   useEffect(() => {
+    if (draftReadyRef.current !== activityId) return;
     try {
       if (question) localStorage.setItem(DRAFT_KEY(activityId), question);
       else localStorage.removeItem(DRAFT_KEY(activityId));
@@ -92,21 +96,28 @@ export function AiAnalysis({
     }
   }, [question, activityId]);
 
-  // 恢复上次分析结果 (免重复计费)
+  // 恢复上次分析结果 (免重复计费); 同上, 延迟到微任务避免同步 setState-in-effect
   useEffect(() => {
     if (restoredRef.current) return;
     restoredRef.current = true;
-    try {
-      const raw = localStorage.getItem(CACHE_KEY(activityId));
-      if (!raw) return;
-      const cached = JSON.parse(raw) as Turn[];
-      if (Array.isArray(cached) && cached.length > 0) {
-        setTurns(cached);
-        setStatus('done');
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      try {
+        const raw = localStorage.getItem(CACHE_KEY(activityId));
+        if (!raw) return;
+        const cached = JSON.parse(raw) as Turn[];
+        if (Array.isArray(cached) && cached.length > 0) {
+          setTurns(cached);
+          setStatus('done');
+        }
+      } catch {
+        /* 忽略 */
       }
-    } catch {
-      /* 忽略 */
-    }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [activityId]);
 
   // 保存结果缓存 (仅完成态)
@@ -152,111 +163,37 @@ export function AiAnalysis({
 
       let text = '';
       let think = '';
-      let routed: string | null = null;
-      let fellBack = false;
 
       try {
-        const resp = await fetch(`/pbrun/api/activities/${activityId}/analysis`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(
-            isFollowup
-              ? { model: opts.model, question: opts.question, history: opts.history ?? [] }
-              : { model: opts.model },
-          ),
+        // 共享 SSE 解析 (stream-chat): 与全局教练同一套 delta/回退/错误处理
+        const res = await streamChat({
+          url: `/pbrun/api/activities/${activityId}/analysis`,
+          body: isFollowup
+            ? { model: opts.model, question: opts.question, history: opts.history ?? [] }
+            : { model: opts.model },
           signal: ac.signal,
+          onDelta: (t, r) => {
+            text = t;
+            think = r;
+            if (!isStale()) update({ content: t, reasoning: r });
+          },
+          isStale,
         });
-        const requested = resp.headers.get('X-Model-Requested');
-        const used = resp.headers.get('X-Model-Used');
-        if (
-          resp.headers.get('X-Model-Fallback') === '1' ||
-          (requested !== null && used !== null && requested !== used)
-        ) {
-          fellBack = true;
-        }
-        if (!resp.ok) {
-          const j = (await resp.json().catch(() => ({}))) as { error?: string; detail?: string };
-          throw new Error(friendlyAnalysisError(resp.status, j?.error, j?.detail));
-        }
-        if (!resp.body) throw new Error('响应为空');
-
-        const reader = resp.body.getReader();
-        const dec = new TextDecoder();
-        let buf = '';
-        let streamErr: string | null = null;
-
-        const handleLine = (line: string) => {
-          const s = line.trim();
-          if (!s.startsWith('data:')) return;
-          const payload = s.slice(5).trim();
-          if (payload === '' || payload === '[DONE]') return;
-          let json: {
-            error?: unknown;
-            model?: string;
-            choices?: { delta?: Record<string, string | undefined> }[];
-          };
-          try {
-            json = JSON.parse(payload);
-          } catch {
-            return;
-          }
-          if (json.error) throw new Error(String(json.error));
-          if (json.model && !routed) routed = String(json.model);
-          const delta = json.choices?.[0]?.delta;
-          if (delta) {
-            const c = delta.content;
-            const r = delta.reasoning_content ?? delta.reasoning;
-            if (c) {
-              text += c;
-              if (!isStale()) update({ content: text });
-            }
-            if (r) {
-              think += r;
-              if (!isStale()) update({ reasoning: think });
-            }
-          }
-        };
-
-        try {
-          for (;;) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buf += dec.decode(value, { stream: true });
-            const lines = buf.split('\n');
-            buf = lines.pop() ?? '';
-            for (const line of lines) {
-              if (isStale()) return;
-              try {
-                handleLine(line);
-              } catch (err) {
-                streamErr = err instanceof Error ? err.message : String(err);
-                throw err;
-              }
-            }
-          }
-          buf += dec.decode();
-          for (const line of buf.split('\n')) {
-            if (isStale()) return;
-            handleLine(line);
-          }
-        } catch (err) {
-          if (streamErr) throw err;
-          if ((err as Error).name === 'AbortError') throw err;
-          if (!text) throw err;
-        }
+        text = res.text;
+        think = res.reasoning;
 
         if (isStale()) return;
         update({
-          content: text,
-          reasoning: think,
+          content: res.text,
+          reasoning: res.reasoning,
           streaming: false,
-          model: routed,
-          fellBack,
-          truncated: looksTruncated(text),
+          model: res.model,
+          fellBack: res.fellBack,
+          truncated: looksTruncated(res.text),
         });
-        setStatus(text ? 'done' : 'error');
-        if (!text) {
-          update({ error: think ? '模型仅输出思考过程, 未能生成结论' : '分析结果为空' });
+        setStatus(res.text ? 'done' : 'error');
+        if (!res.text) {
+          update({ error: res.reasoning ? '模型仅输出思考过程, 未能生成结论' : '分析结果为空' });
           setAnnounce('分析失败');
         } else {
           setAnnounce(isFollowup ? '追问回答完成' : '分析完成');
@@ -268,7 +205,6 @@ export function AiAnalysis({
             content: text,
             reasoning: think,
             streaming: false,
-            model: routed,
             truncated: text ? looksTruncated(text) : false,
           });
           setStatus(text ? 'done' : 'idle');

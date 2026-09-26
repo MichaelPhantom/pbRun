@@ -3,11 +3,14 @@
  *
  * freellmapi 是 OpenAI 兼容的本地 LLM 网关 (u2 :3001), 凭证外置在 .env
  * (FREELLMAPI_BASE_URL / FREELLMAPI_KEY, .env 被 .gitignore 排除, 不入库)。
- * "auto" 模型为路由器, 自动择优; 其余为具体模型 (gemini/glm/deepseek/...).
+ * "auto" 模型为路由器, 自动择优 (回退目标, 不进下拉); 可选模型是
+ * model-curation 里的固定白名单, 默认 deepseek-v4.1-flash-wb。
  */
 import type { Activity, ActivityLap } from '@/app/lib/types';
 import { formatPace, formatDuration } from '@/app/lib/format';
-import { curateModels } from '@/app/lib/model-curation';
+import { findPreset, resolvePresets } from '@/app/lib/model-curation';
+
+export { DEFAULT_MODEL } from '@/app/lib/model-curation';
 
 const SYSTEM_PROMPT = `你是一位世界顶级的精英跑步教练与运动科学专家，具备以下核心能力：
 
@@ -111,6 +114,7 @@ const SYSTEM_PROMPT = `你是一位世界顶级的精英跑步教练与运动科
 - **关键策略**：[如：E 跑占比提至 80%、每周 1 次间歇、每月 1 次长距离]
 
 【写作纪律】
+- **篇幅优先级**：全文控制在 1500 字以内；若内容过多，优先保证「📊一句话总评」「🎯训练性质与执行质量」「🏃下次训练处方」三项完整，「📈深度数据分析」按重要性取舍，不要为了凑满六个板块而稀释重点。
 - **数据说话**：每条结论必须有具体数据支撑（配速 min/km、心率 bpm、步频 spm、距离 km、时长分:秒）
 - **专业但不晦涩**：解释专业术语（如"心率漂移"、"脱耦"），让不同水平的跑者都能理解
 - **针对性极强**：避免通用模板，必须结合【跑者画像】和本次具体数据
@@ -138,7 +142,7 @@ export interface LlmModelInfo {
   series?: string;
 }
 
-/** 拉取 freellmapi 模型列表并策展 (各系列最新 2 版, 剔除聚合/夹具, 见 model-curation)。 */
+/** 拉取 freellmapi 模型列表, 与固定白名单对齐 (见 model-curation)。 */
 export async function fetchModels(): Promise<LlmModelInfo[]> {
   const cfg = getFreellmConfig();
   if (!cfg) return [];
@@ -153,17 +157,15 @@ export async function fetchModels(): Promise<LlmModelInfo[]> {
     | { data?: Array<{ id: string; name?: string; available?: boolean }> }
     | null;
   const data = j?.data ?? [];
-  return curateModels(data).map((m) => {
-    const thinking = isThinkingModel(m.id);
-    return {
-      id: m.id,
-      name: m.name,
-      available: true,
-      thinking,
-      recommended: !thinking,
-      series: m.series,
-    };
-  });
+  // 白名单的 thinking/effort 由实测确定, 不再依赖启发式 (见 model-curation 头注)
+  return resolvePresets(data).map((m) => ({
+    id: m.id,
+    name: m.name,
+    available: m.available,
+    thinking: m.thinking,
+    recommended: m.isDefault,
+    series: m.series,
+  }));
 }
 
 function fmtNum(v?: number | null, digits = 0, unit = ''): string {
@@ -187,15 +189,16 @@ function fmtZoneTimes(json?: string | null): string {
 }
 
 /**
- * 思考模型判定（启发式名单，依据 2026-09 网关实测维护）。
+ * 思考模型判定 —— 白名单内以 model-curation 的实测结论为准, 白名单外退回启发式。
  *
  * 背景：思考模型的 reasoning 与正文共用 max_tokens 预算；本任务是格式固定的
  * 结构化点评，不需要深度思考。实测 `reasoning_effort: "low"` 可把思考从
  * 3994 token 压到 18 token（glm-5.3-flash-wb），finish 由 length 转为 stop，
  * 费用降约 8 倍；但该参数会诱发非思考模型也输出思考过程
- * （glm-5.1-wb 实测 reasoning 0→1476），故只能按模型精确下发。
+ * （glm-5.1-wb 实测 reasoning 0→1476、deepseek-v4.1-flash-wb 0→230），
+ * 故只能按模型精确下发 —— 白名单模型见 model-curation.ts 的 A/B 实测表。
  *
- * 名单语义（与 u1 wbwild shim catalog 对齐）：
+ * 启发式名单（2026-09 网关实测，用于白名单之外的 id）：
  * - juzi 系仅 qwen3.8-27b 非思考；wb 系仅 glm-5.1 非思考；其余带 -juzi/-wb
  *   后缀的 glm/deepseek/kimi/minimax/hunyuan 均为思考模型。
  * freellm /models 不暴露 reasoning 标记，名单只能手写维护；新增模型时用
@@ -206,11 +209,26 @@ const THINKING_MODEL_RE =
 const NON_THINKING_MODEL_RE =
   /^(auto|fusion)$|glm-5\.1|qwen3\.8-27b|gemini|gpt-oss|compound|diffusiongemma|mistral|poolside|north-mini|devstral/i;
 
-/** 模型是否需要下发 reasoning_effort: low（思考模型 true，非思考/auto false）。 */
+/** 模型是否为思考模型 (影响 UI 🧠 标注与预算语义)。 */
 export function isThinkingModel(modelId: string): boolean {
   const id = (modelId || '').trim();
   if (!id) return false;
+  const preset = findPreset(id);
+  if (preset) return preset.thinking;
   return THINKING_MODEL_RE.test(id) && !NON_THINKING_MODEL_RE.test(id);
+}
+
+/**
+ * 是否给该模型下发 `reasoning_effort: low`。
+ * 只有实测「下发能省 token」的模型才发 —— 对非思考模型反而会诱发思考。
+ * 白名单外沿用启发式 (与历史行为一致)。
+ */
+export function shouldSendReasoningEffort(modelId: string): boolean {
+  const id = (modelId || '').trim();
+  if (!id) return false;
+  const preset = findPreset(id);
+  if (preset) return preset.effort;
+  return isThinkingModel(id);
 }
 
 export interface ChatMessage {
@@ -228,9 +246,9 @@ export interface AnalysisRequestBody {
 }
 
 /**
- * 构造分析请求体：思考模型加 reasoning_effort low（防 length 截断），
- * 非思考模型原样（该参数会诱发其输出思考过程，反而浪费预算）。
- * max_tokens 上限见路由注释（上游 shim cap 8000）。
+ * 构造分析请求体：实测「下发能省 token」的模型加 reasoning_effort low
+ * （防 length 截断），其余原样（该参数会诱发非思考模型输出思考过程，
+ * 反而浪费预算）。max_tokens 上限见 docs/faq.md#11（上游 shim cap 8000）。
  */
 export function buildAnalysisRequestBody(
   model: string,
@@ -244,7 +262,7 @@ export function buildAnalysisRequestBody(
     temperature: 0.5,
     max_tokens: maxTokens,
   };
-  if (isThinkingModel(model)) body.reasoning_effort = 'low';
+  if (shouldSendReasoningEffort(model)) body.reasoning_effort = 'low';
   return body;
 }
 
@@ -378,6 +396,7 @@ const GLOBAL_COACH_PROMPT = `你是一位世界顶级的精英跑步教练团队
 
 【写作纪律】
 - 数据说话，避免空话套话。
+- 篇幅优先级：全文控制在 1800 字以内；优先保证「📊总体诊断」「🏃未来 2-4 周训练处方」「📅3 个月发展目标」完整，其余板块按重要性取舍。
 - 结合【跑者画像】与【全局指标】因材施教。
 - 建议必须具体、可量化、可落地。
 - 语气鼓励、客观、专业。`;

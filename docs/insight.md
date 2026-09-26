@@ -83,7 +83,9 @@ activities / activity_laps / activity_records (SQLite)
 - Prompt：`llm.ts` 的 `GLOBAL_COACH_PROMPT`（总体诊断/能力演进/结构评估/多维洞察/优势短板/未来处方）
 - 消息构造：`buildGlobalCoachMessages` / `buildGlobalCoachFollowupMessages`
 - UI：`app/lib/components/ai/GlobalCoach.tsx`（嵌入洞察页）
-- 端点行为与活动级一致：SSE 流式、`AbortSignal.timeout(120000)`、主模型 5xx/超时/429 自动回退 `auto`、回退响应头。
+- 端点行为与活动级一致：SSE 流式、主模型 5xx/超时/429 自动回退 `auto`、回退响应头；
+  出流策略收敛在 `app/lib/coach-stream.ts`（响应头 120s 上限 + **首字节 90s 看门狗**，
+  超时即中断主模型改走 `auto`），模型 id 由白名单清洗后下发。
 
 > 凭证：`.env` 的 `FREELLMAPI_BASE_URL` / `FREELLMAPI_KEY`（本机 freellm 网关）。未配置时 `GET /api/llm/models` 返回 `configured:false`，教练端点返回 `503`。故障排查见 [faq.md#11](faq.md)。
 

@@ -42,6 +42,17 @@
 - 洞察页/文档同步：新增 `docs/insight.md`，更新 `README.md`、`docs/api-reference.md`、
   `docs/README.md`、`docs/deployment.md`。
 
+- **AI 教练模型选择收敛为固定白名单 + 首字节看门狗**：`app/lib/model-curation.ts`
+  由「网关 298 项自动策展」改为人工白名单（默认 `deepseek-v4.1-flash-wb`，可选
+  `glm-5.3-flash` / `kimi-k3` / `gemini-3.7-flash` / `gemini-3.5-flash-lite`，
+  `auto` 仅作服务端回退目标），`resolveRequestedModel` 在打网关前把非法 id 清洗为
+  默认模型；新增共享出流层 `app/lib/coach-stream.ts`（响应头 120s + **首字节 90s
+  看门狗** → 中断卡死渠道并回退 `auto`、客户端断开传播、`X-Model-*` 契约头、统一
+  错误 JSON），活动分析与全局教练两条路由改为薄封装；前端 `ModelSelector` 扁平化
+  （默认徽标/🧠/不可用置灰）、`useModelCatalog` 把失效旧选择迁回默认、`AiAnalysis`
+  复用共享 `streamChat`（删除重复 SSE 解析）。thinking/effort 以 2026-09-26 网关
+  A/B 实测为准（仅 `glm-5.3-flash` 下发 `reasoning_effort`）。FAQ 新增 #17。
+
 ### Fixed
 - `GET /api/llm/models` 增加 try/catch，异常时返回 `{ error }` + 500（此前无错误处理）。
 - 补齐此前零覆盖的 API 路由测试（laps / vdot-trend / health / llm-models）与服务层测试。

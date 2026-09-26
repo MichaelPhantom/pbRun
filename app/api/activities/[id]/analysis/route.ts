@@ -4,19 +4,23 @@
  * 生成 AI 教练分析, 以 SSE 流式返回 (透传 freellmapi 的 OpenAI 兼容流)。
  *
  * Body:
- *   { model?: string }                                 初次分析 (默认 auto)
+ *   { model?: string }                                 初次分析 (默认 deepseek-v4.1-flash-wb)
  *   { model?: string, question: string, history: [] }  追加追问 (多轮对话)
+ * model 只接受白名单值 (model-curation), 非法值清洗为默认模型。
  * 凭证 (FREELLMAPI_KEY) 在 .env, 不入库; 服务端持密钥, 浏览器只与本路由通信。
+ *
+ * 调用策略 (回退/首字节看门狗/断开传播) 见 app/lib/coach-stream.ts。
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { getActivityById, getActivityLaps } from '@/app/lib/db';
 import {
   buildAnalysisMessages,
-  buildAnalysisRequestBody,
   buildFollowupMessages,
   getFreellmConfig,
   type ChatMessage,
 } from '@/app/lib/llm';
+import { runCoachStream } from '@/app/lib/coach-stream';
+import { DEFAULT_MODEL, resolveRequestedModel } from '@/app/lib/model-curation';
 import { buildRunnerProfile, formatRunnerProfile } from '@/app/lib/runner-profile';
 
 export const dynamic = 'force-dynamic';
@@ -42,14 +46,12 @@ export async function POST(
     return NextResponse.json({ error: 'AI 分析未配置 (缺少 freellmapi 凭证)' }, { status: 503 });
   }
 
-  let model = 'auto';
+  let model = DEFAULT_MODEL;
   let question = '';
   let history: ChatMessage[] = [];
   try {
     const body = await request.json();
-    if (body && typeof body.model === 'string' && body.model.length <= 64) {
-      model = body.model;
-    }
+    model = resolveRequestedModel(body?.model);
     if (body && typeof body.question === 'string') {
       question = body.question.trim();
     }
@@ -67,85 +69,11 @@ export async function POST(
     ? buildFollowupMessages(activity, laps, profileBlock, history, question)
     : buildAnalysisMessages(activity, laps, profileBlock);
 
-  // 请求体由 buildAnalysisRequestBody 构造：思考模型自动加
-  // reasoning_effort low（否则 reasoning 占满预算致 length 截断）；
-  // 非思考模型不加（该参数会诱发其输出思考过程）。上限见 llm.ts 注释。
-  const primaryBody = buildAnalysisRequestBody(model, messages);
-
-  // 上游单次调用（120s 超时；wb/shim 实测 P99 < 30s，120s 仅防挂死）。
-  const { baseUrl, key } = cfg;
-  async function tryUpstream(body: unknown): Promise<Response> {
-    return fetch(`${baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${key}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(120000),
-    });
-  }
-
-  let upstream: Response | null = null;
-  let usedModel = model;
-  let fallback = false;
-  try {
-    upstream = await tryUpstream(primaryBody);
-  } catch {
-    upstream = null; // 不可达/超时：下沉到 fallback 逻辑统一处理
-  }
-
-  // 主模型失败时的回退策略:
-  // - 5xx/超时/不可达 (非 auto): 用 auto 路由择优重试 (auto 会自动避开故障模型)。
-  // - 429 限流: 先短暂等待重试一次同一 auto (限流多为瞬时), 仍失败则透传。
-  // - 4xx (参数/模型名错误): 不重试, 重试必然失败。
-  const isRateLimited = upstream?.status === 429;
-  const primaryFailedRetryable = !upstream || (upstream.status >= 500 && !upstream.ok) || isRateLimited;
-  if (primaryFailedRetryable && model !== 'auto') {
-    if (isRateLimited) {
-      // 限流: 等待 ~800ms 让上游冷却, 再用 auto 重试
-      await new Promise((r) => setTimeout(r, 800));
-    }
-    try {
-      const retry = await tryUpstream(buildAnalysisRequestBody('auto', messages));
-      if (retry.ok && retry.body) {
-        upstream = retry;
-        usedModel = 'auto';
-        fallback = true;
-      }
-    } catch {
-      // 保留主错误，下沉统一返回
-    }
-  }
-
-  if (!upstream || !upstream.ok || !upstream.body) {
-    const detail = upstream
-      ? await upstream.text().catch(() => '')
-      : 'freellmapi 不可达或 120s 超时';
-    const status = upstream?.status ?? 502;
-    // 限流: 给出可操作提示 (切换模型/稍后重试), 而非仅透传上游 JSON。
-    const error =
-      status === 429
-        ? '模型暂受限流，请稍后重试或切换其他模型'
-        : `上游错误 ${upstream?.status ?? 'TIMEOUT'}`;
-    return NextResponse.json(
-      { error, detail: detail.slice(0, 300) },
-      { status: status < 500 && status !== 429 ? status : 502 },
-    );
-  }
-
-  // 透传上游 SSE 流 (OpenAI 兼容: data: {delta} ... data: [DONE])
-  const headers: Record<string, string> = {
-    'Content-Type': 'text/event-stream; charset=utf-8',
-    'Cache-Control': 'no-cache, no-transform',
-    'X-Accel-Buffering': 'no', // 经 Nginx 时禁用缓冲, 保证流式
-  };
-  if (fallback) {
-    // X-Model-Fallback 是前端判定「已自动回退」的契约头 (见 AiAnalysis.tsx);
-    // X-Model-Requested/Used 仅作可观测性辅助。
-    headers['X-Model-Fallback'] = '1';
-    headers['X-Model-Requested'] = model;
-    headers['X-Model-Used'] = usedModel;
-  }
-  return new Response(upstream.body, { headers });
+  return runCoachStream({
+    baseUrl: cfg.baseUrl,
+    key: cfg.key,
+    model,
+    messages,
+    clientSignal: request.signal,
+  });
 }
