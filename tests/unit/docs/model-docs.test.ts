@@ -46,6 +46,12 @@ describe('模型白名单 ↔ docs/api-reference.md', () => {
       expect(apiReference).toContain(header);
     }
   });
+
+  test('模型列表示例字段与实际响应一致 (对外 recommended ≠ 内部 isDefault)', () => {
+    // fetchModels 把 preset 的 isDefault 映射为 recommended 下发
+    expect(apiReference).toContain('"recommended"');
+    expect(apiReference).not.toContain('"isDefault"');
+  });
 });
 
 describe('模型白名单 ↔ docs/faq.md #17', () => {

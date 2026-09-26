@@ -785,12 +785,15 @@ GET /api/llm/models
 {
   "models": [
     { "id": "deepseek-v4.1-flash-wb", "name": "DeepSeek V4.1 Flash", "series": "DeepSeek",
-      "available": true, "thinking": false, "isDefault": true }
+      "available": true, "thinking": false, "recommended": true }
   ],
   "configured": true
 }
 ```
 
+- 每项字段：`id` / `name` / `series` / `available` / `thinking` / `recommended`
+ （默认项为 `true` —— 即 preset 内部的 `isDefault`，**对外字段名是 `recommended`**，
+ 见 `fetchModels`）。
 - `models` 是**固定白名单**（默认 1 + 可选 4，顺序即下拉顺序；`auto` 不出现，仅作服务端回退目标与
   旧客户端兼容），由 `app/lib/model-curation.ts` 与网关 `/models` 对齐后返回；网关不可达时乐观
   视为可用（`available: true`）。
