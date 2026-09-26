@@ -29,9 +29,30 @@ permissions:
   contents: write
 
 jobs:
+  # secrets 上下文不可用于 job 级 if (GitHub 仅允许 github/needs/vars/inputs) ——
+  # 原写法会让 workflow 校验直接失败: run 显示 failure 且 0 个 job, 从未真正"跳过"。
+  # 预检作业把 secrets 读进 step 级 env (允许) 并产出 output, sync 据此跳过。
+  preflight:
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.probe.outputs.enabled }}
+    steps:
+      - id: probe
+        env:
+          STRAVA_CLIENT_ID: ${{ secrets.STRAVA_CLIENT_ID }}
+          GARMIN_SECRET_STRING: ${{ secrets.GARMIN_SECRET_STRING }}
+        run: |
+          if [ -n "$STRAVA_CLIENT_ID" ] || [ -n "$GARMIN_SECRET_STRING" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "未配置同步 secrets (本 fork 数据由外部流水线同步), 跳过同步作业。"
+          fi
+
   sync:
     # 未配置任何同步 secrets 时跳过 (本 fork 数据由 cft/garmin 流水线同步, 无需 Actions)
-    if: ${{ secrets.STRAVA_CLIENT_ID != '' || secrets.GARMIN_SECRET_STRING != '' }}
+    needs: preflight
+    if: needs.preflight.outputs.enabled == 'true'
     runs-on: ubuntu-latest
 
     steps:

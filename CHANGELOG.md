@@ -54,7 +54,13 @@
 - **同路线对比表**：重做为分段表风格，新增「类别」「vs 本次」列与组均/组最佳/同类对标。
 - **VDOT 模型常量统一为单一真源** `app/lib/vdot-constants.json`（TS 展示与 JS 同步脚本共用），
   消除此前两处常量分叉导致的配速区间/入库 VDOT 口径不一致。
-- jest 增加 `coverageThreshold`（全局 statements ≥ 67%、`app/lib/` ≥ 74%），防止覆盖率回归。
+- **`npm run test:ci` 补齐 `build:mcp`**：与 CI `quality` 作业前 4 步逐字对齐
+ （`typecheck` → `build:mcp` → `lint` → 测试+覆盖率）。此前漏了 MCP 构建，本地绿灯而 CI
+ 在第 6 步红灯（`mcp-server/tsconfig.json` 的 `lib` 无 DOM，与根 tsconfig 口径不同）。
+ `CONTRIBUTING.md` 同步更正：门禁步骤与 `test:ci` 一一对应、覆盖率门槛改为指向
+ `jest.config.js` 单一真源、`npm run build` 在 u2 生产机须走 `scripts/deploy-prod.sh`。
+- jest 增加 `coverageThreshold`（`global` + `./app/lib/` 分组两组下限，数值的单一真源是
+  `jest.config.js`，文档不另抄数字以免漂移），防止覆盖率回归。
 - 洞察页/文档同步：新增 `docs/insight.md`，更新 `README.md`、`docs/api-reference.md`、
   `docs/README.md`、`docs/deployment.md`。
 
@@ -70,6 +76,10 @@
   A/B 实测为准（仅 `glm-5.3-flash` 下发 `reasoning_effort`）。FAQ 新增 #17。
 
 ### Fixed
+- **`sync_running_data.yml` 从未真正「跳过」过**：job 级 `if` 不允许 `secrets` 上下文，
+  原 `if: ${{ secrets.STRAVA_CLIENT_ID != '' || ... }}` 使 workflow 校验直接失败——每次
+  push 都显示红叉、0 个 job，而注释声称「未配置 secrets 时跳过」。改为 `preflight` 预检
+  作业（step 级 env 读 secrets → 写 output），`sync` 据 `needs` 跳过，运行结论恢复 success。
 - `GET /api/llm/models` 增加 try/catch，异常时返回 `{ error }` + 500（此前无错误处理）。
 - 补齐此前零覆盖的 API 路由测试（laps / vdot-trend / health / llm-models）与服务层测试。
 

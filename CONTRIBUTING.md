@@ -20,11 +20,12 @@ cp .env.example .env
 | `npm run dev` | 开发服务器（webpack，端口 3000） |
 | `npm run typecheck` | `tsc --noEmit` 类型检查 |
 | `npm run lint` | ESLint |
+| `npm run build:mcp` | `tsc -p mcp-server` MCP 构建（改 `mcp-server/` 或被其引用的 `app/lib/` 后必跑） |
 | `npm run test:unit` | Jest 单元测试 |
 | `npm run test:coverage` | 带覆盖率（含门槛校验） |
 | `npm run test:e2e` | Playwright 端到端（自动构建夹具库 + 隔离产物目录） |
-| `npm run test:ci` | 本地一键跑齐 CI 门禁 |
-| `npm run build` | 生产构建 |
+| `npm run test:ci` | 本地一键跑齐 CI quality 作业前 4 步：`typecheck` → `build:mcp` → `lint` → 测试+覆盖率 |
+| `npm run build` | 生产构建。CI/clean checkout 直接可用；u2 生产机因 `app/data` 指向块存储的软链会构建失败，须用 `scripts/deploy-prod.sh`（暂存软链 → 构建 → 恢复 → 重启 → 健康检查，见 `docs/ops.md`） |
 
 ## 质量门禁（CI）
 
@@ -33,12 +34,18 @@ cp .env.example .env
 - `quality` 作业：`typecheck` → `build:mcp` → `lint` → `jest` → `next build`
 - `e2e` 作业：Playwright（chromium，生产构建 + 夹具库）
 
-**本地提交前请至少跑通 `npm run test:ci`。**
+**本地提交前请至少跑通 `npm run test:ci`**（= 上表前 4 步 + 覆盖率门槛；第 5 步 `next build`
+由 CI 在干净 checkout 上执行，本机 u2 请以 `scripts/deploy-prod.sh` 的构建结果为准）。
+
+> 历史教训（2026-09-26）：`test:ci` 曾漏掉 `build:mcp`，本地绿灯而 CI 在 MCP 构建步红灯，
+> 原因是 `mcp-server/tsconfig.json` 的 `lib` 无 DOM、与根 tsconfig 口径不同。任何新增门禁
+> 步骤必须同步补进 `test:ci`，让「本地一键 = CI」这句话始终为真。
 
 ### 覆盖率门槛
 
-`jest.config.js` 设定了下限（`coverageThreshold`）：
-全局 statements ≥ 67%、核心 `app/lib/` statements ≥ 74%。新增代码请配套测试，勿拉低门槛。
+门槛数值的**单一真源是 `jest.config.js` 的 `coverageThreshold`**（`global` 与 `./app/lib/` 两个
+分组各自的 statements/branches/functions/lines 下限），文档不另抄数字以免漂移。新增代码请配套
+测试，勿拉低门槛；调整门槛须在 `CHANGELOG.md` 记录。
 
 ## 架构约定
 
