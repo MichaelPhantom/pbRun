@@ -381,14 +381,14 @@ Vercel 对部署的文件大小有限制（免费版 100MB），如果数据库�
 
 ### Q7: 数据同步频率可以调整吗？
 
-可以。编辑 `.github/workflows/sync_garmin_data.yml`:
+可以。当前 `.github/workflows/sync_running_data.yml` 为**每 8 小时**同步一次
+（`0 */8 * * *`，另在 push 到 `main` 时触发）；编辑该文件的 `schedule` 段即可调整：
 
 ```yaml
 schedule:
-  - cron: '0 0 * * *'  # 每日 UTC 00:00
-  # 修改为其他时间，例如:
-  # - cron: '0 */6 * * *'  # 每 6 小时一次
-  # - cron: '0 2,14 * * *'  # 每天 2:00 和 14:00
+  - cron: '0 */8 * * *'  # 现状: 每 8 小时 (UTC 00/08/16)
+  # - cron: '0 0 * * *'   # 例: 每日 UTC 00:00
+  # - cron: '0 */6 * * *' # 例: 每 6 小时
 ```
 
 提交修改后，新的计划会自动生效。

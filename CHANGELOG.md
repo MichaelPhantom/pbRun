@@ -53,7 +53,11 @@
  目录加锚点；新增 `tests/unit/docs/api-route-coverage.test.ts` 三向守护（README 覆盖
  每个 `route.ts`、api-reference ∪ insight 覆盖每个路由、api-reference 引用的
  `/api/` 路径必须真实存在，`[id]`/`{id}`/数字示例 id 归一比对），防文档虚构端点
- 或新端点无文档。已用「注入幻影端点」突变验证守护会红灯。
+  或新端点无文档。已用「注入幻影端点」突变验证守护会红灯。
+- **文档 ↔ 现实一致性守护 `tests/unit/docs/docs-reality.test.ts`**：四断言——文档中
+  `npm run <script>` 必须存在于 `package.json`、`*.yml`/`*.yaml` 文件名必须真实存在于
+  仓库、`docs/*.md` 交叉引用必须存在、`docs/README.md` 索引必须覆盖 `docs/` 全部
+  markdown。`docs/testing-strategy.md` 因含规划中的配置示例列入白名单（文件内注释说明）。
 
 ### Changed
 - **CLI 脚本可被 require 而不执行**：`backfill-vdot` / `backfill-fit-fields` / `backfill-tracks` /
@@ -97,6 +101,10 @@
   A/B 实测为准（仅 `glm-5.3-flash` 下发 `reasoning_effort`）。FAQ 新增 #17。
 
 ### Fixed
+- **两处文档仍引用早已改名的工作流文件**：`docs/README.md` 树状图与 `docs/deployment.md`
+  Q7 写的是 `sync_garmin_data.yml`（实际为 `.github/workflows/sync_running_data.yml`），
+  且 Q7 示例频率与现状不符（实际 `0 */8 * * *`，每 8 小时）。已改名并对齐频率说明，
+  由 docs-reality 守护防复发。
 - **`useStickToBottom` 的「回到底部」按钮曾是死代码**（由新增单测发现）：滚动监听写在
   `useEffect(..., [])` 内并读取 `ref.current`，而消息区是条件渲染的 —— 首屏无内容时
   `ref.current` 为 `null`，监听器此后**永不挂载**，`isAtBottom` 恒为 `true`。

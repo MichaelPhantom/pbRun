@@ -136,7 +136,7 @@ garmin_data/
 │   ├── vdot-calculator.js # VDOT 计算
 │   └── db-manager.js      # 数据库管理
 ├── .github/workflows/     # GitHub Actions
-│   └── sync_garmin_data.yml
+│   └── sync_running_data.yml
 └── docs/                  # 文档
     ├── README.md          # 文档索引（本文件）
     ├── deployment.md      # 部署指南
