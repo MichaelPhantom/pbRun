@@ -197,6 +197,87 @@ describe('InsightClient', () => {
     expect(screen.getByText('两江新区')).toBeInTheDocument();
   });
 
+  test('负向/缺值变体: 触发各 >=0 与 !=null 的另一侧 (符号与 -- 兜底)', () => {
+    const neg: InsightResponse = {
+      ...insight,
+      vdot: { ...insight.vdot, slopePer30d: -0.42, plateau: true },
+      form: {
+        monthly: [{ period: '2026-09', n: 5, cadence: 0, strideLength: 0, groundContactMs: null, verticalOscillation: null, verticalRatio: null }],
+      },
+      periodization: {
+        weeks: [{ week: '2026-W38', km: 51.3, tl: 412, activities: 5, ctl: 45, atl: 40, tsb: 6 }],
+        peakWeekKm: 0,
+        avgWeekKm: 46,
+        rampRatePerWeek: -0.7,
+        weeklyChangeStdPct: null,
+      },
+      paceHr: { ...insight.paceHr, intercept: 238, slope: 3.2 },
+      categories: {
+        stats: insight.categories!.stats.map((c) => ({ ...c, avgHeartRate: null, efficiency: null })),
+        totalActivities: 70,
+        bestEfficiencyCategory: null,
+      },
+      routes: {
+        routes: insight.routes!.routes.map((r) => ({ ...r, avgHeartRate: null, paceTrendPer30d: 1.8 })),
+      },
+    } as unknown as InsightResponse;
+    render(<InsightClient insight={neg} timeRangeDays={90} />);
+    // 平台期 hint
+    expect(screen.getByText('平台期')).toBeInTheDocument();
+    // 负斜坡带 - 号; 缺 weeklyChangeStdPct → '--'
+    expect(screen.getAllByText('--').length).toBeGreaterThan(0);
+    // 负 ramp → 前缀空 (无 '+'), 且 badge 为 brand
+    expect(screen.getByText('周期化分析')).toBeInTheDocument();
+    // paceHr.slope > 0 → 回归式用 '+'
+    expect(screen.getByText(/回归式/)).toBeInTheDocument();
+  });
+
+  test('TSB 为负 + ramp>1.5 → warn 徽章与符号分支', () => {
+    const negTsb: InsightResponse = {
+      ...insight,
+      periodization: {
+        weeks: [{ week: '2026-W38', km: 51.3, tl: 412, activities: 5, ctl: 40, atl: 52, tsb: -12 }],
+        peakWeekKm: 56.8,
+        avgWeekKm: 46,
+        rampRatePerWeek: 2.1, // > 1.5 → warn
+        weeklyChangeStdPct: 12,
+      },
+    } as InsightResponse;
+    render(<InsightClient insight={negTsb} timeRangeDays={90} />);
+    expect(screen.getAllByText(/2026-W38/).length).toBeGreaterThan(0);
+  });
+
+  test('跑姿缺 cadence → 系列取 null (?? 右侧)', () => {
+    const noCad: InsightResponse = {
+      ...insight,
+      form: { monthly: [{ period: '2026-09', n: 5, cadence: null, strideLength: null, groundContactMs: null, verticalOscillation: null, verticalRatio: null }] },
+    } as InsightResponse;
+    render(<InsightClient insight={noCad} timeRangeDays={90} />);
+    expect(screen.getByText('周期化分析')).toBeInTheDocument();
+  });
+
+  test('路线配速趋势在 ±0.5 内 → neutral 徽章 (内层三元 else 侧)', () => {
+    const flat: InsightResponse = {
+      ...insight,
+      routes: { routes: insight.routes!.routes.map((r) => ({ ...r, paceTrendPer30d: 0.2 })) },
+    } as InsightResponse;
+    render(<InsightClient insight={flat} timeRangeDays={90} />);
+    expect(screen.getByText(/变慢/)).toBeInTheDocument();
+  });
+
+  test('路线配速趋势为正 (>0.5) → 变慢 + warn 徽章', () => {
+    const slow: InsightResponse = {
+      ...insight,
+      routes: { routes: insight.routes!.routes.map((r) => ({ ...r, paceTrendPer30d: 1.8 })) },
+    } as InsightResponse;
+    render(<InsightClient insight={slow} timeRangeDays={90} />);
+    expect(screen.getByText(/变慢/)).toBeInTheDocument();
+  });
+
+  // 注: 峰值周 `peakWeek ? ... : '--'` 的 '--' 侧为**不可达分支** —— peakWeek 由
+  // load.weekly.reduce(..., load.weekly[0] ?? { km: 0, week: '—' }) 派生, 兜底对象非空,
+  // 故 peakWeek 恒为 truthy; 不为不可达分支构造人为数据。
+
   test('解耦均值四档阈值 (good/brand/warn/crit)', () => {
     for (const v of [4, 6.5, 9.5, 12]) {
       const { unmount } = render(

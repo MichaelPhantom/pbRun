@@ -11,7 +11,9 @@ import ActivityTrendCharts from '@/app/lib/components/charts/ActivityTrendCharts
 import { ActivityInsightPanel, ROLE_LABEL, ROLE_TONE } from '@/app/lib/components/charts/ActivityInsightPanel';
 import { AiAnalysis } from '@/app/lib/components/ai/AiAnalysis';
 
-// 路线地图纯 SVG 客户端组件 (无 leaflet 依赖); 仅在客户端渲染避免 SSR window 引用
+// 路线地图纯 SVG 客户端组件 (无 leaflet 依赖); 仅在客户端渲染避免 SSR window 引用。
+// 注: 本处动态 import 与 loading 回调在单测中因 next/dynamic 被 mock 且 ssr:false 而不可达
+// (真实浏览器由 e2e 覆盖), 故其语句/函数不计入单测覆盖率目标。
 const RouteMap = dynamic(() => import('@/app/lib/components/map/RouteMap').then(m => m.RouteMap), {
   ssr: false,
   loading: () => <div className="h-[360px] animate-pulse rounded-xl bg-surface-2" />,

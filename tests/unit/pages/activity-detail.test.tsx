@@ -371,6 +371,66 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
     await waitFor(() => expect(screen.getByText('主课')).toBeInTheDocument());
   });
 
+  test('非整数公里 → 距离保留两位小数 (distance % 1 !== 0 侧)', async () => {
+    db.getActivityById.mockReturnValue({ ...activity, distance: 8.46 });
+    render(await page('1006'));
+    const overview = screen.getByText('活动概览').closest('section')!;
+    expect(within(overview).getByText('8.46')).toBeInTheDocument();
+  });
+
+  test('分段缺 distance → 表内 0.00 km 兜底 (lap.distance ?? 0 右侧)', async () => {
+    db.getActivityLaps.mockReturnValue([
+      { ...laps[0], id: 9, lap_index: 1, distance: null, average_pace: null, average_heart_rate: null, average_cadence: null, total_ascent: null },
+      { ...laps[1], id: 10, lap_index: 2, distance: null, average_pace: null },
+    ]);
+    db.getActivityById.mockReturnValue({ ...activity, distance: null, average_pace: null, average_cadence: null });
+    render(await page('1005'));
+    // 概览「距离」走 -- 且单位不渲染 (distance>0 的 false 侧)
+    const overview = screen.getByText('活动概览').closest('section')!;
+    expect(within(overview).getAllByText('--').length).toBeGreaterThanOrEqual(1);
+    // 分段表仍有行且距离显示 0.00
+    expect(screen.getByText('分段数据')).toBeInTheDocument();
+    expect(screen.getAllByText(/0\.00/).length).toBeGreaterThanOrEqual(1);
+  });
+
+  test('核心字段全缺 (distance/moving_time/duration/pace/cadence/start_time_local) → 概览与标题全兜底', async () => {
+    db.getActivityTrack.mockReturnValue(null);
+    db.getActivityRecords.mockReturnValue([]);
+    db.getActivityLaps.mockReturnValue([]);
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      name: '',
+      start_time_local: null,
+      distance: null,
+      moving_time: null,
+      duration: null,
+      average_pace: null,
+      average_cadence: null,
+    });
+
+    render(await page('1003'));
+
+    // 距离/时长/配速/步频 均 -- (各 > 0 / != null 的 false 侧 + ?? 右侧)
+    const dashes = screen.getAllByText('--');
+    expect(dashes.length).toBeGreaterThanOrEqual(4);
+    // 标题用 start_time 兜底 (formatDateTime(activity.start_time))
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/跑步/);
+  });
+
+  test('整分钟与整数公里的显示: distance 取整、duration 整分不补小数', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      distance: 10,
+      moving_time: 3600,
+      average_pace: 300,
+      average_cadence: 180,
+    });
+    render(await page('1004'));
+    const overview = screen.getByText('活动概览').closest('section')!;
+    expect(within(overview).getByText('10')).toBeInTheDocument();
+    expect(within(overview).getByText('60')).toBeInTheDocument();
+  });
+
   test('无 GPS / 无逐秒记录 / 无分段 / 无跑步动态 → 对应区块不渲染', async () => {
     db.getActivityTrack.mockReturnValue(null);
     db.getActivityRecords.mockReturnValue([]);

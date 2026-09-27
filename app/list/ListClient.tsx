@@ -91,6 +91,8 @@ export default function ListClient({
     // 用 ref 做同步锁: IntersectionObserver 可能在同一 tick 内多次触发 (React 状态
     // 尚未提交, loadingMore 闭包仍为 false), 导致重复追加同一页 + React key 冲突。
     if (loadingMoreRef.current) return;
+    // 防御性分支: useEffect 已用同一条件提前 return 并 disconnect observer,
+    // 正常运行时不会在「已达总数」后再触发 (保留以防御陈旧回调/未来改动)。
     if (monthSummaries.length >= totalMonths) return;
     loadingMoreRef.current = true;
     setLoadingMore(true);
