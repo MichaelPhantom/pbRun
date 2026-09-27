@@ -70,16 +70,13 @@ test('无障碍: 键盘可达性 (Tab 能到主导航与主内容跳板链接)',
  * 与桌面是**不同的渲染路径**, 故单独扫一遍。CI 只跑 chromium project,
  * 这里用 test.use 在 project 内切换视口, 保证 CI 也覆盖。
  */
-test.describe('移动端视口 (Pixel 5)', () => {
-  // 注意: 不能整体展开 devices['Pixel 5'] —— 它含 defaultBrowserType,
-  // 在 describe 内 test.use 会强制新 worker 而报错; 只取视口相关字段。
-  test.use({
-    viewport: devices['Pixel 5'].viewport,
-    deviceScaleFactor: devices['Pixel 5'].deviceScaleFactor,
-    isMobile: devices['Pixel 5'].isMobile,
-    hasTouch: devices['Pixel 5'].hasTouch,
-    userAgent: devices['Pixel 5'].userAgent,
-  });
+test.describe('移动端视口 (Pixel 5 宽度)', () => {
+  // 用 viewport 模拟窄屏 (两浏览器都支持): 响应式断点 (卡片单列 / 表格横向滚动 /
+  // 图表变窄) 正是靠宽度触发, 足以覆盖移动端渲染路径。
+  // 不用 devices['Pixel 5'] 整体或 isMobile: 前者含 defaultBrowserType (describe 内
+  // test.use 会强制新 worker 报错), 后者 Firefox 不支持 (newContext 直接抛错)。
+  const pixel = devices['Pixel 5'];
+  test.use({ viewport: pixel.viewport, deviceScaleFactor: pixel.deviceScaleFactor });
 
   for (const { path, name } of PAGES) {
     test(`无障碍(移动端): ${name} 无 serious/critical 违规`, async ({ page }) => {

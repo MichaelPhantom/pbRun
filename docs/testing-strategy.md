@@ -758,7 +758,7 @@ setupTestDb();
 - uses: actions/checkout@v4
 - uses: actions/setup-node@v4
 - 安装依赖
-- 安装 Playwright 浏览器(chromium)
+- 安装 Playwright 浏览器(${{ matrix.browser }})
 - 端到端测试(Playwright)
 - 上传 Playwright 报告与失败工件
 - PR e2e 失败摘要评论
@@ -767,7 +767,10 @@ setupTestDb();
 > 该清单**由 workflow 生成**（单一真源）：改 `.github/workflows/test.yml` 后跑
 > `npm run docs:ci-snippet`（打印新片段）或 `npm run docs:ci-snippet:check`（校验漂移，
 > 有守护测试 `tests/unit/docs/ci-workflow-docs.test.ts` 一并把关）。
-> 其中「端到端测试(Playwright)」实际执行 `npx playwright test --project=chromium`。
+> 其中「端到端测试(Playwright)」实际执行 `npx playwright test --project=${{ matrix.browser }}` ——
+> e2e 作业按 **chromium + firefox 矩阵并行**（`fail-fast: false`），浏览器差异类缺陷
+> （如 Firefox 不支持 `isMobile`，见 a11y 章节）在 CI 即可暴露；每档浏览器各自上传
+> artifact `playwright-report-<browser>`。
 
 
 > 注意 `run: <cmd> | tee` 必须配 `set -o pipefail`，否则管道的退出码取 `tee`（恒为 0）——
@@ -800,7 +803,8 @@ setupTestDb();
   溢出时键盘用户无法聚焦滚动（axe `scrollable-region-focusable`，仅移动端断点触发，桌面端
   不溢出故此前的桌面扫描未暴露）。该组件被 10 张表复用。
 
-修正后 axe 在两种视口下均归零；e2e 合计 51 项（36 功能 + 15 a11y）全过。
+修正后 axe 在两种视口下均归零；e2e 合计 51 项（36 功能 + 15 a11y）在 **chromium 与 firefox**
+两种引擎下全过（本地实测 2.6m / 3.2m）。
 
 **门槛余量规则**（`tests/unit/ci/threshold-margin.test.ts` 守护）：每组每项的
 「实测 − 门槛」须 ≥ 1.5pt（门槛接近 100 时按数学上限放宽为 `100-gate-0.5`），

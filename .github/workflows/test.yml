@@ -110,6 +110,12 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
+    # 矩阵并行: chromium (主) + firefox (跨浏览器兜底)。并行不增加总时长,
+    # 且能发现浏览器差异类缺陷 (2026-09-27 实测: firefox 下曾暴露 isMobile 不支持)。
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox]
     steps:
       - uses: actions/checkout@v4
 
@@ -123,14 +129,14 @@ jobs:
 
       # 生成夹具库 (真实 schema + 样本) → 构建到隔离目录 → next start → Playwright
       # (playwright webServer 负责启动; CI 无真实 DB, 故用夹具库保证页面可渲染)
-      - name: 安装 Playwright 浏览器(chromium)
-        run: npx playwright install --with-deps chromium
+      - name: 安装 Playwright 浏览器(${{ matrix.browser }})
+        run: npx playwright install --with-deps ${{ matrix.browser }}
 
       - name: 端到端测试(Playwright)
         # set -o pipefail: 管道的退出码取 playwright 而非 tee, 否则失败会被吞成绿灯
         run: |
           set -o pipefail
-          npx playwright test --project=chromium 2>&1 | tee e2e-output.txt
+          npx playwright test --project=${{ matrix.browser }} 2>&1 | tee e2e-output.txt
         env:
           NEXT_TELEMETRY_DISABLED: '1'
 
@@ -139,7 +145,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.browser }}
           path: |
             playwright-report/
             test-results/
@@ -158,7 +164,7 @@ jobs:
           BODY_FILE=$(mktemp)
           {
             echo "<!-- e2e-failure -->"
-            echo "### e2e 失败摘要 (chromium)"
+            echo "### e2e 失败摘要 (${{ matrix.browser }})"
             echo
             echo '```'
             # 只保留尾部关键行, 避免评论过长 (GitHub 上限 65536 字符)

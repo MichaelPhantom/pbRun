@@ -139,6 +139,11 @@
   本地为 `retain-on-failure`。`tests/unit/ci/gate-alignment.test.ts` 增加守护，防止产物被静默移除。
 
 ### Changed
+- **e2e 作业改为浏览器矩阵（chromium + firefox 并行）**：`fail-fast: false`，各档独立上传
+  `playwright-report-<browser>`；本地 firefox 实测 51 项全过（3.2m）。矩阵化能发现浏览器差异类
+  缺陷 —— 本轮即在 firefox 下暴露 `isMobile` 不受支持（见 Fixed），并据此把移动端 a11y 的
+  模拟方式从 `isMobile` 改为纯 viewport（两引擎通用，响应式断点由宽度触发）。
+
 - **CLI 脚本可被 require 而不执行**：`backfill-vdot` / `backfill-fit-fields` / `backfill-tracks` /
   `init-garmin-data` / `take-screenshots` / `make-fixture-db` / `sync-garmin` 统一改为
   `if (require.main === module)` 守卫 + 导出可测入口（`main` / `makeFixtureDb` / `run`），

@@ -45,7 +45,11 @@ describe('workflow → 文档: 关键能力都被文档提到', () => {
     { name: '覆盖率 artifact', inWorkflow: /actions\/upload-artifact@v4[\s\S]*?coverage\/coverage-report\.md/, inDocs: /artifact/ },
     { name: 'PR 覆盖率评论', inWorkflow: /<!-- coverage-report -->/, inDocs: /PR\s*覆盖率评论|PR 上就地更新/ },
     { name: '生产构建', inWorkflow: /npm run build/, inDocs: /next build|生产构建/ },
-    { name: 'e2e (chromium)', inWorkflow: /npx playwright test --project=chromium/, inDocs: /playwright test --project=chromium/ },
+    {
+      name: 'e2e (矩阵: chromium + firefox)',
+      inWorkflow: /npx playwright test --project=\$\{\{ matrix\.browser \}\}/,
+      inDocs: /playwright test --project=|矩阵|chromium.*firefox/i,
+    },
     { name: 'e2e 失败工件', inWorkflow: /name: 上传 Playwright 报告与失败工件/, inDocs: /test-results|失败工件/ },
     { name: 'pipefail 坑位', inWorkflow: /set -o pipefail/, inDocs: /pipefail/ },
     { name: '失败诊断 (step summary)', inWorkflow: /GITHUB_STEP_SUMMARY/, inDocs: /GITHUB_STEP_SUMMARY|step summary/ },
