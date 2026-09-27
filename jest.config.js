@@ -32,9 +32,10 @@ module.exports = {
     // 口径见上: 命中更窄路径的文件只归属该分组, 不再计入 global。
     // 实测 (2026-09-27 六次, 分组口径): 页面与路由 98.91/88.07/97.35; app/lib 97.62/89.02/98.02;
     //       app/api 95.60/90.81/100; app/components 98.52/90.05/100; scripts 96.72/90.19/94.74。
-    // 余量规则: 每组每项至少留 ~1.5pt —— CI 与本地环境存在细微差异 (Node/依赖版本),
-    // 贴着实测设门槛会让 CI 偶发红灯 (2026-09-27 首次把 global branches 设成实测 88.07 的 88,
-    // CI 直接失败; 已按下调)。改门槛时请同时核对本地实测与本条余量规则。
+    // 余量规则 (由 tests/unit/ci/threshold-margin.test.ts 自动守护): 每组每项至少留 1.5pt;
+    // 门槛越接近 100, 可留余量越少 (数学上限 100-gate), 此时要求 min(1.5, 100-gate-0.5)。
+    // 背景: 2026-09-27 曾把 global branches 门槛设成实测 88.07 的 88 (余量 0.07pt) → 本地绿、CI 红。
+    // 改门槛时请同时核对本地实测与余量规则 (守护会在余量不足或过松时红灯)。
     global: {
       statements: 96,
       branches: 86,
@@ -45,8 +46,8 @@ module.exports = {
     './app/lib/': {
       statements: 96,
       branches: 87,
-      functions: 97,
-      lines: 98,
+      functions: 96,
+      lines: 97,
     },
     // API 路由 (参数校验与错误分支)
     './app/api/': {
@@ -57,7 +58,7 @@ module.exports = {
     // 通用 UI 组件
     './app/components/': {
       statements: 97,
-      branches: 89,
+      branches: 88,
       functions: 99,
     },
     // CLI 脚本与数据管线

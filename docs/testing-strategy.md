@@ -61,9 +61,9 @@ module.exports = {
     // 2026-09-27 六次校准: 5 组逐目录防回归; 每组每项至少留 ~1.5pt 余量
     // (贴着实测设门槛会让 CI 偶发红灯 —— global branches 曾因此失败一次)
     global: { statements: 96, branches: 86, functions: 95, lines: 97 },
-    './app/lib/': { statements: 96, branches: 87, functions: 97, lines: 98 },
+    './app/lib/': { statements: 96, branches: 87, functions: 96, lines: 97 },
     './app/api/': { statements: 94, branches: 89, functions: 99 },
-    './app/components/': { statements: 97, branches: 89, functions: 99 },
+    './app/components/': { statements: 97, branches: 88, functions: 99 },
     './scripts/': { statements: 95, branches: 88, functions: 93 },
   },
   testMatch: [
@@ -754,8 +754,12 @@ jobs:
     steps:
       - 安装依赖 → 安装 Playwright chromium
       - npx playwright test --project=chromium
-      - always 上传 artifact: playwright-report/ + test-results/ (截图 / trace / 失败摘要)
+      - always 上传 artifact: playwright-report/ + test-results/ + e2e-output.txt
+      - failure 时把 e2e 输出尾部 (60 行) 贴到 PR 评论 (同标记就地更新)
 ```
+
+> 注意 `run: npx playwright test | tee` 必须配 `set -o pipefail`，否则管道的退出码取 `tee`
+> （恒为 0）—— 失败会被吞成绿灯。`tests/unit/ci/gate-alignment.test.ts` 已加守护。
 
 **e2e 可诊断性**（2026-09-27）：CI 里 Playwright reporter 为 `line`（控制台逐行输出，
 不下载 artifact 也能定位失败）+ HTML 报告；`trace: on-first-retry`、`screenshot: only-on-failure`；

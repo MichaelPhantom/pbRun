@@ -106,7 +106,10 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: 端到端测试(Playwright)
-        run: npx playwright test --project=chromium
+        # set -o pipefail: 管道的退出码取 playwright 而非 tee, 否则失败会被吞成绿灯
+        run: |
+          set -o pipefail
+          npx playwright test --project=chromium 2>&1 | tee e2e-output.txt
         env:
           NEXT_TELEMETRY_DISABLED: '1'
 
@@ -119,5 +122,36 @@ jobs:
           path: |
             playwright-report/
             test-results/
+            e2e-output.txt
           retention-days: 7
           if-no-files-found: ignore
+
+      # failure 时把 e2e 摘要贴到 PR (同标记评论就地更新); 无 PR / 无文件则跳过
+      - name: PR e2e 失败摘要评论
+        if: failure() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          if [ ! -f e2e-output.txt ]; then echo "无 e2e 输出, 跳过"; exit 0; fi
+          BODY_FILE=$(mktemp)
+          {
+            echo "<!-- e2e-failure -->"
+            echo "### e2e 失败摘要 (chromium)"
+            echo
+            echo '```'
+            # 只保留尾部关键行, 避免评论过长 (GitHub 上限 65536 字符)
+            tail -n 60 e2e-output.txt
+            echo '```'
+            echo
+            echo "完整报告与失败工件见本次 run 的 artifact \`playwright-report\`。"
+          } > "$BODY_FILE"
+          EXISTING=$(gh api "repos/${{ github.repository }}/issues/${PR}/comments" \
+            --jq '.[] | select(.body | startswith("<!-- e2e-failure -->")) | .id' | head -1)
+          if [ -n "$EXISTING" ]; then
+            gh api -X PATCH "repos/${{ github.repository }}/issues/comments/${EXISTING}" -F body=@"$BODY_FILE" >/dev/null
+            echo "已更新 e2e 失败评论 #$EXISTING"
+          else
+            gh api -X POST "repos/${{ github.repository }}/issues/${PR}/comments" -F body=@"$BODY_FILE" >/dev/null
+            echo "已创建 e2e 失败评论"
+          fi

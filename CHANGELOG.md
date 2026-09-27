@@ -76,6 +76,14 @@
   改一处忘同步即红灯（已实测：故意改错文档数字会失败）。
 
 ### Added
+- **门槛余量规则守护** `tests/unit/ci/threshold-margin.test.ts`：在存在覆盖率产物时校验
+  「实测 − 门槛 ≥ 1.5pt」（门槛接近 100 时按数学上限 `100-gate-0.5` 放宽），并反向检查
+  「余量 > 15pt」防门槛长期不更新；无产物则显式跳过（CI 的 `npm test` 不带 --coverage）。
+  该守护上线即抓到 3 处过紧门槛（app/lib functions 97→96、lines 98→97；
+  app/components branches 89→88），避免重演「本地绿、CI 红」。
+- **e2e 失败摘要入 PR 评论**：CI 的 e2e 步骤用 `set -o pipefail` + `tee e2e-output.txt`
+  （否则 tee 会把失败吞成绿灯），失败时把输出尾部 60 行贴到 PR（同标记就地更新），
+  `e2e-output.txt` 一并入库 artifact。
 - **e2e 可诊断性**：CI 的 Playwright reporter 改为 `line`（控制台逐行定位失败）+ HTML 报告；
   工件改为 `if: always()` 上传 `playwright-report/` 与 `test-results/`（截图 / trace / 失败摘要），
   `if-no-files-found: ignore` 避免无工件时报错；`trace` 在 CI 为 `on-first-retry`、
@@ -108,8 +116,8 @@
   报告与摘要生成），`tests/unit/ci/gate-alignment.test.ts` 同步扩展守护（命令带参数 ` -- `
   时按主命令比对），确保「本地一键 = CI」持续为真。
 - **覆盖率门槛细化为 5 组 8 项逐目录防回归**：`global` 72/61/70/73 → … → **96/86/95/97**，
-  `./app/lib/` → **96/87/97/98**（新增分支与函数两项），并新增 `./app/api/` **94/89/99**、
-  `./app/components/` **97/89/99**、`./scripts/` **95/88/93**。
+  `./app/lib/` → **96/87/96/97**（新增分支与函数两项），并新增 `./app/api/` **94/89/99**、
+  `./app/components/` **97/88/99**、`./scripts/` **95/88/93**。
   余量规则：每组每项至少留 ~1.5pt —— 2026-09-27 曾把 `global` branches 设成实测 88.07 的
   **88**（余量 0.07pt），CI 直接红灯（本地绿、CI 红）；已下调至 86 并写入配置注释与文档。
   细化当场暴露了「其余页面/路由」组分支仅 84.9% 的隐藏弱项 —— 补 InsightClient/

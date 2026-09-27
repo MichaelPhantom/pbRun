@@ -85,6 +85,11 @@ describe('test:ci ↔ CI quality 作业对齐', () => {
     // playwright: CI 用 line reporter (控制台可诊断) 且开 trace
     expect(pw).toMatch(/process\.env\.CI \? \[\['line'\]/);
     expect(pw).toMatch(/trace: process\.env\.CI \? 'on-first-retry'/);
+    // 失败摘要: 输出落文件 → artifact + PR 评论 (同标记就地更新)
+    expect(wf).toContain('e2e-output.txt');
+    expect(wf).toMatch(/set -o pipefail/); // 否则 tee 会吞掉失败退出码
+    expect(wf).toContain('<!-- e2e-failure -->');
+    expect(wf).toMatch(/issues\/comments\/\$\{EXISTING\}/);
   });
 
   test('覆盖率报告以 artifact 上传, 且 PR 上留下摘要评论', () => {
