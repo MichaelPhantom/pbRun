@@ -751,7 +751,16 @@ jobs:
       - npm run build                       # 生产构建 (干净 checkout; u2 本机须走 deploy-prod.sh)
 
   e2e:                     # Playwright (chromium): 生成夹具库 → 构建 → next start → 跑 e2e
+    steps:
+      - 安装依赖 → 安装 Playwright chromium
+      - npx playwright test --project=chromium
+      - always 上传 artifact: playwright-report/ + test-results/ (截图 / trace / 失败摘要)
 ```
+
+**e2e 可诊断性**（2026-09-27）：CI 里 Playwright reporter 为 `line`（控制台逐行输出，
+不下载 artifact 也能定位失败）+ HTML 报告；`trace: on-first-retry`、`screenshot: only-on-failure`；
+工件以 `if: always()` 上传（成功也保留报告便于抽查），`test-results/` 含失败截图与 trace。
+本地 trace 为 `retain-on-failure`（不加重 CI 负担）。
 
 **覆盖率可见性**（2026-09-27 新增）：`scripts/testing/coverage-summary.js` 读取
 `coverage/coverage-summary.json` 并按 `jest.config.js` 的分组口径汇总，输出分组 Markdown 表
@@ -783,9 +792,9 @@ jobs:
 
 > **状态复核 (2026-09-26)**: 本计划为历史路线图, 逐项核实实际落地情况(见各条标注)。
 > `[x]` = 已落地; `[ ]` 保持未达成项(附原因); 勿据未勾选项判定"未做"。
-> 当前 (2026-09-27 六次复核): 116 套件 / 1522 例全绿; 语句覆盖 97.59% / 分支 89.59%。
-> 分组实测: app/lib 97.65/89.02、app/api 95.60/90.81、app/components 98.52/90.05、
-> scripts 97.47/90.99、其余页面与路由 98.91/88.07。
+> 当前 (2026-09-27 七次复核): 118 套件 / 1562 例全绿; 语句覆盖 97.59% / 分支 89.59%。
+> 分组实测: app/lib 97.68/89.45、app/api 95.60/90.81、app/components 98.52/90.05、
+> scripts 97.72/91.52、其余页面与路由 98.91/88.07。
 > 门槛已细化为 **5 组 8 项**(含 app/lib 的分支/函数) 全过。
 > 全部可执行文件均已加载 (app/** + scripts/**), 仅 `app/lib/types.ts` 为纯类型声明。
 

@@ -75,6 +75,12 @@
   `jest.config.js` 与 `docs/testing-strategy.md` / `CHANGELOG.md`，本测试逐组逐项比对，
   改一处忘同步即红灯（已实测：故意改错文档数字会失败）。
 
+### Added
+- **e2e 可诊断性**：CI 的 Playwright reporter 改为 `line`（控制台逐行定位失败）+ HTML 报告；
+  工件改为 `if: always()` 上传 `playwright-report/` 与 `test-results/`（截图 / trace / 失败摘要），
+  `if-no-files-found: ignore` 避免无工件时报错；`trace` 在 CI 为 `on-first-retry`、
+  本地为 `retain-on-failure`。`tests/unit/ci/gate-alignment.test.ts` 增加守护，防止产物被静默移除。
+
 ### Changed
 - **CLI 脚本可被 require 而不执行**：`backfill-vdot` / `backfill-fit-fields` / `backfill-tracks` /
   `init-garmin-data` / `take-screenshots` / `make-fixture-db` / `sync-garmin` 统一改为

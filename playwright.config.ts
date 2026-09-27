@@ -13,10 +13,13 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
-  reporter: 'html',
+  // CI: 控制台逐行摘要 (不用打开 artifact 也能定位失败) + HTML 报告供上传;
+  // 本地: HTML 报告 (不自动开浏览器)。失败工件见 test-results/ (截图 / trace)。
+  reporter: process.env.CI ? [['line'], ['html', { open: 'never' }]] : [['html', { open: 'never' }]],
   use: {
     baseURL: 'http://localhost:3000',
-    trace: 'on-first-retry',
+    // CI 有 2 次重试 → 首次重试即留 trace, 失败工件随 report 一起上传
+    trace: process.env.CI ? 'on-first-retry' : 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
   projects: [

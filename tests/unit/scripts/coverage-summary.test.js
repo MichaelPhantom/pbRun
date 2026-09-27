@@ -145,7 +145,6 @@ describe('loadThresholds 兜底与 summarize 缺字段', () => {
 
 describe('main (CLI 入口)', () => {
   const fsMod = require('node:fs');
-  const os = require('node:os');
   let logSpy;
   let errSpy;
   let exitSpy;

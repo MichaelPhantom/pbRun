@@ -75,6 +75,18 @@ describe('test:ci ↔ CI quality 作业对齐', () => {
     expect(qualityRuns).toEqual(expect.arrayContaining(['npm run build']));
   });
 
+  test('e2e 失败工件可诊断 (报告 + test-results 一并上传, CI 输出逐行摘要)', () => {
+    const wf = read('.github/workflows/test.yml');
+    const pw = read('playwright.config.ts');
+    // 上传必须 always (成功也留报告), 且包含失败工件目录
+    expect(wf).toMatch(/name: 上传 Playwright 报告与失败工件/);
+    expect(wf).toContain('test-results/');
+    expect(wf).toMatch(/if-no-files-found: ignore/);
+    // playwright: CI 用 line reporter (控制台可诊断) 且开 trace
+    expect(pw).toMatch(/process\.env\.CI \? \[\['line'\]/);
+    expect(pw).toMatch(/trace: process\.env\.CI \? 'on-first-retry'/);
+  });
+
   test('覆盖率报告以 artifact 上传, 且 PR 上留下摘要评论', () => {
     const wf = read('.github/workflows/test.yml');
     expect(wf).toContain('actions/upload-artifact@v4');
