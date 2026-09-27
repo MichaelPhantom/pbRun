@@ -216,6 +216,74 @@ describe('停止与异常', () => {
   });
 });
 
+describe('localStorage 异常与画像信号', () => {
+  test('localStorage 读/写抛错 → 静默降级, 页面仍可用', async () => {
+    const getItem = jest.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('SecurityError');
+    });
+    const setItem = jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('QuotaExceeded');
+    });
+    const removeItem = jest.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => {
+      throw new Error('QuotaExceeded');
+    });
+
+    const user = userEvent.setup();
+    render(<AiAnalysis activityId={7} />);
+    await user.click(screen.getByRole('button', { name: '生成分析' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: '复制' })).toBeInTheDocument());
+    // 输入草稿也会触发 setItem 抛错分支
+    const input = screen.getByLabelText('追问教练');
+    await user.type(input, 'x');
+    expect(input).toHaveValue('x');
+
+    getItem.mockRestore();
+    setItem.mockRestore();
+    removeItem.mockRestore();
+  });
+
+  test('传入 activity 与 profileSignal → 建议基于活动指标 (不抛错)', async () => {
+    const user = userEvent.setup();
+    render(
+      <AiAnalysis
+        activityId={1}
+        activity={
+          {
+            activity_id: 1,
+            name: '阈值跑',
+            distance: 10,
+            average_pace: 300,
+            average_heart_rate: 172,
+            average_cadence: 182,
+            vdot_value: 47,
+          } as never
+        }
+        profileSignal={{ tsb: -12, intensityZ45Pct: 28, weeklyVolumeChangePct: 15, vdotTrend: 'up' }}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: '生成分析' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: '复制' })).toBeInTheDocument());
+    const chips = screen
+      .getAllByRole('button')
+      .filter((b) => /[?？]$/.test(b.textContent ?? '') && b.textContent!.length > 6);
+    expect(chips.length).toBeGreaterThan(0);
+  });
+
+  test('非 Error 抛出 (字符串) → 仍给出生成失败提示', async () => {
+    fetchMock.mockImplementation((url: string) => {
+      if (String(url).includes('/api/llm/models')) return okModels();
+      // 抛出非 Error 值 → 走 '生成失败' 兜底文案分支
+      return Promise.reject('boom-string');
+    });
+    const user = userEvent.setup();
+    render(<AiAnalysis activityId={1} />);
+    await user.click(screen.getByRole('button', { name: '生成分析' }));
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('生成失败'));
+    // 非 Error 抛出用兜底文案渲染错误行
+    expect(screen.getByText(/⚠ 生成失败/)).toBeInTheDocument();
+  });
+});
+
 describe('工具动作', () => {
   test('复制成功/失败播报; 点赞与点踩切换 aria-pressed', async () => {
     const user = userEvent.setup();
@@ -252,6 +320,41 @@ describe('工具动作', () => {
 
     await user.click(chip);
     await waitFor(() => expect(analysisBodies(fetchMock).at(-1).question).toBe(label));
+  });
+
+  test('未传 activity / profileSignal → 建议生成走兜底 (不抛错)', async () => {
+    const user = userEvent.setup();
+    await generate(user); // 渲染的是 <AiAnalysis activityId={1} />, 无 activity/profileSignal
+    // 分析完成后仍能给出追问建议 (profile 为 null 时退化为通用问题)
+    const chips = screen
+      .getAllByRole('button')
+      .filter((b) => /[?？]$/.test(b.textContent ?? '') && b.textContent!.length > 6);
+    expect(chips.length).toBeGreaterThan(0);
+  });
+
+  test('Shift+Enter 不发送; 输入框 Enter 发送后清空', async () => {
+    const user = userEvent.setup();
+    await generate(user);
+    const before = analysisBodies(fetchMock).length;
+    const input = screen.getByLabelText('追问教练');
+
+    await user.click(input);
+    await user.keyboard('换行测试');
+    await user.keyboard('{Shift>}{Enter}{/Shift}');
+    expect(analysisBodies(fetchMock).length).toBe(before); // 未发送
+
+    await user.keyboard('{Enter}');
+    await waitFor(() => expect(analysisBodies(fetchMock).length).toBe(before + 1));
+    expect(screen.getByLabelText('追问教练')).toHaveValue('');
+  });
+
+  test('发送按钮在空白输入时禁用', async () => {
+    const user = userEvent.setup();
+    await generate(user);
+    const send = screen.getByRole('button', { name: '发送' });
+    expect(send).toBeDisabled();
+    await user.type(screen.getByLabelText('追问教练'), '   ');
+    expect(send).toBeDisabled();
   });
 
   test('离底出现「回到底部」并能复位', async () => {

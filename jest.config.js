@@ -30,18 +30,20 @@ module.exports = {
   coverageThreshold: {
     // 分目录门槛 (2026-09-27 四次校准): 各目录留 ~1.5-2pt 余量, 任一目录退化即红灯。
     // 口径见上: 命中更窄路径的文件只归属该分组, 不再计入 global。
-    // 实测: global 97.45/89.39/96.46/98.23; app/lib 97.49/87.40;
+    // 实测 (2026-09-27 五次): global 97.59/89.59/97.45; app/lib 97.65/89.02/98.18;
     //       app/api 95.60/90.81/100; app/components 98.52/90.05/100;
-    //       scripts 97.47/90.99/95.22; 其余页面/路由 98.36/84.86/97.35。
+    //       scripts 97.47/90.99/95.22; 其余页面/路由 98.91/88.07/97.35。
     global: {
       statements: 96,
-      branches: 87,
+      branches: 88,
       functions: 95,
       lines: 97,
     },
     // 核心逻辑层 (计算/服务/db/ai/图表)
     './app/lib/': {
       statements: 96,
+      branches: 87,
+      functions: 97,
       lines: 98,
     },
     // API 路由 (参数校验与错误分支)
@@ -53,13 +55,13 @@ module.exports = {
     // 通用 UI 组件
     './app/components/': {
       statements: 97,
-      branches: 88,
+      branches: 89,
       functions: 99,
     },
     // CLI 脚本与数据管线
     './scripts/': {
       statements: 96,
-      branches: 89,
+      branches: 90,
       functions: 94,
     },
   },

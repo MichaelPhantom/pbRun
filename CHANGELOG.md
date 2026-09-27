@@ -6,7 +6,7 @@
 ## [Unreleased]
 
 ### Added
-- **单测 838 → 1501 例（65 → 115 套件）**：把 0% 覆盖的应用壳与页面（`error`/`global-error`
+- **单测 838 → 1522 例（65 → 116 套件）**：把 0% 覆盖的应用壳与页面（`error`/`global-error`
   两个错误边界分支、`layout`/`loading`/`not-found`、`/analysis`(+`AnalysisClient`)、
   `/analysis/zone/[zone]`、`/pages/[id]`(+`ActivityDetailClient`)、`/stats`(+`StatsClient`)、
   `/list`、`/insight`、`/daniels`、`/pages` 重定向）与图表/AI 组件（`RouteMap`、`ZoneTrendCharts`、
@@ -15,8 +15,8 @@
   动作分支、`ModelSelector`）补上单测；CLI 脚本从「导入契约」升级为**单片真实单测**
   （`garmin/client` 的 401 刷新互斥与 token 持久化播报、`vdot-calculator`、`common/utils`
   的 `.env` upsert 与备份去重、`make-fixture-db`、`sync-garmin`）。
-  覆盖率：**global 语句 73.7 → 97.6% / 函数 72.4 → 97.5% / 分支 63.0 → 88.8% / 行 98.5%，
-  `app/lib/` 语句 83.4 → 97.6%**。至此 `app/**` 与 `scripts/**` 的**全部可执行
+  覆盖率：**global 语句 73.7 → 97.6% / 函数 72.4 → 97.5% / 分支 63.0 → 89.6%，
+  `app/lib/` 语句 83.4 → 97.7%、分支 89.0%**。至此 `app/**` 与 `scripts/**` 的**全部可执行
   文件均已被测试加载**（仅 `app/lib/types.ts` 为纯类型声明）。
   第二批补齐（同日）: `AiAnalysis` 动作分支、`ModelSelector`、`useModelCatalog`、
   `app/lib/db` 未覆盖路径、`coach-stream` 失败语义、各 API 路由校验分支、
@@ -88,9 +88,9 @@
  `jest.config.js` 单一真源、`npm run build` 在 u2 生产机须走 `scripts/deploy-prod.sh`。
 - jest 增加 `coverageThreshold`（`global` + `./app/lib/` 分组两组下限，数值的单一真源是
   `jest.config.js`，文档不另抄数字以免漂移），防止覆盖率回归。
-- **覆盖率门槛细化为 5 组逐目录防回归**：`global` 72/61/70/73 → … → **96/87/95/97**，
-  `./app/lib/` → **96/98**，并新增 `./app/api/` **94/89/99**、`./app/components/` **97/88/99**、
-  `./scripts/` **96/89/94**（各组贴近实测下方留 ~1.5-2pt）。
+- **覆盖率门槛细化为 5 组 8 项逐目录防回归**：`global` 72/61/70/73 → … → **96/88/95/97**，
+  `./app/lib/` → **96/87/97/98**（新增分支与函数两项），并新增 `./app/api/` **94/89/99**、
+  `./app/components/` **97/89/99**、`./scripts/` **96/90/94**（各组贴近实测下方留 ~1.5-2pt）。
   细化当场暴露了「其余页面/路由」组分支仅 84.9% 的隐藏弱项 —— 补 InsightClient/
   ActivityDetailClient/AnalysisClient 条件渲染两侧后达 88.07%, 全局分支 84.9% → 88.8%。
 - **两处可测性小改造（行为不变）**：`scripts/garmin/sync.js` 把 zip.js 动态 `import()` 抽为

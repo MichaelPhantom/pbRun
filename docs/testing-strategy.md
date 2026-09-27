@@ -58,13 +58,12 @@ module.exports = {
     '!app/**/node_modules/**',
   ],
   coverageThreshold: {
-    // 2026-09-27 四次校准: 由「global + app/lib」细化为「global + 四个目录」逐目录防回归
-    // (命中更窄路径的文件只归属该分组, 不计入 global)
-    global: { statements: 96, branches: 87, functions: 95, lines: 97 },
-    './app/lib/': { statements: 96, lines: 98 },
+    // 2026-09-27 五次校准: 5 组逐目录防回归 (命中更窄路径的文件只归属该分组, 不计入 global)
+    global: { statements: 96, branches: 88, functions: 95, lines: 97 },
+    './app/lib/': { statements: 96, branches: 87, functions: 97, lines: 98 },
     './app/api/': { statements: 94, branches: 89, functions: 99 },
-    './app/components/': { statements: 97, branches: 88, functions: 99 },
-    './scripts/': { statements: 96, branches: 89, functions: 94 },
+    './app/components/': { statements: 97, branches: 89, functions: 99 },
+    './scripts/': { statements: 96, branches: 90, functions: 94 },
   },
   testMatch: [
     '**/tests/unit/**/*.test.{ts,tsx,js}',
@@ -810,10 +809,10 @@ jobs:
 
 > **状态复核 (2026-09-26)**: 本计划为历史路线图, 逐项核实实际落地情况(见各条标注)。
 > `[x]` = 已落地; `[ ]` 保持未达成项(附原因); 勿据未勾选项判定"未做"。
-> 当前 (2026-09-27 五次复核): 115 套件 / 1501 例全绿; 语句覆盖 97.55% / 分支 88.78%。
-> 分组实测: app/lib 97.56/87.43、app/api 95.60/90.81、app/components 98.52/90.05、
+> 当前 (2026-09-27 六次复核): 116 套件 / 1522 例全绿; 语句覆盖 97.59% / 分支 89.59%。
+> 分组实测: app/lib 97.65/89.02、app/api 95.60/90.81、app/components 98.52/90.05、
 > scripts 97.47/90.99、其余页面与路由 98.91/88.07。
-> 门槛已细化为 **5 组**(global + app/lib + app/api + app/components + scripts) 全过。
+> 门槛已细化为 **5 组 8 项**(含 app/lib 的分支/函数) 全过。
 > 全部可执行文件均已加载 (app/** + scripts/**), 仅 `app/lib/types.ts` 为纯类型声明。
 
 ### Phase 1: 基础单元测试 (Week 1-2)
