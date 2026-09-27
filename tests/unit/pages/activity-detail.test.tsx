@@ -305,6 +305,72 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
     expect(screen.getAllByText('--').length).toBeGreaterThan(0);
   });
 
+  test('标题副信息与整数值分支: 非"跑步"类型显示徽章, 整分钟/整公里不补小数', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      name: '晨跑',
+      sport_type: '骑行',
+      sub_sport_type: '路跑',
+      distance: 9, // 整数 km → 显示 "9" 而非 9.00
+      moving_time: 2700, // 45.0 分 → 显示 "45" 而非 45.0
+      duration: 2700,
+      vdot_value: 46.25,
+    });
+    render(await page('1001'));
+
+    expect(screen.getByText('骑行')).toBeInTheDocument(); // sport_type !== '跑步'
+    expect(screen.getByText('路跑')).toBeInTheDocument();
+    const overview = screen.getByText('活动概览').closest('section')!;
+    expect(within(overview).getByText('9')).toBeInTheDocument();
+    expect(within(overview).getByText('45')).toBeInTheDocument();
+    expect(within(overview).getByText('46.3')).toBeInTheDocument(); // vdot toFixed(1)
+  });
+
+  test('轨迹点不足 (<2) → 不渲染路线地图', async () => {
+    db.getActivityTrack.mockReturnValue({ coords: [[29.5, 106.5]], n: 1 });
+    render(await page('1001'));
+    expect(screen.queryByText('路线地图')).not.toBeInTheDocument();
+  });
+
+  test('分段缺心率/步频/爬升 → 表内 -- 兜底; 最快段仍能识别', async () => {
+    db.getActivityLaps.mockReturnValue([
+      { id: 1, activity_id: 1001, lap_index: 1, duration: 300, cumulative_time: 300, distance: 1000, average_pace: 300 },
+      { id: 2, activity_id: 1001, lap_index: 2, duration: 320, cumulative_time: 620, distance: 1000 },
+    ]);
+    render(await page('1001'));
+    // 只有第 1 段有配速 → 最快 K1
+    expect(screen.getByText(/最快 K1/)).toBeInTheDocument();
+    expect(screen.getAllByText('--').length).toBeGreaterThan(0);
+  });
+
+  test('画像信号: intensityDist 为空 → 强度占比为 null (不报错)', async () => {
+    buildRunnerProfile.mockReturnValue({
+      tsb: -3,
+      intensityDist: [],
+      weeklyVolumeChangePct: null,
+      vdotTrend: 'flat',
+    });
+    render(await page('1001'));
+    expect(screen.getByTestId('ai-analysis')).toHaveAttribute('data-signal', '1');
+  });
+
+  test('insight 有数据 → 深挖面板与角色列同时渲染', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: {
+          lapAnalysis: { laps: [{ lapIndex: 1, role: 'work' }], workLaps: 1, workDistanceMeters: 1000, workAvgPaceSecPerKm: 300, workHrDrift: 2, bestPaceSecPerKm: 300, bestLapIndex: 1 },
+          comparison: null,
+          decouplingPct: 4.2,
+          hrZoneBreakdown: [{ zone: 2, seconds: 600, pct: 100 }],
+        },
+      }),
+    });
+    render(await page('1001'));
+    await waitFor(() => expect(screen.getByTestId('insight-panel')).toHaveAttribute('data-has', '1'));
+    await waitFor(() => expect(screen.getByText('主课')).toBeInTheDocument());
+  });
+
   test('无 GPS / 无逐秒记录 / 无分段 / 无跑步动态 → 对应区块不渲染', async () => {
     db.getActivityTrack.mockReturnValue(null);
     db.getActivityRecords.mockReturnValue([]);

@@ -6,7 +6,7 @@
  * 客户端侧: 区间占比建议 (超标/不足 vs 均衡)、各卡片空态、TSB 徽章、
  *          时间范围 Segmented、心率/配速表格与趋势链接。
  */
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, cleanup } from '@testing-library/react';
 
 jest.mock('@/app/lib/db', () => ({
   getHrZoneStats: jest.fn(),
@@ -222,6 +222,56 @@ describe('app/analysis/AnalysisClient.tsx 渲染', () => {
       expect(screen.getByTitle(new RegExp(`查看 ${z}`))).toBeInTheDocument();
     }
     expect(db.getPaceZoneStats).toHaveBeenCalled();
+  });
+
+  test('Z4 / Z5 单独超标 → 各自产出一条建议 (Z3 不超标时无 Z3 条目)', async () => {
+    // 构造: Z1+Z2 = 75% (不触发 under), Z3 = 10% (不触发), Z4 = 12% (>10), Z5 = 3% (不触发)
+    const total = 10000;
+    db.getHrZoneStats.mockReturnValue([
+      zone(1, total * 0.55),
+      zone(2, total * 0.2),
+      zone(3, total * 0.1),
+      zone(4, total * 0.12),
+      zone(5, total * 0.03),
+    ]);
+    render(await AnalysisPage({ searchParams: Promise.resolve({}) }));
+    expect(screen.getByText(/Z4（乳酸阈）：当前/)).toBeInTheDocument();
+    expect(screen.queryByText(/Z3（节奏\/马拉松配速）：当前/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Z5（间歇\/强度）：当前/)).not.toBeInTheDocument();
+
+    cleanup();
+    // 仅 Z5 超标
+    db.getHrZoneStats.mockReturnValue([
+      zone(1, total * 0.55),
+      zone(2, total * 0.2),
+      zone(3, total * 0.15),
+      zone(4, total * 0.0),
+      zone(5, total * 0.1),
+    ]);
+    render(await AnalysisPage({ searchParams: Promise.resolve({}) }));
+    expect(screen.getByText(/Z5（间歇\/强度）：当前/)).toBeInTheDocument();
+    expect(screen.queryByText(/Z4（乳酸阈）：当前/)).not.toBeInTheDocument();
+  });
+
+  test('多条目同时超标 → 按 Z1-Z2 / Z3 / Z4 / Z5 顺序全部列出', async () => {
+    const total = 10000;
+    db.getHrZoneStats.mockReturnValue([
+      zone(1, total * 0.5),
+      zone(2, total * 0.05),
+      zone(3, total * 0.2),
+      zone(4, total * 0.15),
+      zone(5, total * 0.1),
+    ]);
+    render(await AnalysisPage({ searchParams: Promise.resolve({}) }));
+    const text = document.body.textContent ?? '';
+    const i12 = text.indexOf('Z1–Z2（轻松/有氧）：当前');
+    const i3 = text.indexOf('Z3（节奏/马拉松配速）：当前');
+    const i4 = text.indexOf('Z4（乳酸阈）：当前');
+    const i5 = text.indexOf('Z5（间歇/强度）：当前');
+    expect(i12).toBeGreaterThanOrEqual(0);
+    expect(i3).toBeGreaterThan(i12);
+    expect(i4).toBeGreaterThan(i3);
+    expect(i5).toBeGreaterThan(i4);
   });
 
   test('均衡分布 → 绿色均衡提示; 心率/跑力图表空态', async () => {

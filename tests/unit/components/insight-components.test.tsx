@@ -131,6 +131,64 @@ describe('InsightClient', () => {
     expect(screen.getByText('配速-心率模型')).toBeInTheDocument();
   });
 
+  test('可选段缺失 → 走空态分支 (categories/weather/routes 为 undefined)', () => {
+    const minimal: InsightResponse = {
+      ...insight,
+      vdot: { ...insight.vdot, perMonth: [], latest: null, slopePer30d: 0, plateau: false },
+      load: { ...insight.load, weekly: [], zDistribution: [], acwr: 0, acwrTone: 'under' },
+      decoupling: { points: [], meanPct: null, trendPer30d: null, sampleCount: 0 },
+      form: { monthly: [] },
+      findings: [],
+      categories: undefined,
+      weather: undefined,
+      routes: undefined,
+      paceHr: { ...insight.paceHr, predictions: [], thresholdPaceSecPerKm: null, thresholdHr: null },
+    } as unknown as InsightResponse;
+
+    render(<InsightClient insight={minimal} timeRangeDays={30} />);
+
+    // findings 空 → 空态文案
+    expect(screen.getByText('所选区间数据不足，暂无洞察')).toBeInTheDocument();
+    // VDOT/强度分布/长跑/跑姿 空态
+    expect(screen.getByText('暂无 VDOT 趋势数据')).toBeInTheDocument();
+    expect(screen.getByText('暂无强度分布数据')).toBeInTheDocument();
+    expect(screen.getByText('所选区间暂无 ≥10km 的长跑数据')).toBeInTheDocument();
+    expect(screen.getByText('暂无跑姿数据')).toBeInTheDocument();
+    // 缺少 categories/weather/routes 时页面整体仍可渲染 (不抛错)
+    expect(screen.getByText('关键洞察')).toBeInTheDocument();
+    expect(screen.getByText('周期化分析')).toBeInTheDocument();
+  });
+
+  test('可选段边界: 类别超 8 个只取前 8; 气温桶字段缺失用 null', () => {
+    const many: InsightResponse = {
+      ...insight,
+      categories: {
+        stats: Array.from({ length: 10 }, (_, i) => ({
+          ...insight.categories!.stats[0],
+          category: 'tempo',
+          label: `类别${i + 1}`,
+          count: 10 - i,
+        })),
+        totalActivities: 10,
+        bestEfficiencyCategory: null,
+      },
+      weather: {
+        buckets: [
+          { bucket: 'X', count: 1, avgHeartRate: null, avgPaceSecPerKm: null, efficiency: null, avgCadence: null },
+        ],
+        sampleCount: 1,
+      },
+    } as unknown as InsightResponse;
+
+    render(<InsightClient insight={many} timeRangeDays={90} />);
+    // 类别表会渲染全部类别 (10 行), 图表只取前 8 —— 此处只校验不崩且首项在列;
+    // 「图表取前 8」由下方图表 data 断言单独覆盖。
+    expect(screen.getByText('类别1')).toBeInTheDocument();
+    expect(screen.getByText('类别10')).toBeInTheDocument();
+    // 气温桶字段为 null 时使用 null 序列, 不抛错
+    expect(screen.getByText('气温影响对比')).toBeInTheDocument();
+  });
+
   test('展示 findings 与类别数据', () => {
     render(<InsightClient insight={insight} timeRangeDays={90} />);
     expect(screen.getByText('负荷处于理想区间')).toBeInTheDocument();

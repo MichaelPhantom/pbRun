@@ -6,7 +6,7 @@
 ## [Unreleased]
 
 ### Added
-- **单测 838 → 1393 例（65 → 110 套件）**：把 0% 覆盖的应用壳与页面（`error`/`global-error`
+- **单测 838 → 1501 例（65 → 115 套件）**：把 0% 覆盖的应用壳与页面（`error`/`global-error`
   两个错误边界分支、`layout`/`loading`/`not-found`、`/analysis`(+`AnalysisClient`)、
   `/analysis/zone/[zone]`、`/pages/[id]`(+`ActivityDetailClient`)、`/stats`(+`StatsClient`)、
   `/list`、`/insight`、`/daniels`、`/pages` 重定向）与图表/AI 组件（`RouteMap`、`ZoneTrendCharts`、
@@ -15,8 +15,8 @@
   动作分支、`ModelSelector`）补上单测；CLI 脚本从「导入契约」升级为**单片真实单测**
   （`garmin/client` 的 401 刷新互斥与 token 持久化播报、`vdot-calculator`、`common/utils`
   的 `.env` upsert 与备份去重、`make-fixture-db`、`sync-garmin`）。
-  覆盖率：**global 语句 73.7 → 96.4% / 函数 72.4 → 96.5% / 分支 63.0 → 84.9% / 行 97.6%，
-  `app/lib/` 语句 83.4 → 97.0%、行 98.7%**。至此 `app/**` 与 `scripts/**` 的**全部可执行
+  覆盖率：**global 语句 73.7 → 97.6% / 函数 72.4 → 97.5% / 分支 63.0 → 88.8% / 行 98.5%，
+  `app/lib/` 语句 83.4 → 97.6%**。至此 `app/**` 与 `scripts/**` 的**全部可执行
   文件均已被测试加载**（仅 `app/lib/types.ts` 为纯类型声明）。
   第二批补齐（同日）: `AiAnalysis` 动作分支、`ModelSelector`、`useModelCatalog`、
   `app/lib/db` 未覆盖路径、`coach-stream` 失败语义、各 API 路由校验分支、
@@ -88,9 +88,11 @@
  `jest.config.js` 单一真源、`npm run build` 在 u2 生产机须走 `scripts/deploy-prod.sh`。
 - jest 增加 `coverageThreshold`（`global` + `./app/lib/` 分组两组下限，数值的单一真源是
   `jest.config.js`，文档不另抄数字以免漂移），防止覆盖率回归。
-- **覆盖率门槛随实测三次提升**：`global` 72/61/70/73 → 91/78/92/93 → 94/81/95/95 →
-  **95/83/95/96**，`./app/lib/` 82/84 → 94/96 → 95/97 → **96/98**（贴近实测下方留 ~2pt 余量：
-  global 实测 96.41/84.94/96.46/97.64，app/lib 97.01/98.65）。
+- **覆盖率门槛细化为 5 组逐目录防回归**：`global` 72/61/70/73 → … → **96/87/95/97**，
+  `./app/lib/` → **96/98**，并新增 `./app/api/` **94/89/99**、`./app/components/` **97/88/99**、
+  `./scripts/` **96/89/94**（各组贴近实测下方留 ~1.5-2pt）。
+  细化当场暴露了「其余页面/路由」组分支仅 84.9% 的隐藏弱项 —— 补 InsightClient/
+  ActivityDetailClient/AnalysisClient 条件渲染两侧后达 88.07%, 全局分支 84.9% → 88.8%。
 - **两处可测性小改造（行为不变）**：`scripts/garmin/sync.js` 把 zip.js 动态 `import()` 抽为
   模块级 `zipModuleLoader` + `__setZipModuleLoader` 注入点（jest 默认 vm 环境无法执行被测
   代码里的 `import()`）；`scripts/strava/sync.js` 导出 `parseArgs` / `main`（与 garmin 侧导出
@@ -125,6 +127,9 @@
   当前以用例固化该行为；若要支持「关闭限速」应改用 `??`，届时用例会失败提醒同步。
 - **`take-screenshots` 的可选页失败不计入统计**（同上，未改实现）：optional 页失败只打日志、
   既不 +success 也不 +fail，`失败: N 个` 仅统计必选页抛错。以用例固化现状。
+- **两处统计口径现状**（本轮补测发现并固化用例, 未改实现）：`getTrainingLoads` 只校验
+  `YYYY-MM-DD` 形态而不校验日历合法性（`2026-13-01` 不报错）；`computeLoadInsight` 的强度
+  分布与轻松占比直接用原始区间秒数（负值会得出负百分比），仅总量分母过滤负值。
 - **`sync_running_data.yml` 从未真正「跳过」过**：job 级 `if` 不允许 `secrets` 上下文，
   原 `if: ${{ secrets.STRAVA_CLIENT_ID != '' || ... }}` 使 workflow 校验直接失败——每次
   push 都显示红叉、0 个 job，而注释声称「未配置 secrets 时跳过」。改为 `preflight` 预检

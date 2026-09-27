@@ -18,9 +18,8 @@ module.exports = {
     '!app/**/*.d.ts',
     '!app/**/node_modules/**',
   ],
-  // 覆盖率下限 (防回归)。门槛贴近实测值下方留 ~2pt 余量 (2026-09-27 三次校准):
-  // global 实测 st 96.41 / br 84.94 / fn 96.46 / lines 97.64;
-  // ./app/lib/ 实测 st 97.01 / lines 98.65。核心逻辑层门槛更高。
+  // 覆盖率下限 (防回归)。2026-09-27 四次校准: 由「global + app/lib 两条」细化为
+  // 「global + app/lib + app/api + app/components + scripts」五条, 逐目录防回归。
   // 全部可执行文件 (app/** + scripts/**) 均已被测试加载, 仅 app/lib/types.ts 为纯类型。
   //
   // 口径 (jest 30 实测, 见 @jest/reporters CoverageReporter._checkThreshold):
@@ -29,17 +28,39 @@ module.exports = {
   // 未被任何测试加载的文件不进覆盖率映射, 既不计分子也不计分母。
   // 因此报错里的 actual% == 文本报表按同口径汇总的百分比 (可用 python 复算核对)。
   coverageThreshold: {
-    // 全局门槛 (页面/客户端组件/脚本): 2026-09-27 由 72/61/70/73 三次提升至 95/83/95/96。
+    // 分目录门槛 (2026-09-27 四次校准): 各目录留 ~1.5-2pt 余量, 任一目录退化即红灯。
+    // 口径见上: 命中更窄路径的文件只归属该分组, 不再计入 global。
+    // 实测: global 97.45/89.39/96.46/98.23; app/lib 97.49/87.40;
+    //       app/api 95.60/90.81/100; app/components 98.52/90.05/100;
+    //       scripts 97.47/90.99/95.22; 其余页面/路由 98.36/84.86/97.35。
     global: {
-      statements: 95,
-      branches: 83,
+      statements: 96,
+      branches: 87,
       functions: 95,
-      lines: 96,
+      lines: 97,
     },
-    // 核心逻辑层 (计算/服务/db/ai/图表) 更高门槛: 82/84 → 96/98
+    // 核心逻辑层 (计算/服务/db/ai/图表)
     './app/lib/': {
       statements: 96,
       lines: 98,
+    },
+    // API 路由 (参数校验与错误分支)
+    './app/api/': {
+      statements: 94,
+      branches: 89,
+      functions: 99,
+    },
+    // 通用 UI 组件
+    './app/components/': {
+      statements: 97,
+      branches: 88,
+      functions: 99,
+    },
+    // CLI 脚本与数据管线
+    './scripts/': {
+      statements: 96,
+      branches: 89,
+      functions: 94,
     },
   },
   testMatch: [

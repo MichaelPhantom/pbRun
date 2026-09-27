@@ -58,9 +58,13 @@ module.exports = {
     '!app/**/node_modules/**',
   ],
   coverageThreshold: {
-    // 2026-09-27 三次校准: 贴近实测下方留 ~2pt 余量
-    global: { statements: 95, branches: 83, functions: 95, lines: 96 },
+    // 2026-09-27 四次校准: 由「global + app/lib」细化为「global + 四个目录」逐目录防回归
+    // (命中更窄路径的文件只归属该分组, 不计入 global)
+    global: { statements: 96, branches: 87, functions: 95, lines: 97 },
     './app/lib/': { statements: 96, lines: 98 },
+    './app/api/': { statements: 94, branches: 89, functions: 99 },
+    './app/components/': { statements: 97, branches: 88, functions: 99 },
+    './scripts/': { statements: 96, branches: 89, functions: 94 },
   },
   testMatch: [
     '**/tests/unit/**/*.test.{ts,tsx,js}',
@@ -806,9 +810,10 @@ jobs:
 
 > **状态复核 (2026-09-26)**: 本计划为历史路线图, 逐项核实实际落地情况(见各条标注)。
 > `[x]` = 已落地; `[ ]` 保持未达成项(附原因); 勿据未勾选项判定"未做"。
-> 当前 (2026-09-27 四次复核): 110 套件 / 1393 例全绿; 行覆盖 97.6%
-> (global 行 97.64%, app/lib 行 98.65%; 语句 global 96.41% / app/lib 97.01%)。
-> 覆盖率门槛 6 项全过 (global 95/83/95/96, app/lib 96/98)。
+> 当前 (2026-09-27 五次复核): 115 套件 / 1501 例全绿; 语句覆盖 97.55% / 分支 88.78%。
+> 分组实测: app/lib 97.56/87.43、app/api 95.60/90.81、app/components 98.52/90.05、
+> scripts 97.47/90.99、其余页面与路由 98.91/88.07。
+> 门槛已细化为 **5 组**(global + app/lib + app/api + app/components + scripts) 全过。
 > 全部可执行文件均已加载 (app/** + scripts/**), 仅 `app/lib/types.ts` 为纯类型声明。
 
 ### Phase 1: 基础单元测试 (Week 1-2)
@@ -830,6 +835,9 @@ jobs:
       ActivityTrendCharts、VDOTTrendChart、useEchart(主题重建/dispose)、YearHeatmap、
       Donut、InsightBarChart、PaceZoneMetricsTable、TrainingLoadChart、useStickToBottom、
       GlobalCoach、AiAnalysis 动作分支、ModelSelector)
+- [x] 分支覆盖攻坚 ✅ (2026-09-27: fit-parser 68.8→93.8%、runner-profile 68→82%、
+      db.ts 81.9→85.9%、insight findings、ActivityInsightPanel、InsightClient/
+      ActivityDetailClient/AnalysisClient 的条件渲染两侧)
 - [x] CLI 脚本真实单测 ✅ (2026-09-27: 从「导入契约」升级 —— `garmin/client`(401 刷新互斥/
       token 持久化播报)、`common/vdot-calculator`、`common/utils`(.env upsert/备份去重)、
       `testing/make-fixture-db`、`sync-garmin`、`common/db-manager`(列迁移/NULL 兜底)、
