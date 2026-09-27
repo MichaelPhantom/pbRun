@@ -23,8 +23,21 @@ function isZip(buffer) {
   return buf.length >= 2 && buf[0] === 0x50 && buf[1] === 0x4B; // PK
 }
 
+/**
+ * zip.js 动态加载器。
+ * 单独抽出一层是为了可测: jest 默认 vm 环境不支持被测代码里的 `import()`,
+ * 测试可通过 __setZipModuleLoader 注入假的 zip 实现, 从而覆盖下面的解包逻辑
+ * (含 PK 头判定、无 .fit 条目、正常提取三条路径)。
+ */
+let zipModuleLoader = () => import('@zip.js/zip.js');
+
+/** 仅供测试注入 zip 实现 (生产不要调用)。 */
+function __setZipModuleLoader(loader) {
+  zipModuleLoader = loader;
+}
+
 async function extractFitFromZip(zipBuffer) {
-  const { ZipReader, Uint8ArrayReader, Uint8ArrayWriter } = await import('@zip.js/zip.js');
+  const { ZipReader, Uint8ArrayReader, Uint8ArrayWriter } = await zipModuleLoader();
   const u8 = Buffer.isBuffer(zipBuffer) ? new Uint8Array(zipBuffer) : new Uint8Array(zipBuffer);
   const reader = new ZipReader(new Uint8ArrayReader(u8));
   const entries = await reader.getEntries();
@@ -488,3 +501,4 @@ if (require.main === module) {
 module.exports = GarminSync;
 module.exports.main = main;
 module.exports.GarminSync = GarminSync;
+module.exports.__setZipModuleLoader = __setZipModuleLoader;
