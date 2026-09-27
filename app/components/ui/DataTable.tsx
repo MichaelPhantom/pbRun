@@ -60,7 +60,14 @@ export function DataTable({
   className?: string;
 }) {
   return (
-    <div className={`-mx-1 overflow-x-auto sm:mx-0 ${className}`}>
+    // role=region + tabIndex=0: 移动端表格会横向溢出, 键盘用户必须能聚焦并滚动该区域
+    // (axe: scrollable-region-focusable, 仅移动端断点触发 —— 桌面端不溢出故此前未暴露)。
+    <div
+      className={`-mx-1 overflow-x-auto sm:mx-0 ${className}`}
+      role="region"
+      aria-label={caption}
+      tabIndex={0}
+    >
       <table className="w-full border-collapse text-center text-[11px] sm:text-sm">
         <caption className="sr-only">{caption}</caption>
         <thead>

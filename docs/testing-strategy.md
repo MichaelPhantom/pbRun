@@ -778,10 +778,13 @@ setupTestDb();
 > 直接看到失败测试名（2026-09-27 实测：由 annotation 一次定位到 `FAIL …threshold-margin.test.ts`）。
 > `tests/unit/docs/ci-workflow-docs.test.ts` 对此做双向守护（workflow 能力 ↔ 文档提及）。
 
-**无障碍 (a11y) 自动断言**（`tests/e2e/a11y.spec.ts`，2026-09-27 新增）：用
-`@axe-core/playwright` 扫描 6 个主要页面（首页/记录/分析/统计/洞察/丹尼尔斯）+ 键盘可达性
-（首个 Tab 落在「跳到主要内容」跳板链接）。门禁口径为**只拦 serious/critical**
-（缺 label、对比度不足、ARIA 误用等硬伤），moderate/minor 不拦截以免门禁噪音化。
+**无障碍 (a11y) 自动断言**（`tests/e2e/a11y.spec.ts`，2026-09-27 新增，共 15 例）：用
+`@axe-core/playwright` 扫描 7 个页面（首页/记录/分析/统计/洞察/丹尼尔斯/**活动详情**）
+× **桌面 + 移动端 (Pixel 5) 两种视口**（移动端表格横向溢出属不同渲染路径，需单独扫）+
+键盘可达性（首个 Tab 落在「跳到主要内容」跳板链接）。门禁口径为**只拦 serious/critical**
+（缺 label、对比度不足、ARIA 误用、可滚动区域不可聚焦等硬伤），moderate/minor 不拦截
+以免门禁噪音化。注意 `devices['Pixel 5']` 含 `defaultBrowserType`，在 `describe` 内
+`test.use` 会强制新 worker 报错 —— 只取视口相关字段。
 
 首轮扫描发现 **113 个 color-contrast 违规**（全部 serious），据此修正设计系统：
 - 引入「文字专用色」`--brand-text` / `--good-text` / `--warn-text` / `--crit-text` /
@@ -793,8 +796,11 @@ setupTestDb();
 - 语义徽章底色由「同色浅底」改为 `--surface-2` + 语义色描边（`good-text #0a8a0a` 在
   同色浅底上仅 3.45:1）
 - 移除徽章内小字的 `opacity-80`（透明度会稀释对比度）
+- **`DataTable` 滚动容器加 `role="region"` + `aria-label` + `tabIndex={0}`**：移动端表格横向
+  溢出时键盘用户无法聚焦滚动（axe `scrollable-region-focusable`，仅移动端断点触发，桌面端
+  不溢出故此前的桌面扫描未暴露）。该组件被 10 张表复用。
 
-修正后 axe 扫描归零；e2e 合计 43 项（36 功能 + 7 a11y）全过。
+修正后 axe 在两种视口下均归零；e2e 合计 51 项（36 功能 + 15 a11y）全过。
 
 **门槛余量规则**（`tests/unit/ci/threshold-margin.test.ts` 守护）：每组每项的
 「实测 − 门槛」须 ≥ 1.5pt（门槛接近 100 时按数学上限放宽为 `100-gate-0.5`），
