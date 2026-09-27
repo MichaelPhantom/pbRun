@@ -217,6 +217,34 @@ describe('computeDecouplingInsight', () => {
     expect(r.meanPct).toBeNull();
     expect(r.trendPer30d).toBeNull();
   });
+
+  test('两点逆序输入 → 排序比较器走 : 1 侧, 仍按日期升序', () => {
+    const mk = (id: number, date: string) => ({
+      activityId: id, date, distanceMeters: 12000, durationSeconds: 4200,
+      records: [
+        ...Array.from({ length: 80 }, (_, i) => ({ elapsed_sec: i, heart_rate: 150, speed: 3, distance: i })),
+        ...Array.from({ length: 80 }, (_, i) => ({ elapsed_sec: 80 + i, heart_rate: 150, speed: 2.6, distance: 80 + i })),
+      ],
+    });
+    const r = computeDecouplingInsight([mk(1, '2026-09-01'), mk(2, '2026-07-01')]);
+    expect(r.points.map((p) => p.date)).toEqual(['2026-07-01', '2026-09-01']);
+  });
+
+  test('≥3 点但同日 → 零方差, 趋势为 null (且排序不丢点)', () => {
+    const mk = (id: number) => ({
+      activityId: id,
+      date: '2026-09-01',
+      distanceMeters: 12000,
+      durationSeconds: 4200,
+      records: [
+        ...Array.from({ length: 80 }, (_, i) => ({ elapsed_sec: i, heart_rate: 150, speed: 3, distance: i })),
+        ...Array.from({ length: 80 }, (_, i) => ({ elapsed_sec: 80 + i, heart_rate: 150, speed: 2.6, distance: 80 + i })),
+      ],
+    });
+    const r = computeDecouplingInsight([mk(1), mk(2), mk(3)]);
+    expect(r.sampleCount).toBe(3);
+    expect(r.trendPer30d).toBeNull();
+  });
 });
 
 describe('computeFormTrends', () => {
@@ -266,6 +294,13 @@ describe('computePaceHrModel', () => {
   test('无阈值心率时不算阈值配速', () => {
     const samples = [4.5, 5, 5.5, 6].map((p) => ({ paceSecPerKm: p * 60, heartRate: 238 - 14.9 * p }));
     const r = computePaceHrModel(samples, null);
+    expect(r.thresholdPaceSecPerKm).toBeNull();
+  });
+
+  test('反推配速 <= 0 (阈值心率低于截距/slope 符号异常) → 仍为 null', () => {
+    // slope > 0 (配速越慢心率越高), 阈值心率低于把配速推到 0 的水平
+    const samples = [4, 5, 6, 7].map((p) => ({ paceSecPerKm: p * 60, heartRate: 100 + 10 * p }));
+    const r = computePaceHrModel(samples, 90); // (90 - intercept)/slope < 0
     expect(r.thresholdPaceSecPerKm).toBeNull();
   });
 });

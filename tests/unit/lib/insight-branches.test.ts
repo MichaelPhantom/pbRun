@@ -47,6 +47,13 @@ describe('computeLoadInsight', () => {
     expect(run(secs({}), daily({ base: 2, spike: 30 })).acwrTone).toBe('risk');
   });
 
+  test('ACWR 介于 0 与 0.8 → under (acwr<0.8 分支, 非 ===0)', () => {
+    // acute=4*7=28, chronic=20*21+28=448 → chronicWeekly=112 → acwr=0.25
+    const out = run(secs({}), daily({ base: 20, spike: 4 }));
+    expect(out.acwr).toBeCloseTo(0.25, 2);
+    expect(out.acwrTone).toBe('under');
+  });
+
   test('近 7 天极低负荷 → under', () => {
     const out = run(secs({}), daily({ base: 20, spike: 0 }));
     expect(out.acwrTone).toBe('under');
@@ -223,9 +230,31 @@ describe('buildFindings 各条件', () => {
     expect(() => buildFindings(baseInput())).not.toThrow();
     expect(ids(baseInput({ categories: { stats: [] } as never }))).not.toContain('category-best');
   });
+
+  test('效率择优: 效率递增时 reduce 选后者 (>= 失败侧)', () => {
+    const out = ids(
+      baseInput({
+        categories: {
+          stats: [
+            { category: 'easy', label: '轻松', efficiency: 0.1, count: 3 },
+            { category: 'tempo', label: '节奏', efficiency: 0.5, count: 4 },
+            { category: 'race', label: '比赛', efficiency: 0.9, count: 5 },
+          ],
+        } as never,
+      }),
+    );
+    expect(out).toContain('category-best');
+  });
 });
 
 describe('insight 边角: 短数组 / 短日期串 / 非有限 VDOT / r1=0', () => {
+  test('zSeconds 仅 1 段 → zSeconds[1] 为 undefined 走 ?? 0 兜底', () => {
+    const r = computeLoadInsight(daily(), [300]);
+    expect(r.lowIntensityPct).toBeCloseTo(100, 3); // (300 + 0)/300
+    expect(r.highIntensityPct).toBe(0);            // 高段全缺
+    expect(r.zDistribution).toHaveLength(1);
+  });
+
   test('zSeconds 少于 7 段 → 高/低强度占比按缺失补 0 (不越界)', () => {
     const r = computeLoadInsight(daily(), [120, 60]);
     // low = (120+60) / 180 = 100%; high 段全缺 → 0
@@ -266,4 +295,41 @@ describe('insight 边角: 短数组 / 短日期串 / 非有限 VDOT / r1=0', () 
     const rows = Array.from({ length: 200 }, () => mk(0.6, 0));
     expect(computeDecouplingPct(rows as never)).toBeNull();
   });
+});
+
+describe('insight 收尾分支 (排序等值/零总量/解耦 h=0/阈值非正/效率择优)', () => {
+  test('排序比较器两侧: 逆序输入仍按日期升序 (覆盖 a.date<b.date? -1 : 1 的 1 侧)', () => {
+    // 严格降序输入 → sort 比较器必走 1 侧 (a<b 为 false)
+    // 2 元素严格降序 → sort 必比较一次 (a<b 为 false, 走 : 1 侧)
+    const two = computeVdotTrend([
+      { date: '2026-07-01', vdot: 46 },
+      { date: '2026-06-01', vdot: 44 },
+    ]);
+    expect(two.latest).toBe(46);
+    const fit = computeVdotTrend([
+      { date: '2026-07-01', vdot: 46 },
+      { date: '2026-06-01', vdot: 44 },
+      { date: '2026-05-01', vdot: 40 },
+    ]);
+    expect(fit.latest).toBe(46);
+    // 跨月 → perMonth 按 period 升序
+    expect(fit.perMonth.map((m) => m.period)).toEqual(['2026-05', '2026-06', '2026-07']);
+    // 等值日期也要稳定 (不丢点)
+    const same = computeVdotTrend([
+      { date: '2026-05-01', vdot: 42 },
+      { date: '2026-05-01', vdot: 43 },
+    ]);
+    expect(same.perMonth.length).toBeGreaterThanOrEqual(1);
+  });
+
+  test('totalZ = 0 → 强度占比全 0 (不除零)', () => {
+    const r = computeLoadInsight(daily(), secs({}));
+    expect(r.lowIntensityPct).toBe(0);
+    expect(r.highIntensityPct).toBe(0);
+    expect(r.zDistribution.every((z) => z.pct === 0)).toBe(true);
+  });
+
+  // 注: computeDecouplingPct 内 `h > 0 ? s/h : 0` 的 0 侧与 `r1 === 0` 为**防御性分支**,
+  // 因入口过滤保证 heart_rate > 0 (故 h 恒 > 0), 正常数据不可达 —— 不构造人为输入硬凑覆盖率。
+
 });

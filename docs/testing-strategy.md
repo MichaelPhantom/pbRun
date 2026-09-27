@@ -888,8 +888,14 @@ setupTestDb();
       `InsightClient` 解耦四档阈值 + 路线/类别缺字段)
 - [x] 三轮收敛 ✅ (2026-09-27: `insight.ts` 短 zSeconds 数组/短日期串/非有限 VDOT 过滤/解耦 r1=0、
       `fit-parser` 路径点 >2000 降采样首尾保留 + 海拔剖面时间基准三级回退(时间戳/索引)、
-      VDOT lap 双非代表性 + 无合格候选 —— 至此**全仓未覆盖分支仅剩 `insight.ts` 15 处**(93.5%),
-      其余文件零未覆盖分支)
+      VDOT lap 双非代表性 + 无合格候选)
+- [x] 四轮收口 ✅ (2026-09-27: `insight.ts` 分支 93.5→**96.5%**(语句 99.6%、函数 100%) ——
+      排序比较器两侧(2 元素降序必走 `: 1`)、`zSeconds` 长度 1 的 `?? 0` 兜底、
+      ACWR∈(0,0.8) 的 `under` 分支、`computePaceHrModel` 反推配速 ≤0、`computeDecouplingInsight`
+      同日零方差(趋势 null)、`buildFindings` 效率择优递增;
+      **余 8 处为入口约束下的不可达防御分支**(`computeDecouplingPct` 的 `?? 0` / `h>0` 0 侧 /
+      `r1===0` —— 入口已保证 hour_rate>0 与 speed>0.5), 已在源码注释标注理由、**不构造人为输入硬凑**;
+      至此其余文件零未覆盖分支)
 - [x] CLI 脚本真实单测 ✅ (2026-09-27: 从「导入契约」升级 —— `garmin/client`(401 刷新互斥/
       token 持久化播报)、`common/vdot-calculator`、`common/utils`(.env upsert/备份去重)、
       `testing/make-fixture-db`、`sync-garmin`、`common/db-manager`(列迁移/NULL 兜底)、

@@ -251,6 +251,9 @@ export interface DecouplingInput {
  * 正值 = 后半段效率下降 (心率漂移), 负值 = 后半段反而更高效。
  */
 export function computeDecouplingPct(records: RecordSample[]): number | null {
+  // 入口已约束 heart_rate > 0 与 speed > 0.5, 因此下方 `?? 0` 的 nullish 兜底、
+  // `h > 0 ? ... : 0` 的 0 侧、以及 `r1 === 0` 均为**防御性分支** (正常数据不可达);
+  // 保留以防御未来 RecordSample 放宽或外部直调, 不为其构造人为输入硬凑覆盖率。
   const valid = records.filter(
     (r) => r.heart_rate != null && r.heart_rate > 0 && r.speed != null && r.speed > 0.5,
   );
