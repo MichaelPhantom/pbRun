@@ -782,10 +782,10 @@ setupTestDb();
 > `tests/unit/docs/ci-workflow-docs.test.ts` 对此做双向守护（workflow 能力 ↔ 文档提及）。
 
 > ⚠️ **本地核验覆盖率务必走 `npm run test:ci`，不要手工 `npx jest --coverage` 与其它
-> 写文件的测试并行**：`tests/unit/scripts/coverage-summary.test.js` 会真实调用
-> `scripts/testing/coverage-summary.js` 写入 `coverage/coverage-report.md`，与 jest 自身的
-> 覆盖率输出争抢同一路径，偶发导致该套件误红（2026-09-27 实测：并行时 1 failed，
-> 单独跑 18/18 全过）。`test:ci` 内部串行且有守护，是唯一可信口径。
+> 写文件的测试并行**：`coverage-summary` 套件会真实调用 `scripts/testing/coverage-summary.js`
+> 写入 `coverage/coverage-report.md`，与 jest 自身的覆盖率输出争抢同一路径，偶发导致该套件
+> 误红（2026-09-27 实测：并行时 1 failed，单独跑 18/18 全过）。`test:ci` 内部串行且有守护，
+> 是唯一可信口径。
 
 **无障碍 (a11y) 自动断言**（`tests/e2e/a11y.spec.ts`，2026-09-27 新增，共 15 例）：用
 `@axe-core/playwright` 扫描 7 个页面（首页/记录/分析/统计/洞察/丹尼尔斯/**活动详情**）

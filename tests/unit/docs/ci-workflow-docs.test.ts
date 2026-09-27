@@ -80,7 +80,8 @@ describe('文档 → workflow: 文档提到的都真实存在', () => {
   });
 
   test('7.1 引用的脚本/路径都真实存在', () => {
-    const paths = [...section71.matchAll(/scripts\/[\w./-]+\.(?:js|mjs|ts|sh)/g)].map((m) => m[0]);
+    // 前置 (?<![\w/]) 避免从更长路径中截取子串 (如 `tests/unit/scripts/x.test.js` → `scripts/x.test.js`)
+    const paths = [...section71.matchAll(/(?<![\w/])scripts\/[\w./-]+\.(?:js|mjs|ts|sh)/g)].map((m) => m[0]);
     expect(paths.length).toBeGreaterThan(0);
     for (const p of new Set(paths)) {
       expect(fs.existsSync(path.join(ROOT, p))).toBe(true);
