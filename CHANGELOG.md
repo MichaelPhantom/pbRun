@@ -6,6 +6,12 @@
 ## [Unreleased]
 
 ### Added
+- **文档↔workflow 双向守护** `tests/unit/docs/ci-workflow-docs.test.ts`：13 项关键能力
+  （类型检查/MCP 构建/覆盖率报告与评论/pipefail/失败诊断/artifact…）必须同时出现在
+  `.github/workflows/test.yml` 与文档中；并断言 7.1 不残留历史遗迹（codecov/python-tests/
+  node 20/develop 分支）、引用的脚本路径真实存在、权限声明一致。上线即抓到「失败诊断
+  (step summary/annotation)」未写入文档并补齐。
+
 - **单测 838 → 1522 例（65 → 116 套件）**：把 0% 覆盖的应用壳与页面（`error`/`global-error`
   两个错误边界分支、`layout`/`loading`/`not-found`、`/analysis`(+`AnalysisClient`)、
   `/analysis/zone/[zone]`、`/pages/[id]`(+`ActivityDetailClient`)、`/stats`(+`StatsClient`)、
@@ -66,6 +72,12 @@
   markdown。`docs/testing-strategy.md` 因含规划中的配置示例列入白名单（文件内注释说明）。
 
 ### Added
+- **文档↔workflow 双向守护** `tests/unit/docs/ci-workflow-docs.test.ts`：13 项关键能力
+  （类型检查/MCP 构建/覆盖率报告与评论/pipefail/失败诊断/artifact…）必须同时出现在
+  `.github/workflows/test.yml` 与文档中；并断言 7.1 不残留历史遗迹（codecov/python-tests/
+  node 20/develop 分支）、引用的脚本路径真实存在、权限声明一致。上线即抓到「失败诊断
+  (step summary/annotation)」未写入文档并补齐。
+
 - **覆盖率可见性管线（本地 = CI）**：新增 `scripts/testing/coverage-summary.js` —— 读取
   `coverage/coverage-summary.json`，按 `jest.config.js` 的分组口径汇总成 Markdown 表
   （逐项对比门槛，未达标标 ❌），本地由 `npm run test:ci` 生成 `coverage/coverage-report.md`；
@@ -76,6 +88,12 @@
   改一处忘同步即红灯（已实测：故意改错文档数字会失败）。
 
 ### Added
+- **文档↔workflow 双向守护** `tests/unit/docs/ci-workflow-docs.test.ts`：13 项关键能力
+  （类型检查/MCP 构建/覆盖率报告与评论/pipefail/失败诊断/artifact…）必须同时出现在
+  `.github/workflows/test.yml` 与文档中；并断言 7.1 不残留历史遗迹（codecov/python-tests/
+  node 20/develop 分支）、引用的脚本路径真实存在、权限声明一致。上线即抓到「失败诊断
+  (step summary/annotation)」未写入文档并补齐。
+
 - **门槛余量规则守护** `tests/unit/ci/threshold-margin.test.ts`：在存在覆盖率产物时校验
   「实测 − 门槛 ≥ 1.5pt」（门槛接近 100 时按数学上限 `100-gate-0.5` 放宽），并反向检查
   「余量 > 15pt」防门槛长期不更新；无产物则显式跳过（CI 的 `npm test` 不带 --coverage）。

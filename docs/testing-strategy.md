@@ -760,8 +760,11 @@ jobs:
 
 > 注意 `run: <cmd> | tee` 必须配 `set -o pipefail`，否则管道的退出码取 `tee`（恒为 0）——
 > 失败会被吞成绿灯。`tests/unit/ci/gate-alignment.test.ts` 已加守护。
-> 同理 jest 步骤也把输出落 `jest-output.txt` 并入 artifact：CI 日志下载需 admin 权限，
-> 失败时必须能从 artifact 离线定位。
+> 同理 jest 步骤也把输出落 `jest-output.txt` 并入 artifact；失败时还会把尾部 60 行写入
+> `$GITHUB_STEP_SUMMARY` 并生成 `::error` annotation —— CI 日志与 artifact 下载都需 admin
+> 权限（403/401），而 step summary 与 annotation **公开可读**，无需任何权限即可在 run 页面
+> 直接看到失败测试名（2026-09-27 实测：由 annotation 一次定位到 `FAIL …threshold-margin.test.ts`）。
+> `tests/unit/docs/ci-workflow-docs.test.ts` 对此做双向守护（workflow 能力 ↔ 文档提及）。
 
 **门槛余量规则**（`tests/unit/ci/threshold-margin.test.ts` 守护）：每组每项的
 「实测 − 门槛」须 ≥ 1.5pt（门槛接近 100 时按数学上限放宽为 `100-gate-0.5`），
@@ -803,8 +806,8 @@ jobs:
 
 > **状态复核 (2026-09-26)**: 本计划为历史路线图, 逐项核实实际落地情况(见各条标注)。
 > `[x]` = 已落地; `[ ]` 保持未达成项(附原因); 勿据未勾选项判定"未做"。
-> 当前 (2026-09-27 七次复核): 118 套件 / 1562 例全绿; 语句覆盖 97.59% / 分支 89.59%。
-> 分组实测: app/lib 97.68/89.45、app/api 95.60/90.81、app/components 98.52/90.05、
+> 当前 (2026-09-27 八次复核): 121 套件 / 1596 例全绿; 语句覆盖 97.59% / 分支 89.59%。
+> 分组实测: app/lib 97.71/89.81、app/api 95.60/90.81、app/components 98.52/90.05、
 > scripts 97.72/91.52、其余页面与路由 98.91/88.07。
 > 门槛已细化为 **5 组 8 项**(含 app/lib 的分支/函数) 全过。
 > 全部可执行文件均已加载 (app/** + scripts/**), 仅 `app/lib/types.ts` 为纯类型声明。
@@ -829,8 +832,9 @@ jobs:
       Donut、InsightBarChart、PaceZoneMetricsTable、TrainingLoadChart、useStickToBottom、
       GlobalCoach、AiAnalysis 动作分支、ModelSelector)
 - [x] 分支覆盖攻坚 ✅ (2026-09-27: fit-parser 68.8→93.8%、runner-profile 68→82%、
-      db.ts 81.9→85.9%、insight findings、ActivityInsightPanel、InsightClient/
-      ActivityDetailClient/AnalysisClient 的条件渲染两侧)
+      db.ts 81.9→89.1%、insight-compare 83.8→94.4%、insight-coach 74.1→91.4%(语句/函数100%)、
+      ActivityInsightPanel、InsightClient/ActivityDetailClient/AnalysisClient 的条件渲染两侧、
+      coverage-summary.js CLI 全路径)
 - [x] CLI 脚本真实单测 ✅ (2026-09-27: 从「导入契约」升级 —— `garmin/client`(401 刷新互斥/
       token 持久化播报)、`common/vdot-calculator`、`common/utils`(.env upsert/备份去重)、
       `testing/make-fixture-db`、`sync-garmin`、`common/db-manager`(列迁移/NULL 兜底)、
