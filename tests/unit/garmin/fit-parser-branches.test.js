@@ -15,6 +15,14 @@
  * - _resolveDeviceType/_resolveManufacturer: 字符串/255/local_/未知数值/65535
  * - _extractUserProfile/_extractWorkout/_extractHrv 的边界
  */
+// parseFitFile 需要驱动文件级入口 → mock fit-file-parser 与 fs
+const mockParseAsync = jest.fn();
+jest.mock('fit-file-parser', () => ({
+  __esModule: true,
+  default: jest.fn(() => ({ parseAsync: (...a) => mockParseAsync(...a) })),
+}));
+jest.mock('fs', () => ({ promises: { readFile: jest.fn(async () => Buffer.from('FIT')) } }));
+
 const GarminFITParser = require('../../../scripts/garmin/fit-parser');
 
 const p = new GarminFITParser();
@@ -367,4 +375,107 @@ describe('user_profile / workout / hrv 边界', () => {
     // 兼容 activity.hrv 路径
     expect(p._extractHrv({ activity: { hrv: [{ time: [1.0, 1.05, 1.02] }] } }).hrv_rmssd).toBeGreaterThan(0);
   });
+});
+
+
+describe('parseFitFile (文件级入口)', () => {
+  let errSpy;
+  beforeEach(() => {
+    errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    mockParseAsync.mockReset();
+  });
+  afterEach(() => errSpy.mockRestore());
+
+  const minimalFit = (over = {}) => ({
+    activity: { sport: 'running' },
+    sessions: [{ start_time: '2026-09-20T12:00:00Z', timestamp: '2026-09-20T12:00:00Z', total_distance: 10, total_elapsed_time: 3600 }],
+    laps: [],
+    records: [],
+    ...over,
+  });
+
+  test('解析结果缺少 activity → 返回 { activity: null, laps: [] } (不进入提取)', async () => {
+    mockParseAsync.mockResolvedValueOnce({ sessions: [] });
+    await expect(p.parseFitFile('/tmp/a.fit')).resolves.toEqual({ activity: null, laps: [] });
+    mockParseAsync.mockResolvedValueOnce(undefined);
+    await expect(p.parseFitFile('/tmp/a.fit')).resolves.toEqual({ activity: null, laps: [] });
+  });
+
+  test('正常解析 → 合并各提取结果并序列化 track', async () => {
+    mockParseAsync.mockResolvedValueOnce(
+      minimalFit({
+        records: [
+          { position_lat: 29.56, position_long: 106.55, enhanced_altitude: 0.3, heart_rate: 150 },
+          { position_lat: 29.57, position_long: 106.56, enhanced_altitude: 0.31, heart_rate: 152 },
+        ],
+        activity_metrics: [{ vo2_max: 52 }],
+        user_profile: { weight: 65, height: 0.00175, resting_heart_rate: 52 },
+        workout: { wkt_name: '基础训练' },
+      }),
+    );
+    const res = await p.parseFitFile('/tmp/a.fit');
+    expect(res.activity).not.toBeNull();
+    expect(res.activity.sport_type).toBeTruthy();
+    expect(typeof res.activity.track).toBe('string'); // 有 GPS → JSON 字符串
+    expect(JSON.parse(res.activity.track).coords.length).toBe(2);
+    expect(res.activity.user_weight).toBe(65);
+    expect(res.activity.workout_name).toBe('基础训练');
+  });
+
+  test('无 GPS → track 为 null (室内/跑步机)', async () => {
+    mockParseAsync.mockResolvedValueOnce(minimalFit({ records: [{ heart_rate: 150 }] }));
+    const res = await p.parseFitFile('/tmp/a.fit');
+    expect(res.activity.track).toBeNull();
+  });
+
+  test('解析抛 Error → 记录 message 并返回空结果', async () => {
+    mockParseAsync.mockRejectedValueOnce(new Error('CRC mismatch'));
+    await expect(p.parseFitFile('/tmp/b.fit')).resolves.toEqual({ activity: null, laps: [] });
+    expect(errSpy.mock.calls.map((c) => String(c[1])).join('\n')).toMatch(/CRC mismatch/);
+  });
+
+  test('抛出非 Error 值 → 走 String(...) 兜底 (不崩)', async () => {
+    mockParseAsync.mockRejectedValueOnce('boom-string');
+    await expect(p.parseFitFile('/tmp/c.fit')).resolves.toEqual({ activity: null, laps: [] });
+    expect(errSpy.mock.calls.map((c) => String(c[1])).join('\n')).toMatch(/boom-string/);
+  });
+});
+
+describe('track 降采样与海拔剖面边界', () => {
+  test('有效点 <2 → null (已含坏点过滤)', () => {
+    expect(p._extractTrack({ records: [{ position_lat: 29.5, position_long: 106.5 }] })).toBeNull();
+  });
+
+  test('超过 2000 点 → 降采样且保留首尾点', () => {
+    const records = Array.from({ length: 5005 }, (_, i) => ({
+      position_lat: 29.5 + i * 1e-5,
+      position_long: 106.5 + i * 1e-5,
+      enhanced_altitude: 0.3 + i * 1e-6,
+      timestamp: `2026-09-20T12:00:${String(i % 60).padStart(2, '0')}Z`,
+      elapsed_time: i,
+    }));
+    const track = p._extractTrack({ records });
+    // 步长 = floor(n / 2000) → 5005 点取步长 2, 因此约 2503 点 (实现按「不小于 2000」取整)
+    expect(track.coords.length).toBe(Math.ceil(5005 / Math.floor(5005 / 2000)));
+    expect(track.coords.length).toBeLessThan(5005);
+    expect(track.coords[0]).toEqual([29.5, 106.5]);
+    expect(track.coords[track.coords.length - 1]).toEqual([
+      records[5004].position_lat,
+      records[5004].position_long,
+    ]);
+    expect(track.elev.length).toBeGreaterThan(0);
+    expect(track.n).toBe(5005);
+  });
+
+  test('海拔缺失但带 elapsed_time → 剖面仍按记录序号兜底', () => {
+    const track = p._extractTrack({
+      records: [
+        { position_lat: 29.5, position_long: 106.5 },
+        { position_lat: 29.6, position_long: 106.6 },
+      ],
+    });
+    expect(track).not.toBeNull();
+    expect(track.elev.length).toBe(0); // 无海拔 → 剖面为空
+  });
+
 });

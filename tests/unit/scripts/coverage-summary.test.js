@@ -8,7 +8,7 @@
  * - toMarkdown 达标 ✅ / 未达标 ❌ 且统计失败项数
  */
 const path = require('node:path');
-const { loadThresholds, groupOf, summarize, toMarkdown } = require('../../../scripts/testing/coverage-summary');
+const { loadThresholds, groupOf, summarize, toMarkdown, main } = require('../../../scripts/testing/coverage-summary');
 
 const ROOT = path.resolve(__dirname, '../../..');
 const thresholds = loadThresholds(ROOT);
@@ -105,5 +105,159 @@ describe('toMarkdown', () => {
     const th = { global: { statements: 1 }, './app/nope/': { statements: 1 } };
     const { markdown } = toMarkdown(summarize(summary, th), th);
     expect(markdown).not.toContain('./app/nope/');
+  });
+});
+
+
+describe('loadThresholds 兜底与 summarize 缺字段', () => {
+  const fsMod = require('node:fs');
+  const osMod = require('node:os');
+
+  test('目标目录无 coverageThreshold (或配置不存在) → 抛清晰错误', () => {
+    const dir = fsMod.mkdtempSync(path.join(osMod.tmpdir(), 'covsum-'));
+    try {
+      fsMod.writeFileSync(path.join(dir, 'jest.config.js'), 'module.exports = {};\n');
+      expect(() => loadThresholds(dir)).toThrow(/找不到 coverageThreshold/);
+      // 配置完全不存在 → require 抛错 (同样失败, 不静默返回空门槛)
+      const empty = fsMod.mkdtempSync(path.join(osMod.tmpdir(), 'covsum-'));
+      expect(() => loadThresholds(empty)).toThrow();
+      fsMod.rmSync(empty, { recursive: true, force: true });
+    } finally {
+      fsMod.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('摘要条目缺指标字段 → 按 0 累加 (不抛错)', () => {
+    const summary = {
+      [path.join(ROOT, 'scripts/only-stmts.js')]: { statements: { covered: 5, total: 10 } },
+    };
+    const groups = summarize(summary, thresholds);
+    const g = groups.get('./scripts/');
+    expect(g.statements).toEqual({ covered: 5, total: 10 });
+    expect(g.branches).toEqual({ covered: 0, total: 0 });
+  });
+
+  test('summarize 支持绝对路径输入 (主路径)', () => {
+    const summary = { [path.join(ROOT, 'app/lib/x.ts')]: fileEntry(1, 2) };
+    expect(summarize(summary, thresholds).get('./app/lib/').files).toBe(1);
+  });
+});
+
+describe('main (CLI 入口)', () => {
+  const fsMod = require('node:fs');
+  const os = require('node:os');
+  let logSpy;
+  let errSpy;
+  let exitSpy;
+  let coveredSummary;
+
+  beforeAll(() => {
+    // 构造一份「达标」的摘要: app/lib 与 app/page.tsx 全 100%
+    coveredSummary = {
+      [path.join(ROOT, 'app/lib/a.ts')]: fileEntry(100, 100),
+      [path.join(ROOT, 'app/page.tsx')]: fileEntry(100, 100),
+      total: fileEntry(200, 200),
+    };
+  });
+
+  beforeEach(() => {
+    logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    exitSpy = jest.spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('__EXIT__');
+    });
+    process.exitCode = undefined;
+    // 摘要在仓库根 coverage/ 下 (脚本按 ROOT 解析相对路径)
+    fsMod.mkdirSync(path.join(ROOT, 'coverage'), { recursive: true });
+  });
+  afterEach(() => {
+    logSpy.mockRestore();
+    errSpy.mockRestore();
+    exitSpy.mockRestore();
+    process.exitCode = undefined;
+    delete process.argv;
+  });
+
+  const runMain = (...args) => {
+    const argv = process.argv;
+    process.argv = ['node', 'coverage-summary.js', ...args];
+    try {
+      return main();
+    } finally {
+      process.argv = argv;
+    }
+  };
+
+  test('摘要文件缺失 → 报错并 exit(1)', () => {
+    const missing = path.join(ROOT, 'coverage', 'no-such-summary.json');
+    if (fsMod.existsSync(missing)) fsMod.rmSync(missing);
+    expect(() => runMain('coverage/no-such-summary.json')).toThrow('__EXIT__');
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(errSpy.mock.calls.map((c) => String(c[0])).join('\n')).toMatch(/覆盖率摘要不存在/);
+  });
+
+  test('达标 → 打印 Markdown 并写 coverage-report.md (退出码 0)', () => {
+    const summaryPath = path.join(ROOT, 'coverage', 'tmp-summary.json');
+    fsMod.writeFileSync(summaryPath, JSON.stringify(coveredSummary), 'utf8');
+    runMain('coverage/tmp-summary.json');
+
+    expect(logSpy.mock.calls.map((c) => String(c[0])).join('\n')).toContain('✅ 全部门槛通过');
+    const report = path.join(ROOT, 'coverage', 'coverage-report.md');
+    expect(fsMod.existsSync(report)).toBe(true);
+    expect(fsMod.readFileSync(report, 'utf8')).toContain('| global |');
+    expect(process.exitCode).toBe(0);
+    fsMod.rmSync(summaryPath, { force: true });
+  });
+
+  test('绝对路径参数 → 直接使用 (不走 ROOT 拼接)', () => {
+    const summaryPath = path.join(ROOT, 'coverage', 'tmp-abs.json');
+    fsMod.writeFileSync(summaryPath, JSON.stringify(coveredSummary), 'utf8');
+    runMain(summaryPath, '--stdout-only');
+    expect(logSpy.mock.calls.map((c) => String(c[0])).join('\n')).toContain('✅ 全部门槛通过');
+    fsMod.rmSync(summaryPath, { force: true });
+  });
+
+  test('--stdout-only → 不写报告文件', () => {
+    const summaryPath = path.join(ROOT, 'coverage', 'tmp-summary.json');
+    fsMod.writeFileSync(summaryPath, JSON.stringify(coveredSummary), 'utf8');
+    const report = path.join(ROOT, 'coverage', 'coverage-report.md');
+    fsMod.rmSync(report, { force: true });
+
+    runMain('coverage/tmp-summary.json', '--stdout-only');
+    expect(fsMod.existsSync(report)).toBe(false);
+    expect(logSpy).toHaveBeenCalled();
+    fsMod.rmSync(summaryPath, { force: true });
+  });
+
+  test('未达标 → 退出码 1', () => {
+    const bad = {
+      [path.join(ROOT, 'app/lib/a.ts')]: fileEntry(1, 100),
+      total: fileEntry(1, 100),
+    };
+    const summaryPath = path.join(ROOT, 'coverage', 'tmp-summary-bad.json');
+    fsMod.writeFileSync(summaryPath, JSON.stringify(bad), 'utf8');
+    runMain('coverage/tmp-summary-bad.json');
+    expect(process.exitCode).toBe(1);
+    fsMod.rmSync(summaryPath, { force: true });
+  });
+
+  test('无路径参数 → 默认读取 coverage/coverage-summary.json', () => {
+    // 仓库里刚跑过覆盖率, 该文件存在; 若不存在则跳过 (不假红)
+    const def = path.join(ROOT, 'coverage', 'coverage-summary.json');
+    if (!fsMod.existsSync(def)) return;
+    runMain();
+    expect(logSpy.mock.calls.map((c) => String(c[0])).join('\n')).toContain('### Jest 覆盖率摘要');
+  });
+
+  test('直接跑脚本文件 (require.main 守卫) → 真实生成报告', () => {
+    const { execFileSync } = require('node:child_process');
+    const summaryPath = path.join(ROOT, 'coverage', 'coverage-summary.json');
+    if (!fsMod.existsSync(summaryPath)) return;
+    const out = execFileSync('node', ['scripts/testing/coverage-summary.js', '--stdout-only'], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      env: { ...process.env, PATH: process.env.PATH },
+    });
+    expect(out).toContain('### Jest 覆盖率摘要');
   });
 });

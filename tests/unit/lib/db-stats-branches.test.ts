@@ -100,6 +100,71 @@ describe('getStats 时间口径与兜底', () => {
   });
 });
 
+describe('getStats / getPeriodStats 假值与缺行分支', () => {
+  test('getStats: 计数为 0 (假值) → 走 || 0 分支; 均值为 0 → ?? 保留 0', () => {
+    mockGet.mockReturnValue({
+      totalActivities: 0,
+      totalDistance: 0,
+      totalDuration: 0,
+      averagePace: 0, // 0 是有效值 (?? 而非 ||)
+      averageHeartRate: 0,
+      totalAscent: 0,
+      averageVDOT: 0,
+      averageCadence: 0,
+      averageStrideLength: 0,
+      totalTrainingLoad: 0,
+    });
+    const res = getStats('total');
+    expect(res.totalActivities).toBe(0);
+    expect(res.totalDistance).toBe(0);
+    expect(res.averagePace).toBe(0);
+    expect(res.averageHeartRate).toBe(0);
+    expect(res.totalTrainingLoad).toBe(0);
+  });
+
+  test('getStats: 未知 period 字符串 → default 分支 (以当日为起点)', () => {
+    mockGet.mockReturnValue({ totalActivities: 1 });
+    // 绕过类型系统模拟脏数据 (生产里 period 来自查询参数)
+    getStats('last-90-days' as unknown as 'week');
+    const sql = String(mockPrepare.mock.calls.at(-1)?.[0] ?? '');
+    expect(sql).toMatch(/start_time >= \?/);
+    const [startIso] = mockGet.mock.calls.at(-1) as [string];
+    const start = new Date(startIso);
+    const now = new Date();
+    expect(Math.abs(start.getTime() - now.getTime())).toBeLessThan(60_000); // 近似 now
+  });
+
+  test('getPeriodStats: 查询无行 (undefined) → 全部兜底为 0 / undefined', () => {
+    mockGet.mockReturnValueOnce(undefined);
+    const res = getPeriodStats('2026-09-01', '2026-09-30');
+    expect(res).toMatchObject({
+      startDate: '2026-09-01',
+      endDate: '2026-09-30',
+      totalActivities: 0,
+      totalDistance: 0,
+      totalDuration: 0,
+      avgPace: undefined,
+      avgVDOT: undefined,
+      totalTrainingLoad: undefined,
+    });
+  });
+
+  test('getPeriodStats: 有行 → 距离 km→m 与均值透传', () => {
+    mockGet.mockReturnValueOnce({
+      totalActivities: 5,
+      totalDistance: 42.5,
+      totalDuration: 15000,
+      avgPace: 320,
+      avgVDOT: 45.5,
+      totalTrainingLoad: 500,
+    });
+    const res = getPeriodStats('2026-09-01', '2026-09-30');
+    expect(res.totalDistance).toBe(42500);
+    expect(res.avgPace).toBe(320);
+    expect(res.avgVDOT).toBe(45.5);
+  });
+});
+
 describe('getPaceZoneStats 边界', () => {
   test('vdot <= 0 → 直接返回空数组 (不查库)', () => {
     expect(getPaceZoneStats(0, '2026-09-01', '2026-09-30')).toEqual([]);

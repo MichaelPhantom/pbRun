@@ -120,4 +120,4 @@ function main() {
 // 仅 CLI 直跑时执行 (被 require 时不自动运行, 便于单测)
 if (require.main === module) main();
 
-module.exports = { loadThresholds, groupOf, summarize, toMarkdown };
+module.exports = { loadThresholds, groupOf, summarize, toMarkdown, main };
