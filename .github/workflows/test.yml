@@ -46,6 +46,23 @@ jobs:
           set -o pipefail
           npm run test:coverage -- --coverageReporters=text --coverageReporters=json-summary --coverageReporters=lcov 2>&1 | tee jest-output.txt
 
+      # 失败时把 jest 输出尾部注入 step summary + annotation (CI 日志/artifact 下载需权限,
+      # 而 step summary 与 annotation 是公开可读的 → 无需权限即可定位失败)
+      - name: jest 失败诊断(摘要 + annotation)
+        if: failure()
+        run: |
+          if [ ! -f jest-output.txt ]; then echo "无 jest 输出"; exit 0; fi
+          {
+            echo "### jest 失败诊断 (尾部 60 行)"
+            echo '```'
+            tail -n 60 jest-output.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          FAILED_LINE=$(grep -m1 -E '^(FAIL|✕) ' jest-output.txt || echo '未匹配到 FAIL 行')
+          FAILED_LINE=${FAILED_LINE//'%'/'%25'}
+          FAILED_LINE=${FAILED_LINE//$'\n'/'%0A'}
+          echo "::error title=Jest 失败::${FAILED_LINE}"
+
       - name: 覆盖率摘要(markdown)
         run: node scripts/testing/coverage-summary.js
 

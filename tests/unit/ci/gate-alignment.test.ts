@@ -135,6 +135,9 @@ describe('test:ci ↔ CI quality 作业对齐', () => {
     expect(wf).toContain('coverage/coverage-report.md');
     // jest 输出也入库: CI 日志下载需 admin 权限, 失败时必须能从 artifact 定位
     expect(wf).toContain('jest-output.txt');
+    // 且失败时注入 step summary + annotation —— 二者公开可读, 无需权限
+    expect(wf).toContain('GITHUB_STEP_SUMMARY');
+    expect(wf).toMatch(/::error title=Jest 失败::/);
     expect(wf).toContain('pull-requests: write');
     expect(wf).toMatch(/issues\/\$\{PR\}\/comments|issues\/\$\{\{ github.repository \}\}\/issues/);
   });
