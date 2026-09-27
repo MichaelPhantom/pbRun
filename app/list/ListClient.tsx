@@ -197,7 +197,7 @@ export default function ListClient({
       </div>
 
       {error && (
-        <div className="rounded-lg border border-[var(--crit-soft)] bg-[var(--crit-soft)] px-4 py-3 text-[var(--crit)]">
+        <div className="rounded-lg border border-[var(--crit-soft)] bg-[var(--crit-soft)] px-4 py-3 text-[var(--crit-text)]">
           {error}
         </div>
       )}

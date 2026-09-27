@@ -107,10 +107,13 @@ describe('hr-zones', () => {
     expect(hrZoneRangeBpmLabel(99, 190)).toBe('');
   });
 
-  test('hrZoneBadgeStyle: 用 --zN token 且 clamp 到 1..5, 支持自定义混色比例', () => {
-    expect(hrZoneBadgeStyle(3).color).toBe('var(--z3)');
-    expect(hrZoneBadgeStyle(0).color).toBe('var(--z1)');
-    expect(hrZoneBadgeStyle(9).color).toBe('var(--z5)');
+  test('hrZoneBadgeStyle: 背景用 --zN (图形语义), 文字用 --zN-text (对比度达 AA), clamp 1..5', () => {
+    // 2026-09-27: zone 主色直接当文字在同色浅底上对比不足 (axe serious, 如 z2 2.45:1),
+    // 故文字改用 -text 变体; 背景仍用主色以保持区间视觉识别。
+    expect(hrZoneBadgeStyle(3).color).toBe('var(--z3-text)');
+    expect(hrZoneBadgeStyle(0).color).toBe('var(--z1-text)');
+    expect(hrZoneBadgeStyle(9).color).toBe('var(--z5-text)');
+    expect(String(hrZoneBadgeStyle(3).backgroundColor)).toContain('var(--z3)');
     expect(String(hrZoneBadgeStyle(2, 20).backgroundColor)).toContain('20%');
   });
 

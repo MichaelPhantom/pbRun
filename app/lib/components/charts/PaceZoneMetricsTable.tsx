@@ -47,7 +47,7 @@ export default function PaceZoneMetricsTable({ data }: PaceZoneMetricsTableProps
               style={hrZoneBadgeStyle(row.zone, 14)}
             >
               {HR_ZONE_NAMES[row.zone]}
-              <span className="ml-1 opacity-80">
+              <span className="ml-1">
                 {formatPaceRange(row.pace_min_sec_per_km, row.pace_max_sec_per_km)} /km
               </span>
             </span>

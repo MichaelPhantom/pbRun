@@ -329,7 +329,7 @@ export function AiAnalysis({
             <button
               onClick={hasAnalysis ? start : start}
               disabled={!configured}
-              className="rounded-md bg-[var(--brand)] px-2.5 py-1 text-xs font-medium text-[var(--brand-fg)] hover:bg-[var(--brand-strong)] disabled:opacity-50"
+              className="rounded-md bg-[var(--brand-strong)] px-2.5 py-1 text-xs font-medium text-[var(--brand-fg)] hover:bg-[var(--brand-strong)] disabled:opacity-50"
             >
               {hasAnalysis ? '重新分析' : '生成分析'}
             </button>
@@ -390,7 +390,7 @@ export function AiAnalysis({
                       分析中…
                     </p>
                   )}
-                  {t.error && <p className="py-1 text-sm text-[var(--crit)]">⚠ {t.error}</p>}
+                  {t.error && <p className="py-1 text-sm text-[var(--crit-text)]">⚠ {t.error}</p>}
 
                   {/* 操作栏: 完成后 hover 显示 */}
                   {!t.streaming && t.content && (
@@ -421,7 +421,7 @@ export function AiAnalysis({
                       </button>
                       <button
                         onClick={() => setVote((v) => ({ ...v, [t.id]: 'up' }))}
-                        className={`action-btn ${vote[t.id] === 'up' ? 'text-[var(--good)]' : ''}`}
+                        className={`action-btn ${vote[t.id] === 'up' ? 'text-[var(--good-text)]' : ''}`}
                         aria-label="有帮助"
                         aria-pressed={vote[t.id] === 'up'}
                       >
@@ -429,7 +429,7 @@ export function AiAnalysis({
                       </button>
                       <button
                         onClick={() => setVote((v) => ({ ...v, [t.id]: 'down' }))}
-                        className={`action-btn ${vote[t.id] === 'down' ? 'text-[var(--crit)]' : ''}`}
+                        className={`action-btn ${vote[t.id] === 'down' ? 'text-[var(--crit-text)]' : ''}`}
                         aria-label="没帮助"
                         aria-pressed={vote[t.id] === 'down'}
                       >
@@ -484,7 +484,7 @@ export function AiAnalysis({
                     runStream({ model, question: s, history });
                   }}
                   disabled={busy}
-                  className="rounded-full border border-border bg-surface px-2.5 py-1 text-xs text-fg-secondary transition-colors hover:border-[var(--brand)] hover:text-[var(--brand)] disabled:opacity-50"
+                  className="rounded-full border border-border bg-surface px-2.5 py-1 text-xs text-fg-secondary transition-colors hover:border-[var(--brand)] hover:text-[var(--brand-text)] disabled:opacity-50"
                 >
                   {s}
                 </button>
@@ -510,7 +510,7 @@ export function AiAnalysis({
             <button
               onClick={submitQuestion}
               disabled={busy || !question.trim()}
-              className="rounded-md bg-[var(--brand)] px-3 py-1.5 text-sm font-medium text-[var(--brand-fg)] hover:bg-[var(--brand-strong)] disabled:opacity-50"
+              className="rounded-md bg-[var(--brand-strong)] px-3 py-1.5 text-sm font-medium text-[var(--brand-fg)] hover:bg-[var(--brand-strong)] disabled:opacity-50"
             >
               发送
             </button>
@@ -520,7 +520,7 @@ export function AiAnalysis({
 
       {/* 无分析时的失败兜底 (初次分析失败且无内容) */}
       {lastAssistant?.error && !hasAnalysis && (
-        <p className="py-2 text-sm text-[var(--crit)]">⚠ {lastAssistant.error}</p>
+        <p className="py-2 text-sm text-[var(--crit-text)]">⚠ {lastAssistant.error}</p>
       )}
     </SectionCard>
   );

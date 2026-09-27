@@ -191,7 +191,7 @@ export default function InsightClient({
                   <Badge variant={SEVERITY_TONE[f.severity]}>{SEVERITY_LABEL[f.severity]}</Badge>
                   <span className="text-sm font-medium text-fg">{f.title}</span>
                   {f.metric && (
-                    <span className="tnum text-xs font-semibold text-[var(--brand)]">{f.metric}</span>
+                    <span className="tnum text-xs font-semibold text-[var(--brand-text)]">{f.metric}</span>
                   )}
                 </div>
                 <p className="mt-1.5 text-xs leading-relaxed text-fg-secondary">{f.detail}</p>
@@ -342,7 +342,7 @@ export default function InsightClient({
                 ctl: w.ctl.toFixed(0),
                 atl: w.atl.toFixed(0),
                 tsb: (
-                  <span className={`font-medium ${w.tsb >= 0 ? 'text-[var(--good)]' : 'text-[var(--warn)]'}`}>
+                  <span className={`font-medium ${w.tsb >= 0 ? 'text-[var(--good-text)]' : 'text-[var(--warn-text)]'}`}>
                     {w.tsb >= 0 ? '+' : ''}
                     {w.tsb.toFixed(0)}
                   </span>

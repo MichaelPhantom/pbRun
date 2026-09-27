@@ -35,6 +35,10 @@ const eslintConfig = defineConfig([
     ".next-e2e/**",
     // e2e 夹具库 (二进制 SQLite)
     "tests/fixtures/*.db",
+    // e2e 产物 (2026-09-27 补: 漏忽略会让本地跑完 e2e 后 `npm run lint` 爆 185 errors ——
+    // playwright-report/trace 内含打包后的第三方 JS; CI 干净 checkout 不触发, 只有开发者会踩)
+    "playwright-report/**",
+    "test-results/**",
   ]),
 ]);
 

@@ -129,6 +129,17 @@ describe('test:ci ↔ CI quality 作业对齐', () => {
     expect(wf).toMatch(/issues\/comments\/\$\{EXISTING\}/);
   });
 
+  test('构建/e2e 产物目录必须被 eslint 忽略 (否则本地跑完 e2e 后 lint 爆错)', () => {
+    const eslintCfg = read('eslint.config.mjs');
+    const gitignore = read('.gitignore');
+    // 两类产物都要: git 忽略 (不入库) + eslint 忽略 (不进 lint 视野)
+    for (const dir of ['playwright-report', 'test-results', 'coverage', '.next-e2e']) {
+      const dirRe = new RegExp(`^/${dir.replace('.', '\\.')}/?$`, 'm');
+      expect(gitignore).toMatch(dirRe);
+      expect(eslintCfg).toContain(`${dir}/**`);
+    }
+  });
+
   test('余量守护不得在顶层求值覆盖率产物 (否则 CI 会 ENOENT 崩整套件)', () => {
     const src = read('tests/unit/ci/threshold-margin.test.ts');
     // 顶层 `const x = actuals()` 会在 describe.skip 时照样执行 → CI (coverage 目录存在但

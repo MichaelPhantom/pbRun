@@ -177,10 +177,10 @@ export function ActivityInsightPanel({ data }: { data: ActivityInsightResponse |
                     </span>
                   ),
                   dist: p.distanceKm.toFixed(2),
-                  pace: <span className={isBest ? 'font-semibold text-[var(--good)]' : 'text-fg'}>{fmtPace(p.paceSecPerKm)}</span>,
+                  pace: <span className={isBest ? 'font-semibold text-[var(--good-text)]' : 'text-fg'}>{fmtPace(p.paceSecPerKm)}</span>,
                   hr: p.heartRate != null ? Math.round(p.heartRate) : '--',
                   delta: (
-                    <span className={delta == null ? 'text-fg-muted' : delta < 0 ? 'text-[var(--warn)]' : 'text-[var(--good)]'}>
+                    <span className={delta == null ? 'text-fg-muted' : delta < 0 ? 'text-[var(--warn-text)]' : 'text-[var(--good-text)]'}>
                       {delta == null ? '--' : `${delta > 0 ? '+' : ''}${delta.toFixed(1)}`}
                     </span>
                   ),

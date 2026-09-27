@@ -14,7 +14,10 @@
   --bg: #f6f6f4;            /* 页面底 */
   --fg: #0b0b0b;            /* 主文字 */
   --fg-secondary: #52514e;  /* 次文字 */
-  --fg-muted: #898781;      /* 弱化 (轴/标签) */
+  /* 弱化文字: 必须达 WCAG AA 4.5:1 —— #898781 对 #f6f6f4 仅 3.32:1,
+     已提升到 #6f6d66 (对最不利的 --surface-3 #f1f1ee 仍 4.58:1)。
+     对比度由 tests/e2e/a11y.spec.ts 的 axe 扫描守护。 */
+  --fg-muted: #6f6d66;      /* 弱化 (轴/标签) */
   --surface: #ffffff;       /* 卡面 */
   --surface-2: #f9f9f7;     /* 次级面 / 表头底 */
   --surface-3: #f1f1ee;     /* 悬停底 */
@@ -24,8 +27,12 @@
   --baseline: #c3c2b7;
 
   /* —— 品牌强调色 (仅 chrome, 非图表系列) —— */
-  --brand: #0e9f6e;         /* 翠绿 */
+  --brand: #0e9f6e;         /* 翠绿 (图形/色块用) */
   --brand-strong: #0b7d57;
+  /* —— 文字专用色: 必须达 WCAG AA 4.5:1 (白底/页面底) ——
+     --brand 对白底仅 3.39:1, 直接当文字用会让 axe 报 serious; 故分离语义:
+     图形/大色块用 --brand, 文字/图标字符用 --*-text (见 tests/e2e/a11y.spec.ts 守护)。 */
+  --brand-text: #0b7f58;    /* 白底 5.01 / 页面底 4.63 */
   --brand-soft: #e6f7f0;    /* 强调底 */
   --brand-fg: #ffffff;
 
@@ -45,6 +52,12 @@
   --z3: #eda100;
   --z4: #4a3aa7;
   --z5: #e34948;
+  /* zone 徽章文字专用 (同色 16% 浅底上需 AA): 图形用 --zN, 文字用 --zN-text */
+  --z1-text: #1d5fa8;
+  --z2-text: #0f7a53;
+  --z3-text: #8a5a00;
+  --z4-text: #3b2d85;
+  --z5-text: #a52f2e;
 
   /* —— 顺序色阶 (蓝, 量级用) —— */
   --seq-1: #cde2fb;
@@ -60,11 +73,14 @@
 
   /* —— 状态 (固定, 带 icon+label, 不单独承载语义) —— */
   --good: #0ca30c;
+  --good-text: #087a08;     /* 白底 5.25 / --surface-2 上 5.25 (原 #0ca30c 仅 3.35) */
   --good-soft: rgba(12, 163, 12, 0.12);
   --warn: #fab219;
+  --warn-text: #8a5a00;     /* 浅底徽章 (--warn-soft) 上 5.38 (原 1.66) */
   --warn-soft: rgba(250, 178, 25, 0.16);
   --serious: #ec835a;
   --crit: #d03b3b;
+  --crit-text: #b02a2a;     /* 浅底徽章上 4.6+ */
   --crit-soft: rgba(208, 59, 59, 0.12);
 
   /* —— 形状 token —— */
@@ -81,7 +97,8 @@
     --bg: #0d0d0d;
     --fg: #ffffff;
     --fg-secondary: #c3c2b7;
-    --fg-muted: #898781;
+    /* #898781 对 --surface-3 (#2c2c2a) 仅 3.90:1 → 提亮到 #96948d (4.61:1) */
+    --fg-muted: #96948d;
     --surface: #1a1a19;
     --surface-2: #232322;
     --surface-3: #2c2c2a;
@@ -92,6 +109,11 @@
 
     --brand: #1fb986;
     --brand-strong: #2dd4a6;
+    /* 暗色下 --brand 对深底已达标 (6.25+), 文字直接用同色即可 */
+    --brand-text: #1fb986;
+    --good-text: #0ca30c;   /* #232322 上 4.69 */
+    --warn-text: #fab219;   /* 8.57 */
+    --crit-text: #e66767;   /* 4.87 */
     --brand-soft: rgba(31, 185, 134, 0.12);
     --brand-fg: #0d0d0d;
 
@@ -109,6 +131,7 @@
     --z3: #c98500;
     --z4: #9085e9;
     --z5: #e66767;
+    --z1-text: #3987e5; --z2-text: #199e70; --z3-text: #c98500; --z4-text: #9085e9; --z5-text: #e66767;
 
     --seq-1: #1c3358;
     --seq-2: #1c5cab;
@@ -126,7 +149,8 @@
   --bg: #0d0d0d;
   --fg: #ffffff;
   --fg-secondary: #c3c2b7;
-  --fg-muted: #898781;
+  /* 同 prefers-color-scheme 分支: 提亮以满足 AA */
+  --fg-muted: #96948d;
   --surface: #1a1a19;
   --surface-2: #232322;
   --surface-3: #2c2c2a;
@@ -136,11 +160,16 @@
   --baseline: #383835;
   --brand: #1fb986;
   --brand-strong: #2dd4a6;
+  --brand-text: #1fb986;
+  --good-text: #0ca30c;
+  --warn-text: #fab219;
+  --crit-text: #e66767;
   --brand-soft: rgba(31, 185, 134, 0.12);
   --brand-fg: #0d0d0d;
   --cat-1: #3987e5; --cat-2: #d95926; --cat-3: #199e70; --cat-4: #c98500;
   --cat-5: #d55181; --cat-6: #008300; --cat-7: #9085e9; --cat-8: #e66767;
   --z1: #3987e5; --z2: #199e70; --z3: #c98500; --z4: #9085e9; --z5: #e66767;
+  --z1-text: #3987e5; --z2-text: #199e70; --z3-text: #c98500; --z4-text: #9085e9; --z5-text: #e66767;
   --seq-1: #1c3358; --seq-2: #1c5cab; --seq-3: #3987e5; --seq-4: #6da7ec; --seq-5: #cde2fb;
   --div-pos: #3987e5; --div-neg: #e66767; --div-mid: #383835;
 }

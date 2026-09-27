@@ -120,7 +120,7 @@ export default function HrZoneMetricsTable({ data, zoneRanges, trendLinkParams }
                 style={hrZoneBadgeStyle(row.zone, 14)}
               >
                 {row.name}
-                <span className="ml-1 opacity-80">{row.rangeBpm}</span>
+                <span className="ml-1">{row.rangeBpm}</span>
               </span>
             ),
             pace: row.avg_pace != null ? formatPace(row.avg_pace, false) : '--',

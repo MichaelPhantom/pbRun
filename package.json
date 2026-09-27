@@ -11,6 +11,8 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "lint": "eslint",
+    "docs:ci-snippet": "node scripts/testing/ci-docs-snippet.js",
+    "docs:ci-snippet:check": "node scripts/testing/ci-docs-snippet.js --check",
     "test:ci": "npm run typecheck && npm run build:mcp && npm run lint && npm run test:coverage -- --coverageReporters=text --coverageReporters=json-summary && node scripts/testing/coverage-summary.js",
     "fixture:db": "node scripts/testing/make-fixture-db.js",
     "init:data": "DEBUG_GARMIN_LIST=1 node scripts/garmin/init-garmin-data.js",
@@ -46,6 +48,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@playwright/test": "^1.59.1",
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^6.9.1",
@@ -63,6 +66,6 @@
     "playwright": "^1.58.2",
     "tailwindcss": "^4",
     "ts-jest": "^29.4.9",
-    "typescript": "^5.9.3"
+    "typescript": "5.9.3"
   }
 }

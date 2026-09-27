@@ -192,7 +192,7 @@ export function GlobalCoach({ days }: { days: number }) {
             <button
               onClick={start}
               disabled={!configured}
-              className="rounded-md bg-[var(--brand)] px-2.5 py-1 text-xs font-medium text-[var(--brand-fg)] hover:bg-[var(--brand-strong)] disabled:opacity-50"
+              className="rounded-md bg-[var(--brand-strong)] px-2.5 py-1 text-xs font-medium text-[var(--brand-fg)] hover:bg-[var(--brand-strong)] disabled:opacity-50"
             >
               {hasAnalysis ? '重新诊断' : '生成综合诊断'}
             </button>
@@ -254,7 +254,7 @@ export function GlobalCoach({ days }: { days: number }) {
                       综合分析中…
                     </p>
                   )}
-                  {t.error && <p className="py-1 text-sm text-[var(--crit)]">⚠ {t.error}</p>}
+                  {t.error && <p className="py-1 text-sm text-[var(--crit-text)]">⚠ {t.error}</p>}
                   {!t.streaming && t.content && (
                     <div className="mt-1.5 flex flex-wrap items-center gap-1 opacity-0 transition-opacity group-hover/turn:opacity-100 focus-within:opacity-100">
                       <button onClick={() => copyTurn(t)} className="action-btn" aria-label="复制">
@@ -304,7 +304,7 @@ export function GlobalCoach({ days }: { days: number }) {
             <button
               onClick={submitQuestion}
               disabled={busy || !question.trim()}
-              className="rounded-md bg-[var(--brand)] px-3 py-1.5 text-sm font-medium text-[var(--brand-fg)] hover:bg-[var(--brand-strong)] disabled:opacity-50"
+              className="rounded-md bg-[var(--brand-strong)] px-3 py-1.5 text-sm font-medium text-[var(--brand-fg)] hover:bg-[var(--brand-strong)] disabled:opacity-50"
             >
               发送
             </button>
@@ -313,7 +313,7 @@ export function GlobalCoach({ days }: { days: number }) {
       )}
 
       {lastAssistant?.error && !hasAnalysis && (
-        <p className="py-2 text-sm text-[var(--crit)]">⚠ {lastAssistant.error}</p>
+        <p className="py-2 text-sm text-[var(--crit-text)]">⚠ {lastAssistant.error}</p>
       )}
     </SectionCard>
   );

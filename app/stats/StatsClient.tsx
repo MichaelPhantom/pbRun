@@ -108,7 +108,7 @@ function RecordRow({ item }: { item: PersonalRecordItem }) {
 function StatCell({ label, value, accent = false }: { label: string; value: string; accent?: boolean }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className={`tnum text-lg font-semibold sm:text-xl ${accent ? 'text-[var(--brand)]' : 'text-fg'}`}>{value}</span>
+      <span className={`tnum text-lg font-semibold sm:text-xl ${accent ? 'text-[var(--brand-text)]' : 'text-fg'}`}>{value}</span>
       <span className="text-[11px] text-fg-secondary">{label}</span>
     </div>
   );

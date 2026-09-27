@@ -138,9 +138,9 @@ export default function AnalysisClient({
       </SectionCard>
 
       {/* 当前跑力 */}
-      <SectionCard title="当前跑力" action={<Link href="/daniels" className="text-xs text-[var(--brand)] hover:underline">丹尼尔斯跑步法 →</Link>}>
+      <SectionCard title="当前跑力" action={<Link href="/daniels" className="text-xs text-[var(--brand-text)] hover:underline">丹尼尔斯跑步法 →</Link>}>
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-          <span className="tnum text-3xl font-semibold text-[var(--brand)]">
+          <span className="tnum text-3xl font-semibold text-[var(--brand-text)]">
             {currentVdot != null ? currentVdot.toFixed(1) : '--'}
           </span>
           <Badge variant="brand">VDOT</Badge>
@@ -186,11 +186,11 @@ export default function AnalysisClient({
           </ul>
           {hrZoneOverflow.length > 0 && (
             <div className="border-t border-border pt-2">
-              <p className="mb-2 text-xs font-medium text-[var(--warn)]">明显超标 / 不足</p>
+              <p className="mb-2 text-xs font-medium text-[var(--warn-text)]">明显超标 / 不足</p>
               <ul className="space-y-2 text-xs">
                 {hrZoneOverflow.map((item) => (
                   <li key={item.label}>
-                    <span className={item.type === 'over' ? 'text-[var(--warn)]' : 'text-[var(--warn)]'}>
+                    <span className={item.type === 'over' ? 'text-[var(--warn-text)]' : 'text-[var(--warn-text)]'}>
                       {item.label}：当前 <span className="font-medium">{item.actual}%</span>，{item.limit}
                     </span>
                     <p className="mt-0.5 leading-relaxed text-fg-muted">{item.hint}</p>
@@ -200,7 +200,7 @@ export default function AnalysisClient({
             </div>
           )}
           {hrZoneOverflow.length === 0 && (
-            <p className="border-t border-border pt-2 text-xs leading-relaxed text-[var(--good)]">
+            <p className="border-t border-border pt-2 text-xs leading-relaxed text-[var(--good-text)]">
               各强度区间占比均在丹尼尔斯建议范围内，训练结构均衡。继续保持，并留意：随着跑力提升，配速区间会自动更新，建议每隔 4–6 周回看一次本页数据。
             </p>
           )}

@@ -6,6 +6,14 @@
 ## [Unreleased]
 
 ### Added
+- **无障碍 (a11y) e2e 断言** `tests/e2e/a11y.spec.ts`：`@axe-core/playwright` 扫描 6 个主要
+  页面 + 键盘可达性（首个 Tab 落在跳板链接）；只拦 serious/critical（避免噪音化门禁）。
+  首轮扫描暴露 113 个 color-contrast 违规 → 见下「无障碍修复」。
+- **CI 步骤清单由 workflow 生成**：`scripts/testing/ci-docs-snippet.js` 从
+  `.github/workflows/test.yml` 提取作业/步骤/权限，生成 `docs/testing-strategy.md` 7.1 的清单
+  （标记块 `<!-- BEGIN:CI-STEPS -->`）；`npm run docs:ci-snippet[:check]` 打印或校验漂移，
+  单测（8 例）与双向守护一并把关 —— 手抄漂移从「靠自觉」变成「可测事实」。
+
 - **文档↔workflow 双向守护** `tests/unit/docs/ci-workflow-docs.test.ts`：13 项关键能力
   （类型检查/MCP 构建/覆盖率报告与评论/pipefail/失败诊断/artifact…）必须同时出现在
   `.github/workflows/test.yml` 与文档中；并断言 7.1 不残留历史遗迹（codecov/python-tests/
@@ -72,6 +80,14 @@
   markdown。`docs/testing-strategy.md` 因含规划中的配置示例列入白名单（文件内注释说明）。
 
 ### Added
+- **无障碍 (a11y) e2e 断言** `tests/e2e/a11y.spec.ts`：`@axe-core/playwright` 扫描 6 个主要
+  页面 + 键盘可达性（首个 Tab 落在跳板链接）；只拦 serious/critical（避免噪音化门禁）。
+  首轮扫描暴露 113 个 color-contrast 违规 → 见下「无障碍修复」。
+- **CI 步骤清单由 workflow 生成**：`scripts/testing/ci-docs-snippet.js` 从
+  `.github/workflows/test.yml` 提取作业/步骤/权限，生成 `docs/testing-strategy.md` 7.1 的清单
+  （标记块 `<!-- BEGIN:CI-STEPS -->`）；`npm run docs:ci-snippet[:check]` 打印或校验漂移，
+  单测（8 例）与双向守护一并把关 —— 手抄漂移从「靠自觉」变成「可测事实」。
+
 - **文档↔workflow 双向守护** `tests/unit/docs/ci-workflow-docs.test.ts`：13 项关键能力
   （类型检查/MCP 构建/覆盖率报告与评论/pipefail/失败诊断/artifact…）必须同时出现在
   `.github/workflows/test.yml` 与文档中；并断言 7.1 不残留历史遗迹（codecov/python-tests/
@@ -88,6 +104,14 @@
   改一处忘同步即红灯（已实测：故意改错文档数字会失败）。
 
 ### Added
+- **无障碍 (a11y) e2e 断言** `tests/e2e/a11y.spec.ts`：`@axe-core/playwright` 扫描 6 个主要
+  页面 + 键盘可达性（首个 Tab 落在跳板链接）；只拦 serious/critical（避免噪音化门禁）。
+  首轮扫描暴露 113 个 color-contrast 违规 → 见下「无障碍修复」。
+- **CI 步骤清单由 workflow 生成**：`scripts/testing/ci-docs-snippet.js` 从
+  `.github/workflows/test.yml` 提取作业/步骤/权限，生成 `docs/testing-strategy.md` 7.1 的清单
+  （标记块 `<!-- BEGIN:CI-STEPS -->`）；`npm run docs:ci-snippet[:check]` 打印或校验漂移，
+  单测（8 例）与双向守护一并把关 —— 手抄漂移从「靠自觉」变成「可测事实」。
+
 - **文档↔workflow 双向守护** `tests/unit/docs/ci-workflow-docs.test.ts`：13 项关键能力
   （类型检查/MCP 构建/覆盖率报告与评论/pipefail/失败诊断/artifact…）必须同时出现在
   `.github/workflows/test.yml` 与文档中；并断言 7.1 不残留历史遗迹（codecov/python-tests/
@@ -164,6 +188,16 @@
   A/B 实测为准（仅 `glm-5.3-flash` 下发 `reasoning_effort`）。FAQ 新增 #17。
 
 ### Fixed
+- **eslint 未忽略 e2e 产物目录** → 本地跑完 `npm run e2e` 后 `npm run lint` 爆 **185 errors**
+  （`playwright-report/trace/` 内含打包后的第三方 JS）；CI 因干净 checkout 不触发，只有开发者会踩。
+  `globalIgnores` 补齐 `playwright-report/**`、`test-results/**`，并在 `gate-alignment` 加守护
+  （产物目录必须同时被 .gitignore 与 eslint 忽略）。
+- **无障碍：对比度全线达标（axe serious 归零）**：引入文字专用色
+  `--brand-text/--good-text/--warn-text/--crit-text/--zN-text`（主色继续用于图形/色块）；
+  `--fg-muted` 浅色 `#898781`→`#6f6d66`、暗色 `#898781`→`#96948d`；主按钮底
+  `--brand`→`--brand-strong`；语义徽章底色改 `--surface-2` + 语义色描边；
+  移除徽章内小字的 `opacity-80`（透明度稀释对比度）。
+
 - **`threshold-margin` 守护在 CI 崩整套件**：`actuals()` 原在模块顶层求值 —— `describe.skip`
   也会执行顶层代码，而 CI 的 `--coverage` 只创建 `coverage/` 目录、测试结束前不写
   `coverage-summary.json` → `ENOENT` 直接 fail 整套件（本地因残留产物而绿，属典型

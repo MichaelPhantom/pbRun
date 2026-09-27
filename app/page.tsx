@@ -100,7 +100,7 @@ export default async function DashboardPage() {
           {/* VDOT 主数 + sparkline */}
           <div className="flex min-w-0 flex-1 flex-col justify-center gap-2">
             <div className="flex items-baseline gap-2">
-              <span className="tnum text-5xl font-bold leading-none tracking-tight text-[var(--brand)]">
+              <span className="tnum text-5xl font-bold leading-none tracking-tight text-[var(--brand-text)]">
                 {vdot != null ? vdot.toFixed(1) : "--"}
               </span>
               <span className="text-sm font-medium text-fg-muted">VDOT</span>
@@ -164,7 +164,7 @@ export default async function DashboardPage() {
       </SectionCard>
 
       {/* 本期 (本月) */}
-      <SectionCard title="本月概览" action={<Link href="/stats" className="text-xs text-[var(--brand)] hover:underline">全部统计 →</Link>}>
+      <SectionCard title="本月概览" action={<Link href="/stats" className="text-xs text-[var(--brand-text)] hover:underline">全部统计 →</Link>}>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <StatCard
             value={formatDistance(thisMonthKm)}
@@ -196,7 +196,7 @@ export default async function DashboardPage() {
       <SectionCard
         title="最近活动"
         accent
-        action={<Link href="/list" className="text-xs text-[var(--brand)] hover:underline">全部记录 →</Link>}
+        action={<Link href="/list" className="text-xs text-[var(--brand-text)] hover:underline">全部记录 →</Link>}
       >
         {recentActivities.length > 0 ? (
           <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
@@ -211,7 +211,7 @@ export default async function DashboardPage() {
 
       {/* VDOT 趋势 + HR 区间 */}
       <div className="grid grid-cols-1 gap-4 sm:gap-5 lg:grid-cols-2">
-        <SectionCard title="VDOT 趋势" action={<Link href="/analysis" className="text-xs text-[var(--brand)] hover:underline">分析 →</Link>}>
+        <SectionCard title="VDOT 趋势" action={<Link href="/analysis" className="text-xs text-[var(--brand-text)] hover:underline">分析 →</Link>}>
           {vdotSpark.length > 1 ? (
             <div className="h-[140px]">
               <Sparkline data={vdotSpark} height={140} />

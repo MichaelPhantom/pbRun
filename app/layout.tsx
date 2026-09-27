@@ -31,18 +31,18 @@ export default function RootLayout({
       >
         <a
           href="#main-content"
-          className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[100] focus:rounded-md focus:bg-[var(--brand)] focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-[var(--brand-fg)]"
+          className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[100] focus:rounded-md focus:bg-[var(--brand-strong)] focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-[var(--brand-fg)]"
         >
           跳到主要内容
         </a>
         <header className="sticky top-0 z-50 border-b border-border bg-bg/80 backdrop-blur-md supports-[backdrop-filter]:bg-bg/70">
           <div className="mx-auto flex h-14 w-full max-w-5xl items-center justify-between gap-2 px-3 sm:px-4">
             <Link href="/" className="flex items-center gap-1.5 font-semibold">
-              <span className="inline-flex h-6 w-6 items-center justify-center rounded-lg bg-[var(--brand)] text-[13px] font-bold text-[var(--brand-fg)]">
+              <span className="inline-flex h-6 w-6 items-center justify-center rounded-lg bg-[var(--brand-strong)] text-[13px] font-bold text-[var(--brand-fg)]">
                 p
               </span>
               <span className="text-[15px] tracking-tight">
-                pb<span className="text-[var(--brand)]">Run</span>
+                pb<span className="text-[var(--brand-text)]">Run</span>
               </span>
             </Link>
             <TopNav />

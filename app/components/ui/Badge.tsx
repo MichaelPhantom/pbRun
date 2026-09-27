@@ -5,9 +5,10 @@ type Variant = "neutral" | "brand" | "good" | "warn" | "crit" | "zone";
 const VARIANT_CLASS: Record<Variant, string> = {
   neutral: "bg-surface-2 text-fg-secondary border-border",
   brand: "bg-[var(--brand-soft)] text-[var(--brand-strong)] border-transparent",
-  good: "bg-[rgba(12,163,12,0.12)] text-[var(--good)] border-transparent",
-  warn: "bg-[rgba(250,178,25,0.16)] text-[var(--warn)] border-transparent",
-  crit: "bg-[rgba(208,59,59,0.12)] text-[var(--crit)] border-transparent",
+  // 底色一律用 --surface-2 (中性), 语义只体现在文字与描边 —— 同色浅底会把对比度压到 AA 以下
+  good: "bg-surface-2 text-[var(--good-text)] border-[color-mix(in_srgb,var(--good)_35%,transparent)]",
+  warn: "bg-surface-2 text-[var(--warn-text)] border-[color-mix(in_srgb,var(--warn)_35%,transparent)]",
+  crit: "bg-surface-2 text-[var(--crit-text)] border-[color-mix(in_srgb,var(--crit)_35%,transparent)]",
   zone: "border-transparent",
 };
 
@@ -25,11 +26,13 @@ export function Badge({
   className?: string;
 }) {
   if (variant === "zone" && zone != null) {
-    const cssVar = `var(--z${Math.min(Math.max(zone, 1), 5)})`;
+    const z = Math.min(Math.max(zone, 1), 5);
+    const cssVar = `var(--z${z})`;
     return (
       <span
         className={`tnum inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${className}`}
-        style={{ backgroundColor: `color-mix(in srgb, ${cssVar} 16%, transparent)`, color: cssVar }}
+        // 文字用 -text 变体 (主色在同色浅底上对比不足, axe 会报 serious)
+        style={{ backgroundColor: `color-mix(in srgb, ${cssVar} 16%, transparent)`, color: `var(--z${z}-text)` }}
       >
         {children}
       </span>

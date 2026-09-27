@@ -21,7 +21,7 @@ export function StatCard({
 }) {
   const showDelta = delta != null && Number.isFinite(delta) && delta !== 0;
   const up = (delta ?? 0) > 0;
-  const deltaColor = up ? "text-[var(--good)]" : "text-[var(--crit)]";
+  const deltaColor = up ? "text-[var(--good-text)]" : "text-[var(--crit-text)]";
   const deltaSign = up ? "↑" : "↓";
 
   return (
@@ -29,7 +29,7 @@ export function StatCard({
       <div className="flex items-baseline gap-1">
         <span
           className={`tnum text-2xl font-semibold leading-none tracking-tight sm:text-3xl ${
-            accent ? "text-[var(--brand)]" : "text-fg"
+            accent ? "text-[var(--brand-text)]" : "text-fg"
           }`}
         >
           {value}

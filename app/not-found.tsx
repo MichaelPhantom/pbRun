@@ -10,7 +10,7 @@ export default function NotFound() {
       action={
         <Link
           href="/"
-          className="rounded-md bg-[var(--brand)] px-3 py-1.5 text-sm font-medium text-[var(--brand-fg)] hover:bg-[var(--brand-strong)]"
+          className="rounded-md bg-[var(--brand-strong)] px-3 py-1.5 text-sm font-medium text-[var(--brand-fg)] hover:bg-[var(--brand-strong)]"
         >
           返回首页
         </Link>

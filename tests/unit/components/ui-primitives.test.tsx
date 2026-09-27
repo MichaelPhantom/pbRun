@@ -12,10 +12,11 @@ describe('Badge', () => {
     expect(screen.getByText('标签')).toBeInTheDocument();
   });
 
-  test('zone 变体按 zone clamp 到 1..5 使用 --zN', () => {
+  test('zone 变体 clamp 到 1..5: 背景 --zN, 文字 --zN-text (AA 达标)', () => {
     const { container } = render(<Badge variant="zone" zone={9}>Z9</Badge>);
     const span = container.querySelector('span')!;
-    expect(span.style.color).toBe('var(--z5)');
+    expect(span.style.color).toBe('var(--z5-text)');
+    expect(span.style.backgroundColor).toContain('var(--z5)');
   });
 });
 

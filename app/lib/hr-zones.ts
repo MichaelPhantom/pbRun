@@ -74,6 +74,9 @@ export function hrZoneRangeBpmLabel(zone: number, maxHr: number = DEFAULT_MAX_HR
  * @param bgPercent background 混色比例 (不同视图 14/16 略有差异, 可覆盖)
  */
 export function hrZoneBadgeStyle(zone: number, bgPercent = 14): CSSProperties {
-  const v = `var(--z${Math.min(Math.max(zone, 1), 5)})`;
-  return { backgroundColor: `color-mix(in srgb, ${v} ${bgPercent}%, transparent)`, color: v };
+  const z = Math.min(Math.max(zone, 1), 5);
+  const v = `var(--z${z})`;
+  // 背景用 zone 主色 (图形语义), 文字用 -text 变体 —— 主色直接当文字在同色浅底上
+  // 对比度不足 (axe serious), 详见 app/globals.css 的 --zN-text 说明。
+  return { backgroundColor: `color-mix(in srgb, ${v} ${bgPercent}%, transparent)`, color: `var(--z${z}-text)` };
 }

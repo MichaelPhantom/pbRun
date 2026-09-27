@@ -79,7 +79,7 @@ function ZoneTrendContent() {
     return (
       <div className="flex flex-col gap-4 p-6">
         <p className="text-fg-muted">无效的心率区间</p>
-        <Link href="/analysis" className="text-[var(--brand)] hover:underline">
+        <Link href="/analysis" className="text-[var(--brand-text)] hover:underline">
           返回数据分析
         </Link>
       </div>
@@ -101,7 +101,7 @@ function ZoneTrendContent() {
       </div>
 
       {error && (
-        <div className="rounded-lg border border-[var(--crit-soft)] bg-[var(--crit-soft)] px-4 py-3 text-[var(--crit)]">
+        <div className="rounded-lg border border-[var(--crit-soft)] bg-[var(--crit-soft)] px-4 py-3 text-[var(--crit-text)]">
           {error}
         </div>
       )}

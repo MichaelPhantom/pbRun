@@ -34,7 +34,7 @@ export function Segmented({
         const inner = (
           <span
             className={`seg-btn relative inline-flex items-center justify-center rounded-full font-medium transition ${pad} ${
-              active ? "bg-surface text-[var(--brand)] shadow-sm" : "hover:text-fg"
+              active ? "bg-surface text-[var(--brand-text)] shadow-sm" : "hover:text-fg"
             }`}
             data-active={active}
           >

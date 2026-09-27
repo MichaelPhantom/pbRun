@@ -24,7 +24,7 @@ export default function DanielsPage() {
         </p>
       </SectionCard>
 
-      <SectionCard title="跑力（VDOT）" accent action={<Link href="/analysis" className="text-xs text-[var(--brand)] hover:underline">查看分析 →</Link>}>
+      <SectionCard title="跑力（VDOT）" accent action={<Link href="/analysis" className="text-xs text-[var(--brand-text)] hover:underline">查看分析 →</Link>}>
         <p className="mb-3 text-sm leading-relaxed text-fg-secondary">
           VDOT 是丹尼尔斯用来表示跑步能力的一个综合指标，与最大摄氧量相关但更便于在训练中直接使用。数值越高，代表有氧能力越强，在相同心率下可维持的配速越快。
         </p>

@@ -28,8 +28,8 @@ interface ProfileSignal {
 const ROLE_CELL_CLASS: Record<string, string> = {
   neutral: 'bg-surface-2 text-fg-secondary',
   brand: 'bg-[var(--brand-soft)] text-[var(--brand-strong)]',
-  good: 'bg-[rgba(12,163,12,0.12)] text-[var(--good)]',
-  warn: 'bg-[rgba(250,178,25,0.16)] text-[var(--warn)]',
+  good: 'bg-[rgba(12,163,12,0.12)] text-[var(--good-text)]',
+  warn: 'bg-[rgba(250,178,25,0.16)] text-[var(--warn-text)]',
 };
 
 interface ActivityDetailClientProps {
@@ -189,7 +189,7 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
                     <span className="text-fg-muted">--</span>
                   ),
                   dist: ((lap.distance ?? 0) / 1000).toFixed(2),
-                  pace: <span className={isBest ? 'font-semibold text-[var(--good)]' : 'text-fg-secondary'}>{formatPace(lap.average_pace, false)}</span>,
+                  pace: <span className={isBest ? 'font-semibold text-[var(--good-text)]' : 'text-fg-secondary'}>{formatPace(lap.average_pace, false)}</span>,
                   dur: formatDuration(lap.duration),
                   hr: lap.average_heart_rate != null ? Math.round(lap.average_heart_rate) : '--',
                   cad: lap.average_cadence != null ? Math.round(lap.average_cadence) : '--',
