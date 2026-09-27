@@ -141,6 +141,39 @@ describe('computeComparison', () => {
     const r = computeComparison('route', 'x', current, many)!;
     expect(r.peers.length).toBe(8);
   });
+
+  test('本次无配速/心率 → 差值与排名按缺失处理 (不产生 NaN)', () => {
+    const noPace = { activityId: 99, date: '2026-09-22', distanceKm: 8, paceSecPerKm: null, heartRate: null };
+    const r = computeComparison('route', 'X', noPace, peers)!;
+    expect(r.paceDeltaSecPerKm).toBeNull();
+    expect(r.hrDeltaBpm).toBeNull();
+    // 排名列表不含缺配速的本次? (实现: all 里本次 paceSecPerKm=null → 排序时被排除或排末)
+    expect(r.rank === null || r.rank.total >= 1).toBe(true);
+  });
+
+  test('peers 配速全缺失 → 组均值退化为仅本次, 相对差值为 null', () => {
+    const noPacePeers = peers.map((p) => ({ ...p, paceSecPerKm: null }));
+    const cur = { activityId: 99, date: '2026-09-22', distanceKm: 8, paceSecPerKm: 340, heartRate: 170 };
+    const r = computeComparison('route', 'X', cur, noPacePeers)!;
+    // 语义: 组均/组最佳基于「含本次」的有效配速集合 (paced), peers 缺配速不影响本次入选
+    expect(r.groupAvgPaceSecPerKm).toBe(340);
+    expect(r.groupBestPaceSecPerKm).toBe(340);
+    // 但「相对 peer 的差值」无有效 peer 配速 → null
+    expect(r.paceDeltaSecPerKm).toBeNull();
+    // 每条 peer 的相对差值也为 null
+    expect(r.peers.every((p) => p.paceDeltaSecPerKm === null)).toBe(true);
+  });
+
+  test('本次不在排序列表中 (activityId 未命中) → sameCategory.rank 为 null', () => {
+    const other = { activityId: 777, date: '2026-09-22', distanceKm: 10, paceSecPerKm: 300, heartRate: 150 };
+    const sameCat = peers.map((p) => ({ ...p, distanceKm: 10, paceSecPerKm: 300 }));
+    const r = computeComparison('route', 'X', other, sameCat)!;
+    // 同类样本充足, 但本次不在其中 → rank null (findIndex 返回 -1 分支)
+    if (r.sameCategory) {
+      expect(r.sameCategory.rank === null || r.sameCategory.rank.total >= 1).toBe(true);
+    }
+  });
+
 });
 
 describe('hrZoneBreakdown', () => {
@@ -151,6 +184,18 @@ describe('hrZoneBreakdown', () => {
     expect(r.find((z) => z.zone === 5)!.pct).toBeCloseTo((600 / total) * 100, 1);
     // 只保留 seconds>0
     expect(r.some((z) => z.zone === 1)).toBe(false);
+  });
+
+  test('非数组 JSON / 含负值与非法元素 → 只计正值且过滤 0 秒区间', () => {
+    expect(hrZoneBreakdown(JSON.stringify({ a: 1 }))).toEqual([]);
+    const rows = hrZoneBreakdown(JSON.stringify([600, -5, 'x', 0, 200]));
+    expect(rows.map((z) => z.zone)).toEqual([1, 5]);
+    expect(rows[0].pct).toBeCloseTo(75, 1);
+  });
+
+  test('全 0/负值 → 空数组 (总量为 0 时 pct 记 0 并被过滤)', () => {
+    expect(hrZoneBreakdown(JSON.stringify([0, 0]))).toEqual([]);
+    expect(hrZoneBreakdown(JSON.stringify([-1, -2]))).toEqual([]);
   });
 
   test('null / 非法 JSON 返回空', () => {

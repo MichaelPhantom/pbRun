@@ -781,6 +781,12 @@ setupTestDb();
 > 直接看到失败测试名（2026-09-27 实测：由 annotation 一次定位到 `FAIL …threshold-margin.test.ts`）。
 > `tests/unit/docs/ci-workflow-docs.test.ts` 对此做双向守护（workflow 能力 ↔ 文档提及）。
 
+> ⚠️ **本地核验覆盖率务必走 `npm run test:ci`，不要手工 `npx jest --coverage` 与其它
+> 写文件的测试并行**：`tests/unit/scripts/coverage-summary.test.js` 会真实调用
+> `scripts/testing/coverage-summary.js` 写入 `coverage/coverage-report.md`，与 jest 自身的
+> 覆盖率输出争抢同一路径，偶发导致该套件误红（2026-09-27 实测：并行时 1 failed，
+> 单独跑 18/18 全过）。`test:ci` 内部串行且有守护，是唯一可信口径。
+
 **无障碍 (a11y) 自动断言**（`tests/e2e/a11y.spec.ts`，2026-09-27 新增，共 15 例）：用
 `@axe-core/playwright` 扫描 7 个页面（首页/记录/分析/统计/洞察/丹尼尔斯/**活动详情**）
 × **桌面 + 移动端 (Pixel 5) 两种视口**（移动端表格横向溢出属不同渲染路径，需单独扫）+
@@ -871,10 +877,15 @@ setupTestDb();
       ActivityTrendCharts、VDOTTrendChart、useEchart(主题重建/dispose)、YearHeatmap、
       Donut、InsightBarChart、PaceZoneMetricsTable、TrainingLoadChart、useStickToBottom、
       GlobalCoach、AiAnalysis 动作分支、ModelSelector)
-- [x] 分支覆盖攻坚 ✅ (2026-09-27: fit-parser 68.8→93.8%、runner-profile 68→82%、
-      db.ts 81.9→89.1%、insight-compare 83.8→94.4%、insight-coach 74.1→91.4%(语句/函数100%)、
+- [x] 分支覆盖攻坚 ✅ (2026-09-27: fit-parser 68.8→93.8%、runner-profile 68→88.2%(语句 99%、
+      函数 100%)、db.ts 81.9→90.9%、insight-compare 83.8→94.4%、insight-coach 74.1→91.4%(语句/函数100%)、
       ActivityInsightPanel、InsightClient/ActivityDetailClient/AnalysisClient 的条件渲染两侧、
       coverage-summary.js CLI 全路径)
+- [x] 二轮深挖 ✅ (2026-09-27: `runner-profile` format 全分支(习惯三态/prev 兜底/TSB 正负/跑力趋势/
+      多区间强度/多 PR)、`activity-insight`(本次与 peers 缺配速心率、同类 rank、hrZoneBreakdown 边界)、
+      `db.ts` 区间统计边角(vdot≤0 早退/pace 落空/权重退化/hr·cad·stride 为 null/HR 区间单侧过滤/
+      坏 JSON/短数组/validateRange 三种抛错)、`sync.js` VDOT 双非代表性 + 无合格候选退回全程、
+      `InsightClient` 解耦四档阈值 + 路线/类别缺字段)
 - [x] CLI 脚本真实单测 ✅ (2026-09-27: 从「导入契约」升级 —— `garmin/client`(401 刷新互斥/
       token 持久化播报)、`common/vdot-calculator`、`common/utils`(.env upsert/备份去重)、
       `testing/make-fixture-db`、`sync-garmin`、`common/db-manager`(列迁移/NULL 兜底)、

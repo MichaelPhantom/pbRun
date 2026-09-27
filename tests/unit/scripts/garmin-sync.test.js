@@ -401,6 +401,38 @@ describe('_syncActivity', () => {
     );
   });
 
+  test('VDOT: lap 与全程均非代表性 → 不计算 (seg 保持 null)', async () => {
+    mockFs.readFile.mockResolvedValue(Buffer.from('FIT'));
+    mockCalc.calculateVdotFromPace.mockClear();
+    mockCalc.isRepresentativeEffort.mockImplementation(() => false);
+    mockParseFitFile.mockResolvedValueOnce({
+      activity: { average_heart_rate: 110, distance: 10, duration: 3600 },
+      laps: [{ distance: 2000, duration: 600, average_heart_rate: 110, average_pace: 300 }],
+      records: [],
+    });
+    const sync = new GarminSync({ source: 'cdp' });
+    await sync._syncActivity(activity(), '/tmp/dir');
+    expect(mockCalc.calculateVdotFromPace).not.toHaveBeenCalled();
+  });
+
+  test('VDOT: 有 lap 但无合格候选 (distance<=400) → 退回全程', async () => {
+    mockFs.readFile.mockResolvedValue(Buffer.from('FIT'));
+    mockCalc.calculateVdotFromPace.mockClear();
+    mockCalc.isRepresentativeEffort.mockImplementation(() => true);
+    mockParseFitFile.mockResolvedValueOnce({
+      activity: { average_heart_rate: 168, distance: 10, duration: 3600 },
+      // 全部 lap 距离 <=400 → 不进入 cands, 走 else-if 全程分支
+      laps: [
+        { distance: 300, duration: 80, average_heart_rate: 168, average_pace: 260 },
+        { distance: 400, duration: 100, average_heart_rate: 168, average_pace: 250 },
+      ],
+      records: [],
+    });
+    const sync = new GarminSync({ source: 'cdp' });
+    await sync._syncActivity(activity(), '/tmp/dir');
+    expect(mockCalc.calculateVdotFromPace).toHaveBeenCalledWith(10000, 3600);
+  });
+
   test('training_load: FIT 有值不覆盖; 无值且跑步类才回退计算', async () => {
     mockFs.readFile.mockResolvedValue(Buffer.from('FIT'));
     mockParseFitFile.mockResolvedValueOnce({

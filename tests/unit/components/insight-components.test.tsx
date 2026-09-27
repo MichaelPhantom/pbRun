@@ -197,6 +197,35 @@ describe('InsightClient', () => {
     expect(screen.getByText('两江新区')).toBeInTheDocument();
   });
 
+  test('解耦均值四档阈值 (good/brand/warn/crit)', () => {
+    for (const v of [4, 6.5, 9.5, 12]) {
+      const { unmount } = render(
+        <InsightClient insight={{ ...insight, decoupling: { ...insight.decoupling, meanPct: v } }} timeRangeDays={90} />,
+      );
+      expect(screen.getByText(`均值 ${v.toFixed(1)}%`)).toBeInTheDocument();
+      unmount();
+    }
+  });
+
+  test('路线/类别字段缺失 → 跳过可选徽章且不崩', () => {
+    const sparse: InsightResponse = {
+      ...insight,
+      categories: {
+        ...insight.categories!,
+        stats: insight.categories!.stats.map((c) => ({ ...c, avgVdot: null })),
+      },
+      routes: {
+        routes: insight.routes!.routes.map((r) => ({ ...r, paceTrendPer30d: null, bestPaceSecPerKm: null })),
+      },
+    } as unknown as InsightResponse;
+    render(<InsightClient insight={sparse} timeRangeDays={90} />);
+    // avgVdot 为 null → 显示 '--'
+    expect(screen.getAllByText('--').length).toBeGreaterThan(0);
+    // 路线仍渲染名称, 但无「变慢/变快」徽章
+    expect(screen.getByText('两江新区')).toBeInTheDocument();
+    expect(screen.queryByText(/变慢|变快 /)).not.toBeInTheDocument();
+  });
+
   test('最小数据不崩溃', () => {
     const minimal: InsightResponse = {
       ...insight,

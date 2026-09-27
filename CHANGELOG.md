@@ -139,6 +139,12 @@
   本地为 `retain-on-failure`。`tests/unit/ci/gate-alignment.test.ts` 增加守护，防止产物被静默移除。
 
 ### Changed
+- **二轮分支覆盖深挖**：`app/lib/runner-profile.ts` 分支 82.0→88.2%（语句 99.0%、函数 100%）、
+  `app/lib/db.ts` 81.9→90.9%、新增 `tests/unit/lib/db-zones-samples.test.ts`（区间统计与样本读取
+  的 12 条边角）、`tests/unit/scripts/garmin-sync.test.js` +2（VDOT 双非代表性 / 无合格候选）、
+  `tests/unit/components/insight-components.test.tsx` +2（解耦四档阈值 / 缺字段不崩）。
+  全量 `test:ci` rc=0：123 套件 / 1631 例，5 组 8 项门槛全过。
+
 - **e2e 作业改为浏览器矩阵（chromium + firefox 并行）**：`fail-fast: false`，各档独立上传
   `playwright-report-<browser>`；本地 firefox 实测 51 项全过（3.2m）。矩阵化能发现浏览器差异类
   缺陷 —— 本轮即在 firefox 下暴露 `isMobile` 不受支持（见 Fixed），并据此把移动端 a11y 的

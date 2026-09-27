@@ -315,6 +315,83 @@ describe('formatRunnerProfile 分区省略与 PR 行', () => {
     expect(text).toMatch(/个人纪录: 5 km 20:00/);
   });
 
+  test('习惯行: longestKm/typicalCadence/typicalHr 各自有值才出现', () => {
+    const base2 = fullProfile();
+    // 仅一件习惯
+    const onlyOne = formatRunnerProfile({ ...base2, longestKm: 21.1, typicalCadence: null, typicalHr: null });
+    expect(onlyOne).toMatch(/习惯: 最长单次 21\.1 km/);
+    // 三件齐全
+    const all = formatRunnerProfile({ ...base2, longestKm: 21.1, typicalCadence: 178, typicalHr: 148 });
+    expect(all).toMatch(/习惯: 最长单次 21\.1 km, 惯常步频 178 spm, 惯常均心率 148 bpm/);
+    // 全缺 → 无习惯行
+    const none = formatRunnerProfile({ ...base2, longestKm: null, typicalCadence: null, typicalHr: null });
+    expect(none).not.toContain('习惯:');
+  });
+
+  test('上次跑步行: 有 name/pace 与缺失 name/pace 两种兜底', () => {
+    const base2 = fullProfile();
+    const withName = formatRunnerProfile({
+      ...base2,
+      prev: { date: '2026-09-25', name: '两江新区 - 乳酸阈值', km: 8, pace: '5:50' },
+    });
+    expect(withName).toMatch(/上次跑步: 2026-09-25 两江新区 - 乳酸阈值 8\.00 km 配速 5:50/);
+
+    const fallback = formatRunnerProfile({
+      ...base2,
+      prev: { date: '2026-09-25', name: null, km: 5.5, pace: null },
+    });
+    expect(fallback).toMatch(/上次跑步: 2026-09-25 跑步 5\.50 km 配速 --/);
+    // 无 prev → 不输出该行
+    expect(formatRunnerProfile({ ...base2, prev: null })).not.toContain('上次跑步:');
+  });
+
+  test('负荷行: TSB 正值带 + 号、无 tsbLabel 不带括号', () => {
+    const base2 = fullProfile();
+    const positive = formatRunnerProfile({ ...base2, ctl: 45, atl: 40, tsb: 12.6, tsbLabel: null });
+    expect(positive).toMatch(/负荷: CTL 45 ATL 40 TSB \+12\.6$/m);
+    const negative = formatRunnerProfile({ ...base2, ctl: 45, atl: 55, tsb: -9.4, tsbLabel: '平衡' });
+    expect(negative).toMatch(/TSB -9\.4（平衡）/);
+  });
+
+  test('跑力行: 有 30 天前值才带括号与趋势词', () => {
+    const base2 = fullProfile();
+    expect(formatRunnerProfile({ ...base2, vdotNow: 47, vdot30dAgo: null, vdotTrend: 'up' })).toMatch(
+      /跑力: 当前 VDOT 47$/m,
+    );
+    expect(formatRunnerProfile({ ...base2, vdotNow: 47, vdot30dAgo: 45, vdotTrend: 'down' })).toMatch(
+      /约30天前 45, 下降/,
+    );
+    // trend 为 null 但 30 天前有值 → 走「持平」兜底
+    expect(formatRunnerProfile({ ...base2, vdotNow: 47, vdot30dAgo: 47, vdotTrend: null })).toMatch(
+      /约30天前 47, 持平/,
+    );
+  });
+
+  test('强度分布多区间与生涯行 firstRunYear 缺失', () => {
+    const text = formatRunnerProfile({
+      ...fullProfile(),
+      firstRunYear: null,
+      intensityDist: [
+        { zone: 1, pct: 60 },
+        { zone: 3, pct: 25 },
+        { zone: 5, pct: 15 },
+      ],
+    });
+    expect(text).toMatch(/生涯: 累计 \d+ km \/ \d+ 次$/m); // 无「记录始于」
+    expect(text).toMatch(/近28天强度分布: Z1 60% \/ Z3 25% \/ Z5 15%/);
+  });
+
+  test('多个个人纪录用中文分号连接', () => {
+    const text = formatRunnerProfile({
+      ...fullProfile(),
+      personalBests: [
+        { label: '5 km', time: '20:00', date: '2026-08-01' },
+        { label: '10 km', time: '42:30', date: '2026-07-01' },
+      ] as never,
+    });
+    expect(text).toContain('个人纪录: 5 km 20:00；10 km 42:30');
+  });
+
   test('全空画像 → 空串', () => {
     const empty: RunnerProfile = {
       lifetimeKm: 0,
