@@ -297,6 +297,48 @@ describe('_extractTrack 分支', () => {
   });
 });
 
+describe('_extractTrack 深分支', () => {
+  test('路径点 >2000 → 等步幅降采样且保留首尾且不重复末点', () => {
+    const n = 5000;
+    const records = Array.from({ length: n }, (_, i) => ({
+      position_lat: 29.5 + i * 1e-5,
+      position_long: 106.5 + i * 1e-5,
+      elapsed_time: i,
+      enhanced_altitude: 300 + i * 0.01,
+    }));
+    const track = p._extractTrack({ records });
+    // 性质断言 (不硬编码精确长度, 只锁语义): 显著降采样、首尾保留、末点不重复
+    expect(track.coords.length).toBeGreaterThan(2000);
+    expect(track.coords.length).toBeLessThan(n);
+    // coords 顺序为 [lat, lng]
+    expect(track.coords[0]).toEqual([29.5, 106.5]);
+    const lastLat = track.coords[track.coords.length - 1][0];
+    const prevLat = track.coords[track.coords.length - 2][0];
+    expect(lastLat).toBeCloseTo(29.5 + (n - 1) * 1e-5, 6);
+    expect(lastLat).not.toBeCloseTo(prevLat, 9); // 末点未被重复追加
+  });
+
+  test('海拔剖面: 无 elapsed_time 时, 有 timestamp 用时间差、两者皆无用索引 i', () => {
+    const withTs = p._extractTrack({
+      records: [
+        { position_lat: 29.5, position_long: 106.5, timestamp: '2026-09-01T00:00:00Z', enhanced_altitude: 300 },
+        { position_lat: 29.51, position_long: 106.51, timestamp: '2026-09-01T00:00:05Z', enhanced_altitude: 305 },
+      ],
+    });
+    // 第二条 elapsed = 5 秒
+    expect(withTs.elev.some((e) => Math.abs(e[0] - 5) < 0.11)).toBe(true);
+
+    const noTime = p._extractTrack({
+      records: [
+        { position_lat: 29.5, position_long: 106.5, enhanced_altitude: 300 },
+        { position_lat: 29.51, position_long: 106.51, enhanced_altitude: 305 },
+      ],
+    });
+    expect(noTime).not.toBeNull();
+    expect(noTime.elev.length).toBe(2);
+  });
+});
+
 describe('设备与厂商解析', () => {
   test.each([
     [null, null],

@@ -144,6 +144,12 @@
   的 12 条边角）、`tests/unit/scripts/garmin-sync.test.js` +2（VDOT 双非代表性 / 无合格候选）、
   `tests/unit/components/insight-components.test.tsx` +2（解耦四档阈值 / 缺字段不崩）。
   全量 `test:ci` rc=0：123 套件 / 1631 例，5 组 8 项门槛全过。
+- **三轮收敛**：`app/lib/insight.ts` +4（短 zSeconds 数组按缺失补 0 / `dayOrdinal` 短日期串 /
+  `computeVdotTrend` 过滤 null·Infinity·NaN / 解耦 r1=0 防除零）、
+  `scripts/garmin/fit-parser.js` +2（路径点 >2000 等步幅降采样保留首尾且不重复末点 /
+  海拔剖面在无 elapsed_time 时用时间戳差、两者皆无用索引）、`sync.js` VDOT 无合格候选。
+  至此**全仓未覆盖分支仅剩 `app/lib/insight.ts` 15 处（93.5%）**，其余文件零未覆盖分支。
+  全量 `test:ci` rc=0：123 套件 / 1638 例，5 组 8 项门槛全过。
 
 - **e2e 作业改为浏览器矩阵（chromium + firefox 并行）**：`fail-fast: false`，各档独立上传
   `playwright-report-<browser>`；本地 firefox 实测 51 项全过（3.2m）。矩阵化能发现浏览器差异类

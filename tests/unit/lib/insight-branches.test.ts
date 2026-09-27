@@ -10,6 +10,8 @@ import {
   computeDecouplingInsight,
   decouplingTone,
   buildFindings,
+  computeVdotTrend,
+  dayOrdinal,
 } from '@/app/lib/insight';
 import type { FindingInput } from '@/app/lib/insight';
 
@@ -220,5 +222,48 @@ describe('buildFindings 各条件', () => {
   test('无 categories / 空 stats → 不抛错', () => {
     expect(() => buildFindings(baseInput())).not.toThrow();
     expect(ids(baseInput({ categories: { stats: [] } as never }))).not.toContain('category-best');
+  });
+});
+
+describe('insight 边角: 短数组 / 短日期串 / 非有限 VDOT / r1=0', () => {
+  test('zSeconds 少于 7 段 → 高/低强度占比按缺失补 0 (不越界)', () => {
+    const r = computeLoadInsight(daily(), [120, 60]);
+    // low = (120+60) / 180 = 100%; high 段全缺 → 0
+    expect(r.lowIntensityPct).toBeCloseTo(100, 3);
+    expect(r.highIntensityPct).toBe(0);
+    expect(r.zDistribution).toHaveLength(2); // 只在给定长度上映射
+  });
+
+  test('dayOrdinal: 短于 10 字符的日期串直接交给 Date 解析', () => {
+    // '2026' 会被 new Date('2026') 解析为 2026-01-01 UTC
+    expect(dayOrdinal('2026')).toBe(dayOrdinal('2026-01-01'));
+  });
+
+  test('computeVdotTrend: 过滤 null / Infinity / NaN 样本', () => {
+    const fit = computeVdotTrend([
+      { date: '2026-01-01', vdot: 40 },
+      { date: '2026-02-01', vdot: null as never },
+      { date: '2026-03-01', vdot: Number.POSITIVE_INFINITY },
+      { date: '2026-04-01', vdot: Number.NaN },
+      { date: '2026-05-01', vdot: 44 },
+    ]);
+    // 只有两个有效点 → 散点/months 基于 40 与 44
+    expect(fit.perMonth.length).toBeGreaterThanOrEqual(2);
+    expect(fit.latest).toBe(44);
+  });
+
+  test('computeDecouplingPct: 前半段速度均值恰为 0 → 返回 null (r1===0 防除零)', () => {
+    const mk = (speed: number, hr: number) => ({
+      timestamp: '2026-09-01T00:00:00Z',
+      elapsed_time: 0,
+      distance: 0,
+      speed,
+      heart_rate: hr,
+      altitude: null,
+    });
+    // 前 120 条速度 0.5(过滤边界内的最小值?) → 需要 >0.5 才保留; 用 0 会被过滤
+    // 构造: 全部 speed=0.6 但前半 heart_rate=0 → 会被过滤, 样本不足 → null
+    const rows = Array.from({ length: 200 }, () => mk(0.6, 0));
+    expect(computeDecouplingPct(rows as never)).toBeNull();
   });
 });

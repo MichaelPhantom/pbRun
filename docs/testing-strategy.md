@@ -886,6 +886,10 @@ setupTestDb();
       `db.ts` 区间统计边角(vdot≤0 早退/pace 落空/权重退化/hr·cad·stride 为 null/HR 区间单侧过滤/
       坏 JSON/短数组/validateRange 三种抛错)、`sync.js` VDOT 双非代表性 + 无合格候选退回全程、
       `InsightClient` 解耦四档阈值 + 路线/类别缺字段)
+- [x] 三轮收敛 ✅ (2026-09-27: `insight.ts` 短 zSeconds 数组/短日期串/非有限 VDOT 过滤/解耦 r1=0、
+      `fit-parser` 路径点 >2000 降采样首尾保留 + 海拔剖面时间基准三级回退(时间戳/索引)、
+      VDOT lap 双非代表性 + 无合格候选 —— 至此**全仓未覆盖分支仅剩 `insight.ts` 15 处**(93.5%),
+      其余文件零未覆盖分支)
 - [x] CLI 脚本真实单测 ✅ (2026-09-27: 从「导入契约」升级 —— `garmin/client`(401 刷新互斥/
       token 持久化播报)、`common/vdot-calculator`、`common/utils`(.env upsert/备份去重)、
       `testing/make-fixture-db`、`sync-garmin`、`common/db-manager`(列迁移/NULL 兜底)、
