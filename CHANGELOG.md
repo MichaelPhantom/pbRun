@@ -65,6 +65,16 @@
   仓库、`docs/*.md` 交叉引用必须存在、`docs/README.md` 索引必须覆盖 `docs/` 全部
   markdown。`docs/testing-strategy.md` 因含规划中的配置示例列入白名单（文件内注释说明）。
 
+### Added
+- **覆盖率可见性管线（本地 = CI）**：新增 `scripts/testing/coverage-summary.js` —— 读取
+  `coverage/coverage-summary.json`，按 `jest.config.js` 的分组口径汇总成 Markdown 表
+  （逐项对比门槛，未达标标 ❌），本地由 `npm run test:ci` 生成 `coverage/coverage-report.md`；
+  CI 中作为 artifact 上传（14 天）并在 PR 上就地更新一条评论（同标记评论复用，不刷屏）。
+  该脚本自身有 8 例单测（阈值解析、最窄分组命中、汇总、达标/未达标渲染）。
+- **文档↔门槛一致性守护** `tests/unit/docs/coverage-threshold-docs.test.ts`：门槛数值散落在
+  `jest.config.js` 与 `docs/testing-strategy.md` / `CHANGELOG.md`，本测试逐组逐项比对，
+  改一处忘同步即红灯（已实测：故意改错文档数字会失败）。
+
 ### Changed
 - **CLI 脚本可被 require 而不执行**：`backfill-vdot` / `backfill-fit-fields` / `backfill-tracks` /
   `init-garmin-data` / `take-screenshots` / `make-fixture-db` / `sync-garmin` 统一改为
@@ -88,6 +98,9 @@
  `jest.config.js` 单一真源、`npm run build` 在 u2 生产机须走 `scripts/deploy-prod.sh`。
 - jest 增加 `coverageThreshold`（`global` + `./app/lib/` 分组两组下限，数值的单一真源是
   `jest.config.js`，文档不另抄数字以免漂移），防止覆盖率回归。
+- **`npm run test:ci` 补齐覆盖率摘要步骤**：与 CI `quality` 作业的步骤逐条对齐（含覆盖率
+  报告与摘要生成），`tests/unit/ci/gate-alignment.test.ts` 同步扩展守护（命令带参数 ` -- `
+  时按主命令比对），确保「本地一键 = CI」持续为真。
 - **覆盖率门槛细化为 5 组 8 项逐目录防回归**：`global` 72/61/70/73 → … → **96/88/95/97**，
   `./app/lib/` → **96/87/97/98**（新增分支与函数两项），并新增 `./app/api/` **94/89/99**、
   `./app/components/` **97/89/99**、`./scripts/` **96/90/94**（各组贴近实测下方留 ~1.5-2pt）。
@@ -127,6 +140,11 @@
   当前以用例固化该行为；若要支持「关闭限速」应改用 `??`，届时用例会失败提醒同步。
 - **`take-screenshots` 的可选页失败不计入统计**（同上，未改实现）：optional 页失败只打日志、
   既不 +success 也不 +fail，`失败: N 个` 仅统计必选页抛错。以用例固化现状。
+- **`docs/testing-strategy.md` 第 7 章 CI 配置示例与实际不符**（示例里写着 `develop` 分支、
+  node 20、`codecov/codecov-action@v3`、`python-tests` 作业、以及错误的 npm scripts）——
+  已按 `.github/workflows/test.yml` 与 `package.json` 实况重写 7.1/7.2。
+- **`scripts/testing/coverage-summary.js` 的分组匹配对 `./` 前缀失配**（初版把 `./app/lib/`
+  与相对路径 `app/lib/x.ts` 直接比对，永远落到 global）—— 已在比较前归一化前缀，并由单测锁定。
 - **两处统计口径现状**（本轮补测发现并固化用例, 未改实现）：`getTrainingLoads` 只校验
   `YYYY-MM-DD` 形态而不校验日历合法性（`2026-13-01` 不报错）；`computeLoadInsight` 的强度
   分布与轻松占比直接用原始区间秒数（负值会得出负百分比），仅总量分母过滤负值。

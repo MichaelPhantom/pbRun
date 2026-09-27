@@ -38,18 +38,22 @@ const qualityRuns = [...qualitySection.matchAll(/^\s+run: (.+)$/gm)]
  */
 const NON_GATE = new Set(['npm ci', 'npm run build']);
 
-/** 判断 quality 作业的某个 run 命令是否被 test:ci 覆盖。 */
+/**
+ * 判断 quality 作业的某个 run 命令是否被 test:ci 覆盖。
+ * 步骤可能带参数 (如 `npm run test:coverage -- --coverageReporters=json-summary`),
+ * 故先剥掉 ` -- ` 之后的参数, 再按主命令比对: 同名脚本被 test:ci 调用即视为覆盖。
+ */
 function covered(run: string): boolean {
-  const cand = run.replace(/^npx\s+/, '');
-  if (testCi.includes(run) || testCi.includes(cand)) return true;
+  const base = run.split(/ -- /)[0].trim();
+  const cand = base.replace(/^npx\s+/, '');
+  if (testCi.includes(run) || testCi.includes(base) || testCi.includes(cand)) return true;
+  for (const [name] of Object.entries(scripts)) {
+    if ((base === `npm run ${name}` || base === `npm ${name}` || cand === name) && testCi.includes(`npm run ${name}`)) {
+      return true;
+    }
+    if (testCi.includes(`npm ${name}`) && (base === `npm run ${name}` || base === `npm ${name}`)) return true;
+  }
   for (const [name, cmd] of Object.entries(scripts)) {
-    // CI 调 npm run <name> / npm <name>: test:ci 需包含同名调用或等价原始命令
-    if (run === `npm run ${name}` && (testCi.includes(`npm run ${name}`) || testCi.includes(cmd))) {
-      return true;
-    }
-    if (run === `npm ${name}` && (testCi.includes(`npm ${name}`) || testCi.includes(cmd))) {
-      return true;
-    }
     // CI 直接跑原始命令 (如 npx tsc --noEmit): 需等价于某脚本且 test:ci 已调用
     if (cmd === cand && (testCi.includes(`npm run ${name}`) || testCi.includes(`npm ${name}`))) {
       return true;
@@ -63,16 +67,20 @@ describe('test:ci ↔ CI quality 作业对齐', () => {
     expect(qualityRuns.length).toBeGreaterThanOrEqual(5);
   });
 
-  test('quality 作业保有四类门禁 + 构建 (步骤不得被静默删除)', () => {
-    expect(qualityRuns).toEqual(
-      expect.arrayContaining([
-        'npx tsc --noEmit',
-        'npm run build:mcp',
-        'npm run lint',
-        'npm test',
-        'npm run build',
-      ]),
-    );
+  test('quality 作业保有四类门禁 + 覆盖率摘要 + 构建 (步骤不得被静默删除)', () => {
+    expect(qualityRuns).toEqual(expect.arrayContaining(['npx tsc --noEmit', 'npm run build:mcp', 'npm run lint']));
+    // 单元测试步骤带覆盖率报告 (2026-09-27 起), 摘要步骤紧随其后
+    expect(qualityRuns.some((cmd) => /test:coverage/.test(cmd))).toBe(true);
+    expect(qualityRuns.some((cmd) => /coverage-summary\.js/.test(cmd))).toBe(true);
+    expect(qualityRuns).toEqual(expect.arrayContaining(['npm run build']));
+  });
+
+  test('覆盖率报告以 artifact 上传, 且 PR 上留下摘要评论', () => {
+    const wf = read('.github/workflows/test.yml');
+    expect(wf).toContain('actions/upload-artifact@v4');
+    expect(wf).toContain('coverage/coverage-report.md');
+    expect(wf).toContain('pull-requests: write');
+    expect(wf).toMatch(/issues\/\$\{PR\}\/comments|issues\/\$\{\{ github.repository \}\}\/issues/);
   });
 
   test('每个门禁步骤都被 test:ci 覆盖 (本地一键 = CI)', () => {
@@ -82,8 +90,9 @@ describe('test:ci ↔ CI quality 作业对齐', () => {
     expect(missing).toEqual([]);
   });
 
-  test('test:ci 含覆盖率门槛', () => {
-    expect(testCi).toContain('--coverage');
+  test('test:ci 含覆盖率门槛与摘要生成 (本地一键 = CI 的产物)', () => {
+    expect(testCi).toContain('test:coverage');
+    expect(testCi).toContain('coverage-summary.js');
   });
 
   test('CONTRIBUTING 逐字描述同一套门禁 (文档不落后于实现)', () => {

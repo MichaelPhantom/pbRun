@@ -732,73 +732,46 @@ setupTestDb();
 
 ### 7.1 GitHub Actions 配置
 
-**.github/workflows/test.yml**
+实际配置见 `.github/workflows/test.yml`（两个作业，无第三方覆盖率服务）：
+
 ```yaml
-name: Test Suite
-
-on:
-  push:
-    branches: [main, develop]
-  pull_request:
-    branches: [main]
-
 jobs:
-  unit-tests:
-    runs-on: ubuntu-latest
+  quality:                 # 门禁: 与 npm run test:ci 一一对应
+    permissions: { contents: read, pull-requests: write }
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-      - run: npm ci
-      - run: npm run test:unit -- --coverage
-      - uses: codecov/codecov-action@v3
-        with:
-          files: ./coverage/lcov.info
+      - 安装依赖 (npm ci)
+      - npx tsc --noEmit                    # 类型检查
+      - npm run build:mcp                   # MCP 构建 (mcp-server 的 tsconfig 口径与根不同)
+      - npm run lint                        # eslint
+      - npm run test:coverage -- --coverageReporters=text --coverageReporters=json-summary --coverageReporters=lcov
+      - node scripts/testing/coverage-summary.js   # 生成分组覆盖率 Markdown 摘要
+      - actions/upload-artifact@v4          # 上传 coverage/ (报告 + lcov), 保留 14 天
+      - PR 覆盖率评论 (gh api, 同标记评论就地更新, 不刷屏)
+      - npm run build                       # 生产构建 (干净 checkout; u2 本机须走 deploy-prod.sh)
 
-  e2e-tests:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-      - run: npm ci
-      - run: npx playwright install --with-deps
-      - run: npm run test:e2e
-      - uses: actions/upload-artifact@v3
-        if: always()
-        with:
-          name: playwright-report
-          path: playwright-report/
-
-  python-tests:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v4
-        with:
-          python-version: '3.11'
-      - run: pip install pytest pytest-cov
-      - run: pytest tests/python/ --cov=scripts --cov-report=xml
+  e2e:                     # Playwright (chromium): 生成夹具库 → 构建 → next start → 跑 e2e
 ```
+
+**覆盖率可见性**（2026-09-27 新增）：`scripts/testing/coverage-summary.js` 读取
+`coverage/coverage-summary.json` 并按 `jest.config.js` 的分组口径汇总，输出分组 Markdown 表
+（逐项对比门槛，未达标标 ❌）；CI 上传为 artifact，并在 PR 上就地更新一条评论。该脚本也被
+`npm run test:ci` 调用 —— **本地一键与 CI 产物一致**。
 
 ### 7.2 本地运行脚本
 
-**package.json 更新**
+与 `package.json` 保持一致（实测可用）：
+
 ```json
 {
   "scripts": {
-    "test": "npm run test:unit && npm run test:integration",
-    "test:unit": "jest --testPathPattern=tests/unit",
-    "test:integration": "jest --testPathPattern=tests/integration",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint",
+    "build:mcp": "tsc -p mcp-server/tsconfig.json",
+    "test": "jest",
+    "test:unit": "jest tests/unit",
+    "test:coverage": "jest --coverage",
     "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui",
-    "test:python": "pytest tests/python/",
-    "test:coverage": "jest --coverage && pytest --cov=scripts",
-    "test:setup": "node scripts/setup-test-db.js"
+    "test:ci": "npm run typecheck && npm run build:mcp && npm run lint && npm run test:coverage -- --coverageReporters=text --coverageReporters=json-summary && node scripts/testing/coverage-summary.js"
   }
 }
 ```

@@ -14,6 +14,10 @@ on:
 jobs:
   quality:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # PR 评论需要写权限; push 到 main 时不评论 (无 PR 号)
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
 
@@ -35,8 +39,47 @@ jobs:
       - name: Lint(eslint)
         run: npm run lint
 
-      - name: 单元测试(jest)
-        run: npm test
+      # 带覆盖率运行: 门槛不达标即失败 (等同于 npm test 的门禁 + 报告产物)
+      - name: 单元测试 + 覆盖率(jest)
+        run: npm run test:coverage -- --coverageReporters=text --coverageReporters=json-summary --coverageReporters=lcov
+
+      - name: 覆盖率摘要(markdown)
+        run: node scripts/testing/coverage-summary.js
+
+      - name: 上传覆盖率报告(artifact)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            coverage/coverage-report.md
+            coverage/coverage-summary.json
+            coverage/lcov.info
+          retention-days: 14
+
+      - name: PR 覆盖率评论
+        if: always() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          if [ ! -f coverage/coverage-report.md ]; then
+            echo "无覆盖率摘要, 跳过评论"; exit 0
+          fi
+          BODY_FILE=$(mktemp)
+          {
+            echo "<!-- coverage-report -->"
+            cat coverage/coverage-report.md
+          } > "$BODY_FILE"
+          # 已存在同标记评论则更新, 避免每次 push 刷屏
+          EXISTING=$(gh api "repos/${{ github.repository }}/issues/${PR}/comments"             --jq '.[] | select(.body | startswith("<!-- coverage-report -->")) | .id' | head -1)
+          if [ -n "$EXISTING" ]; then
+            gh api -X PATCH "repos/${{ github.repository }}/issues/comments/${EXISTING}" -F body=@"$BODY_FILE" >/dev/null
+            echo "已更新覆盖率评论 #$EXISTING"
+          else
+            gh api -X POST "repos/${{ github.repository }}/issues/${PR}/comments" -F body=@"$BODY_FILE" >/dev/null
+            echo "已创建覆盖率评论"
+          fi
 
       - name: 构建(next build)
         run: npm run build

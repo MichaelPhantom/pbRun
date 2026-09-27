@@ -24,18 +24,23 @@ cp .env.example .env
 | `npm run test:unit` | Jest 单元测试 |
 | `npm run test:coverage` | 带覆盖率（含门槛校验） |
 | `npm run test:e2e` | Playwright 端到端（自动构建夹具库 + 隔离产物目录） |
-| `npm run test:ci` | 本地一键跑齐 CI quality 作业前 4 步：`typecheck` → `build:mcp` → `lint` → 测试+覆盖率 |
+| `npm run test:ci` | 本地一键跑齐 CI quality 作业门禁：`typecheck` → `build:mcp` → `lint` → 测试+覆盖率 → 覆盖率摘要（`scripts/testing/coverage-summary.js`） |
 | `npm run build` | 生产构建。CI/clean checkout 直接可用；u2 生产机因 `app/data` 指向块存储的软链会构建失败，须用 `scripts/deploy-prod.sh`（暂存软链 → 构建 → 恢复 → 重启 → 健康检查，见 `docs/ops.md`） |
 
 ## 质量门禁（CI）
 
 `.github/workflows/test.yml` 在 push/PR 到 `main` 时运行：
 
-- `quality` 作业：`typecheck` → `build:mcp` → `lint` → `jest` → `next build`
+- `quality` 作业：`typecheck` → `build:mcp` → `lint` → **测试+覆盖率** → **覆盖率摘要** →
+  上传 artifact → PR 覆盖率评论 → `next build`
 - `e2e` 作业：Playwright（chromium，生产构建 + 夹具库）
 
-**本地提交前请至少跑通 `npm run test:ci`**（= 上表前 4 步 + 覆盖率门槛；第 5 步 `next build`
-由 CI 在干净 checkout 上执行，本机 u2 请以 `scripts/deploy-prod.sh` 的构建结果为准）。
+**本地提交前请至少跑通 `npm run test:ci`**（= CI 的门禁步骤 + 覆盖率门槛 + 摘要生成；
+最后的 `next build` 由 CI 在干净 checkout 上执行，本机 u2 请以 `scripts/deploy-prod.sh`
+的构建结果为准）。
+
+覆盖率摘要（`coverage/coverage-report.md`）在本地由 `test:ci` 生成，CI 里同时作为
+artifact 上传并在 PR 上就地更新一条评论 —— 本地与 CI 看到的是同一份分组表。
 
 > 历史教训（2026-09-26）：`test:ci` 曾漏掉 `build:mcp`，本地绿灯而 CI 在 MCP 构建步红灯，
 > 原因是 `mcp-server/tsconfig.json` 的 `lib` 无 DOM、与根 tsconfig 口径不同。任何新增门禁
