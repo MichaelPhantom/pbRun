@@ -499,3 +499,6 @@ if (require.main === module) {
 }
 
 module.exports = StravaSync;
+// 供单测复用 CLI 参数解析与入口 (与 garmin/sync.js 的导出风格一致)
+module.exports.parseArgs = parseArgs;
+module.exports.main = main;
