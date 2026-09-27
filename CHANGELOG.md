@@ -80,7 +80,10 @@
   「实测 − 门槛 ≥ 1.5pt」（门槛接近 100 时按数学上限 `100-gate-0.5` 放宽），并反向检查
   「余量 > 15pt」防门槛长期不更新；无产物则显式跳过（CI 的 `npm test` 不带 --coverage）。
   该守护上线即抓到 3 处过紧门槛（app/lib functions 97→96、lines 98→97；
-  app/components branches 89→88），避免重演「本地绿、CI 红」。
+  app/components branches 89→88），避免重演「本地绿、CI 红」。守护只接受**新鲜**产物
+  （产物早于最新源文件即跳过），避免拿旧数据误判。
+- **CI 失败可离线定位**：jest 步骤输出落 `jest-output.txt` 并入 artifact（CI 日志下载需 admin
+  权限，此前两次 CI 红灯只能靠猜）。
 - **e2e 失败摘要入 PR 评论**：CI 的 e2e 步骤用 `set -o pipefail` + `tee e2e-output.txt`
   （否则 tee 会把失败吞成绿灯），失败时把输出尾部 60 行贴到 PR（同标记就地更新），
   `e2e-output.txt` 一并入库 artifact。

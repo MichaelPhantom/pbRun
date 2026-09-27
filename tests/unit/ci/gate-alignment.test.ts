@@ -26,10 +26,45 @@ const qualitySection = workflow.slice(
   workflow.indexOf('\n  e2e:'),
 );
 
-/** quality 作业里所有单行 `run:` 命令。 */
-const qualityRuns = [...qualitySection.matchAll(/^\s+run: (.+)$/gm)]
-  .map((m) => m[1].trim())
-  .filter((cmd) => cmd !== '|' && cmd !== '>-');
+/**
+ * quality 作业里所有 `run:` 命令。
+ * 支持两种写法: 单行 `run: <cmd>`; 多行块 `run: |` 后跟缩进命令行。
+ * 多行块里会剔除纯 shell 选项行 (`set -o pipefail` 等) —— 它们不是门禁命令,
+ * 但必须存在于 workflow 里 (见下方 pipefail 守护)。
+ */
+/**
+ * 门禁命令白名单: 只认「可执行的工具调用」开头。
+ * 用白名单而非黑名单 —— PR 评论等步骤的 run 块里混着 shell 语法、注释、多行字符串,
+ * 黑名单永远补不全 (本轮为此反复调整 4 次, 教训记此)。
+ */
+const GATE_CMD = /^(npm|npx|node|bash|sh)\b/;
+const qualityRuns = (() => {
+  const out: string[] = [];
+  const lines = qualitySection.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const m = /^\s+run:\s*(.*)$/.exec(lines[i]);
+    if (!m) continue;
+    const inline = m[1].trim();
+    if (inline && inline !== '|' && inline !== '>-' && GATE_CMD.test(inline)) {
+      out.push(inline);
+      continue;
+    }
+    if (inline && inline !== '|' && inline !== '>-') continue; // 单行 shell 脚本, 非门禁命令
+    // 多行块: 只取「第一条非 shell-选项」命令 (块内其余行是脚本体, 不是门禁命令)
+    const indent = lines[i].search(/\S/);
+    for (let j = i + 1; j < lines.length; j++) {
+      const line = lines[j];
+      if (line.trim() === '') continue;
+      const curIndent = line.search(/\S/);
+      if (curIndent <= indent) break;
+      const cmd = line.trim();
+      if (!GATE_CMD.test(cmd)) continue;
+      out.push(cmd);
+      break;
+    }
+  }
+  return out;
+})();
 
 /**
  * 不属于「本地门禁」的步骤: 依赖安装与生产构建。
@@ -44,7 +79,9 @@ const NON_GATE = new Set(['npm ci', 'npm run build']);
  * 故先剥掉 ` -- ` 之后的参数, 再按主命令比对: 同名脚本被 test:ci 调用即视为覆盖。
  */
 function covered(run: string): boolean {
-  const base = run.split(/ -- /)[0].trim();
+  // 先剥掉输出重定向与管道 (`2>&1 | tee xxx`), 它们不影响「是否调用了同一脚本」
+  const noPipe = run.replace(/\s*2>&1\s*\|.*$/, '').replace(/\s*\|\s*tee\b.*$/, '').trim();
+  const base = noPipe.split(/ -- /)[0].trim();
   const cand = base.replace(/^npx\s+/, '');
   if (testCi.includes(run) || testCi.includes(base) || testCi.includes(cand)) return true;
   for (const [name] of Object.entries(scripts)) {
@@ -96,6 +133,8 @@ describe('test:ci ↔ CI quality 作业对齐', () => {
     const wf = read('.github/workflows/test.yml');
     expect(wf).toContain('actions/upload-artifact@v4');
     expect(wf).toContain('coverage/coverage-report.md');
+    // jest 输出也入库: CI 日志下载需 admin 权限, 失败时必须能从 artifact 定位
+    expect(wf).toContain('jest-output.txt');
     expect(wf).toContain('pull-requests: write');
     expect(wf).toMatch(/issues\/\$\{PR\}\/comments|issues\/\$\{\{ github.repository \}\}\/issues/);
   });

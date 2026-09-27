@@ -758,8 +758,15 @@ jobs:
       - failure 时把 e2e 输出尾部 (60 行) 贴到 PR 评论 (同标记就地更新)
 ```
 
-> 注意 `run: npx playwright test | tee` 必须配 `set -o pipefail`，否则管道的退出码取 `tee`
-> （恒为 0）—— 失败会被吞成绿灯。`tests/unit/ci/gate-alignment.test.ts` 已加守护。
+> 注意 `run: <cmd> | tee` 必须配 `set -o pipefail`，否则管道的退出码取 `tee`（恒为 0）——
+> 失败会被吞成绿灯。`tests/unit/ci/gate-alignment.test.ts` 已加守护。
+> 同理 jest 步骤也把输出落 `jest-output.txt` 并入 artifact：CI 日志下载需 admin 权限，
+> 失败时必须能从 artifact 离线定位。
+
+**门槛余量规则**（`tests/unit/ci/threshold-margin.test.ts` 守护）：每组每项的
+「实测 − 门槛」须 ≥ 1.5pt（门槛接近 100 时按数学上限放宽为 `100-gate-0.5`），
+且不得 > 15pt（防门槛长期不更新）。守护只认**新鲜**的覆盖率产物（产物比最新源文件旧则跳过），
+避免拿旧数据误判。
 
 **e2e 可诊断性**（2026-09-27）：CI 里 Playwright reporter 为 `line`（控制台逐行输出，
 不下载 artifact 也能定位失败）+ HTML 报告；`trace: on-first-retry`、`screenshot: only-on-failure`；

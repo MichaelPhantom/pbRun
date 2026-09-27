@@ -30,7 +30,31 @@ function requiredMargin(gate: number): number {
 }
 const METRICS = ['statements', 'branches', 'functions', 'lines'] as const;
 
-const hasSummary = fs.existsSync(summaryPath);
+/**
+ * 只接受「足够新鲜」的覆盖率产物: 产物必须比最新的源文件/测试文件更晚生成。
+ * 否则开发者改了代码但没重跑覆盖率, 守护会拿旧数据误判 (假绿或假红)。
+ */
+function isFresh(): boolean {
+  if (!fs.existsSync(summaryPath)) return false;
+  const summaryMtime = fs.statSync(summaryPath).mtimeMs;
+  const dirs = ['app', 'scripts', 'tests/unit'];
+  let newest = 0;
+  const walk = (dir: string) => {
+    for (const entry of fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })) {
+      const rel = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue;
+        walk(rel);
+      } else if (/\.(ts|tsx|js|jsx)$/.test(entry.name)) {
+        newest = Math.max(newest, fs.statSync(path.join(ROOT, rel)).mtimeMs);
+      }
+    }
+  };
+  dirs.forEach(walk);
+  return summaryMtime >= newest;
+}
+
+const hasSummary = isFresh();
 const maybe = hasSummary ? describe : describe.skip;
 
 /** 与 scripts/testing/coverage-summary.js 相同的分组口径 (最窄命中优先) */
@@ -121,7 +145,7 @@ maybe('门槛余量规则 (每组每项 ≥ 1.5pt)', () => {
 
 // 无产物时明确提示 (而非静默通过)
 if (!hasSummary) {
-  test('未找到覆盖率产物 → 余量守护跳过 (先跑 npm run test:coverage)', () => {
+  test('无(新鲜)覆盖率产物 → 余量守护跳过, 提示先跑 npm run test:coverage', () => {
     expect(hasSummary).toBe(false);
   });
 }

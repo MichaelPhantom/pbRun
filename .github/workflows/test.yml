@@ -40,8 +40,11 @@ jobs:
         run: npm run lint
 
       # 带覆盖率运行: 门槛不达标即失败 (等同于 npm test 的门禁 + 报告产物)
+      # 输出落 jest-output.txt 并随 artifact 上传 —— 失败时可离线定位 (CI 日志需 admin 才能下载)
       - name: 单元测试 + 覆盖率(jest)
-        run: npm run test:coverage -- --coverageReporters=text --coverageReporters=json-summary --coverageReporters=lcov
+        run: |
+          set -o pipefail
+          npm run test:coverage -- --coverageReporters=text --coverageReporters=json-summary --coverageReporters=lcov 2>&1 | tee jest-output.txt
 
       - name: 覆盖率摘要(markdown)
         run: node scripts/testing/coverage-summary.js
@@ -55,6 +58,7 @@ jobs:
             coverage/coverage-report.md
             coverage/coverage-summary.json
             coverage/lcov.info
+            jest-output.txt
           retention-days: 14
 
       - name: PR 覆盖率评论
