@@ -32,6 +32,12 @@ export default defineConfig({
       use: { ...devices['Desktop Firefox'] },
     },
     {
+      // WebKit (Safari 引擎): 覆盖 Safari 特有的渲染/事件差异。CI 与 chromium/firefox
+      // 组成三引擎矩阵 (Linux 下需 --with-deps webkit 安装的系统库)。
+      name: 'webkit',
+      use: { ...devices['Desktop Safari'] },
+    },
+    {
       name: 'Mobile Chrome',
       use: { ...devices['Pixel 5'] },
     },

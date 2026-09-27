@@ -110,12 +110,13 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
-    # 矩阵并行: chromium (主) + firefox (跨浏览器兜底)。并行不增加总时长,
-    # 且能发现浏览器差异类缺陷 (2026-09-27 实测: firefox 下曾暴露 isMobile 不支持)。
+    # 矩阵并行: chromium (主) + firefox + webkit (三引擎, 覆盖 Blink/Gecko/WebKit)。
+    # 并行不增加总时长, 且能发现浏览器差异类缺陷 (2026-09-27 实测: firefox 下曾暴露
+    # isMobile 不支持; webkit 覆盖 Safari 特有渲染/事件差异)。
     strategy:
       fail-fast: false
       matrix:
-        browser: [chromium, firefox]
+        browser: [chromium, firefox, webkit]
     steps:
       - uses: actions/checkout@v4
 

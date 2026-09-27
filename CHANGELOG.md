@@ -148,16 +148,22 @@
   `computeVdotTrend` 过滤 null·Infinity·NaN / 解耦 r1=0 防除零）、
   `scripts/garmin/fit-parser.js` +2（路径点 >2000 等步幅降采样保留首尾且不重复末点 /
   海拔剖面在无 elapsed_time 时用时间戳差、两者皆无用索引）、`sync.js` VDOT 无合格候选。
-  至此**全仓未覆盖分支仅剩 `app/lib/insight.ts` 15 处（93.5%）**，其余文件零未覆盖分支。
+  至此 `insight.ts` 未覆盖分支收敛至 15 处（93.5%）。
+  （勘误：曾据此表述为「全仓仅剩 15 处」—— 系 `coverage-final.json` 被聚焦跑覆盖为单文件所致，
+  全量口径见 `test:ci` 的覆盖率门槛；已纠正。）
 - **四轮收口**：`app/lib/insight.ts` 分支 93.5→**96.5%**（语句 99.6%、函数 100%）——
   +6 例（排序比较器两侧 / `zSeconds` 长度 1 的 `?? 0` / ACWR∈(0,0.8) / 反推配速 ≤0 /
-  同日零方差趋势 null / 效率择优递增）；余 8 处为入口约束下的**不可达防御分支**
+  同日零方差趋势 null / 效率择优递增）；`insight.ts` 余 8 处为入口约束下的**不可达防御分支**
   （`computeDecouplingPct` 内 `?? 0`、`h>0` 的 0 侧、`r1===0`），已在源码注释标注理由并**不硬凑**。
   全仓其余文件零未覆盖分支；`test:ci` rc=0（123 套件 / 1646 例）。
   全量 `test:ci` rc=0：123 套件 / 1638 例，5 组 8 项门槛全过。
 
-- **e2e 作业改为浏览器矩阵（chromium + firefox 并行）**：`fail-fast: false`，各档独立上传
-  `playwright-report-<browser>`；本地 firefox 实测 51 项全过（3.2m）。矩阵化能发现浏览器差异类
+- **e2e 作业改为浏览器矩阵（chromium + firefox + webkit 三引擎并行）**：`fail-fast: false`，
+  覆盖 Blink/Gecko/WebKit；各档独立上传 `playwright-report-<browser>`。本地 chromium+firefox
+  双引擎 102 项全过（5.8m）；WebKit 在 Linux 需额外系统库，由 CI 的 ubuntu-latest 安装
+  （本地无 root 时不可运行，属已知限制）。
+- **页面组件分支补测**：`ListClient` 88.1→98.0%、`InsightClient` 88.9→98.8%、
+  `ActivityDetailClient` 86.4→**100.0%**；global 组分支 88.69%→**95.72%**（+7.03pp）。矩阵化能发现浏览器差异类
   缺陷 —— 本轮即在 firefox 下暴露 `isMobile` 不受支持（见 Fixed），并据此把移动端 a11y 的
   模拟方式从 `isMobile` 改为纯 viewport（两引擎通用，响应式断点由宽度触发）。
 

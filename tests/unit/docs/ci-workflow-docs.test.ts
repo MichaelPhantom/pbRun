@@ -46,7 +46,7 @@ describe('workflow → 文档: 关键能力都被文档提到', () => {
     { name: 'PR 覆盖率评论', inWorkflow: /<!-- coverage-report -->/, inDocs: /PR\s*覆盖率评论|PR 上就地更新/ },
     { name: '生产构建', inWorkflow: /npm run build/, inDocs: /next build|生产构建/ },
     {
-      name: 'e2e (矩阵: chromium + firefox)',
+      name: 'e2e (矩阵: chromium + firefox + webkit)',
       inWorkflow: /npx playwright test --project=\$\{\{ matrix\.browser \}\}/,
       inDocs: /playwright test --project=|矩阵|chromium.*firefox/i,
     },

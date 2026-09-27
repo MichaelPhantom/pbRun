@@ -768,9 +768,12 @@ setupTestDb();
 > `npm run docs:ci-snippet`（打印新片段）或 `npm run docs:ci-snippet:check`（校验漂移，
 > 有守护测试 `tests/unit/docs/ci-workflow-docs.test.ts` 一并把关）。
 > 其中「端到端测试(Playwright)」实际执行 `npx playwright test --project=${{ matrix.browser }}` ——
-> e2e 作业按 **chromium + firefox 矩阵并行**（`fail-fast: false`），浏览器差异类缺陷
-> （如 Firefox 不支持 `isMobile`，见 a11y 章节）在 CI 即可暴露；每档浏览器各自上传
-> artifact `playwright-report-<browser>`。
+> e2e 作业按 **chromium + firefox + webkit 三引擎矩阵并行**（`fail-fast: false`），
+> 覆盖 Blink / Gecko / WebKit 三大引擎；浏览器差异类缺陷（如 Firefox 不支持 `isMobile`，
+> 见 a11y 章节；WebKit 的 Safari 特有渲染/事件差异）在 CI 即可暴露。
+> 每档浏览器各自上传 artifact `playwright-report-<browser>`。
+> 注: WebKit 在 Linux 下需额外系统库（`npx playwright install --with-deps webkit`），
+> CI 的 ubuntu-latest 有 root 可装；本地无 root 时 WebKit 不可运行，属已知限制。
 
 
 > 注意 `run: <cmd> | tee` 必须配 `set -o pipefail`，否则管道的退出码取 `tee`（恒为 0）——
@@ -893,7 +896,11 @@ setupTestDb();
       排序比较器两侧(2 元素降序必走 `: 1`)、`zSeconds` 长度 1 的 `?? 0` 兜底、
       ACWR∈(0,0.8) 的 `under` 分支、`computePaceHrModel` 反推配速 ≤0、`computeDecouplingInsight`
       同日零方差(趋势 null)、`buildFindings` 效率择优递增;
-      **余 8 处为入口约束下的不可达防御分支**(`computeDecouplingPct` 的 `?? 0` / `h>0` 0 侧 /
+      （**勘误 2026-09-27**：此处曾写「全仓未覆盖分支仅余 8 处」—— 实为**口径陷阱**：当时
+      `coverage/coverage-final.json` 已被聚焦跑（`--collectCoverageFrom=单文件`）覆盖为只含
+      1 个文件，据此统计得出错误结论。权威口径是 `npm run test:ci` 的 `coverage-summary` /
+      jest 汇总输出；全量实际未覆盖分支为数百处。评估覆盖请以百分比门槛为准，勿依赖中间产物。）
+      **`insight.ts` 内余 8 处为入口约束下的不可达防御分支**(`computeDecouplingPct` 的 `?? 0` / `h>0` 0 侧 /
       `r1===0` —— 入口已保证 hour_rate>0 与 speed>0.5), 已在源码注释标注理由、**不构造人为输入硬凑**;
       至此其余文件零未覆盖分支)
 - [x] CLI 脚本真实单测 ✅ (2026-09-27: 从「导入契约」升级 —— `garmin/client`(401 刷新互斥/
