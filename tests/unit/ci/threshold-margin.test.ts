@@ -68,6 +68,9 @@ function groupOf(file: string): string {
 }
 
 function actuals(): Record<string, Record<string, number>> {
+  // 注意: 必须在「有产物」时才调用 —— 顶层调用会在 describe.skip 情况下也执行,
+  // 于是 CI (--coverage 只创建 coverage/ 目录但测试结束前不写 summary) 会 ENOENT 崩整套件。
+  if (!fs.existsSync(summaryPath)) return {};
   const summary = JSON.parse(fs.readFileSync(summaryPath, 'utf8')) as Record<
     string,
     Record<string, { covered: number; total: number }>

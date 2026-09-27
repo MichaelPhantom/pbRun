@@ -82,8 +82,9 @@
   该守护上线即抓到 3 处过紧门槛（app/lib functions 97→96、lines 98→97；
   app/components branches 89→88），避免重演「本地绿、CI 红」。守护只接受**新鲜**产物
   （产物早于最新源文件即跳过），避免拿旧数据误判。
-- **CI 失败可离线定位**：jest 步骤输出落 `jest-output.txt` 并入 artifact（CI 日志下载需 admin
-  权限，此前两次 CI 红灯只能靠猜）。
+- **CI 失败可即时定位（无需任何权限）**：jest 步骤输出落 `jest-output.txt` 并入 artifact，
+  且失败时把尾部 60 行写入 `$GITHUB_STEP_SUMMARY`、并用 `::error` 生成 annotation ——
+  本轮 CI 红灯即由 annotation 一眼定位到 `FAIL tests/unit/ci/threshold-margin.test.ts`。
 - **e2e 失败摘要入 PR 评论**：CI 的 e2e 步骤用 `set -o pipefail` + `tee e2e-output.txt`
   （否则 tee 会把失败吞成绿灯），失败时把输出尾部 60 行贴到 PR（同标记就地更新），
   `e2e-output.txt` 一并入库 artifact。
@@ -145,6 +146,12 @@
   A/B 实测为准（仅 `glm-5.3-flash` 下发 `reasoning_effort`）。FAQ 新增 #17。
 
 ### Fixed
+- **`threshold-margin` 守护在 CI 崩整套件**：`actuals()` 原在模块顶层求值 —— `describe.skip`
+  也会执行顶层代码，而 CI 的 `--coverage` 只创建 `coverage/` 目录、测试结束前不写
+  `coverage-summary.json` → `ENOENT` 直接 fail 整套件（本地因残留产物而绿，属典型
+  环境差异假绿）。已改为：`actuals()` 内增加存在性守卫、`isFresh()` 统一判断，
+  并在 `gate-alignment` 加守护（禁止顶层求值该产物）。
+
 - **两处文档仍引用早已改名的工作流文件**：`docs/README.md` 树状图与 `docs/deployment.md`
   Q7 写的是 `sync_garmin_data.yml`（实际为 `.github/workflows/sync_running_data.yml`），
   且 Q7 示例频率与现状不符（实际 `0 */8 * * *`，每 8 小时）。已改名并对齐频率说明，

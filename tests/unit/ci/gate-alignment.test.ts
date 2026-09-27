@@ -129,6 +129,14 @@ describe('test:ci ↔ CI quality 作业对齐', () => {
     expect(wf).toMatch(/issues\/comments\/\$\{EXISTING\}/);
   });
 
+  test('余量守护不得在顶层求值覆盖率产物 (否则 CI 会 ENOENT 崩整套件)', () => {
+    const src = read('tests/unit/ci/threshold-margin.test.ts');
+    // 顶层 `const x = actuals()` 会在 describe.skip 时照样执行 → CI (coverage 目录存在但
+    // summary 未写) 直接 ENOENT。必须延后到 describe 内部, 且 actuals() 自身有存在性守卫。
+    expect(src).not.toMatch(/^const\s+\w+\s*=\s*actuals\(\)/m);
+    expect(src).toMatch(/if \(!fs\.existsSync\(summaryPath\)\) return \{\};/);
+  });
+
   test('覆盖率报告以 artifact 上传, 且 PR 上留下摘要评论', () => {
     const wf = read('.github/workflows/test.yml');
     expect(wf).toContain('actions/upload-artifact@v4');
