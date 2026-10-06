@@ -220,9 +220,22 @@ class GarminFITParser {
     // 部分 FIT 的 sport/sub_sport 在 activity 消息里，优先用 session 再兜底 activity
     const activityMsg = fitData.activity || {};
 
+    // 时间契约 (2026-10-06 修复): start_time = UTC 绝对时刻 (带 Z);
+    // start_time_local = **本地墙钟** (无 Z)。历史缺陷误用 session.timestamp
+    // (它与 session.start_time 同值, 恒为 UTC) → 全库本地时间为 UTC,
+    // 38 条晨跑日期串到前一天。真正的本地时间在 activity.local_timestamp
+    // (Garmin 以本地墙钟编码, 实测 = UTC+8)。
+    const startUtc = this._convertTimestamp(session.start_time);
+    const { startLocal, tzOffsetMinutes } = this._resolveLocalStart(
+      activityMsg,
+      session,
+      startUtc,
+    );
+
     const activityData = {
-      start_time: this._convertTimestamp(session.start_time),
-      start_time_local: this._convertTimestamp(session.timestamp),
+      start_time: startUtc,
+      start_time_local: startLocal,
+      start_tz_offset_min: tzOffsetMinutes,
       distance: this._safeGetFloat(session, 'total_distance'),
       duration: this._safeGetInt(session, 'total_elapsed_time'),
       moving_time: this._safeGetInt(session, 'total_timer_time'),
@@ -630,6 +643,61 @@ class GarminFITParser {
       elev: elevDown,
       n: rawRecords.length,
     };
+  }
+
+  /**
+   * 解析活动开始的“本地墙钟”时间与 UTC 偏移。
+   *
+   * 优先级:
+   *   1. `activity.local_timestamp` —— Garmin 用本地墙钟编码, 唯一可信来源;
+   *   2. 无 local_timestamp 时, 用 `activity.timestamp + 本地偏移` 兜底 (取值时需去 Z);
+   *   3. 仍不可用则退化为 UTC 时间本身, 偏移 = 0 (保证非空, 不阻塞入库)。
+   *
+   * 返回 `{ startLocal, tzOffsetMinutes }`:
+   *   - startLocal: `YYYY-MM-DDTHH:MM:SS.sss` (无时区标记); 无法确定时 = startUtc;
+   *   - tzOffsetMinutes: 本地相对 UTC 的分钟偏移 (本项目恒 +480); 兜底时为 0。
+   *
+   * 纯计算, 不写库; 显式排除 `session.timestamp` (与 start_time 同值, 是历史缺陷根因)。
+   */
+  _resolveLocalStart(activityMsg, session, startUtcIso) {
+    const FALLBACK_OFFSET_MIN = 480; // Asia/Shanghai (UTC+8), 无夏令时
+
+    const toWallClock = (ms) => new Date(ms).toISOString().replace(/Z$/, '');
+    const toIso = (v) => this._convertTimestamp(v);
+
+    // 优先: activity.local_timestamp (本地墙钟编码)
+    const localRaw = activityMsg ? activityMsg.local_timestamp : null;
+    const localIso = toIso(localRaw);
+    const utcMs = startUtcIso ? new Date(startUtcIso).getTime() : null;
+    if (localIso && utcMs != null && !Number.isNaN(utcMs)) {
+      // localIso 带 Z 是编码约定, 其“分量”即本地墙钟 → 去掉 Z 保留分量
+      const startLocal = localIso.replace(/Z$/, '');
+      // 关键: 把墙钟分量按 UTC 读取 (Date.UTC) 再与真实 UTC 相减,
+      // 否则 new Date(naive) 会按**运行环境时区**解析 → 偏移恒为 0 (历史陷阱)。
+      const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?$/.exec(startLocal);
+      const localAsUtcMs = m
+        ? Date.UTC(
+            Number(m[1]), Number(m[2]) - 1, Number(m[3]),
+            Number(m[4]), Number(m[5]), Number(m[6]),
+            Number((m[7] || '0').padEnd(3, '0')),
+          )
+        : NaN;
+      const tzOffsetMinutes = Number.isNaN(localAsUtcMs)
+        ? FALLBACK_OFFSET_MIN
+        : Math.round((localAsUtcMs - utcMs) / 60000);
+      return { startLocal, tzOffsetMinutes };
+    }
+
+    // 兜底: 无本地时间戳时, 用 UTC + 默认偏移推算墙钟 (保持列非空且语义正确)
+    if (utcMs != null && !Number.isNaN(utcMs)) {
+      return {
+        startLocal: toWallClock(utcMs + FALLBACK_OFFSET_MIN * 60000),
+        tzOffsetMinutes: FALLBACK_OFFSET_MIN,
+      };
+    }
+
+    // 最终退化: 交给调用方; 二者皆空时保持 null (由 DB NOT NULL 约束在 sync 层兜底)
+    return { startLocal: startUtcIso, tzOffsetMinutes: 0 };
   }
 
   _convertTimestamp(timestamp) {

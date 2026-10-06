@@ -96,11 +96,13 @@ describe('getHrZoneStats', () => {
   test('仅 startDate / 仅 endDate → 各自拼接 WHERE 片段', () => {
     mockAll.mockReturnValue([lap()]);
     getHrZoneStats({ startDate: '2026-05-01', endDate: '', groupBy: 'month' });
-    expect(mockAll).toHaveBeenCalledWith('2026-05-01');
+    // 本地 5/1 00:00 → UTC 前一日 16:00Z
+    expect(mockAll).toHaveBeenCalledWith('2026-04-30T16:00:00.000Z');
     mockAll.mockClear();
     mockAll.mockReturnValue([lap()]);
     getHrZoneStats({ startDate: '', endDate: '2026-05-31', groupBy: 'month' });
-    expect(mockAll).toHaveBeenCalledWith('2026-05-31T23:59:59.999Z');
+    // 本地 5/31 末刻 → UTC 15:59:59.999Z
+    expect(mockAll).toHaveBeenCalledWith('2026-05-31T15:59:59.999Z');
   });
 
   test('区间内无样本 → 返回空 (无聚合行)', () => {

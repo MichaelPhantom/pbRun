@@ -52,12 +52,13 @@ describe('MCP 新增 db 函数', () => {
       expect(result.totalTrainingLoad).toBe(50);
     });
 
-    test('endDate 应补全为当天末刻 (含边界当天)', () => {
+    test('endDate 应补全为当天末刻 (含边界当天, 本地日→UTC)', () => {
       mockGet.mockReturnValue({ totalActivities: 0, totalDistance: 0, totalDuration: 0 });
 
       getPeriodStats('2026-07-01', '2026-07-31');
 
-      expect(mockGet).toHaveBeenCalledWith('2026-07-01', '2026-07-31T23:59:59.999Z');
+      // 本地日期按 Asia/Shanghai(UTC+8) 换算: 7/1 00:00 → 6/30T16:00Z; 7/31 末刻 → 7/31T15:59:59.999Z
+      expect(mockGet).toHaveBeenCalledWith('2026-06-30T16:00:00.000Z', '2026-07-31T15:59:59.999Z');
     });
 
     test('空数据应返回 0 / undefined 而非 null', () => {

@@ -5,6 +5,26 @@
 
 ## [Unreleased]
 
+### Fixed
+- **时区缺陷: `start_time_local` 实际存成 UTC（全库 230/230 条受影响）**。
+  根因在 `scripts/garmin/fit-parser.js`：`start_time_local` 误用 FIT 的 `session.timestamp`，
+  而它与 `session.start_time` 同值（均为 UTC），导致本地时间列全库等于 UTC。后果：
+  **38 条晨跑（本地 00:00–08:00，= UTC 前一日 16:00–24:00）的日期被算到前一天**，
+  波及月汇总、年度热力图、每日里程、VDOT 趋势日期、训练负荷 ACWR、跑姿趋势。
+  修复：
+  - `fit-parser.js` 改用 `activity.local_timestamp`（Garmin 以本地墙钟编码，实测 +480min），
+    并新增 `start_tz_offset_min` 列记录偏移；
+  - 新增 `app/lib/timezone.ts` 作为「UTC 存储 + 本地墙钟展示」契约的**唯一实现来源**
+    （纯函数、环境时区无关，38 项单测覆盖）；
+  - `app/lib/date-utils.ts` 的默认时间窗与 `periodKeyOf` 改为按本地日历分量计算
+    （旧实现经 `toISOString()`/`new Date()` 取 UTC，在本地凌晨会偏移一天）；
+  - `app/lib/db.ts` 日期区间查询统一经 `toInclusiveStart/End` 把**本地日期**换算为 UTC 边界；
+  - 迁移脚本 `scripts/garmin/backfill-start-time-local.js`（读 FIT 重算，幂等、`--dry-run`、
+    失败回退出码 1），已对 230 条活动全量回填并通过幂等复跑验证（变更 230 → 0）。
+  测试：新增 `tests/unit/lib/timezone.test.ts`(38)、`backfill-start-time-local.test.js`(13)
+  与解析器时区回归 8 例；**并修正了此前"假绿灯"的夹具** —— 旧夹具把 `session.timestamp`
+  与 `start_time` 写成同值且 `activity` 无 `local_timestamp`，恰好复刻了缺陷的数据形状。
+
 ### Added
 - **无障碍 (a11y) e2e 断言** `tests/e2e/a11y.spec.ts`（15 例）：`@axe-core/playwright` 扫描
   7 个页面（含活动详情）× 桌面 + 移动端 (Pixel 5) 两种视口 + 键盘可达性（首个 Tab 落在

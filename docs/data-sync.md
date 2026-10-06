@@ -310,32 +310,43 @@ bash ~/project/cft/garmin/sync_cn_daily.sh    # 幂等, 可重复跑
 
 #### activities 表
 
-存储活动汇总数据。
+存储活动汇总数据（字段众多，此处只列关键列；完整 schema 见
+`scripts/common/db-manager.js` 的 `_initDatabase`）。
 
 ```sql
 CREATE TABLE activities (
   activity_id INTEGER PRIMARY KEY,
-  activity_name TEXT,
-  start_time TEXT,
-  sport TEXT,
-  sub_sport TEXT,
-  total_distance REAL,
-  total_timer_time REAL,
-  total_elapsed_time REAL,
-  avg_speed REAL,
-  max_speed REAL,
-  avg_heart_rate INTEGER,
+  name TEXT NOT NULL,
+  activity_type TEXT DEFAULT 'running',   -- 应用层类型 (running/…)
+  sport_type TEXT,                        -- FIT sport 中文展示 (跑步/健身器械…)
+  sub_sport_type TEXT,                    -- FIT sub_sport 中文展示 (路跑/跑步机/越野…)
+
+  -- ⚠️ 时间契约 (见下节「时间域约定」, 不可混用)
+  start_time DATETIME NOT NULL,           -- 开始时间 (UTC 绝对时刻, ISO 带 Z)
+  start_time_local DATETIME NOT NULL,     -- 开始时间 (本地墙钟, ISO 无时区标记)
+  start_tz_offset_min INTEGER,            -- 本地相对 UTC 的分钟偏移 (Asia/Shanghai = 480)
+
+  distance REAL NOT NULL,                 -- 距离 (公里, 注意不是米)
+  duration INTEGER NOT NULL,
+  moving_time INTEGER NOT NULL,
+  elapsed_time INTEGER NOT NULL,
+  average_pace REAL,                      -- 配速 (秒/公里)
+  average_heart_rate INTEGER,
   max_heart_rate INTEGER,
-  total_calories INTEGER,
-  avg_cadence INTEGER,
-  max_cadence INTEGER,
+  average_cadence INTEGER,
+  average_stride_length REAL,
+  average_power INTEGER,
+  normalized_power INTEGER,
   total_ascent REAL,
-  total_descent REAL,
-  avg_stride_length REAL,
-  training_effect REAL,
-  vdot REAL,
-  track TEXT,  -- 降采样路线轨迹 JSON (coords/bounds/elev/n); 室内/跑步机为 NULL; 由 fit-parser._extractTrack 回填
-  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+  average_temperature REAL,
+  total_training_effect REAL,
+  total_anaerobic_training_effect REAL,
+  training_load INTEGER,
+  vdot_value REAL,
+  workout_name TEXT,
+  track TEXT,                             -- 降采样路线轨迹 JSON; 无 GPS 为 NULL
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
@@ -343,6 +354,31 @@ CREATE TABLE activities (
 > 由 `scripts/garmin/fit-parser.js` 的 `_extractTrack` 在 FIT 解析时生成, 经 `upsertActivity` 动态列写入。
 > 新活动随每日同步自动写入; 历史 310 条 FIT 用 `scripts/garmin/backfill-tracks.js` 一次性回填
 > (读 `.cache/fit/{activity_id}`, 备份 DB + 幂等 + 无需重新鉴权)。查询: `db.getActivityTrack(id)`。
+
+#### 时间域约定 (UTC 存储 + 本地墙钟, 2026-10-06 修复)
+
+时间字段有两个域，**必须严格区分**，单一实现来源为 `app/lib/timezone.ts`：
+
+| 列 / 语义 | 格式 | 用途 |
+| --- | --- | --- |
+| `start_time` | `2026-10-05T23:41:39.000Z`（UTC 绝对时刻） | 排序、区间过滤（精确时刻） |
+| `start_time_local` | `2026-10-06T07:41:39.000`（本地墙钟，**无 Z**） | 日期分桶：月/日聚合、热力图、VDOT 趋势、ACWR |
+| `start_tz_offset_min` | `480` | 审计；本地↔UTC 换算 |
+
+**为什么本地时间不带 `Z` 很关键**：`substr(start_time_local,1,10)` 直接得到正确的本地日期；
+`new Date(...)` 在任意环境时区下都按“本地分量”解析，故展示层 `getHours()` 恒等于墙钟小时，
+不随服务器/浏览器时区漂移。
+
+> **历史缺陷（已修复）**：`fit-parser.js` 曾误用 FIT 的 `session.timestamp` 填 `start_time_local`，
+> 而它与 `session.start_time`（UTC）同值 → 全库 230/230 条本地时间实为 UTC，
+> **38 条晨跑（本地 00:00–08:00）日期被算到前一天**。正确的本地时间在 `activity.local_timestamp`
+> （Garmin 以本地墙钟编码）。回填：
+> ```bash
+> # 迁移前务必先备份 DB (脚本本身幂等, 但仍建议)
+> node scripts/garmin/backfill-start-time-local.js --dry-run   # 预览
+> node scripts/garmin/backfill-start-time-local.js             # 执行 (读 FIT 重算)
+> ```
+> 幂等：重复运行 `变更 0`；失败回退出码 1，供 CI/cron 察觉。
 
 #### laps 表
 

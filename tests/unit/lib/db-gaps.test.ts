@@ -206,9 +206,10 @@ describe('getPersonalRecords', () => {
     expect(diff).toBe(7);
 
     const year = getPersonalRecords('year');
-    // 本地 1 月 1 日 00:00 → ISO (UTC) 可能落在 12-31, 故与同源计算比对
-    expect(year.startDate).toBe(
-      new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10),
-    );
+    // 窗口起点应为**本地** 1 月 1 日 (YYYY-01-01)。
+    // 2026-10-06 修复: 旧实现用 toISOString().slice(0,10) 取 UTC 日期,
+    // 在本地 00:00–08:00 会退到上一年的 12-31。
+    const y = new Date().getFullYear();
+    expect(year.startDate).toBe(`${y}-01-01`);
   });
 });

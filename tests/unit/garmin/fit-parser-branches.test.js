@@ -428,8 +428,14 @@ describe('parseFitFile (文件级入口)', () => {
   });
   afterEach(() => errSpy.mockRestore());
 
+  // 夹具必须反映**真实 FIT 结构** (2026-10-06 教训: 旧夹具把 session.timestamp
+  // 与 start_time 写成同值且 activity 无 local_timestamp, 恰好复刻了时区缺陷的数据形状,
+  // 使测试长期假绿灯)。真实 Garmin FIT:
+  //   session.start_time  = UTC 绝对时刻
+  //   session.timestamp   = 与 start_time 同值 (Garmin 写法, 不可用于本地时间)
+  //   activity.local_timestamp = 本地墙钟 (Garmin 以本地分量编码), 唯一可信来源
   const minimalFit = (over = {}) => ({
-    activity: { sport: 'running' },
+    activity: { sport: 'running', local_timestamp: '2026-09-20T20:00:00Z' },
     sessions: [{ start_time: '2026-09-20T12:00:00Z', timestamp: '2026-09-20T12:00:00Z', total_distance: 10, total_elapsed_time: 3600 }],
     laps: [],
     records: [],
@@ -520,4 +526,96 @@ describe('track 降采样与海拔剖面边界', () => {
     expect(track.elev.length).toBe(0); // 无海拔 → 剖面为空
   });
 
+});
+
+/**
+ * 时区解析回归 (2026-10-06 缺陷: start_time_local 被写成 UTC)。
+ *
+ * 契约: start_time = UTC (带 Z); start_time_local = 本地墙钟 (无 Z)。
+ * 真凶是误用 `session.timestamp` (与 start_time 同值), 而非 `activity.local_timestamp`。
+ */
+describe('fit-parser: 时间域解析 (start_time / start_time_local)', () => {
+  let p;
+  beforeEach(() => { p = new GarminFITParser(); });
+
+  test('优先用 activity.local_timestamp 作为本地墙钟, 且偏移 = +480', () => {
+    const { startLocal, tzOffsetMinutes } = p._resolveLocalStart(
+      { local_timestamp: '2026-09-29T12:13:30Z' },
+      { start_time: '2026-09-29T04:13:30Z', timestamp: '2026-09-29T04:13:30Z' },
+      '2026-09-29T04:13:30.000Z',
+    );
+    expect(startLocal).toBe('2026-09-29T12:13:30.000'); // 无 Z (墙钟)
+    expect(tzOffsetMinutes).toBe(480);
+  });
+
+  test('关键回归: 绝不使用 session.timestamp (与 UTC 同值)', () => {
+    const { startLocal } = p._resolveLocalStart(
+      { local_timestamp: '2026-09-29T12:13:30Z' },
+      { start_time: '2026-09-29T04:13:30Z', timestamp: '2026-09-29T04:13:30Z' },
+      '2026-09-29T04:13:30.000Z',
+    );
+    expect(startLocal).not.toContain('04:13:30'); // 不再是 UTC 时刻
+    expect(startLocal).not.toMatch(/Z$/);          // 墙钟不带 Z
+  });
+
+  test('跨日样本 (晨跑): UTC 前一日 23:41 → 本地次日 07:41', () => {
+    const { startLocal, tzOffsetMinutes } = p._resolveLocalStart(
+      { local_timestamp: '2026-10-06T07:41:39Z' },
+      { start_time: '2026-10-05T23:41:39Z' },
+      '2026-10-05T23:41:39.000Z',
+    );
+    expect(startLocal).toBe('2026-10-06T07:41:39.000');
+    expect(tzOffsetMinutes).toBe(480);
+  });
+
+  test('无 local_timestamp → 用 UTC + 默认偏移兜底 (仍非空且语义正确)', () => {
+    const { startLocal, tzOffsetMinutes } = p._resolveLocalStart(
+      {},
+      { start_time: '2026-09-20T12:00:00Z' },
+      '2026-09-20T12:00:00.000Z',
+    );
+    expect(startLocal).toBe('2026-09-20T20:00:00.000');
+    expect(tzOffsetMinutes).toBe(480);
+  });
+
+  test('utc 缺失 + 无本地时间 → 退化为 null/0 (不抛错, 交由入库层兜底)', () => {
+    const { startLocal, tzOffsetMinutes } = p._resolveLocalStart({}, {}, null);
+    expect(startLocal).toBeNull();
+    expect(tzOffsetMinutes).toBe(0);
+  });
+
+  test('activity 为 undefined 时不崩溃', () => {
+    const { startLocal, tzOffsetMinutes } = p._resolveLocalStart(
+      undefined,
+      { start_time: '2026-09-20T12:00:00Z' },
+      '2026-09-20T12:00:00.000Z',
+    );
+    expect(startLocal).toBe('2026-09-20T20:00:00.000');
+    expect(tzOffsetMinutes).toBe(480);
+  });
+
+  test('local_timestamp 非法 (无法解析) → 走兜底分支', () => {
+    const { startLocal, tzOffsetMinutes } = p._resolveLocalStart(
+      { local_timestamp: 'garbage' },
+      { start_time: '2026-09-20T12:00:00Z' },
+      '2026-09-20T12:00:00.000Z',
+    );
+    expect(startLocal).toBe('2026-09-20T20:00:00.000');
+    expect(tzOffsetMinutes).toBe(480);
+  });
+
+  test('_extractActivityData 输出的 start_time_local 为墙钟且带偏移列', () => {
+    const out = p._extractActivityData({
+      activity: { sport: 'running', local_timestamp: '2026-09-29T12:13:30Z' },
+      sessions: [{
+        start_time: '2026-09-29T04:13:30Z',
+        timestamp: '2026-09-29T04:13:30Z',
+        total_distance: 8.23,
+        total_elapsed_time: 2881,
+      }],
+    });
+    expect(out.start_time).toBe('2026-09-29T04:13:30.000Z');
+    expect(out.start_time_local).toBe('2026-09-29T12:13:30.000');
+    expect(out.start_tz_offset_min).toBe(480);
+  });
 });

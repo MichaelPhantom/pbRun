@@ -323,13 +323,14 @@ describe('Database Functions', () => {
       expect(periods).toEqual(['2025-W01', '2025-W02']);
     });
 
-    test('endDate 过滤传当天末刻 (闭区间含整日)', () => {
+    test('endDate 过滤传当天末刻 (本地日 → UTC 闭区间含整日)', () => {
       mockAll.mockReturnValue([]);
 
       getHrZoneStats({ startDate: '2024-01-01', endDate: '2024-01-31', groupBy: 'month' });
 
       const allCall = mockAll.mock.calls[mockAll.mock.calls.length - 1];
-      expect(allCall).toContain('2024-01-31T23:59:59.999Z');
+      // 本地日期按 Asia/Shanghai(UTC+8) 换算为 UTC 边界: 31 日末刻 = 15:59:59.999Z
+      expect(allCall).toContain('2024-01-31T15:59:59.999Z');
     });
   });
 

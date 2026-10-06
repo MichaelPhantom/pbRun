@@ -195,10 +195,14 @@ describe('getPeriodStats / getVDOTTrend 日期过滤', () => {
     expect(sql).toMatch(/start_time >= \?/);
     expect(sql).toMatch(/start_time <= \?/);
     const params = mockGet.mock.calls.at(-1) ?? [];
-    expect(params[1]).toContain('2026-09-30T23:59:59.999Z'); // 含当日
+    expect(params[1]).toContain('2026-09-30T15:59:59.999Z'); // 本地 9/30 末刻 → UTC
 
-    // 必填: 缺参数直接抛清晰错误 (而不是静默查全表)
-    expect(() => (getPeriodStats as unknown as () => unknown)()).toThrow(/endDate 格式应为 YYYY-MM-DD/);
+    // 必填: 缺参数直接抛清晰错误 (而不是静默查全表)。
+    // 断言"格式类错误"即可 —— 不锁死先报 startDate 还是 endDate (两者皆缺时,
+    // 任一报错都满足"必填校验生效"的意图; 锁死顺序会让实现顺序调整误伤测试)。
+    expect(() => (getPeriodStats as unknown as () => unknown)()).toThrow(
+      /(startDate|endDate) 格式应为 YYYY-MM-DD/,
+    );
   });
 
   test('getVDOTTrend: 过滤与行映射 (缺字段兜底 0)', () => {

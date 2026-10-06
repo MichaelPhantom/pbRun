@@ -30,8 +30,9 @@ class DatabaseManager {
         activity_type TEXT DEFAULT 'running',         -- 活动类型（默认：跑步）
         sport_type TEXT,                              -- 运动主类型（FIT sport，如跑步、健身器械）
         sub_sport_type TEXT,                          -- 运动子类型（FIT sub_sport，如跑步机、路跑、越野）
-        start_time DATETIME NOT NULL,                 -- 开始时间（UTC）
-        start_time_local DATETIME NOT NULL,           -- 开始时间（本地时区）
+        start_time DATETIME NOT NULL,                 -- 开始时间（UTC 绝对时刻, 带 Z）
+        start_time_local DATETIME NOT NULL,           -- 开始时间（本地墙钟, 无时区标记, 如 2026-10-06T07:41:39.000）
+        start_tz_offset_min INTEGER,                  -- start_time_local 相对 UTC 的分钟偏移（Asia/Shanghai = 480）
 
         -- 基础指标
         distance REAL NOT NULL,                       -- 距离（公里）
@@ -155,7 +156,9 @@ class DatabaseManager {
       ['workout_name', 'TEXT'],                      // 课表名称（如 基础训练、10 分钟 AMRAP 自重训练）
       ['workout_steps', 'TEXT'],                     // 课表步骤 JSON [{index,name,duration_type,duration_sec,target_type,target_low,target_high,intensity}]
       // 心率变异性（FIT hrv 消息，仅部分活动有）
-      ['hrv_rmssd', 'REAL']                          // RMSSD（毫秒，由 RR 间期计算）
+      ['hrv_rmssd', 'REAL'],                         // RMSSD（毫秒，由 RR 间期计算）
+      // 时区（2026-10-06 修复 start_time_local 时区缺陷时引入）
+      ['start_tz_offset_min', 'INTEGER']             // start_time_local 相对 UTC 的分钟偏移（Asia/Shanghai = 480）
     ];
     for (const [name, type] of newActivityColumns) {
       try {

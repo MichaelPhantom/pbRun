@@ -147,5 +147,28 @@ describe('date-utils', () => {
       expect(periodKeyOf('2025-12-29', 'week')).toBe('2026-W01');
       expect(periodKeyOf('2026-12-31', 'week')).toBe('2026-W53');
     });
+
+    test('接受本地墙钟串 (带时间部分), 取日历分量而非时区换算', () => {
+      // 晨跑本地 07:41 属于当天 (旧实现按 UTC 解析会落到前一天)
+      expect(periodKeyOf('2026-10-06T07:41:39.000', 'month')).toBe('2026-10');
+      expect(periodKeyOf('2026-10-06T07:41:39.000', 'week')).toBe('2026-W41');
+    });
+
+    test('非法输入走兜底, 不抛错破坏聚合', () => {
+      expect(typeof periodKeyOf('not-a-date', 'month')).toBe('string');
+      expect(typeof periodKeyOf('', 'month')).toBe('string');
+    });
+
+    test('环境时区无关性: 同一墙钟串在不同 TZ 下结果一致', () => {
+      const originalTz = process.env.TZ;
+      const results: string[] = [];
+      for (const tz of ['UTC', 'Asia/Shanghai', 'America/New_York']) {
+        process.env.TZ = tz;
+        results.push(periodKeyOf('2026-10-06T00:30:00.000', 'week'));
+      }
+      if (originalTz === undefined) delete process.env.TZ;
+      else process.env.TZ = originalTz;
+      expect(new Set(results).size).toBe(1);
+    });
   });
 });

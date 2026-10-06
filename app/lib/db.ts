@@ -29,6 +29,7 @@ import {
 import type { VdotSample } from './insight';
 import { getPaceZoneBoundsFromVdot, getPaceZoneCenterFromVdot } from './vdot-pace';
 import { periodKeyOf } from './date-utils';
+import { localDateRangeToUtc } from './timezone';
 import { hrZoneOf, resolveMaxHr } from './hr-zones';
 
 
@@ -102,11 +103,11 @@ export function getActivities(
   }
   if (startDate) {
     query += ' AND start_time >= ?';
-    queryParams.push(startDate);
+    queryParams.push(toInclusiveStart(startDate, 'getActivities'));
   }
   if (endDate) {
     query += ' AND start_time <= ?';
-    queryParams.push(endDate);
+    queryParams.push(toInclusiveEnd(endDate, 'getActivities'));
   }
 
   // Get total count
@@ -367,14 +368,14 @@ export function getPersonalRecords(period: 'week' | 'month' | 'year' | 'total' |
     default:
       startDate = new Date(0);
   }
-  const startStr = startDate.toISOString().slice(0, 10);
-  const endStr = endDate.toISOString().slice(0, 10);
+  const startStr = localDateYmd(startDate);
+  const endStr = localDateYmd(endDate);
 
   const rows = db.prepare(
     `SELECT activity_id, distance, duration, start_time FROM activities
      WHERE start_time >= ? AND start_time <= ? AND distance > 0
      ORDER BY start_time ASC`
-  ).all(startStr, endStr + 'T23:59:59.999Z') as { activity_id: number; distance: number; duration: number; start_time: string }[];
+  ).all(toInclusiveStart(startStr, 'getPersonalRecords'), toInclusiveEnd(endStr, 'getPersonalRecords')) as { activity_id: number; distance: number; duration: number; start_time: string }[];
 
   // 数据库 activities.distance 存的是公里，统一转为米再参与计算
   const activities = rows.map((a) => ({
@@ -446,7 +447,7 @@ export function getPaceZoneStats(
      INNER JOIN activities a ON a.activity_id = al.activity_id
      WHERE a.start_time >= ? AND a.start_time <= ?
        AND al.average_pace IS NOT NULL AND al.distance > 0`
-  ).all(startDate, endDate + 'T23:59:59.999Z') as LapRow[];
+  ).all(toInclusiveStart(startDate, 'getPaceZoneStats'), toInclusiveEnd(endDate, 'getPaceZoneStats')) as LapRow[];
 
   const zoneStats: Record<number, {
     activityIds: Set<number>;
@@ -584,15 +585,15 @@ export function getHrZoneStats(params: HrZoneAnalysisParams): HrZoneStat[] {
   const queryParams: string[] = [];
   if (startDate) {
     dateFilter += ' AND a.start_time >= ?';
-    queryParams.push(startDate);
+    queryParams.push(toInclusiveStart(startDate, 'getHrZoneStats'));
   }
   if (endDate) {
     dateFilter += ' AND a.start_time <= ?';
-    queryParams.push(endDate + 'T23:59:59.999Z');
+    queryParams.push(toInclusiveEnd(endDate, 'getHrZoneStats'));
   }
 
   const rows = db.prepare(
-    `SELECT al.activity_id, a.start_time, al.duration, al.distance,
+    `SELECT al.activity_id, a.start_time, a.start_time_local, al.duration, al.distance,
             al.average_pace, al.average_cadence, al.average_stride_length, al.average_heart_rate
      FROM activity_laps al
      INNER JOIN activities a ON a.activity_id = al.activity_id
@@ -602,6 +603,7 @@ export function getHrZoneStats(params: HrZoneAnalysisParams): HrZoneStat[] {
   ).all(...queryParams) as {
     activity_id: number;
     start_time: string;
+    start_time_local: string | null;
     duration: number;
     distance: number;
     average_pace: number | null;
@@ -621,7 +623,7 @@ export function getHrZoneStats(params: HrZoneAnalysisParams): HrZoneStat[] {
 
   for (const lap of rows) {
     const zone = getHrZone(lap.average_heart_rate);
-    const period = periodKey(lap.start_time, groupBy);
+    const period = periodKey(lap.start_time_local ?? lap.start_time, groupBy);
     const key = `${period}_${zone}`;
 
     let stat = statsMap.get(key);
@@ -685,24 +687,24 @@ export function getVDOTTrend(params: VDOTTrendParams): VDOTTrendPoint[] {
 
   if (startDate) {
     dateFilter += ' AND start_time >= ?';
-    queryParams.push(startDate);
+    queryParams.push(toInclusiveStart(startDate, 'getVDOTTrend'));
   }
   if (endDate) {
     dateFilter += ' AND start_time <= ?';
-    queryParams.push(endDate + 'T23:59:59.999Z');
+    queryParams.push(toInclusiveEnd(endDate, 'getVDOTTrend'));
   }
 
   const rows = db.prepare(
-    `SELECT start_time, vdot_value, distance, duration
+    `SELECT start_time, start_time_local, vdot_value, distance, duration
      FROM activities
      ${dateFilter}
      ORDER BY start_time`
-  ).all(...queryParams) as { start_time: string; vdot_value: number; distance: number; duration: number }[];
+  ).all(...queryParams) as { start_time: string; start_time_local: string | null; vdot_value: number; distance: number; duration: number }[];
 
   const trendsMap = new Map<string, VDOTTrendPoint>();
 
   for (const activity of rows) {
-    const period = periodKey(activity.start_time, groupBy);
+    const period = periodKey(activity.start_time_local ?? activity.start_time, groupBy);
 
     let trend = trendsMap.get(period);
     if (!trend) {
@@ -745,8 +747,9 @@ export function getVDOTTrend(params: VDOTTrendParams): VDOTTrendPoint[] {
  */
 export function getPeriodStats(startDate: string, endDate: string): PeriodStats {
   const db = getDatabase();
-  const end = toInclusiveEnd(endDate, 'getPeriodStats');
   validateRange(startDate, endDate, 'getPeriodStats');
+  const start = toInclusiveStart(startDate, 'getPeriodStats');
+  const end = toInclusiveEnd(endDate, 'getPeriodStats');
   const row = db.prepare(
     `SELECT
        SUM(distance) AS totalDistance,
@@ -757,7 +760,7 @@ export function getPeriodStats(startDate: string, endDate: string): PeriodStats 
        SUM(training_load) AS totalTrainingLoad
      FROM activities
      WHERE start_time >= ? AND start_time <= ?`
-  ).get(startDate, end) as {
+  ).get(start, end) as {
     totalDistance?: number | null;
     totalDuration?: number | null;
     totalActivities?: number;
@@ -785,8 +788,8 @@ export function getPeriodStats(startDate: string, endDate: string): PeriodStats 
  */
 export function getTrainingLoads(startDate: string, endDate: string): TrainingLoadPoint[] {
   const db = getDatabase();
-  const end = toInclusiveEnd(endDate, 'getTrainingLoads');
   validateRange(startDate, endDate, 'getTrainingLoads');
+  // 本函数在**本地域**过滤+分桶 (start_time_local), 故边界也用本地日期串, 不转 UTC。
   const rows = db.prepare(
     `SELECT
        substr(start_time_local, 1, 10) AS date,
@@ -794,10 +797,10 @@ export function getTrainingLoads(startDate: string, endDate: string): TrainingLo
        SUM(distance) AS distance,
        SUM(duration) AS duration
      FROM activities
-     WHERE start_time_local IS NOT NULL AND start_time >= ? AND start_time <= ?
+     WHERE start_time_local IS NOT NULL AND start_time_local >= ? AND start_time_local <= ?
      GROUP BY date
      ORDER BY date`
-  ).all(startDate, end) as { date: string; load: number; distance: number; duration: number }[];
+  ).all(startDate, endDate + 'T23:59:59.999') as { date: string; load: number; distance: number; duration: number }[];
 
   return rows.map((r) => ({
     date: r.date,
@@ -859,12 +862,44 @@ function validateRange(startDate: string, endDate: string, fnName: string): void
   if (startDate > endDate) throw new Error(`${fnName}: startDate (${startDate}) 不能晚于 endDate (${endDate})`);
 }
 
-/** 日期串转含当天末刻的截止时间 (YYYY-MM-DD → YYYY-MM-DDT23:59:59.999Z) */
-function toInclusiveEnd(endDate: string, fnName: string): string {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
-    throw new Error(`${fnName}: endDate 格式应为 YYYY-MM-DD, 实际为 "${endDate}"`);
+/**
+ * `Date` → 本地日期 `YYYY-MM-DD`。
+ *
+ * 用显式日历分量拼装, 不用 `toISOString()` —— 后者取 UTC 日期,
+ * 在本地 00:00–08:00 (Asia/Shanghai) 会得到前一天, 使窗口少算一天。
+ */
+function localDateYmd(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * 查询边界归一化: 输入可能是
+ *   (a) 本地日期 `YYYY-MM-DD`  —— 语义为“本地那一天”, 需按 UTC 偏移换算;
+ *   (b) 已是绝对值的时间串 (含 `T` 部分, 如 `...T00:00:00` 或 `...Z`) —— 视为调用方
+ *       已给出精确边界 (内部调用: 排除某次活动等), 原样透传, 不做二次换算。
+ *
+ * 这样既统一了“日期语义”的换算, 又不破坏既有的精确时间戳调用点。
+ */
+function toRangeBound(value: string, kind: 'start' | 'end', fnName: string): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const r = localDateRangeToUtc(value, value);
+    return kind === 'start' ? r.startUtc : r.endUtc;
   }
-  return endDate + 'T23:59:59.999Z';
+  if (/^\d{4}-\d{2}-\d{2}[T ]/.test(value)) return value; // 精确时间戳: 透传
+  throw new Error(`${fnName}: ${kind === 'start' ? 'startDate' : 'endDate'} 格式应为 YYYY-MM-DD 或 ISO 时间串, 实际为 "${value}"`);
+}
+
+/** 本地日期 → UTC 起始边界 (见 toRangeBound)。 */
+function toInclusiveStart(startDate: string, fnName: string): string {
+  return toRangeBound(startDate, 'start', fnName);
+}
+
+/** 本地日期 → UTC 截止边界 (见 toRangeBound)。 */
+function toInclusiveEnd(endDate: string, fnName: string): string {
+  return toRangeBound(endDate, 'end', fnName);
 }
 
 // ===========================================================================
@@ -874,14 +909,15 @@ function toInclusiveEnd(endDate: string, fnName: string): string {
 /** 指定区间内有 VDOT 的样本 (供 VDOT 趋势拟合)。 */
 export function getVdotSamples(startDate: string, endDate: string): VdotSample[] {
   const db = getDatabase();
-  const end = toInclusiveEnd(endDate, 'getVdotSamples');
   validateRange(startDate, endDate, 'getVdotSamples');
+  const start = toInclusiveStart(startDate, 'getVdotSamples');
+  const end = toInclusiveEnd(endDate, 'getVdotSamples');
   const rows = db.prepare(
     `SELECT start_time_local AS date, vdot_value AS vdot
      FROM activities
      WHERE vdot_value IS NOT NULL AND start_time >= ? AND start_time <= ?
      ORDER BY start_time_local`
-  ).all(startDate, end) as { date: string; vdot: number }[];
+  ).all(start, end) as { date: string; vdot: number }[];
   return rows
     .filter((r) => r.date)
     .map((r) => ({ date: r.date, vdot: r.vdot }));
@@ -895,12 +931,13 @@ export function getDailyLoads(startDate: string, endDate: string): TrainingLoadP
 /** 全区间 (不限日期) 各心率区间累计秒数, 7 元素 (索引 0=Z1)。 */
 export function getHrZoneTotals(startDate: string, endDate: string): number[] {
   const db = getDatabase();
-  const end = toInclusiveEnd(endDate, 'getHrZoneTotals');
   validateRange(startDate, endDate, 'getHrZoneTotals');
+  const start = toInclusiveStart(startDate, 'getHrZoneTotals');
+  const end = toInclusiveEnd(endDate, 'getHrZoneTotals');
   const rows = db.prepare(
     `SELECT time_in_hr_zone FROM activities
      WHERE time_in_hr_zone IS NOT NULL AND start_time >= ? AND start_time <= ?`
-  ).all(startDate, end) as { time_in_hr_zone: string }[];
+  ).all(start, end) as { time_in_hr_zone: string }[];
   const totals = [0, 0, 0, 0, 0, 0, 0];
   for (const row of rows) {
     try {
@@ -928,14 +965,15 @@ export function getLongRuns(
   minKm = 10,
 ): LongRunRow[] {
   const db = getDatabase();
-  const end = toInclusiveEnd(endDate, 'getLongRuns');
   validateRange(startDate, endDate, 'getLongRuns');
+  const start = toInclusiveStart(startDate, 'getLongRuns');
+  const end = toInclusiveEnd(endDate, 'getLongRuns');
   const rows = db.prepare(
     `SELECT activity_id, start_time_local, distance, duration
      FROM activities
      WHERE distance >= ? AND duration > 0 AND start_time >= ? AND start_time <= ?
      ORDER BY start_time_local`
-  ).all(minKm, startDate, end) as {
+  ).all(minKm, start, end) as {
     activity_id: number;
     start_time_local: string;
     distance: number;
@@ -959,15 +997,16 @@ export function getFormSamples(startDate: string, endDate: string): {
   verticalRatio: number | null;
 }[] {
   const db = getDatabase();
-  const end = toInclusiveEnd(endDate, 'getFormSamples');
   validateRange(startDate, endDate, 'getFormSamples');
+  const start = toInclusiveStart(startDate, 'getFormSamples');
+  const end = toInclusiveEnd(endDate, 'getFormSamples');
   const rows = db.prepare(
     `SELECT start_time_local, average_cadence, average_stride_length,
             average_ground_contact_time, average_vertical_oscillation, average_vertical_ratio
      FROM activities
      WHERE start_time >= ? AND start_time <= ?
      ORDER BY start_time_local`
-  ).all(startDate, end) as {
+  ).all(start, end) as {
     start_time_local: string;
     average_cadence: number | null;
     average_stride_length: number | null;
@@ -992,15 +1031,16 @@ export function getPaceHrSamples(
   minKm = 8,
 ): { paceSecPerKm: number; heartRate: number }[] {
   const db = getDatabase();
-  const end = toInclusiveEnd(endDate, 'getPaceHrSamples');
   validateRange(startDate, endDate, 'getPaceHrSamples');
+  const start = toInclusiveStart(startDate, 'getPaceHrSamples');
+  const end = toInclusiveEnd(endDate, 'getPaceHrSamples');
   const rows = db.prepare(
     `SELECT distance, duration, average_heart_rate
      FROM activities
      WHERE distance >= ? AND duration > 0 AND average_heart_rate > 0
        AND start_time >= ? AND start_time <= ?
      ORDER BY start_time_local`
-  ).all(minKm, startDate, end) as {
+  ).all(minKm, start, end) as {
     distance: number;
     duration: number;
     average_heart_rate: number;
@@ -1019,11 +1059,12 @@ export function getPaceHrSamples(
 /** 指定区间内的活动总数。 */
 export function getActivityCountInRange(startDate: string, endDate: string): number {
   const db = getDatabase();
-  const end = toInclusiveEnd(endDate, 'getActivityCountInRange');
   validateRange(startDate, endDate, 'getActivityCountInRange');
+  const start = toInclusiveStart(startDate, 'getActivityCountInRange');
+  const end = toInclusiveEnd(endDate, 'getActivityCountInRange');
   const row = db.prepare(
     'SELECT COUNT(*) AS count FROM activities WHERE start_time >= ? AND start_time <= ?'
-  ).get(startDate, end) as { count: number };
+  ).get(start, end) as { count: number };
   return row?.count ?? 0;
 }
 
@@ -1081,8 +1122,9 @@ export interface InsightActivityRow {
 /** 指定区间内全部活动 (洞察 v2 对比分析用的统一数据源)。 */
 export function getInsightActivityRows(startDate: string, endDate: string): InsightActivityRow[] {
   const db = getDatabase();
-  const end = toInclusiveEnd(endDate, 'getInsightActivityRows');
   validateRange(startDate, endDate, 'getInsightActivityRows');
+  const start = toInclusiveStart(startDate, 'getInsightActivityRows');
+  const end = toInclusiveEnd(endDate, 'getInsightActivityRows');
   const rows = db.prepare(
     `SELECT activity_id, name, start_time_local, distance, duration,
             average_pace, average_heart_rate, average_cadence, vdot_value,
@@ -1090,7 +1132,7 @@ export function getInsightActivityRows(startDate: string, endDate: string): Insi
      FROM activities
      WHERE start_time >= ? AND start_time <= ?
      ORDER BY start_time_local`
-  ).all(startDate, end) as {
+  ).all(start, end) as {
     activity_id: number;
     name: string | null;
     start_time_local: string;
