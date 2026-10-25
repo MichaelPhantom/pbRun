@@ -6,6 +6,13 @@
 ## [Unreleased]
 
 ### Added
+- **单次活动 AI 的环境可比性**（`app/lib/activity-environment.ts`）：同距离样本的
+  平均温度/累计爬升 + 本次差值，并按 `<10 / 10–18 / 18–24 / 24–28 / ≥28°C`
+  同温档给出档内排名、配速差与心率差。`getPeerActivities` 同步返回
+  `temperatureC` / `ascentM` 字段。避免把「天气更热」误判为「能力下降」。
+- **按距离分档的可比样本容差**（`activity-coach-context.ts`）：同距离
+  `<5km ±20%` / `5–12km ±10%` / `>12km ±8%`；同路线在此基础上放宽 15pt
+  （`±35% / ±25% / ±23%`）。UI 深挖面板与 AI 使用同一组容差，避免 5K 与 30K 直接对比。
 - **单次活动 AI 的横向可比上下文**（`app/lib/activity-coach-context.ts` +
   `activity-coach-context-service.ts`）：活动 prompt 在【跑者画像】与【活动】之后新增
   【本次表现与可比样本】——当次分段角色/主课配速/心率漂移/最快段/心率区间/逐秒解耦，

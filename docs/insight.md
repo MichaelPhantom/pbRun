@@ -78,10 +78,13 @@ activities / activity_laps / activity_records (SQLite)
   **【本次表现与可比样本】**(`activity-coach-context.ts`)
   - 当次：分段角色（热身/主课/恢复/冷身）、主课配速/心率/心率漂移、最快段、
     心率区间占比、逐秒有氧解耦；
-  - 同路线/同名：以活动名称「地点前缀」为指纹的历史样本（再按 ±25% 距离带过滤），
-    输出排名、组均/组最佳、心率差；
-  - 同距离：独立查询 **±10%** 距离带（比 UI 面板 ±25% 更严格）；
-  - 同类训练：名称 + 距离推断类别（轻松/节奏/阈值/间歇/长距离/比赛），样本 ≥2 才输出。
+  - 同路线/同名：以活动名称「地点前缀」为指纹的历史样本，按路线距离带过滤
+    （`<5km ±35%` / `5–12km ±25%` / `>12km ±23%`），输出排名、组均/组最佳、心率差；
+  - 同距离：按距离分档独立查询（`<5km ±20%` / `5–12km ±10%` / `>12km ±8%`），
+    与 UI 深挖面板同一容差；
+  - 同类训练：名称 + 距离推断类别（轻松/节奏/阈值/间歇/长距离/比赛），样本 ≥2 才输出；
+  - 环境可比：同距离样本的平均温度/爬升、本次与样本的差值，以及同温档
+    （`<10 / 10–18 / 18–24 / 24–28 / ≥28°C`）的排名/配速差/心率差。
 - Prompt：`llm.ts` 的 `SYSTEM_PROMPT`（6 大分析框架）；第 6 项明确要求「横向定位优先，
   长期趋势仅作背景」。
 - UI：`app/lib/components/ai/AiAnalysis.tsx`（嵌入活动详情页，锚点 `#ai-coach`）
@@ -114,7 +117,8 @@ activities / activity_laps / activity_records (SQLite)
 - **分段角色识别**（`analyzeLaps`）：以整体配速为基准，将每段标记为 热身/主课/恢复/冷身/匀速；主课段（明显快于基准）聚合出段数、距离、时长加权配速、心率漂移。
 - **心率区间占比**（`hrZoneBreakdown`）：解析活动 `time_in_hr_zone` JSON。
 - **逐秒有氧解耦**：复用 `computeDecouplingPct`。
-- **同路线对比**（`db.getPeerActivities` + `computeComparison`）：优先按路线指纹找同行历史，否则按相近距离（±25%）；输出配速排名与相对均值的差值。
+- **同路线对比**（`db.getPeerActivities` + `computeComparison`）：优先按路线指纹找同行历史，否则按距离分档回退；输出配速排名与相对均值的差值。
+- **环境可比性**（`summarizeActivityEnvironment`）：同组样本的温度/爬升均值、本次差值，以及同温档排名/配速差/心率差；详情面板同步展示，保证用户能看到 AI 使用的参照系。
 
 ---
 
@@ -127,6 +131,7 @@ activities / activity_laps / activity_records (SQLite)
 | 活动深挖计算 | `tests/unit/lib/activity-insight.test.ts` |
 | 活动 AI 可比样本格式 | `tests/unit/lib/activity-coach-context.test.ts` |
 | 活动 AI 可比样本取数与降级 | `tests/unit/lib/activity-coach-context-service.test.ts` |
+| 温度/爬升/同温档可比性 | `tests/unit/lib/activity-environment.test.ts` |
 | 洞察→教练上下文 + 全局消息 | `tests/unit/lib/insight-coach.test.ts` |
 | Prompt 注入顺序 | `tests/unit/lib/llm.test.ts` |
 | 区间参数（7/30/90/180/365/0/all） | `tests/unit/lib/date-utils.test.ts` |
