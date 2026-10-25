@@ -79,7 +79,8 @@ activities / activity_laps / activity_records (SQLite)
   - 当次：分段角色（热身/主课/恢复/冷身）、主课配速/心率/心率漂移、最快段、
     心率区间占比、逐秒有氧解耦；
   - 同路线/同名：以活动名称「地点前缀」为指纹的历史样本，按路线距离带过滤
-    （`<5km ±35%` / `5–12km ±25%` / `>12km ±23%`），输出排名、组均/组最佳、心率差；
+    （`<5km ±35%` / `5–12km ±25%` / `>12km ±23%`），再用 GPS 首点做 **≤2km 同起点校验**
+    （无轨迹保留），输出排名、组均/组最佳、心率差；
   - 同距离：按距离分档独立查询（`<5km ±20%` / `5–12km ±10%` / `>12km ±8%`），
     与 UI 深挖面板同一容差；
   - 同类训练：名称 + 距离推断类别（轻松/节奏/阈值/间歇/长距离/比赛），样本 ≥2 才输出；
@@ -132,6 +133,7 @@ activities / activity_laps / activity_records (SQLite)
 | 活动 AI 可比样本格式 | `tests/unit/lib/activity-coach-context.test.ts` |
 | 活动 AI 可比样本取数与降级 | `tests/unit/lib/activity-coach-context-service.test.ts` |
 | 温度/爬升/同温档可比性 | `tests/unit/lib/activity-environment.test.ts` |
+| GPS 同起点校验 | `tests/unit/lib/geo.test.ts` |
 | 洞察→教练上下文 + 全局消息 | `tests/unit/lib/insight-coach.test.ts` |
 | Prompt 注入顺序 | `tests/unit/lib/llm.test.ts` |
 | 区间参数（7/30/90/180/365/0/all） | `tests/unit/lib/date-utils.test.ts` |

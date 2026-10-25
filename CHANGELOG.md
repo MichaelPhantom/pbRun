@@ -6,6 +6,10 @@
 ## [Unreleased]
 
 ### Added
+- **GPS 同起点校验**（`app/lib/geo.ts` + `db.getActivityStartGeo`）：活动 AI 与详情深挖的
+  同路线样本先用 GPS 首点做 Haversine 距离校验（默认 ≤2km），剔除同名不同起点的活动；
+  无轨迹/室内记录保留，当前活动无 GPS 时跳过。仅用 SQLite JSON1 提取首点坐标，
+  不反序列化整条轨迹。`getPeerActivities` 同步返回 `startLat/startLng`。
 - **MCP `get_activity_comparables`（第 16 个 tool）**：把 Web 端活动 AI 的当次可比上下文
   暴露给 MCP 客户端——返回结构化 `insight`（分段/对比/环境/解耦）与可直接注入 prompt 的
   `contextText`；与页面共用 `activity-insight-service` / `activity-coach-context-service`，
