@@ -5,6 +5,35 @@
 
 ## [Unreleased]
 
+### Added
+- **单次活动 AI 的横向可比上下文**（`app/lib/activity-coach-context.ts` +
+  `activity-coach-context-service.ts`）：活动 prompt 在【跑者画像】与【活动】之后新增
+  【本次表现与可比样本】——当次分段角色/主课配速/心率漂移/最快段/心率区间/逐秒解耦，
+  以及**同路线/同名**（名称地点前缀指纹）、**同距离 ±10%**、**同类训练**三组横向样本的
+  配速排名、组均/组最佳、心率差与最近 4 条样本。任一查询失败只降级对应段落，返回空串也不
+  阻塞 AI。活动列表/仪表盘每张卡片增加「AI 复盘 →」入口，详情页 AI 区块锚点 `#ai-coach`。
+- **汇总 AI 的时间窗扩展**：`TimeRangeDays` 支持 `7/30/90/180/365/0`（`0`/`all` = 全部历史），
+  洞察页/分析页统一为「近一周 / 近一月 / 近三月 / 近半年 / 全部」；统计页按
+  `week/month/year/total → 7/30/365/0` 自动映射，首页固定全部历史。`GlobalCoach` 复用同一组件接入
+  `/`、`/insight`、`/analysis`、`/stats`，文案随区间变化，缓存键按区间隔离。
+- **按功能接口组织的文档** `docs/features.md`：功能矩阵（UI/API/计算/AI 上下文/测试/状态）、
+  单次活动 vs 汇总页的 AI 口径契约、接口-测试守护表、按功能归类的已知边界与待办。
+  `docs/README.md` 的历史项目结构/API 概览同步到当前实现。
+
+### Changed
+- **活动 AI prompt 第 6 框架由「长期趋势」改为「横向定位」**：明确要求优先使用
+  同路线/同距离/同类样本判断快慢与水平，长期趋势仅用于解释当次状态，避免单次分析被宏观
+  趋势稀释。`buildAnalysisMessages` / `buildFollowupMessages` 新增可选 `contextBlock`
+  参数，多轮追问保留同一可比上下文。
+- **`computeComparison` 的本次训练类别改为按活动名称推断**：此前固定传入 `'本次'`，导致
+  非长距离活动的 `currentCategory` 恒为 `other`，同类对标形同虚设；现在由
+  `CurrentActivity.name` 参与 `classifyActivity`，详情深挖与 AI 上下文同时受益。
+- **移除无引用的 `app/lib/coach-context.ts` 及其单测**：近况信息已由
+  `runner-profile.ts` 完整覆盖，死代码不再保留。相关 FAQ 说明同步更新。
+- **`getPeerActivities` 新增 `distanceTolerance` / `routeDistanceTolerance` 参数**（默认仍 0.25，
+  保持旧调用行为）：活动 AI 用 0.1 取更严格的同距离样本；同路线样本同时按 ±25% 距离带过滤，
+  避免同一条路线的 5K 与 30K 直接对比。详情 UI 的 ±25% fallback 不变。
+
 ### Fixed
 - **时区缺陷: `start_time_local` 实际存成 UTC（全库 230/230 条受影响）**。
   根因在 `scripts/garmin/fit-parser.js`：`start_time_local` 误用 FIT 的 `session.timestamp`，

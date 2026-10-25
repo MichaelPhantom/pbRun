@@ -1,6 +1,6 @@
-# 文档中心
+# pbRun 文档中心
 
-欢迎来到 Garmin Running Data Analytics 的文档中心。这里提供了完整的使用指南和技术文档。
+欢迎来到 pbRun 的文档中心。这里按**功能接口**提供完整的使用指南与技术文档。
 
 ## 快速导航
 
@@ -12,6 +12,7 @@
 
 ### 核心文档
 
+- **[功能接口总览](features.md)** - 按功能/接口组织的功能矩阵、AI 上下文契约与待办
 - **[运维手册](ops.md)** - 本机生产环境：构建陷阱、磁盘清理、备份与异地副本
 - **[API 接口文档](api-reference.md)** - 完整的 API 参考
 - **[训练洞察与 AI 教练](insight.md)** - 动态洞察指标与 AI 教练体系
@@ -35,6 +36,7 @@
 
 | 文档 | 说明 |
 |------|------|
+| [功能接口总览](features.md) | 按功能/接口组织的矩阵、AI 上下文契约、已知边界与待办 |
 | [API 接口文档](api-reference.md) | 完整的 RESTful API 参考 |
 | [训练洞察与 AI 教练](insight.md) | 动态洞察指标体系 + AI 教练体系 (活动级/全局) |
 | [VDOT 计算说明](vdot-calculation.md) | VDOT 跑力计算公式和训练建议 |
@@ -113,37 +115,36 @@ Garmin Connect → 数据同步 → SQLite 数据库 → API 服务 → Web 界�
 ## 项目结构
 
 ```
-garmin_data/
-├── app/                    # Next.js 应用
-│   ├── api/               # API 路由
-│   │   ├── activities/   # 活动相关接口
-│   │   ├── stats/        # 统计相关接口
-│   │   ├── analysis/     # 分析相关接口
-│   │   └── vdot/         # VDOT 接口
-│   ├── list/              # 活动列表页面
-│   ├── analysis/          # 数据分析页面
-│   ├── stats/             # 统计页面
-│   ├── lib/               # 工具库
-│   │   ├── db.ts         # 数据库访问
-│   │   ├── types.ts      # 类型定义
-│   │   └── format.ts     # 格式化工具
-│   └── data/              # SQLite 数据库
-│       └── activities.db
-├── scripts/               # 数据同步脚本
-│   ├── sync-garmin.js     # 主同步脚本
-│   ├── garmin-client.js   # Garmin API 客户端
-│   ├── fit-parser.js      # FIT 文件解析
-│   ├── vdot-calculator.js # VDOT 计算
-│   └── db-manager.js      # 数据库管理
-├── .github/workflows/     # GitHub Actions
-│   └── sync_running_data.yml
-└── docs/                  # 文档
-    ├── README.md          # 文档索引（本文件）
-    ├── deployment.md      # 部署指南
-    ├── data-sync.md       # 数据同步说明
-    ├── api-reference.md   # API 文档
-    ├── vdot-calculation.md # VDOT 说明
-    └── faq.md             # 常见问题
+pbRun/
+├── app/                    # Next.js 应用 (App Router)
+│   ├── page.tsx            # 仪表盘
+│   ├── list/               # 活动列表 (月分页 + 筛选 + 无限滚动)
+│   ├── pages/[id]/         # 活动详情 (地图/趋势/分段/深挖/AI 对话)
+│   ├── analysis/           # 训练分析 (心率/配速/负荷/汇总 AI)
+│   ├── insight/            # 训练洞察 (动态指标/对比/汇总 AI)
+│   ├── stats/              # 统计 (周期统计/个人纪录/汇总 AI)
+│   ├── daniels/            # 丹尼尔斯配速表
+│   ├── api/                # API 路由 (activities/stats/analysis/insight/llm/health)
+│   ├── components/         # 通用 UI (卡片/表格/图表容器/导航)
+│   └── lib/                # 计算、服务与 AI 上下文
+│       ├── db.ts                      # SQLite 数据访问 (唯一 DB 入口)
+│       ├── timezone.ts / date-utils.ts # UTC 存储 + 本地墙钟契约 / 区间解析
+│       ├── insight*.ts                # 洞察纯计算、对比、服务、LLM 上下文
+│       ├── activity-insight*.ts       # 活动深挖计算/服务
+│       ├── activity-coach-context*.ts # 单次活动 AI 可比样本上下文
+│       ├── runner-profile.ts          # 跑者画像
+│       ├── llm.ts / coach-stream.ts   # prompt、请求体、SSE 出流与回退
+│       └── components/{ai,charts,map} # AI 对话、图表、路线图
+├── mcp-server/             # MCP Server (stdio, 15 tools)
+├── scripts/                # 数据同步与维护
+│   ├── garmin/             # Garmin 同步/解析/校验/回填
+│   ├── strava/             # Strava 同步/OAuth/GPX
+│   ├── common/             # DB/VDOT/通用工具
+│   └── testing/            # 夹具库、CI 文档片段生成
+├── tests/                  # Jest 单测 + Playwright e2e
+├── docs/                   # 文档 (功能接口总览见 features.md)
+├── deploy/                 # 本机 systemd 部署单元
+└── .github/workflows/      # CI / 数据同步流水线
 ```
 
 ---
@@ -152,13 +153,14 @@ garmin_data/
 
 ### 主要数据表
 
-| 表名 | 说明 | 记录数（示例） |
-|------|------|----------------|
-| `activities` | 活动汇总数据 | 150+ |
-| `laps` | 分段数据 | 1500+ |
-| `records` | 记录点数据 | 450000+ |
+| 表名 | 说明 |
+|------|------|
+| `activities` | 活动汇总数据（`distance` 为公里） |
+| `activity_laps` | 分段数据（`distance` 为米） |
+| `activity_records` | 逐秒记录点（心率/速度/距离等） |
+| `activity_track` | 降采样 GPS 轨迹（路线图数据源） |
 
-> 心率区间 / VDOT 趋势 / 配速区间等统计均由查询时实时计算，无预计算缓存表。
+> 心率区间 / VDOT 趋势 / 配速区间 / 训练洞察等均由查询时实时计算，无预计算缓存表。
 
 详细结构请参考 [数据同步说明 - 数据结构](data-sync.md#数据结构)。
 
@@ -175,6 +177,10 @@ garmin_data/
 | `GET /api/vdot` | 获取 VDOT 趋势 | [API 文档](api-reference.md#8-获取-vdot-趋势) |
 | `GET /api/analysis/hr-zones` | 心率区间分析 | [API 文档](api-reference.md#9-心率区间分析) |
 | `GET /api/analysis/pace-zones` | 配速分布分析 | [API 文档](api-reference.md#10-配速区间分析) |
+| `GET /api/insight` | 训练洞察（区间 7/30/90/180/365/0） | [API 文档](api-reference.md#12-训练洞察) |
+| `POST /api/insight/coach` | 汇总 AI 教练/追问（SSE） | [API 文档](api-reference.md#13-全局-ai-综合教练) |
+| `GET /api/activities/{id}/insight` | 活动深挖（分段/漂移/区间/解耦/对比） | [API 文档](api-reference.md#14-活动详情深挖) |
+| `POST /api/activities/{id}/analysis` | 单次活动 AI/追问（SSE） | [API 文档](api-reference.md#15-活动-ai-深度分析sse-流式) |
 
 完整 API 文档: [api-reference.md](api-reference.md)
 
@@ -290,17 +296,13 @@ node scripts/common/db-manager.js --vacuum
 
 ---
 
-## 更新日志
+## 功能索引与变更
 
-查看 [Releases](https://github.com/xuandao/pbRun/releases) 了解最新更新。
+- **功能接口与 AI 上下文契约**：[features.md](features.md)
+- **版本变更记录**：[CHANGELOG.md](../CHANGELOG.md)
+- **在线演示**：[pbrun.vercel.app](https://pbrun.vercel.app)
 
-### 最近更新
-
-- **v1.0.0** (2026-02-14): 首次发布
-  - 完整的 Garmin 数据同步功能
-  - VDOT 计算和趋势分析
-  - 心率区间和配速分布分析
-  - Vercel 一键部署
+> 本文档按功能/接口组织；不再维护按发布日期罗列的「最近更新」清单，避免与 CHANGELOG 重复漂移。
 
 ---
 

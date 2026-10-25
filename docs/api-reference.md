@@ -633,7 +633,7 @@ GET /api/insight?startDate=2026-06-01&endDate=2026-09-22
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `days` | number | 否 | 预设窗口，取值 30 / 90 / 180，默认 90 |
+| `days` | number/string | 否 | 预设窗口，取值 7 / 30 / 90 / 180 / 365 / 0 (`all`)，默认 30；`0` = 全部历史 |
 | `startDate` / `endDate` | string | 否 | 显式区间 `YYYY-MM-DD`（同时提供时优先于 `days`） |
 
 **响应结构（`data`）**
@@ -679,9 +679,12 @@ GET /api/insight?startDate=2026-06-01&endDate=2026-09-22
 POST /api/insight/coach
 Content-Type: application/json
 
-{ "model": "deepseek-v4.1-flash-wb", "days": 90 }
-{ "model": "deepseek-v4.1-flash-wb", "days": 90, "question": "我的短板是什么？", "history": [] }
+{ "model": "deepseek-v4.1-flash-wb", "days": 30 }
+{ "model": "deepseek-v4.1-flash-wb", "days": 0, "question": "我的短板是什么？", "history": [] }
 ```
+
+`days` 支持 7 / 30 / 90 / 180 / 365 / 0（`0` 或 `all` = 全部历史），非法值回落 30；
+页面入口：`/insight?days=`、`/analysis?days=`、`/stats?period=`（周→7 / 月→30 / 年→365 / 总→0）。
 
 `model` 只接受白名单值（`app/lib/model-curation.ts`）：默认
 `deepseek-v4.1-flash-wb`，可选 `glm-5.3-flash` / `kimi-k3` /
@@ -721,6 +724,16 @@ GET /api/activities/{id}/insight
 
 基于本次活动数据与【跑者画像】调用本机 freellm 网关生成教练点评，以 SSE 流式返回
 （透传 OpenAI 兼容流）；多轮追问复用同一端点。
+
+活动级上下文刻意偏向**当次 + 横向可比**（与汇总页的区间趋势相反）：
+
+- 当次：分段角色/主课漂移/最快段/心率区间/逐秒解耦；
+- 同路线/同名：以活动名称「地点前缀」为指纹的历史样本（再按 ±25% 距离带过滤），
+  含配速排名、组均/组最佳、心率差；
+- 同距离：独立查询 **±10%** 距离带（比深挖面板的 ±25% fallback 更严格）；
+- 同类训练：由名称 + 距离推断类别，样本 ≥2 才输出；
+- 任一查询失败只降级对应段落，不阻塞 AI 主流程。
+  实现：`app/lib/activity-coach-context.ts` + `activity-coach-context-service.ts`。
 
 **请求**
 
