@@ -23,6 +23,7 @@
   "exclude": [
     "node_modules",
     "dist",
-    "../app/lib/echarts-theme.ts"
+    "../app/lib/echarts-theme.ts",
+    "../app/lib/theme.ts"
   ]
 }
