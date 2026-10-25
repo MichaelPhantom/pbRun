@@ -100,10 +100,11 @@
   启发式；`auto` 永不下发（路由目标不确定）。单测
   `tests/unit/lib/thinking.test.ts` 锁定映射。
 - **分析质量优化（2026-09-13）**: 分段标签改累计距离区间（laps 含 709m 等
-  非整公里段，K 序号曾误导模型）；prompt 新增【近期状态】（近 7 天跑量、
-  当日 TSB、上次跑步，`app/lib/coach-context.ts`，失败自动降级为空）；
-  主模型 502/超时自动回退 auto 并在脚注明示（`X-Model-Fallback` 头）；
-  模型下拉按推荐排序并标注思考模型。详见 `tests/unit/lib/coach-context.test.ts`。
+  非整公里段，K 序号曾误导模型）；prompt 在活动数据后追加【本次表现与可比样本】
+  （当次分段/区间/解耦 + 同路线/同距离/同类横向排名，`app/lib/activity-coach-context.ts`，
+  失败自动降级为空）；主模型 502/超时自动回退 auto 并在脚注明示（`X-Model-Fallback` 头）；
+  模型下拉按推荐排序并标注思考模型。详见
+  `tests/unit/lib/activity-coach-context.test.ts`。
 
 ### 12. AI 教练升级为「世界级教练 + 跑者画像 + 对话式」（2026-09-17）
 
@@ -114,7 +115,7 @@
 - **跑者画像**: 新增 `app/lib/runner-profile.ts`，分析前汇总生涯跑量/次数/起始年份、
   个人纪录、VDOT 当前与 30 天趋势、近 7/28 天跑量、CTL/ATL/TSB、惯常步频心率、
   上次跑步等，注入 prompt 首部（取代旧 `coach-context` 简版近况块）。全部查询容错
-  降级，失败不阻塞。`app/lib/coach-context.ts` 保留但不再被路由引用。
+  降级，失败不阻塞。
 - **对话式交互**: `app/lib/components/ai/` 新增 `ThinkingBlock`（思考折叠，流式中
   自动展开、结束收起并显示用时）、`ModelSelector`（按系列分组可搜索）、
   `useStickToBottom`（流式自动滚底）、`useModelCatalog`（模型列表 + 选择持久化）。

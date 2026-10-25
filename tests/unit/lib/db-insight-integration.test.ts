@@ -139,6 +139,16 @@ describe('db.ts 洞察查询 (真实 SQL)', () => {
     expect(activities.map((a) => a.activityId)).toEqual([2]);
   });
 
+  test('getPeerActivities 同路线也按距离带过滤 (5K 不与 30K 直接对比)', async () => {
+    const db = await loadDb();
+    // 默认 ±25%: 8km → 6–10km, 7km 仍在
+    expect(db.getPeerActivities(1, '两江新区', 8).activities.map((a) => a.activityId)).toEqual([2]);
+    // 收紧到 ±10% 路线 / ±1% 距离: 7km 均被排除 → 回退距离口径且为空
+    const tight = db.getPeerActivities(1, '两江新区', 8, 0.01, 0.1);
+    expect(tight.basis).toBe('distance');
+    expect(tight.activities).toEqual([]);
+  });
+
   test('getPeerActivities 无路线时按相近距离回退', async () => {
     const db = await loadDb();
     // 8km 与 7km 相近 (±25%): 查 activity 1 (8km) 应找到 activity 2 (7km)

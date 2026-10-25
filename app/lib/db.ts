@@ -1171,17 +1171,24 @@ export function getPeerActivities(
   activityId: number,
   routeKey: string | null,
   distanceKm: number,
+  /** 同距离回退的容差（±比例，默认 0.25）。活动 AI 教练用 0.1 取更可比的样本。 */
+  distanceTolerance = 0.25,
+  /** 同路线样本的距离带（±比例，默认 0.25）：避免把同一条路线的 5K 与 30K 直接对比。 */
+  routeDistanceTolerance = 0.25,
 ): { activities: { activityId: number; date: string; name: string; distanceKm: number; paceSecPerKm: number | null; heartRate: number | null }[]; basis: 'route' | 'distance' } {
   const db = getDatabase();
   // 路线: 名称以 "<routeKey> -" 开头 或 名称恰为 routeKey; 距离相近 (±30%) 辅助
   if (routeKey) {
+    const routeLo = distanceKm > 0 ? distanceKm * (1 - routeDistanceTolerance) : 0;
+    const routeHi = distanceKm > 0 ? distanceKm * (1 + routeDistanceTolerance) : Number.MAX_SAFE_INTEGER;
     const rows = db.prepare(
       `SELECT activity_id, name, start_time_local, distance, average_pace, average_heart_rate
        FROM activities
        WHERE activity_id != ?
          AND (name = ? OR name LIKE ?)
+         AND distance >= ? AND distance <= ?
        ORDER BY start_time_local`
-    ).all(activityId, routeKey, `${routeKey} -%`) as {
+    ).all(activityId, routeKey, `${routeKey} -%`, routeLo, routeHi) as {
       activity_id: number;
       name: string;
       start_time_local: string;
@@ -1204,8 +1211,8 @@ export function getPeerActivities(
     }
   }
   // 回退: 相近距离 (±25%, 至少 8km 以上才比较)
-  const lo = distanceKm * 0.75;
-  const hi = distanceKm * 1.25;
+  const lo = distanceKm * (1 - distanceTolerance);
+  const hi = distanceKm * (1 + distanceTolerance);
   const rows = db.prepare(
     `SELECT activity_id, name, start_time_local, distance, average_pace, average_heart_rate
      FROM activities

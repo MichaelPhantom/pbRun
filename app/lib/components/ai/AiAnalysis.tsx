@@ -313,6 +313,8 @@ export function AiAnalysis({
 
   return (
     <SectionCard
+      id="ai-coach"
+      className="scroll-mt-20"
       title="AI 教练分析"
       accent
       action={
@@ -352,7 +354,7 @@ export function AiAnalysis({
       {configured && !hasAnalysis && status === 'idle' && (
         <p className="py-2 text-sm text-fg-muted">
           结合你的<span className="font-medium text-fg-secondary">个人基础（跑量 / 个人纪录 / 跑力趋势 / 疲劳状态）</span>
-          与本次活动的配速、心率、步频、分段表现，点击「生成分析」获取量身定制的专业解读与训练建议。生成后可继续追问。
+          与本次活动的配速、心率、步频、分段表现，并横向对比<span className="font-medium text-fg-secondary">同路线 / 同距离 / 同类训练</span>的可比样本，点击「生成分析」获取量身定制的专业解读与训练建议。生成后可继续追问。
         </p>
       )}
 

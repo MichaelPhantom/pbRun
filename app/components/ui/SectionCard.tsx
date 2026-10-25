@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 
 /** 一致卡面: 圆角 + 微阴影 + 边框, 可选标题/强调条/右侧动作 */
 export function SectionCard({
+  id,
   title,
   action,
   accent = false,
@@ -10,6 +11,7 @@ export function SectionCard({
   bodyClassName = "",
   noBodyPad = false,
 }: {
+  id?: string;
   title?: ReactNode;
   action?: ReactNode;
   accent?: boolean;
@@ -19,7 +21,7 @@ export function SectionCard({
   noBodyPad?: boolean;
 }) {
   return (
-    <section className={`card ${className}`}>
+    <section id={id} className={`card ${className}`}>
       {(title || action) && (
         <header className="flex items-center justify-between gap-3 border-b border-border px-4 py-3 sm:px-5">
           <div className="flex min-w-0 items-center gap-2.5">

@@ -104,6 +104,8 @@ export interface ComparisonPeerInput {
 export interface CurrentActivity {
   activityId: number;
   date: string;
+  /** 活动名称（用于训练类别推断；缺省时仅按距离推断）。 */
+  name?: string | null;
   distanceKm: number;
   paceSecPerKm: number | null;
   heartRate: number | null;
@@ -122,7 +124,7 @@ export function computeComparison(
   if (peers.length === 0) return null;
 
   const all = [
-    { activityId: current.activityId, date: current.date, name: '本次', distanceKm: current.distanceKm, paceSecPerKm: current.paceSecPerKm, heartRate: current.heartRate, category: classifyActivity('本次', current.distanceKm) },
+    { activityId: current.activityId, date: current.date, name: current.name ?? '本次', distanceKm: current.distanceKm, paceSecPerKm: current.paceSecPerKm, heartRate: current.heartRate, category: classifyActivity(current.name ?? '本次', current.distanceKm) },
     ...peers.map((p) => ({ ...p, category: classifyActivity(p.name, p.distanceKm) })),
   ];
 
@@ -148,7 +150,7 @@ export function computeComparison(
   const groupBestPaceSecPerKm = allPace.length ? Math.min(...allPace) : null;
 
   // 分类对标: 仅取与本次同训练类别的样本, 给出同类排名/同类均值 (更公平的同类比较)
-  const currentCategory = classifyActivity('本次', current.distanceKm);
+  const currentCategory = classifyActivity(current.name ?? '本次', current.distanceKm);
   const sameCatPaced = paced.filter((p) => p.category === currentCategory && p.paceSecPerKm! > 0);
   let sameCategory: ActivityComparison['sameCategory'] = null;
   if (sameCatPaced.length >= 2) {

@@ -129,6 +129,23 @@ describe('computeComparison', () => {
     expect(r.sameCategory).toBeNull();
   });
 
+  test('本次类别按活动名称推断（回归: 曾恒按「本次」判为 other）', () => {
+    const cur = {
+      ...current,
+      name: '两江新区 - 节奏跑',
+      distanceKm: 8,
+      paceSecPerKm: 340,
+    };
+    const peersNamed = [
+      { activityId: 1, date: '2026-07-01', name: '两江新区 - 节奏跑2', distanceKm: 8, paceSecPerKm: 355, heartRate: 170 },
+      { activityId: 2, date: '2026-08-01', name: '两江新区 - 节奏跑3', distanceKm: 8, paceSecPerKm: 330, heartRate: 170 },
+    ];
+    const r = computeComparison('route', 'x', cur, peersNamed)!;
+    expect(r.currentCategory).toBe('tempo');
+    expect(r.sameCategory?.category).toBe('tempo');
+    expect(r.sameCategory?.count).toBe(3);
+  });
+
   test('peers 最多 8 条', () => {
     const many = Array.from({ length: 12 }, (_, i) => ({
       activityId: i + 1,

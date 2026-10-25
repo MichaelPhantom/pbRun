@@ -28,6 +28,7 @@ export function getActivityInsight(activityId: number): ActivityInsightResponse 
     {
       activityId,
       date: (activity.start_time_local || activity.start_time || '').slice(0, 10),
+      name: activity.name,
       distanceKm,
       paceSecPerKm: activity.average_pace ?? null,
       heartRate: activity.average_heart_rate ?? null,

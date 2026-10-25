@@ -26,6 +26,7 @@ const SYSTEM_PROMPT = `你是一位世界顶级的精英跑步教练与运动科
 3. **数据交叉验证**：不孤立看单一指标，而是交叉分析配速 - 心率关系、步频 - 步幅经济性、心率漂移与疲劳关联等。
 4. **可执行性导向**：所有建议必须具体、可量化、可落地（明确配速区间、距离、时长、频率、强度）。
 5. **风险预警意识**：识别过度训练、受伤风险、恢复不足等隐患，及时给出调整建议。
+6. **横向可比优先**：优先使用【本次表现与可比样本】中的**同路线/同距离/同类训练**样本做横向定位（本次处于什么水平、比历史快慢多少、同类排名如何）；不要用跨全历史的宏观趋势替代对当次的解读。
 
 【分析框架（逐项覆盖）】
 
@@ -59,10 +60,12 @@ const SYSTEM_PROMPT = `你是一位世界顶级的精英跑步教练与运动科
 - **疲劳管理**：是否在疲劳日强行高强度？是否需要调整？
 - **恢复建议**：本次后需要多少恢复时间？推荐何种恢复方式？
 
-### 6. 长期趋势与能力发展
-- **VDOT 轨迹**：当前 VDOT 与历史对比，处于上升/平台/下降期？
-- **能力短板**：基于本次表现，识别主要限制因素（有氧基础？无氧能力？跑步经济性？）
-- **潜力评估**：基于当前数据和历史进步速度，预测短期可达成的目标
+### 6. 横向定位（本次 vs 可比样本）
+- **同路线/同名对比**：本次配速/心率在历史同行中的排名，与路线均值、路线最佳的差距
+- **同距离对比**：±10% 距离样本中的位置，避免拿 5K 与全马直接比较
+- **同类训练对比**：同一训练类别（轻松/节奏/阈值/间歇/长距离/比赛）内的排名与均值
+- **能力短板**：基于本次在可比样本中的相对表现，识别主要限制因素（有氧基础？无氧能力？跑步经济性？）
+- **长期趋势仅作背景**：跑力/负荷趋势只用于解释当次状态，不作为当次分析的主线
 
 【输出格式规范】
 
@@ -116,6 +119,7 @@ const SYSTEM_PROMPT = `你是一位世界顶级的精英跑步教练与运动科
 【写作纪律】
 - **篇幅优先级**：全文控制在 1500 字以内；若内容过多，优先保证「📊一句话总评」「🎯训练性质与执行质量」「🏃下次训练处方」三项完整，「📈深度数据分析」按重要性取舍，不要为了凑满六个板块而稀释重点。
 - **数据说话**：每条结论必须有具体数据支撑（配速 min/km、心率 bpm、步频 spm、距离 km、时长分:秒）
+- **可比优先**：凡涉及“快/慢/好/差”的判断，先引用可比样本（同路线/同距离/同类）的排名或差值；没有可比样本时才退回个人长期基准
 - **专业但不晦涩**：解释专业术语（如"心率漂移"、"脱耦"），让不同水平的跑者都能理解
 - **针对性极强**：避免通用模板，必须结合【跑者画像】和本次具体数据
 - **可执行性强**：建议必须具体到数字、区间、频率，而非模糊描述
@@ -277,8 +281,9 @@ export function buildFollowupMessages(
   profileBlock: string,
   history: ChatMessage[],
   question: string,
+  contextBlock = '',
 ): ChatMessage[] {
-  const base = buildAnalysisMessages(activity, laps, profileBlock);
+  const base = buildAnalysisMessages(activity, laps, profileBlock, contextBlock);
   // base = [system, activityUser]; 取 system + 活动数据作为长期上下文
   const system: ChatMessage = base[0];
   const activityTurn: ChatMessage = base[1];
@@ -302,11 +307,14 @@ export function buildFollowupMessages(
 
 /** 构造单次活动 AI 分析用的 chat 消息 (system + user)。
  *  profileBlock 为【跑者画像】文本 (见 runner-profile); 注入在活动数据之前,
- *  使模型先建立个人基准再解读本次表现。 */
+ *  使模型先建立个人基准再解读本次表现。
+ *  contextBlock 为【本次表现与可比样本】文本 (见 activity-coach-context);
+ *  注入在活动数据之后, 提供同路线/同距离/同类横向参照。 */
 export function buildAnalysisMessages(
   activity: Activity,
   laps: ActivityLap[],
   profileBlock = '',
+  contextBlock = '',
 ): ChatMessage[] {
   // activities.distance 在 DB 中即为公里 (详情页/列表页/MCP 均按公里使用); 仅 laps 距离为米。
   const dist = activity.distance ?? 0;
@@ -347,7 +355,7 @@ TSS: ${fmtNum(activity.training_stress_score, 0)}  IF: ${fmtNum(activity.intensi
 心率区间时间: ${fmtZoneTimes(activity.time_in_hr_zone)}
 
 【每公里分段】（区间为累计距离，非序号）
-${lapLines || '(无分段数据)'}`;
+${lapLines || '(无分段数据)'}${contextBlock ? `\n\n${contextBlock}` : ''}`;
 
   return [
     { role: 'system', content: SYSTEM_PROMPT },

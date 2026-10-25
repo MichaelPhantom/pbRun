@@ -28,6 +28,11 @@ jest.mock('@/app/lib/runner-profile', () => ({
   formatRunnerProfile: jest.fn(() => '【跑者画像】'),
 }));
 
+const mockContextBlock = '【本次表现与可比样本】\n同距离样本: 样本 3 次';
+jest.mock('@/app/lib/activity-coach-context-service', () => ({
+  buildActivityContextBlock: jest.fn(() => mockContextBlock),
+}));
+
 const activity = {
   activity_id: 1,
   name: '测试跑',
@@ -106,6 +111,7 @@ describe('请求体解析', () => {
       activity,
       [],
       '【跑者画像】',
+      mockContextBlock,
     );
     expect(llm.buildFollowupMessages).not.toHaveBeenCalled();
     expect(runCoachStream.mock.calls[0][0]).toMatchObject({
@@ -130,6 +136,7 @@ describe('请求体解析', () => {
       '【跑者画像】',
       history,
       '继续说说', // 已 trim
+      mockContextBlock,
     );
     expect(llm.buildAnalysisMessages).not.toHaveBeenCalled();
   });

@@ -83,6 +83,20 @@ describe('buildAnalysisMessages', () => {
     expect(user.content).not.toContain('【跑者画像】');
   });
 
+  test('contextBlock 非空时追加在活动数据之后（可比样本）', () => {
+    const block = '【本次表现与可比样本】\n同路线/同名样本: 样本 5 次（含本次）';
+    const [, user] = buildAnalysisMessages(fakeActivity(), [], '', block);
+    expect(user.content).toContain('【本次表现与可比样本】');
+    expect(user.content.indexOf('【每公里分段】')).toBeLessThan(
+      user.content.indexOf('【本次表现与可比样本】'),
+    );
+  });
+
+  test('contextBlock 缺省时不出现可比样本段', () => {
+    const [, user] = buildAnalysisMessages(fakeActivity(), []);
+    expect(user.content).not.toContain('【本次表现与可比样本】');
+  });
+
   test('system prompt 含因材施教与深度分析要求', () => {
     const [system] = buildAnalysisMessages(fakeActivity(), []);
     // 个性化解读以跑者画像为基准
@@ -148,6 +162,19 @@ describe('buildFollowupMessages', () => {
   test('画像块注入 activity 上下文', () => {
     const msgs = buildFollowupMessages(fakeActivity(), [], '【跑者画像】X', [], '追问');
     expect(msgs[1].content).toContain('【跑者画像】X');
+  });
+
+  test('可比样本块在多轮追问中保留', () => {
+    const msgs = buildFollowupMessages(
+      fakeActivity(),
+      [],
+      '【跑者画像】X',
+      [],
+      '追问',
+      '【本次表现与可比样本】\n同距离样本: 样本 3 次',
+    );
+    expect(msgs[1].content).toContain('【本次表现与可比样本】');
+    expect(msgs[1].content).toContain('同距离样本');
   });
 
   test('过滤非法 role 与超长历史, 只保留最近 12 轮', () => {

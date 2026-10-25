@@ -33,10 +33,6 @@ jest.mock('@/app/lib/llm', () => ({
   buildAnalysisRequestBody: jest.fn((model: string) => ({ model, messages: [] })),
 }));
 
-jest.mock('@/app/lib/coach-context', () => ({
-  buildRecentContextBlock: jest.fn(() => ''),
-}));
-
 function makeRequest(model = 'kimi-k3'): NextRequest {
   return new NextRequest('http://localhost/api/activities/1/analysis', {
     method: 'POST',

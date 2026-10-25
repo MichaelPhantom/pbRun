@@ -22,6 +22,7 @@ import {
 import { runCoachStream } from '@/app/lib/coach-stream';
 import { DEFAULT_MODEL, resolveRequestedModel } from '@/app/lib/model-curation';
 import { buildRunnerProfile, formatRunnerProfile } from '@/app/lib/runner-profile';
+import { buildActivityContextBlock } from '@/app/lib/activity-coach-context-service';
 
 export const dynamic = 'force-dynamic';
 
@@ -64,10 +65,12 @@ export async function POST(
 
   // 跑者画像（长期基础 + 近期状态；内部吞错降级，失败时为空串，不阻塞主流程）。
   const profileBlock = formatRunnerProfile(buildRunnerProfile(activity));
-  // 有 question → 多轮追问 (保留 system+活动数据+历史); 否则初次分析。
+  // 本次表现 + 同路线/同距离/同类横向样本（单次分析的核心参照；失败降级为空串）。
+  const contextBlock = buildActivityContextBlock(activity);
+  // 有 question → 多轮追问 (保留 system+活动数据+可比样本+历史); 否则初次分析。
   const messages = question
-    ? buildFollowupMessages(activity, laps, profileBlock, history, question)
-    : buildAnalysisMessages(activity, laps, profileBlock);
+    ? buildFollowupMessages(activity, laps, profileBlock, history, question, contextBlock)
+    : buildAnalysisMessages(activity, laps, profileBlock, contextBlock);
 
   return runCoachStream({
     baseUrl: cfg.baseUrl,

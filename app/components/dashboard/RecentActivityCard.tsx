@@ -49,6 +49,9 @@ export function RecentActivityCard({ activity }: { activity: Activity }) {
           )}
         </div>
       )}
+      <span className="mt-0.5 text-[10px] font-medium text-[var(--brand-text)]">
+        查看详情 · AI 复盘 →
+      </span>
     </Link>
   );
 }

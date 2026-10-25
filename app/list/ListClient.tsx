@@ -334,6 +334,9 @@ function ActivityCard({
             <span className="font-medium text-fg-secondary">{a.vdot_value.toFixed(1)}</span> 即时跑力
           </span>
         )}
+        <span className="ml-auto text-[11px] font-medium text-[var(--brand-text)]">
+          查看详情 · AI 复盘 →
+        </span>
       </div>
     </button>
   );
