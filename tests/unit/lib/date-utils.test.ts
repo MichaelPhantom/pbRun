@@ -4,6 +4,7 @@ import {
   monthToRange,
   isoWeekOf,
   periodKeyOf,
+  previousDateRange,
   timeRangeLabel,
   TIME_RANGE_DAYS_OPTIONS,
 } from '@/app/lib/date-utils';
@@ -98,6 +99,32 @@ describe('date-utils', () => {
       expect(timeRangeLabel(365)).toBe('近一年');
       expect(timeRangeLabel(0)).toBe('全部');
       expect(timeRangeLabel(42)).toBe('42天');
+    });
+  });
+
+  describe('previousDateRange', () => {
+    test('30 天窗口 → 前一个 30 天窗口', () => {
+      expect(previousDateRange('2026-09-26', '2026-10-25')).toEqual({
+        startDate: '2026-08-27',
+        endDate: '2026-09-25',
+      });
+    });
+
+    test('单日 / 跨月 / 跨年', () => {
+      expect(previousDateRange('2026-10-25', '2026-10-25')).toEqual({
+        startDate: '2026-10-24',
+        endDate: '2026-10-24',
+      });
+      expect(previousDateRange('2026-01-01', '2026-01-07')).toEqual({
+        startDate: '2025-12-25',
+        endDate: '2025-12-31',
+      });
+    });
+
+    test('非法/倒置 → null', () => {
+      expect(previousDateRange('2026-10-25', '2026-10-01')).toBeNull();
+      expect(previousDateRange('2026/10/25', '2026-10-26')).toBeNull();
+      expect(previousDateRange('not-a-date', '2026-10-26')).toBeNull();
     });
   });
 

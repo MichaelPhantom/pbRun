@@ -11,9 +11,14 @@ import {
 import { runCoachStream } from '@/app/lib/coach-stream';
 import { DEFAULT_MODEL, resolveRequestedModel } from '@/app/lib/model-curation';
 import { formatInsightForCoach } from '@/app/lib/insight-coach';
-import { getDateRangeFromDays, parseTimeRangeDays } from '@/app/lib/date-utils';
+import {
+  getDateRangeFromDays,
+  parseTimeRangeDays,
+  previousDateRange,
+} from '@/app/lib/date-utils';
+import { formatPeriodComparison } from '@/app/lib/period-comparison';
 import { parseDateParam } from '@/app/lib/query-params';
-import { getActivities } from '@/app/lib/db';
+import { getActivities, getPeriodStats } from '@/app/lib/db';
 
 export const dynamic = 'force-dynamic';
 
@@ -81,6 +86,22 @@ export async function POST(request: NextRequest) {
       profileBlock = '';
     }
 
+    // 环比：当前区间 vs 上一个等长区间（全部历史无「上一区间」，自动跳过）。
+    let comparisonBlock = '';
+    if (startDate !== '2000-01-01') {
+      try {
+        const prev = previousDateRange(startDate, endDate);
+        if (prev) {
+          comparisonBlock = formatPeriodComparison(
+            getPeriodStats(startDate, endDate),
+            getPeriodStats(prev.startDate, prev.endDate),
+          );
+        }
+      } catch {
+        /* 环比失败不影响主流程 */
+      }
+    }
+
     ctx = {
       profileBlock,
       insightBlock: formatInsightForCoach(insight),
@@ -88,6 +109,7 @@ export async function POST(request: NextRequest) {
         startDate === '2000-01-01'
           ? `全部历史（截至 ${endDate}）`
           : `${startDate} ~ ${endDate}`,
+      comparisonBlock,
     };
   } catch (error) {
     console.error('Error building global coach context:', error);

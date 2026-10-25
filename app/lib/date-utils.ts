@@ -45,6 +45,27 @@ export function parseTimeRangeDays(param: string | null): TimeRangeDays {
   return 30;
 }
 
+/**
+ * 上一个等长区间（含首尾），用于汇总 AI 的环比上下文。
+ * 例: 2026-09-26 ~ 2026-10-25（30 天）→ 2026-08-27 ~ 2026-09-25。
+ * 非法/倒置区间返回 null，由调用方省略环比段。
+ */
+export function previousDateRange(
+  startDate: string,
+  endDate: string,
+): { startDate: string; endDate: string } | null {
+  const re = /^\d{4}-\d{2}-\d{2}$/;
+  if (!re.test(startDate) || !re.test(endDate) || startDate > endDate) return null;
+  const start = new Date(`${startDate}T00:00:00Z`).getTime();
+  const end = new Date(`${endDate}T00:00:00Z`).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+  const days = Math.round((end - start) / 86_400_000) + 1;
+  if (days <= 0) return null;
+  const prevEnd = localDateMinusDays(startDate, 1);
+  const prevStart = localDateMinusDays(prevEnd, days - 1);
+  return { startDate: prevStart, endDate: prevEnd };
+}
+
 /** 某月 startDate/endDate（用于 API 查询） */
 export function monthToRange(yearMonth: string): { startDate: string; endDate: string } {
   const [y, m] = yearMonth.split('-').map(Number);

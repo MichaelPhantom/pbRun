@@ -103,6 +103,20 @@ describe('buildGlobalCoachMessages', () => {
     expect(msgs[1].content).toContain('2026-06-01 ~ 2026-09-22');
   });
 
+  test('注入区间环比块 (当前 vs 上一等长区间)', () => {
+    const msgs = buildGlobalCoachMessages({
+      profileBlock: 'P',
+      insightBlock: 'I',
+      rangeLabel: 'R',
+      comparisonBlock: '【区间环比】\n- 跑量: 120.0 km vs 100.0 km（+20.0%）',
+    });
+    expect(msgs[1].content).toContain('【区间环比】');
+    expect(msgs[1].content).toContain('+20.0%');
+    expect(msgs[1].content.indexOf('I')).toBeLessThan(
+      msgs[1].content.indexOf('【区间环比】'),
+    );
+  });
+
   test('追问保留 system + 上下文 + 历史 + 新问题', () => {
     const msgs = buildGlobalCoachFollowupMessages(
       { profileBlock: 'P', insightBlock: 'I', rangeLabel: 'R' },

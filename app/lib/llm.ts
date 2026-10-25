@@ -376,7 +376,8 @@ const GLOBAL_COACH_PROMPT = `你是一位世界顶级的精英跑步教练团队
 
 【核心方法】
 1. **全局视角**：把每一类训练、每一个阶段放进整体训练体系中评估，而非孤立看待。
-2. **趋势优先**：关注随时间的变化（进步/平台/退步），用数据说话。
+2. **环比与趋势优先**：先看【区间环比】（当前 vs 上一等长区间）的跑量/配速/跑力/负荷变化，
+   再看区间内的逐周趋势；区分「结构性进步」与「单次波动」。
 3. **结构平衡**：评估强度分布（80/20 原则）、类别配比、负荷递增节奏是否科学。
 4. **短板诊断**：从类别对比、气温影响、路线对比、有氧解耦等多维数据中定位限制因素。
 5. **周期化与风险**：识别当前所处训练阶段，预警过度训练/负荷突增/结构失衡风险。
@@ -387,6 +388,7 @@ const GLOBAL_COACH_PROMPT = `你是一位世界顶级的精英跑步教练团队
 用 2-3 句概括当前训练状态与最大问题/优势。
 
 ## 📈 能力演进
+- 先引用【区间环比】的跑量/平均配速/平均跑力/训练负荷变化，再结合区间内逐周趋势判断进步/平台/退步。
 - VDOT 趋势、有氧效率、跑姿经济性的长期变化。
 
 ## 🧩 训练结构评估
@@ -418,11 +420,15 @@ export interface GlobalCoachContext {
   insightBlock: string;
   /** 数据区间描述, 如 "近 180 天"。 */
   rangeLabel: string;
+  /** 区间环比文本块（当前 vs 上一等长区间）；无基线时为空/缺省。 */
+  comparisonBlock?: string;
 }
 
 /** 构造全局教练分析消息 (system + user)。 */
 export function buildGlobalCoachMessages(ctx: GlobalCoachContext): ChatMessage[] {
-  const user = `${ctx.profileBlock ? ctx.profileBlock + '\n\n' : ''}${ctx.insightBlock}
+  const user = `${ctx.profileBlock ? ctx.profileBlock + '\n\n' : ''}${ctx.insightBlock}${
+    ctx.comparisonBlock ? `\n\n${ctx.comparisonBlock}` : ''
+  }
 
 【分析任务】
 请基于以上【跑者画像】与【全局训练指标】（数据区间：${ctx.rangeLabel}），进行一次世界顶级教练水准的综合诊断与长期辅导。覆盖能力演进、训练结构、多维洞察、优势短板与未来规划。`;

@@ -38,6 +38,16 @@ jest.mock('@/app/lib/llm', () => {
 
 jest.mock('@/app/lib/db', () => ({
   getActivities: jest.fn(() => ({ data: [{ activity_id: 1, name: 'x' }], pagination: { page: 1, limit: 1, total: 1 } })),
+  getPeriodStats: jest.fn((startDate: string, endDate: string) => ({
+    startDate,
+    endDate,
+    totalActivities: 10,
+    totalDistance: 100000,
+    totalDuration: 36000,
+    avgPace: 360,
+    avgVDOT: 40,
+    totalTrainingLoad: 600,
+  })),
 }));
 
 import * as activityService from '@/app/lib/activity-insight-service';
@@ -84,6 +94,11 @@ describe('/api/insight/coach', () => {
   test('无 body → 仍可工作 (默认参数)', async () => {
     const req = new NextRequest('http://localhost/api/insight/coach', { method: 'POST' });
     const res = await coachPOST(req);
+    expect(res.status).toBe(200);
+  });
+
+  test('days=0 (全部历史) → 跳过环比且正常出流', async () => {
+    const res = await coachPOST(postReq({ days: 0 }));
     expect(res.status).toBe(200);
   });
 });
