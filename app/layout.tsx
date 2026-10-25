@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Link from "next/link";
 import TopNav from "./components/TopNav";
+import ThemeToggle from "./components/ThemeToggle";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -29,6 +30,17 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen bg-bg text-fg`}
       >
+        {/* 首屏前落地主题: 显式档先写 data-theme, 避免"先白后暗"闪一下。
+            auto 档刻意不写, 交给 CSS 的 prefers-color-scheme 跟随系统。 */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              'try{var t=localStorage.getItem("pbrun.theme");' +
+              'if(t==="light"||t==="dark"){document.documentElement.setAttribute("data-theme",t);' +
+              'document.documentElement.setAttribute("data-theme-mode",t);}' +
+              'else{document.documentElement.setAttribute("data-theme-mode","auto");}}catch(e){}',
+          }}
+        />
         <a
           href="#main-content"
           className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[100] focus:rounded-md focus:bg-[var(--brand-strong)] focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-[var(--brand-fg)]"
@@ -45,7 +57,10 @@ export default function RootLayout({
                 pb<span className="text-[var(--brand-text)]">Run</span>
               </span>
             </Link>
-            <TopNav />
+            <div className="flex min-w-0 items-center gap-1">
+              <TopNav />
+              <ThemeToggle />
+            </div>
           </div>
         </header>
         <main

@@ -1,5 +1,6 @@
 'use client';
 
+import { overflowTone } from "@/app/lib/viz";
 import Link from 'next/link';
 import { useMemo } from 'react';
 import VDOTTrendChart from '@/app/lib/components/charts/VDOTTrendChart';
@@ -190,7 +191,7 @@ export default function AnalysisClient({
               <ul className="space-y-2 text-xs">
                 {hrZoneOverflow.map((item) => (
                   <li key={item.label}>
-                    <span className={item.type === 'over' ? 'text-[var(--warn-text)]' : 'text-[var(--warn-text)]'}>
+                    <span className={overflowTone(item.type)}>
                       {item.label}：当前 <span className="font-medium">{item.actual}%</span>，{item.limit}
                     </span>
                     <p className="mt-0.5 leading-relaxed text-fg-muted">{item.hint}</p>

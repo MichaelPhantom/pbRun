@@ -2,6 +2,7 @@
 
 import { useEchart } from "@/app/lib/components/charts/useEchart";
 import { cssVar } from "@/app/lib/echarts-theme";
+import { HEAT_BANDS } from "@/app/lib/viz";
 import type { EChartsOption } from "echarts";
 
 export interface HeatmapDay {
@@ -69,7 +70,8 @@ export function YearHeatmap({
           max,
           show: false,
           type: "continuous",
-          inRange: { color: ["#86efac", "#34d399", "#10b981", "#059669", "#065f46"] },
+          // 5 档顺序色阶: 与首页图例同源 (HEAT_BANDS → --seq-1..5), 亮暗自动反转
+          inRange: { color: HEAT_BANDS.map((b) => cssVar(b, "#3987e5")) },
         },
         calendar: {
           top: 30,

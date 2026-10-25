@@ -72,9 +72,17 @@ export function RouteMap({ track, height = 360 }: { track: ActivityTrack; height
     L.circleMarker(gcj[0], {
       radius: 7, color: "#fff", weight: 2, fillColor: good, fillOpacity: 1,
     }).addTo(map);
+    // 终点: 红色**方块**。旧版起点/终点都是绿色圆点 (只差明度) —— 色觉障碍无法区分,
+    // 也没有图例说明; 现在颜色 + 形状双区分, 并在容器内给图例。
     const last = gcj[gcj.length - 1];
-    L.circleMarker(last, {
-      radius: 7, color: "#fff", weight: 2, fillColor: brand, fillOpacity: 1,
+    L.marker(last, {
+      icon: L.divIcon({
+        className: "route-end-marker",
+        html: '<span class="route-end-dot"></span>',
+        iconSize: [14, 14],
+        iconAnchor: [7, 7],
+      }),
+      keyboard: false,
     }).addTo(map);
 
     // 适配路径范围 (短路径避免过度放大)
@@ -99,13 +107,24 @@ export function RouteMap({ track, height = 360 }: { track: ActivityTrack; height
   }, [track, height]);
 
   return (
-    <div
-      ref={containerRef}
-      className="route-map relative w-full overflow-hidden rounded-xl border border-border bg-surface"
-      style={{ height }}
-      role="img"
-      aria-label="活动路线地图"
-    />
+    <div className="relative">
+      <div
+        ref={containerRef}
+        className="route-map relative w-full overflow-hidden rounded-xl border border-border bg-surface"
+        style={{ height }}
+        role="application"
+        tabIndex={0}
+        aria-label="活动路线地图：可拖动缩放，键盘方向键可平移"
+      />
+      <div className="pointer-events-none absolute bottom-2 left-2 z-[800] flex items-center gap-3 rounded-md bg-bg/85 px-2 py-1 text-[10px] text-fg-secondary backdrop-blur-sm">
+        <span className="flex items-center gap-1">
+          <i className="h-2 w-2 rounded-full bg-[var(--good)]" aria-hidden="true" />起点
+        </span>
+        <span className="flex items-center gap-1">
+          <i className="h-2 w-2 rounded-[2px] bg-[var(--crit)]" aria-hidden="true" />终点
+        </span>
+      </div>
+    </div>
   );
 }
 

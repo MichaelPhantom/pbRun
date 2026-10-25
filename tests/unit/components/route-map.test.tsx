@@ -21,6 +21,8 @@ jest.mock('leaflet', () => {
       tileLayer: jest.fn(() => ({ addTo })),
       polyline: jest.fn(() => ({ addTo })),
       circleMarker: jest.fn(() => ({ addTo })),
+      marker: jest.fn(() => ({ addTo })),
+      divIcon: jest.fn((opts: unknown) => opts),
       latLngBounds: jest.fn(() => 'bounds'),
       __addTo: addTo,
       __mapObj: mapObj,
@@ -37,6 +39,8 @@ const leaflet = L as unknown as {
   tileLayer: jest.Mock;
   polyline: jest.Mock;
   circleMarker: jest.Mock;
+  marker: jest.Mock;
+  divIcon: jest.Mock;
   latLngBounds: jest.Mock;
   __addTo: jest.Mock;
   __mapObj: { fitBounds: jest.Mock; invalidateSize: jest.Mock; remove: jest.Mock };
@@ -59,7 +63,12 @@ test('正常轨迹 → 底图/双层路径/起终点 + GCJ-02 中心 + fitBounds
   ];
   const { unmount } = render(<RouteMap track={trackOf(coords)} height={300} />);
 
-  expect(screen.getByRole('img', { name: '活动路线地图' })).toBeInTheDocument();
+  expect(
+    screen.getByRole('application', { name: /活动路线地图/ }),
+  ).toBeInTheDocument();
+  // 图例: 起点圆 / 终点方块 —— 不只靠颜色区分 (色觉障碍)
+  expect(screen.getByText('起点')).toBeInTheDocument();
+  expect(screen.getByText('终点')).toBeInTheDocument();
   expect(leaflet.map).toHaveBeenCalledTimes(1);
 
   const center = (leaflet.map.mock.calls[0][1] as { center: [number, number] }).center;
@@ -72,7 +81,10 @@ test('正常轨迹 → 底图/双层路径/起终点 + GCJ-02 中心 + fitBounds
   const tileUrl = (leaflet.tileLayer.mock.calls[0][0] as string) ?? '';
   expect(tileUrl).toContain('autonavi.com');
   expect(leaflet.polyline).toHaveBeenCalledTimes(2); // 白描边 + 品牌色
-  expect(leaflet.circleMarker).toHaveBeenCalledTimes(2); // 起 / 终
+  expect(leaflet.circleMarker).toHaveBeenCalledTimes(1); // 起点 (绿圆)
+  expect(leaflet.marker).toHaveBeenCalledTimes(1);       // 终点 (红方块 DivIcon)
+  const iconOpts = leaflet.divIcon.mock.calls[0][0] as { html: string };
+  expect(iconOpts.html).toContain('route-end-dot');
   expect(leaflet.latLngBounds).toHaveBeenCalledWith(expect.any(Array));
   expect(leaflet.__mapObj.fitBounds).toHaveBeenCalledWith('bounds', {
     padding: [24, 24],

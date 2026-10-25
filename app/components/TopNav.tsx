@@ -32,7 +32,7 @@ export default function TopNav() {
             key={href}
             href={href}
             aria-current={active ? "page" : undefined}
-            className={`seg-btn rounded-full px-3 py-1.5 text-xs font-medium sm:px-3.5 sm:text-sm ${
+            className={`seg-btn rounded-full px-2 py-1.5 text-[11px] font-medium sm:px-3.5 sm:text-sm ${
               active ? "bg-surface text-[var(--brand-text)] shadow-sm" : "text-fg-secondary hover:text-fg"
             }`}
             data-active={active}

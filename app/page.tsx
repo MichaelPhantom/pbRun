@@ -9,6 +9,7 @@ import { Badge } from "@/app/components/ui/Badge";
 import { Sparkline } from "@/app/components/ui/Sparkline";
 import { Donut, type DonutDatum } from "@/app/components/ui/Donut";
 import { YearHeatmap } from "@/app/components/ui/YearHeatmap";
+import { HEAT_BANDS } from "@/app/lib/viz";
 import { RecentActivityCard } from "@/app/components/dashboard/RecentActivityCard";
 
 export const dynamic = "force-dynamic";
@@ -184,10 +185,10 @@ export default async function DashboardPage() {
         <div className="mt-2 flex items-center justify-end gap-1.5 text-[10px] text-fg-muted">
           <span>少</span>
           <span className="h-2.5 w-2.5 rounded-[2px] bg-surface-2" />
-          <span className="h-2.5 w-2.5 rounded-[2px] bg-[#86efac]" />
-          <span className="h-2.5 w-2.5 rounded-[2px] bg-[#10b981]" />
-          <span className="h-2.5 w-2.5 rounded-[2px] bg-[#059669]" />
-          <span className="h-2.5 w-2.5 rounded-[2px] bg-[#065f46]" />
+          {/* 色阶与图表同源 (HEAT_BANDS): 旧版手写 4 色, 比 visualMap 少一档 */}
+          {HEAT_BANDS.map((v) => (
+            <span key={v} className="h-2.5 w-2.5 rounded-[2px]" style={{ background: `var(${v})` }} />
+          ))}
           <span>多</span>
         </div>
       </SectionCard>

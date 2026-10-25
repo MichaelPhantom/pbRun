@@ -55,7 +55,8 @@ export function registerPbrunThemes() {
     categoryAxis: { ...base.categoryAxis, axisLabel: { ...base.categoryAxis.axisLabel, color: "#52514e" } },
     valueAxis: {
       ...base.valueAxis,
-      axisLabel: { ...base.valueAxis.axisLabel, color: "#898781" },
+      // 与 --fg-muted 同值 (#898781 仅 3.32:1, 11px 轴标签不达 AA)
+      axisLabel: { ...base.valueAxis.axisLabel, color: "#6f6d66" },
       splitLine: { lineStyle: { type: "dashed", color: "#e1e0d9", opacity: 0.6 } },
     },
     tooltip: { ...base.tooltip, textStyle: { ...base.tooltip.textStyle, color: "#0b0b0b" } },
@@ -72,7 +73,8 @@ export function registerPbrunThemes() {
     categoryAxis: { ...base.categoryAxis, axisLabel: { ...base.categoryAxis.axisLabel, color: "#c3c2b7" } },
     valueAxis: {
       ...base.valueAxis,
-      axisLabel: { ...base.valueAxis.axisLabel, color: "#898781" },
+      // 深色 --fg-muted 同值
+      axisLabel: { ...base.valueAxis.axisLabel, color: "#96948d" },
       splitLine: { lineStyle: { type: "dashed", color: "#2c2c2a", opacity: 0.7 } },
     },
     tooltip: {

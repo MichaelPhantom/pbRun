@@ -297,3 +297,18 @@ html { scroll-behavior: smooth; scroll-padding-top: 5rem; }
 }
 .route-map-dark .leaflet-bar a { background: var(--surface); color: var(--fg); }
 .route-map-dark .leaflet-control-attribution { background: rgba(26,26,25,0.8); color: var(--fg-muted); }
+
+/* 语义文字色 (2026-10-25): TS 返回静态类名, 避免 Tailwind 动态类扫描不到 */
+.tone-crit { color: var(--crit-text); }
+.tone-warn { color: var(--warn-text); }
+
+/* 路线地图: 起点=绿色圆点 / 终点=红色方块 (颜色+形状双区分, 不只靠色相) */
+.route-end-dot {
+  display: block;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  background: var(--crit);
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25);
+}

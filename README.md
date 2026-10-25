@@ -322,6 +322,19 @@ npm run dev
    - 同步数据后自动提交到仓库
    - Vercel 检测到数据库更新后自动重新部署
 
+## 主题与可视化约定 (2026-10-25)
+
+- **三档主题**: 页眉右侧按钮循环 `跟随系统 → 亮色 → 暗色`, 落 `localStorage.pbrun.theme`;
+  `layout.tsx` 的内联脚本在首屏前落地显式档 (免闪色), `auto` 刻意不写 `data-theme`
+  交给 CSS 的 `prefers-color-scheme`。状态用 `data-theme-mode` + `useSyncExternalStore`
+  读取 (无 effect-setState, 不会水合错位); ECharts 由 `useEchart` 监听 `data-theme` 自动重建。
+- **色阶单一真源**: 年度热力图的图例与 ECharts `visualMap` 都从 `HEAT_BANDS`
+  (`--seq-1..5`) 取色 —— 旧版图例手写 4 色、图表 5 档, 按图例读色会得到错误量级。
+- **语义色**: 心率区间"超标"用 `crit`、"不足"用 `warn` (旧实现两个分支同色);
+  轴标签用 `--fg-muted` 同值 (`#6f6d66` / `#96948d`, AA)。
+- **路线图起点/终点**: 起点绿色圆点、终点**红色方块** (颜色+形状双区分, 不只靠色相),
+  容器内固定图例; 地图 `role="application"` (可交互, 不是静态图片) 且可 Tab 聚焦。
+
 ## 功能特性
 
 - ✅ **多数据源** - 支持 Garmin (国际区 API / 国区 CDP / 国区本地目录) 和 Strava API 导入
