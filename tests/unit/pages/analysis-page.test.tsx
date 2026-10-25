@@ -16,6 +16,13 @@ jest.mock('@/app/lib/db', () => ({
   getTrainingLoads: jest.fn(),
 }));
 
+// GlobalCoach: 纯展示 mock, 避免触发模型目录网络请求
+jest.mock('@/app/lib/components/ai/GlobalCoach', () => ({
+  GlobalCoach: ({ days }: { days: number }) => (
+    <div data-testid="global-coach">coach:{days}</div>
+  ),
+}));
+
 // 训练负荷图 mock → 捕获 data 以断言预热窗口被裁剪
 const loadChartProps: { data: { date: string }[] }[] = [];
 jest.mock('@/app/lib/components/charts/TrainingLoadChart', () => ({
@@ -199,13 +206,21 @@ describe('app/analysis/AnalysisClient.tsx 渲染', () => {
     expect(screen.getByText('Fatigue (ATL)')).toBeInTheDocument();
     expect(screen.getByText('Form (TSB)')).toBeInTheDocument();
 
-    // 分析范围 Segmented: 30/90/180 天
-    for (const d of [30, 90, 180]) {
-      expect(screen.getByRole('tab', { name: `${d}天` })).toHaveAttribute(
+    // 分析范围 Segmented: 近一周/近一月/近三月/近半年/全部
+    for (const [label, d] of [
+      ['近一周', 7],
+      ['近一月', 30],
+      ['近三月', 90],
+      ['近半年', 180],
+      ['全部', 0],
+    ] as const) {
+      expect(screen.getByRole('tab', { name: label })).toHaveAttribute(
         'href',
         `/analysis?days=${d}`,
       );
     }
+    // 汇总页 AI 教练与该页时间窗一致
+    expect(screen.getByTestId('global-coach')).toHaveTextContent('coach:90');
 
     // 心率区间占比 → Z3 超标 (5000/11500≈43% > 15%)
     expect(screen.getByText('明显超标 / 不足')).toBeInTheDocument();

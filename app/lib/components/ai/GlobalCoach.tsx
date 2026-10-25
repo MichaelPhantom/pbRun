@@ -8,6 +8,7 @@ import { ModelSelector } from './ModelSelector';
 import { useModelCatalog } from './useModelCatalog';
 import { useStickToBottom } from './useStickToBottom';
 import { streamChat, looksTruncated } from './stream-chat';
+import { timeRangeLabel } from '@/app/lib/date-utils';
 import type { ChatMessage } from '@/app/lib/llm';
 
 type Status = 'idle' | 'streaming' | 'done' | 'error';
@@ -27,9 +28,9 @@ interface Turn {
 const CACHE_KEY = 'pbrun.ai.coach.cache';
 
 /**
- * 全局 AI 教练 —— 基于全部历史训练数据的综合辅导。
+ * 全局 AI 教练 —— 基于所选区间（近一周/近一月/近半年/全部）的训练数据做综合辅导。
  * 与活动详情页的 AiAnalysis 同源 (共享 streamChat / 模型选择 / MarkdownLite),
- * 但上下文为【跑者画像 + 全局洞察指标】。
+ * 但上下文为【跑者画像 + 全局洞察指标 + 区间趋势】, 适合汇总页。
  */
 export function GlobalCoach({ days }: { days: number }) {
   const { models, configured, model, choose } = useModelCatalog();
@@ -176,6 +177,8 @@ export function GlobalCoach({ days }: { days: number }) {
 
   return (
     <SectionCard
+      id="ai-coach"
+      className="scroll-mt-20"
       title="AI 综合教练"
       accent
       action={
@@ -213,9 +216,9 @@ export function GlobalCoach({ days }: { days: number }) {
 
       {configured && !hasAnalysis && status === 'idle' && (
         <p className="py-2 text-sm text-fg-muted">
-          基于你的
+          基于你
           <span className="font-medium text-fg-secondary">
-            全部历史数据（跑者画像 + 跑力趋势 + 训练结构 + 类别/气温/路线对比 + 有氧效率）
+            {timeRangeLabel(days)}的跑者画像与全局洞察指标（跑力趋势 + 训练结构 + 类别/气温/路线对比 + 有氧效率）
           </span>
           ，给出世界顶级教练水准的综合诊断与长期规划。生成后可继续追问。
         </p>

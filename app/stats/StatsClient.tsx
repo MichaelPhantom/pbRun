@@ -3,8 +3,10 @@
 import { formatPace, formatDurationRecord } from '@/app/lib/format';
 import type { PersonalRecordsResponse, PersonalRecordItem } from '@/app/lib/types';
 import type { StatsResponse } from '@/app/lib/types';
+import type { TimeRangeDays } from '@/app/lib/date-utils';
 import { SectionCard } from '@/app/components/ui/SectionCard';
 import { Segmented } from '@/app/components/ui/Segmented';
+import { GlobalCoach } from '@/app/lib/components/ai/GlobalCoach';
 
 type StatsPeriod = 'week' | 'month' | 'year' | 'total';
 
@@ -13,6 +15,14 @@ const PERIOD_LABELS: Record<StatsPeriod, string> = {
   month: '月',
   year: '年',
   total: '总',
+};
+
+/** 统计周期 → AI 教练时间窗；「总」= 全部历史（0）。 */
+const COACH_DAYS: Record<StatsPeriod, TimeRangeDays> = {
+  week: 7,
+  month: 30,
+  year: 365,
+  total: 0,
 };
 
 function formatPeriodDateRange(
@@ -85,6 +95,9 @@ export default function StatsClient({ data, pr, period, currentVdot }: StatsClie
           </li>
         </ul>
       </SectionCard>
+
+      {/* AI 综合教练: 与当前统计周期同一时间窗（周/月/年/全部） */}
+      <GlobalCoach days={COACH_DAYS[period]} />
     </div>
   );
 }

@@ -31,6 +31,12 @@ jest.mock('@/app/lib/db', () => ({
   getHrZoneStats: jest.fn(),
 }));
 
+jest.mock('@/app/lib/components/ai/GlobalCoach', () => ({
+  GlobalCoach: ({ days }: { days: number }) => (
+    <div data-testid="global-coach">coach:{days}</div>
+  ),
+}));
+
 import {
   getLatestVdot,
   getTrainingLoads,
@@ -138,6 +144,8 @@ describe('DashboardPage (首页) 数据编排', () => {
     expect(screen.getByText('最近活动')).toBeInTheDocument();
     expect(screen.getByText(/两江新区 - 乳酸阈值/)).toBeInTheDocument();
     expect(screen.getByText('本月心率区间')).toBeInTheDocument();
+    // 首页 AI 教练使用全部历史口径
+    expect(screen.getByTestId('global-coach')).toHaveTextContent('coach:0');
     expect(screen.queryByText('本月暂无心率区间数据')).not.toBeInTheDocument();
     // sparkline 有 >1 点 → 显示首末值 (vdotSpark 已反转为最旧→最新, 历史给的是 41.2→42.3)
     expect(screen.getByText(/42.3 → 41.2/)).toBeInTheDocument();

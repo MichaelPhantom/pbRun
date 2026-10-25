@@ -1,8 +1,28 @@
 import { localDateMinusDays, todayLocalDate } from './timezone';
 
-export type TimeRangeDays = 30 | 90 | 180;
+/**
+ * 汇总页/洞察 AI 的时间窗。
+ * 0 = 全部历史（用于「整体数据」口径），其余为自然日回看天数。
+ * 365 不直接出现在页面选项里，供 stats 的「年」映射使用。
+ */
+export type TimeRangeDays = 7 | 30 | 90 | 180 | 365 | 0;
 
-export const TIME_RANGE_DAYS_OPTIONS: TimeRangeDays[] = [30, 90, 180];
+/** 页面选项顺序：近一周 → 近一月 → 近三月 → 近半年 → 全部。 */
+export const TIME_RANGE_DAYS_OPTIONS: TimeRangeDays[] = [7, 30, 90, 180, 0];
+
+/** 供 Segmented / 文案复用的短标签（避免 5 个长标签在移动端溢出）。 */
+export const TIME_RANGE_LABELS: Record<TimeRangeDays, string> = {
+  7: '近一周',
+  30: '近一月',
+  90: '近三月',
+  180: '近半年',
+  365: '近一年',
+  0: '全部',
+};
+
+export function timeRangeLabel(days: number): string {
+  return TIME_RANGE_LABELS[days as TimeRangeDays] ?? `${days}天`;
+}
 
 /**
  * 默认时间窗口 [startDate, endDate]（本地日期）。
@@ -13,13 +33,15 @@ export const TIME_RANGE_DAYS_OPTIONS: TimeRangeDays[] = [30, 90, 180];
  */
 export function getDateRangeFromDays(days: TimeRangeDays): { startDate: string; endDate: string } {
   const endDate = todayLocalDate();
-  const startDate = localDateMinusDays(endDate, days);
+  // 0 = 全部历史：取一个早于本项目所有数据的日期，让聚合逻辑保持“无上界”语义。
+  const startDate = days === 0 ? '2000-01-01' : localDateMinusDays(endDate, days);
   return { startDate, endDate };
 }
 
 export function parseTimeRangeDays(param: string | null): TimeRangeDays {
+  if (param === 'all') return 0;
   const n = param != null ? parseInt(param, 10) : NaN;
-  if (n === 30 || n === 90 || n === 180) return n;
+  if (n === 7 || n === 30 || n === 90 || n === 180 || n === 365 || n === 0) return n;
   return 30;
 }
 

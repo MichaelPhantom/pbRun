@@ -129,6 +129,16 @@ describe('InsightClient', () => {
     expect(screen.getByText('周期化分析')).toBeInTheDocument();
     expect(screen.getByText('跑力 (VDOT) 趋势')).toBeInTheDocument();
     expect(screen.getByText('配速-心率模型')).toBeInTheDocument();
+    // 时间窗选项：近一周/近一月/近三月/近半年/全部
+    for (const label of ['近一周', '近一月', '近三月', '近半年', '全部']) {
+      expect(screen.getByRole('tab', { name: label })).toBeInTheDocument();
+    }
+  });
+
+  test('days=0 → 范围显示「全部历史」而不是 2000-01-01', () => {
+    render(<InsightClient insight={insight} timeRangeDays={0} />);
+    expect(screen.getByText(/全部历史/)).toBeInTheDocument();
+    expect(screen.queryByText(/2000-01-01/)).not.toBeInTheDocument();
   });
 
   test('可选段缺失 → 走空态分支 (categories/weather/routes 为 undefined)', () => {

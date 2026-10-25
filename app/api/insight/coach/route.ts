@@ -84,7 +84,10 @@ export async function POST(request: NextRequest) {
     ctx = {
       profileBlock,
       insightBlock: formatInsightForCoach(insight),
-      rangeLabel: `${startDate} ~ ${endDate}`,
+      rangeLabel:
+        startDate === '2000-01-01'
+          ? `全部历史（截至 ${endDate}）`
+          : `${startDate} ~ ${endDate}`,
     };
   } catch (error) {
     console.error('Error building global coach context:', error);

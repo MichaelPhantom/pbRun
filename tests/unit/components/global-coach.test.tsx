@@ -64,10 +64,19 @@ describe('状态与入口', () => {
 
   test('已配置 idle → 引导文案 + 模型下拉', () => {
     render(<GlobalCoach days={30} />);
-    expect(screen.getByText(/全部历史数据/)).toBeInTheDocument();
+    expect(screen.getByText(/跑者画像与全局洞察指标/)).toBeInTheDocument();
+    expect(screen.getByText(/近一月/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '生成综合诊断' })).toBeEnabled();
     const trigger = screen.getByRole('button', { name: '选择模型' });
     expect(trigger).toHaveAttribute('aria-haspopup', 'listbox');
+  });
+
+  test('区间文案随 days 变化（近一周 / 全部）', () => {
+    render(<GlobalCoach days={7} />);
+    expect(screen.getByText(/近一周/)).toBeInTheDocument();
+    cleanupRender();
+    render(<GlobalCoach days={0} />);
+    expect(screen.getByText(/全部的跑者画像与全局洞察指标/)).toBeInTheDocument();
   });
 });
 
@@ -182,7 +191,7 @@ describe('缓存恢复', () => {
     render(<GlobalCoach days={30} />);
     expect(screen.getByText('缓存里的诊断')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '重新诊断' })).toBeInTheDocument();
-    expect(screen.queryByText(/全部历史数据/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/跑者画像与全局洞察指标/)).not.toBeInTheDocument();
   });
 
   test('坏缓存 (非法 JSON / 非数组 / 空数组) → 忽略并保持 idle', () => {
@@ -190,7 +199,7 @@ describe('缓存恢复', () => {
       cleanupRender();
       localStorage.setItem(`${CACHE_KEY}.30`, bad);
       render(<GlobalCoach days={30} />);
-      expect(screen.getByText(/全部历史数据/)).toBeInTheDocument();
+      expect(screen.getByText(/跑者画像与全局洞察指标/)).toBeInTheDocument();
       expect(screen.getByRole('button', { name: '生成综合诊断' })).toBeInTheDocument();
     }
   });

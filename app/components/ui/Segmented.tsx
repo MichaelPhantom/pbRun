@@ -27,13 +27,13 @@ export function Segmented({
   return (
     <div
       role="tablist"
-      className={`inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 p-1 ${className}`}
+      className={`inline-flex max-w-full items-center gap-1 overflow-x-auto rounded-full border border-border bg-surface-2 p-1 ${className}`}
     >
       {items.map((item) => {
         const active = item.value === value;
         const inner = (
           <span
-            className={`seg-btn relative inline-flex items-center justify-center rounded-full font-medium transition ${pad} ${
+            className={`seg-btn relative inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-full font-medium transition ${pad} ${
               active ? "bg-surface text-[var(--brand-text)] shadow-sm" : "hover:text-fg"
             }`}
             data-active={active}

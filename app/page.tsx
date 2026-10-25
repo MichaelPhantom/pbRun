@@ -11,6 +11,7 @@ import { Donut, type DonutDatum } from "@/app/components/ui/Donut";
 import { YearHeatmap } from "@/app/components/ui/YearHeatmap";
 import { HEAT_BANDS } from "@/app/lib/viz";
 import { RecentActivityCard } from "@/app/components/dashboard/RecentActivityCard";
+import { GlobalCoach } from "@/app/lib/components/ai/GlobalCoach";
 
 export const dynamic = "force-dynamic";
 
@@ -243,6 +244,9 @@ export default async function DashboardPage() {
           )}
         </SectionCard>
       </div>
+
+      {/* 首页整体 AI 教练: 全部历史 + 近期趋势（与洞察/分析/统计页同源） */}
+      <GlobalCoach days={0} />
     </div>
   );
 }

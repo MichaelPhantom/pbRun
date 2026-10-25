@@ -16,6 +16,12 @@ jest.mock('@/app/lib/db', () => ({
   getActivities: jest.fn(),
 }));
 
+jest.mock('@/app/lib/components/ai/GlobalCoach', () => ({
+  GlobalCoach: ({ days }: { days: number }) => (
+    <div data-testid="global-coach">coach:{days}</div>
+  ),
+}));
+
 import {
   getStats,
   getPersonalRecords,
@@ -116,6 +122,8 @@ describe('app/stats/page.tsx', () => {
     expect(screen.getByText('月数据统计')).toBeInTheDocument();
     expect(screen.getByText('共计跑步 12 次')).toBeInTheDocument();
     expect(screen.getByText(/最近6个月/)).toBeInTheDocument();
+    // 汇总页 AI 教练跟随统计周期（月 → 近 30 天）
+    expect(screen.getByTestId('global-coach')).toHaveTextContent('coach:30');
   });
 
   test('period=total → 全部口径 (个人纪录「全部」标签)', async () => {
@@ -124,6 +132,8 @@ describe('app/stats/page.tsx', () => {
     expect(db.getStats).toHaveBeenCalledWith('total');
     expect(screen.getByText('总数据统计')).toBeInTheDocument();
     expect(screen.getByText('全部')).toBeInTheDocument();
+    // 「总」→ 全部历史（0）
+    expect(screen.getByTestId('global-coach')).toHaveTextContent('coach:0');
   });
 
   test('period=year → 期间文案按 YYYY年MM月DD日-结束月日 格式', async () => {
@@ -136,6 +146,8 @@ describe('app/stats/page.tsx', () => {
     render(await StatsPage({ searchParams: Promise.resolve({ period: 'year' }) }));
     expect(db.getStats).toHaveBeenCalledWith('year');
     expect(screen.getByText('2026年01月01日-09月26日')).toBeInTheDocument();
+    // 「年」→ 近一年
+    expect(screen.getByTestId('global-coach')).toHaveTextContent('coach:365');
   });
 
   test('非法 period → 回落 week', async () => {

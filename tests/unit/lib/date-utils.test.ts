@@ -4,6 +4,8 @@ import {
   monthToRange,
   isoWeekOf,
   periodKeyOf,
+  timeRangeLabel,
+  TIME_RANGE_DAYS_OPTIONS,
 } from '@/app/lib/date-utils';
 
 describe('date-utils', () => {
@@ -41,13 +43,35 @@ describe('date-utils', () => {
         endDate: '2024-03-15',
       });
     });
+
+    test('近一周 / 近一年', () => {
+      expect(getDateRangeFromDays(7)).toEqual({
+        startDate: '2024-03-08',
+        endDate: '2024-03-15',
+      });
+      expect(getDateRangeFromDays(365)).toEqual({
+        startDate: '2023-03-16',
+        endDate: '2024-03-15',
+      });
+    });
+
+    test('0 = 全部历史 → 固定早于项目数据的起点', () => {
+      expect(getDateRangeFromDays(0)).toEqual({
+        startDate: '2000-01-01',
+        endDate: '2024-03-15',
+      });
+    });
   });
 
   describe('parseTimeRangeDays', () => {
     test('应正确解析有效的天数参数', () => {
+      expect(parseTimeRangeDays('7')).toBe(7);
       expect(parseTimeRangeDays('30')).toBe(30);
       expect(parseTimeRangeDays('90')).toBe(90);
       expect(parseTimeRangeDays('180')).toBe(180);
+      expect(parseTimeRangeDays('365')).toBe(365);
+      expect(parseTimeRangeDays('0')).toBe(0);
+      expect(parseTimeRangeDays('all')).toBe(0);
     });
 
     test('无效参数应返回默认值30', () => {
@@ -62,6 +86,18 @@ describe('date-utils', () => {
       expect(parseTimeRangeDays('31')).toBe(30);
       expect(parseTimeRangeDays('179')).toBe(30);
       expect(parseTimeRangeDays('181')).toBe(30);
+    });
+  });
+
+  describe('timeRangeLabel', () => {
+    test('汇总页选项顺序与中文短标签', () => {
+      expect(TIME_RANGE_DAYS_OPTIONS).toEqual([7, 30, 90, 180, 0]);
+      expect(timeRangeLabel(7)).toBe('近一周');
+      expect(timeRangeLabel(30)).toBe('近一月');
+      expect(timeRangeLabel(180)).toBe('近半年');
+      expect(timeRangeLabel(365)).toBe('近一年');
+      expect(timeRangeLabel(0)).toBe('全部');
+      expect(timeRangeLabel(42)).toBe('42天');
     });
   });
 

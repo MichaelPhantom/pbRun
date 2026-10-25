@@ -8,6 +8,7 @@ import HrZoneDurationBarChart from '@/app/lib/components/charts/HrZoneDurationBa
 import HrZoneMetricsTable from '@/app/lib/components/charts/HrZoneMetricsTable';
 import PaceZoneMetricsTable from '@/app/lib/components/charts/PaceZoneMetricsTable';
 import { TrainingLoadChart, type TrainingLoadPoint } from '@/app/lib/components/charts/TrainingLoadChart';
+import { GlobalCoach } from '@/app/lib/components/ai/GlobalCoach';
 import { SectionCard } from '@/app/components/ui/SectionCard';
 import { StatCard } from '@/app/components/ui/StatCard';
 import { Segmented } from '@/app/components/ui/Segmented';
@@ -15,7 +16,7 @@ import { Badge } from '@/app/components/ui/Badge';
 import { tsbStatus } from '@/app/lib/training-load';
 import type { HrZoneStat, VDOTTrendPoint, PaceZoneStat } from '@/app/lib/types';
 import type { TimeRangeDays } from '@/app/lib/date-utils';
-import { TIME_RANGE_DAYS_OPTIONS } from '@/app/lib/date-utils';
+import { TIME_RANGE_DAYS_OPTIONS, TIME_RANGE_LABELS } from '@/app/lib/date-utils';
 
 const GROUP_BY = 'week' as const;
 
@@ -106,8 +107,9 @@ export default function AnalysisClient({
   }, [hrZoneDurationByZone]);
 
   const tsbTone = tsbStatus(tsb);
+  const rangeStartLabel = timeRangeDays === 0 ? '全部历史' : startDate;
   const rangeItems = TIME_RANGE_DAYS_OPTIONS.map((d) => ({
-    label: `${d}天`,
+    label: TIME_RANGE_LABELS[d],
     value: String(d),
     href: `/analysis?days=${d}`,
   }));
@@ -118,11 +120,14 @@ export default function AnalysisClient({
       {/* 时间范围 */}
       <SectionCard title="分析范围" action={<Segmented items={rangeItems} value={String(timeRangeDays)} size="sm" />}>
         <div className="flex items-center gap-2 text-xs text-fg-secondary">
-          <span className="tnum">{startDate}</span>
+          <span className="tnum">{rangeStartLabel}</span>
           <span className="text-fg-muted">–</span>
           <span className="tnum">{endDate}</span>
         </div>
       </SectionCard>
+
+      {/* AI 综合教练: 与分析页同一时间窗, 由全局洞察指标驱动 */}
+      <GlobalCoach days={timeRangeDays} />
 
       {/* 训练负荷 */}
       <SectionCard title="训练负荷 (Fitness / Freshness)" accent action={<Badge variant={tsbTone.tone}>{tsbTone.label}</Badge>}>
@@ -168,7 +173,7 @@ export default function AnalysisClient({
       </SectionCard>
 
       {/* 心率区间跑步时间 */}
-      <SectionCard title="心率区间跑步时间" action={<span className="text-xs text-fg-muted">{startDate} – {endDate}</span>}>
+      <SectionCard title="心率区间跑步时间" action={<span className="text-xs text-fg-muted">{rangeStartLabel} – {endDate}</span>}>
         <p className="mb-4 text-xs text-fg-secondary">
           以活动心率为依据，按心率区间（Z1–Z5）统计各区间跑步时长（单位：分钟）。
         </p>
@@ -209,7 +214,7 @@ export default function AnalysisClient({
       </SectionCard>
 
       {/* 跑力与详细指标 */}
-      <SectionCard title="跑力与详细指标" action={<span className="text-xs text-fg-muted">{startDate} – {endDate}</span>}>
+      <SectionCard title="跑力与详细指标" action={<span className="text-xs text-fg-muted">{rangeStartLabel} – {endDate}</span>}>
         <p className="mb-4 text-xs text-fg-secondary">
           下表按当前跑力（VDOT）划分配速区间（Z1–Z5），并展示各区间的统计指标。
         </p>
@@ -221,7 +226,7 @@ export default function AnalysisClient({
       </SectionCard>
 
       {/* 心率区间与详细指标 */}
-      <SectionCard title="心率区间与详细指标" action={<span className="text-xs text-fg-muted">{startDate} – {endDate}</span>}>
+      <SectionCard title="心率区间与详细指标" action={<span className="text-xs text-fg-muted">{rangeStartLabel} – {endDate}</span>}>
         <p className="mb-4 text-xs text-fg-secondary">
           下表按最大心率百分比划分心率区间（Z1–Z5），并展示各区间内的统计指标。
         </p>

@@ -9,7 +9,7 @@ import { Segmented } from '@/app/components/ui/Segmented';
 import { InsightTrendChart } from '@/app/lib/components/charts/InsightTrendChart';
 import { InsightBarChart } from '@/app/lib/components/charts/InsightBarChart';
 import { GlobalCoach } from '@/app/lib/components/ai/GlobalCoach';
-import { TIME_RANGE_DAYS_OPTIONS, type TimeRangeDays } from '@/app/lib/date-utils';
+import { TIME_RANGE_DAYS_OPTIONS, TIME_RANGE_LABELS, type TimeRangeDays } from '@/app/lib/date-utils';
 import type { InsightFinding, InsightResponse } from '@/app/lib/types';
 
 const SEVERITY_TONE: Record<InsightFinding['severity'], 'good' | 'brand' | 'warn' | 'crit'> = {
@@ -63,7 +63,7 @@ export default function InsightClient({
   const { vdot, load, decoupling, form, paceHr, findings, categories, weather, routes, periodization } = insight;
 
   const rangeItems = TIME_RANGE_DAYS_OPTIONS.map((d) => ({
-    label: `${d}天`,
+    label: TIME_RANGE_LABELS[d],
     href: `/insight?days=${d}`,
     value: String(d),
   }));
@@ -166,7 +166,7 @@ export default function InsightClient({
       >
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-fg-secondary">
           <span className="tnum">
-            {insight.range.startDate} – {insight.range.endDate}
+            {timeRangeDays === 0 ? '全部历史' : insight.range.startDate} – {insight.range.endDate}
           </span>
           <span className="text-fg-muted">共 {insight.activityCount} 次活动</span>
         </div>
