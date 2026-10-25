@@ -137,6 +137,9 @@ describe('db.ts 洞察查询 (真实 SQL)', () => {
     const { basis, activities } = db.getPeerActivities(1, '两江新区', 8);
     expect(basis).toBe('route');
     expect(activities.map((a) => a.activityId)).toEqual([2]);
+    // 环境字段随同行返回（供 AI 同温档/爬升可比性）
+    expect(activities[0].temperatureC).toBe(22);
+    expect(activities[0].ascentM).toBeNull();
   });
 
   test('getPeerActivities 同路线也按距离带过滤 (5K 不与 30K 直接对比)', async () => {

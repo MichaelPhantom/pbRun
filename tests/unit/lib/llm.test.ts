@@ -109,6 +109,10 @@ describe('buildAnalysisMessages', () => {
     expect(system.content).toContain('训练性质');
     // 可执行处方
     expect(system.content).toContain('下次训练处方');
+    // 横向可比 + 环境修正
+    expect(system.content).toContain('横向');
+    expect(system.content).toContain('同温档');
+    expect(system.content).toContain('环境代价');
   });
 
   test('无分段时给出占位提示', () => {

@@ -245,11 +245,22 @@ describe('buildActivityInsight', () => {
       hrZoneJson: '[0,0,1800,1800,0,0,0]',
       current: { activityId: 99, date: '2026-09-22', distanceKm: 4.7, paceSecPerKm: 340, heartRate: 170 },
       comparison: null,
+      environment: {
+        peerCount: 3,
+        currentTempC: 26,
+        peerAvgTempC: 24,
+        tempDeltaC: 2,
+        currentAscentM: 50,
+        peerAvgAscentM: 40,
+        ascentDeltaM: 10,
+        tempBand: null,
+      },
     });
     expect(r.activityId).toBe(99);
     expect(r.lapAnalysis.workLaps).toBe(3);
     expect(r.decouplingPct).not.toBeNull();
     expect(r.hrZoneBreakdown.length).toBe(2);
     expect(r.comparison).toBeNull();
+    expect(r.environment?.currentTempC).toBe(26);
   });
 });

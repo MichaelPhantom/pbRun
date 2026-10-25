@@ -1,4 +1,10 @@
-import { formatActivityContext } from '@/app/lib/activity-coach-context';
+import {
+  distanceBandLabel,
+  distanceToleranceFor,
+  formatActivityContext,
+  routeDistanceToleranceFor,
+} from '@/app/lib/activity-coach-context';
+import type { ActivityEnvironmentSummary } from '@/app/lib/activity-environment';
 import type { ActivityComparison, ActivityInsightResponse } from '@/app/lib/types';
 
 function insight(over: Partial<ActivityInsightResponse> = {}): ActivityInsightResponse {
@@ -255,5 +261,121 @@ describe('formatActivityContext', () => {
     });
     expect(text).toContain('同路线/同名样本');
     expect(text).not.toContain('有氧解耦');
+  });
+});
+
+describe('距离分档容差', () => {
+  test('短距离放宽 / 中距离 ±10% / 长距离收紧', () => {
+    expect(distanceToleranceFor(0)).toBe(0);
+    expect(distanceToleranceFor(Number.NaN)).toBe(0);
+    expect(distanceToleranceFor(3)).toBe(0.2);
+    expect(distanceToleranceFor(4.99)).toBe(0.2);
+    expect(distanceToleranceFor(5)).toBe(0.1);
+    expect(distanceToleranceFor(12)).toBe(0.1);
+    expect(distanceToleranceFor(12.1)).toBe(0.08);
+    expect(distanceToleranceFor(42.195)).toBe(0.08);
+  });
+
+  test('同路线带比同距离宽 15pt', () => {
+    expect(routeDistanceToleranceFor(0)).toBe(0);
+    expect(routeDistanceToleranceFor(3)).toBeCloseTo(0.35);
+    expect(routeDistanceToleranceFor(10)).toBeCloseTo(0.25);
+    expect(routeDistanceToleranceFor(20)).toBeCloseTo(0.23);
+  });
+
+  test('距离带标签', () => {
+    expect(distanceBandLabel(10, 0.1)).toBe('±10% · 9.0–11.0km');
+    expect(distanceBandLabel(3, 0.2)).toBe('±20% · 2.4–3.6km');
+    expect(distanceBandLabel(0, 0.1)).toBe('同距离');
+    expect(distanceBandLabel(10, 0)).toBe('同距离');
+  });
+});
+
+const environment: ActivityEnvironmentSummary = {
+  peerCount: 12,
+  currentTempC: 26,
+  peerAvgTempC: 23.5,
+  tempDeltaC: 2.5,
+  currentAscentM: 120,
+  peerAvgAscentM: 95,
+  ascentDeltaM: 25,
+  tempBand: {
+    label: '24–28°C',
+    count: 6,
+    peerCount: 5,
+    avgPaceSecPerKm: 310,
+    avgHeartRate: 156,
+    rank: { byPace: 2, total: 6 },
+    paceDeltaSecPerKm: -10,
+    hrDeltaBpm: 4,
+  },
+};
+
+describe('环境可比段', () => {
+  test('温度/爬升差异 + 同温档排名/配速/心率', () => {
+    const text = formatActivityContext({
+      insight: null,
+      routeComparison: null,
+      distanceComparison: null,
+      environment,
+    });
+    expect(text).toContain('环境可比（同距离样本 12 次）');
+    expect(text).toContain('本次 26.0°C / 爬升 120m');
+    expect(text).toContain('样本 均 23.5°C / 均爬升 95m');
+    expect(text).toContain('温度高 2.5°C，爬升多 25m');
+    expect(text).toContain('同温档 24–28°C: 样本 6 次（含本次）');
+    expect(text).toContain('本次排名 2/6');
+    expect(text).toContain('档内均 5:10/km（快 10s/km）');
+    expect(text).toContain('均心率 156bpm（心率高 4bpm）');
+  });
+
+  test('只有本次环境 → 不编造样本均', () => {
+    const text = formatActivityContext({
+      insight: null,
+      routeComparison: null,
+      distanceComparison: null,
+      environment: {
+        peerCount: 3,
+        currentTempC: 18,
+        peerAvgTempC: null,
+        tempDeltaC: null,
+        currentAscentM: null,
+        peerAvgAscentM: null,
+        ascentDeltaM: null,
+        tempBand: null,
+      },
+    });
+    expect(text).toContain('环境: 本次 18.0°C');
+    expect(text).not.toContain('样本 均');
+    expect(text).not.toContain('同温档');
+  });
+
+  test('只有样本环境 → 说明样本均值', () => {
+    const text = formatActivityContext({
+      insight: null,
+      routeComparison: null,
+      distanceComparison: null,
+      environment: {
+        peerCount: 2,
+        currentTempC: null,
+        peerAvgTempC: 20,
+        tempDeltaC: null,
+        currentAscentM: null,
+        peerAvgAscentM: 50,
+        ascentDeltaM: null,
+        tempBand: null,
+      },
+    });
+    expect(text).toContain('环境: 同距离样本 均 20.0°C / 均爬升 50m');
+    expect(text).not.toContain('环境: 本次');
+  });
+
+  test('environment 缺省 → 不输出环境段', () => {
+    const text = formatActivityContext({
+      insight: null,
+      routeComparison: null,
+      distanceComparison: null,
+    });
+    expect(text).toBe('');
   });
 });

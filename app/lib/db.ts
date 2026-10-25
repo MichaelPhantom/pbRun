@@ -1162,80 +1162,89 @@ export function getInsightActivityRows(startDate: string, endDate: string): Insi
 
 /** 洞察 v2: 计算周期化所需的逐日负荷 + 周维度 CTL/ATL/TSB (由调用方计算)。 */
 
+interface PeerActivityRow {
+  activity_id: number;
+  name: string;
+  start_time_local: string;
+  distance: number | null;
+  average_pace: number | null;
+  average_heart_rate: number | null;
+  average_temperature: number | null;
+  total_ascent: number | null;
+}
+
+/** 同路线/同距离对比中的同行活动（含环境字段，供 AI 可比性分析）。 */
+export interface PeerActivity {
+  activityId: number;
+  date: string;
+  name: string;
+  distanceKm: number;
+  paceSecPerKm: number | null;
+  heartRate: number | null;
+  /** 平均温度（°C） */
+  temperatureC: number | null;
+  /** 累计爬升（m） */
+  ascentM: number | null;
+}
+
+function mapPeerRow(r: PeerActivityRow): PeerActivity {
+  return {
+    activityId: r.activity_id,
+    date: r.start_time_local,
+    name: r.name,
+    distanceKm: r.distance ?? 0,
+    paceSecPerKm: r.average_pace,
+    heartRate: r.average_heart_rate,
+    temperatureC: r.average_temperature,
+    ascentM: r.total_ascent,
+  };
+}
+
 /**
  * 查找与指定活动同路线的历史活动 (用于活动详情对比)。
- * 路线以名称的"地点前缀"( ' - ' 之前) 为指纹; 若无法识别则回退到"同类别"。
+ * 路线以名称的"地点前缀"( ' - ' 之前) 为指纹; 若无法识别则回退到"相近距离"。
  * 返回按时间升序的同行活动 (不含当前活动)。
  */
 export function getPeerActivities(
   activityId: number,
   routeKey: string | null,
   distanceKm: number,
-  /** 同距离回退的容差（±比例，默认 0.25）。活动 AI 教练用 0.1 取更可比的样本。 */
+  /** 同距离回退的容差（±比例，默认 0.25）。活动 AI 教练按距离分档取更可比的样本。 */
   distanceTolerance = 0.25,
   /** 同路线样本的距离带（±比例，默认 0.25）：避免把同一条路线的 5K 与 30K 直接对比。 */
   routeDistanceTolerance = 0.25,
-): { activities: { activityId: number; date: string; name: string; distanceKm: number; paceSecPerKm: number | null; heartRate: number | null }[]; basis: 'route' | 'distance' } {
+): { activities: PeerActivity[]; basis: 'route' | 'distance' } {
   const db = getDatabase();
-  // 路线: 名称以 "<routeKey> -" 开头 或 名称恰为 routeKey; 距离相近 (±30%) 辅助
+  // 路线: 名称以 "<routeKey> -" 开头 或 名称恰为 routeKey; 再按距离带过滤
   if (routeKey) {
     const routeLo = distanceKm > 0 ? distanceKm * (1 - routeDistanceTolerance) : 0;
     const routeHi = distanceKm > 0 ? distanceKm * (1 + routeDistanceTolerance) : Number.MAX_SAFE_INTEGER;
     const rows = db.prepare(
-      `SELECT activity_id, name, start_time_local, distance, average_pace, average_heart_rate
+      `SELECT activity_id, name, start_time_local, distance, average_pace,
+              average_heart_rate, average_temperature, total_ascent
        FROM activities
        WHERE activity_id != ?
          AND (name = ? OR name LIKE ?)
          AND distance >= ? AND distance <= ?
        ORDER BY start_time_local`
-    ).all(activityId, routeKey, `${routeKey} -%`, routeLo, routeHi) as {
-      activity_id: number;
-      name: string;
-      start_time_local: string;
-      distance: number | null;
-      average_pace: number | null;
-      average_heart_rate: number | null;
-    }[];
+    ).all(activityId, routeKey, `${routeKey} -%`, routeLo, routeHi) as PeerActivityRow[];
     if (rows.length > 0) {
-      return {
-        basis: 'route',
-        activities: rows.map((r) => ({
-          activityId: r.activity_id,
-          date: r.start_time_local,
-          name: r.name,
-          distanceKm: r.distance ?? 0,
-          paceSecPerKm: r.average_pace,
-          heartRate: r.average_heart_rate,
-        })),
-      };
+      return { basis: 'route', activities: rows.map(mapPeerRow) };
     }
   }
-  // 回退: 相近距离 (±25%, 至少 8km 以上才比较)
+  // 回退: 相近距离（容差由调用方决定，默认 ±25%）
   const lo = distanceKm * (1 - distanceTolerance);
   const hi = distanceKm * (1 + distanceTolerance);
   const rows = db.prepare(
-    `SELECT activity_id, name, start_time_local, distance, average_pace, average_heart_rate
+    `SELECT activity_id, name, start_time_local, distance, average_pace,
+            average_heart_rate, average_temperature, total_ascent
      FROM activities
      WHERE activity_id != ? AND distance >= ? AND distance <= ?
      ORDER BY start_time_local DESC LIMIT 20`
-  ).all(activityId, lo, hi) as {
-    activity_id: number;
-    name: string;
-    start_time_local: string;
-    distance: number | null;
-    average_pace: number | null;
-    average_heart_rate: number | null;
-  }[];
+  ).all(activityId, lo, hi) as PeerActivityRow[];
   return {
     basis: 'distance',
-    activities: rows.reverse().map((r) => ({
-      activityId: r.activity_id,
-      date: r.start_time_local,
-      name: r.name,
-      distanceKm: r.distance ?? 0,
-      paceSecPerKm: r.average_pace,
-      heartRate: r.average_heart_rate,
-    })),
+    activities: rows.reverse().map(mapPeerRow),
   };
 }
 

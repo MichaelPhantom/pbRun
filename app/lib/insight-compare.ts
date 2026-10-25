@@ -171,6 +171,14 @@ const WEATHER_EDGES: { max: number; label: string }[] = [
   { max: Infinity, label: '≥28°C' },
 ];
 
+/** 气温分档标签 (纯函数, 与 computeWeatherComparison 同源)。非有限值返回 null。 */
+export function weatherBucketOf(tempC: number | null | undefined): string | null {
+  if (tempC == null || !Number.isFinite(tempC)) return null;
+  const edge =
+    WEATHER_EDGES.find((e) => tempC < e.max) ?? WEATHER_EDGES[WEATHER_EDGES.length - 1];
+  return edge.label;
+}
+
 /** 按气温分档聚合心率/配速/效率, 用于量化高温的生理代价。 */
 export function computeWeatherComparison(samples: WeatherSample[]): WeatherComparison {
   const valid = samples.filter((s) => s.temperatureC != null && Number.isFinite(s.temperatureC));
@@ -178,8 +186,9 @@ export function computeWeatherComparison(samples: WeatherSample[]): WeatherCompa
 
   const buckets = new Map<string, WeatherSample[]>();
   for (const s of valid) {
-    const edge = WEATHER_EDGES.find((e) => s.temperatureC < e.max) ?? WEATHER_EDGES[WEATHER_EDGES.length - 1];
-    (buckets.get(edge.label) ?? buckets.set(edge.label, []).get(edge.label)!).push(s);
+    const label = weatherBucketOf(s.temperatureC);
+    if (!label) continue;
+    (buckets.get(label) ?? buckets.set(label, []).get(label)!).push(s);
   }
 
   const out: WeatherBucket[] = [];

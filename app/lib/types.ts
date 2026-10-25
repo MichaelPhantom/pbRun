@@ -592,10 +592,49 @@ export interface ActivityComparison {
 }
 
 /** 活动详情深挖 API 响应。 */
+/** 环境可比性：同距离/同路线样本的温度与爬升。 */
+export interface EnvironmentPeer {
+  paceSecPerKm: number | null;
+  heartRate: number | null;
+  temperatureC?: number | null;
+  ascentM?: number | null;
+}
+
+export interface EnvironmentCurrent {
+  paceSecPerKm: number | null;
+  heartRate: number | null;
+  temperatureC?: number | null;
+  ascentM?: number | null;
+}
+
+export interface TemperatureBandSummary {
+  label: string;
+  count: number;
+  peerCount: number;
+  avgPaceSecPerKm: number | null;
+  avgHeartRate: number | null;
+  rank: { byPace: number; total: number } | null;
+  paceDeltaSecPerKm: number | null;
+  hrDeltaBpm: number | null;
+}
+
+export interface ActivityEnvironmentSummary {
+  peerCount: number;
+  currentTempC: number | null;
+  peerAvgTempC: number | null;
+  tempDeltaC: number | null;
+  currentAscentM: number | null;
+  peerAvgAscentM: number | null;
+  ascentDeltaM: number | null;
+  tempBand: TemperatureBandSummary | null;
+}
+
 export interface ActivityInsightResponse {
   activityId: number;
   lapAnalysis: ActivityLapAnalysis;
   comparison: ActivityComparison | null;
   decouplingPct: number | null;                   // 逐秒解耦
   hrZoneBreakdown: { zone: number; seconds: number; pct: number }[];
+  /** 同路线/同距离样本的温度与爬升可比性；无环境数据时为 null/缺省。 */
+  environment?: ActivityEnvironmentSummary | null;
 }

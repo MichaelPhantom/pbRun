@@ -1,5 +1,5 @@
 /**
- * 活动 AI 可比上下文编排：DB 取数降级策略 + ±10% 同距离口径。
+ * 活动 AI 可比上下文编排：DB 取数降级策略 + 分档同距离口径 + 环境可比性。
  */
 jest.mock('@/app/lib/db', () => ({
   getActivityById: jest.fn(),
@@ -12,11 +12,9 @@ jest.mock('@/app/lib/activity-insight-service', () => ({
 import * as db from '@/app/lib/db';
 import * as activityService from '@/app/lib/activity-insight-service';
 import * as contextModule from '@/app/lib/activity-coach-context';
-import {
-  AI_DISTANCE_TOLERANCE,
-  buildActivityContextBlock,
-} from '@/app/lib/activity-coach-context-service';
+import { buildActivityContextBlock } from '@/app/lib/activity-coach-context-service';
 import type { Activity, ActivityInsightResponse } from '@/app/lib/types';
+import type { PeerActivity } from '@/app/lib/db';
 
 const dbMock = db as unknown as {
   getActivityById: jest.Mock;
@@ -32,6 +30,8 @@ const activity = {
   distance: 10,
   average_pace: 300,
   average_heart_rate: 160,
+  average_temperature: 26,
+  total_ascent: 120,
 } as Activity;
 
 const insightStub: ActivityInsightResponse = {
@@ -51,13 +51,15 @@ const insightStub: ActivityInsightResponse = {
   hrZoneBreakdown: [],
 };
 
-const peer = (id: number, name: string, pace: number) => ({
+const peer = (id: number, name: string, pace: number): PeerActivity => ({
   activityId: id,
   date: '2026-09-20T08:00:00',
   name,
   distanceKm: 10,
   paceSecPerKm: pace,
   heartRate: 158,
+  temperatureC: 25.5,
+  ascentM: 90,
 });
 
 beforeEach(() => {
@@ -81,26 +83,18 @@ beforeEach(() => {
 });
 
 describe('buildActivityContextBlock', () => {
-  test('同时注入同路线与同距离（±10%）样本', () => {
+  test('同时注入同路线/同距离与环境可比样本', () => {
     const text = buildActivityContextBlock(activity);
     expect(text).toContain('【本次表现与可比样本】');
     expect(text).toContain('同路线/同名样本');
     expect(text).toContain('同距离样本');
-    // 路线与距离两次查询都使用 ±10% 容差
-    expect(dbMock.getPeerActivities).toHaveBeenNthCalledWith(
-      1,
-      7,
-      '世纪公园',
-      10,
-      AI_DISTANCE_TOLERANCE,
-    );
-    expect(dbMock.getPeerActivities).toHaveBeenNthCalledWith(
-      2,
-      7,
-      null,
-      10,
-      AI_DISTANCE_TOLERANCE,
-    );
+    expect(text).toContain('环境可比（同距离样本 1 次）');
+    expect(text).toContain('温度高 0.5°C');
+    expect(text).toContain('爬升多 30m');
+    expect(text).toContain('同温档 24–28°C');
+    // 10km 同距离 ±10%；同路线放宽到 ±25%
+    expect(dbMock.getPeerActivities).toHaveBeenNthCalledWith(1, 7, '世纪公园', 10, 0.1, 0.25);
+    expect(dbMock.getPeerActivities).toHaveBeenNthCalledWith(2, 7, null, 10, 0.1);
   });
 
   test('活动为空 → 空串', () => {
@@ -123,6 +117,7 @@ describe('buildActivityContextBlock', () => {
     });
     const text = buildActivityContextBlock({ ...activity, distance: 0 });
     expect(dbMock.getPeerActivities).toHaveBeenCalledTimes(1);
+    expect(dbMock.getPeerActivities).toHaveBeenCalledWith(7, '世纪公园', 0, 0, 0);
     expect(text).not.toContain('同路线/同名样本');
     expect(text).not.toContain('同距离样本');
   });

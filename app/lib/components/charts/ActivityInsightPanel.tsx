@@ -39,7 +39,7 @@ function fmtPace(secPerKm: number | null | undefined): string {
 export function ActivityInsightPanel({ data }: { data: ActivityInsightResponse | null }) {
   if (!data) return null;
 
-  const { lapAnalysis, comparison, decouplingPct, hrZoneBreakdown } = data;
+  const { lapAnalysis, comparison, decouplingPct, hrZoneBreakdown, environment } = data;
 
   const zoneBars = hrZoneBreakdown.map((z) => ({
     label: `Z${z.zone}`,
@@ -97,6 +97,79 @@ export function ActivityInsightPanel({ data }: { data: ActivityInsightResponse |
           )}
         </div>
       </div>
+
+      {/* 环境可比性: 温度 / 爬升 / 同温档 (让用户看到 AI 使用的可比样本) */}
+      {environment &&
+        (environment.currentTempC != null ||
+          environment.currentAscentM != null ||
+          environment.peerAvgTempC != null ||
+          environment.peerAvgAscentM != null) && (
+          <div className="mt-4 border-t border-border pt-3">
+            <p className="mb-3 text-xs font-medium text-fg-secondary">
+              环境可比（{environment.peerCount} 次同组样本）
+            </p>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <StatCard
+                value={
+                  environment.currentTempC != null
+                    ? environment.currentTempC.toFixed(1)
+                    : '--'
+                }
+                unit={environment.currentTempC != null ? '°C' : undefined}
+                label="本次温度"
+                hint={
+                  environment.peerAvgTempC != null
+                    ? `样本均 ${environment.peerAvgTempC.toFixed(1)}°C${
+                        environment.tempDeltaC != null
+                          ? `（${environment.tempDeltaC >= 0 ? '高' : '低'} ${Math.abs(
+                              environment.tempDeltaC,
+                            ).toFixed(1)}°C）`
+                          : ''
+                      }`
+                    : undefined
+                }
+              />
+              <StatCard
+                value={
+                  environment.currentAscentM != null
+                    ? String(Math.round(environment.currentAscentM))
+                    : '--'
+                }
+                unit={environment.currentAscentM != null ? 'm' : undefined}
+                label="本次爬升"
+                hint={
+                  environment.peerAvgAscentM != null
+                    ? `样本均 ${Math.round(environment.peerAvgAscentM)}m`
+                    : undefined
+                }
+              />
+              <StatCard
+                value={
+                  environment.tempBand?.rank
+                    ? `${environment.tempBand.rank.byPace}/${environment.tempBand.rank.total}`
+                    : '--'
+                }
+                label="同温档排名"
+                hint={environment.tempBand ? environment.tempBand.label : '无同档样本'}
+                accent
+              />
+              <StatCard
+                value={
+                  environment.tempBand?.avgPaceSecPerKm != null
+                    ? fmtPace(environment.tempBand.avgPaceSecPerKm)
+                    : '--'
+                }
+                unit={environment.tempBand?.avgPaceSecPerKm != null ? '/km' : undefined}
+                label="同温档均配速"
+                hint={
+                  environment.tempBand
+                    ? `${environment.tempBand.count} 次（含本次）`
+                    : undefined
+                }
+              />
+            </div>
+          </div>
+        )}
 
       {/* 同路线对比 (分类对标) */}
       {comparison && comparison.peers.length > 0 && (

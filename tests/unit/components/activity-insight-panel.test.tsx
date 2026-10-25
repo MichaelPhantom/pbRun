@@ -110,6 +110,68 @@ describe('心率区间与解耦', () => {
   });
 });
 
+describe('环境可比性', () => {
+  const environment = {
+    peerCount: 12,
+    currentTempC: 26,
+    peerAvgTempC: 23.5,
+    tempDeltaC: 2.5,
+    currentAscentM: 120,
+    peerAvgAscentM: 95,
+    ascentDeltaM: 25,
+    tempBand: {
+      label: '24–28°C',
+      count: 6,
+      peerCount: 5,
+      avgPaceSecPerKm: 310,
+      avgHeartRate: 156,
+      rank: { byPace: 2, total: 6 },
+      paceDeltaSecPerKm: -10,
+      hrDeltaBpm: 4,
+    },
+  };
+
+  test('温度/爬升/同温档信息完整展示', () => {
+    render(<ActivityInsightPanel data={base({ environment })} />);
+    expect(screen.getByText('环境可比（12 次同组样本）')).toBeInTheDocument();
+    expect(screen.getByText('26.0')).toBeInTheDocument();
+    expect(screen.getByText('样本均 23.5°C（高 2.5°C）')).toBeInTheDocument();
+    expect(screen.getByText('120')).toBeInTheDocument();
+    expect(screen.getByText('样本均 95m')).toBeInTheDocument();
+    expect(screen.getByText('2/6')).toBeInTheDocument();
+    expect(screen.getByText('24–28°C')).toBeInTheDocument();
+    expect(screen.getByText('5:10')).toBeInTheDocument();
+    expect(screen.getByText('6 次（含本次）')).toBeInTheDocument();
+  });
+
+  test('只有环境均值/无同温档 → 仍展示且排名为 --', () => {
+    render(
+      <ActivityInsightPanel
+        data={base({
+          environment: {
+            peerCount: 2,
+            currentTempC: null,
+            peerAvgTempC: 20,
+            tempDeltaC: null,
+            currentAscentM: null,
+            peerAvgAscentM: 50,
+            ascentDeltaM: null,
+            tempBand: null,
+          },
+        })}
+      />,
+    );
+    expect(screen.getByText('环境可比（2 次同组样本）')).toBeInTheDocument();
+    expect(screen.getByText('样本均 20.0°C')).toBeInTheDocument();
+    expect(screen.getByText('无同档样本')).toBeInTheDocument();
+  });
+
+  test('environment 缺省 → 不渲染环境区', () => {
+    render(<ActivityInsightPanel data={base()} />);
+    expect(screen.queryByText(/环境可比/)).not.toBeInTheDocument();
+  });
+});
+
 describe('同路线/同距离对比', () => {
   // peers 明细表需要 date/category/distanceKm/paceSecPerKm/heartRate/paceDeltaSecPerKm
   const peers = [

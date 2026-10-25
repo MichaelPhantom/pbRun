@@ -11,6 +11,7 @@
 
 import { formatPace } from './format';
 import { CATEGORY_LABELS } from './insight-compare';
+import type { ActivityEnvironmentSummary } from './activity-environment';
 import type {
   ActivityComparison,
   ActivityInsightResponse,
@@ -22,8 +23,36 @@ export interface ActivityContextInput {
   insight: ActivityInsightResponse | null;
   /** 同路线（或同名）历史对比；无路线样本时为 null。 */
   routeComparison: ActivityComparison | null;
-  /** 同距离（±10%）历史对比；恒为独立口径。 */
+  /** 同距离历史对比；恒为独立口径。 */
   distanceComparison: ActivityComparison | null;
+  /** 温度/爬升/同温档环境可比性；无数据时省略。 */
+  environment?: ActivityEnvironmentSummary | null;
+}
+
+/**
+ * 同距离样本容差：短距离放宽（间歇课距离波动大），长距离收紧
+ * （距离越长，配速对距离越敏感）。
+ */
+export function distanceToleranceFor(distanceKm: number): number {
+  if (!Number.isFinite(distanceKm) || distanceKm <= 0) return 0;
+  if (distanceKm < 5) return 0.2;
+  if (distanceKm <= 12) return 0.1;
+  return 0.08;
+}
+
+/** 同路线样本的距离带：比同距离稍宽，但同样随距离收紧。 */
+export function routeDistanceToleranceFor(distanceKm: number): number {
+  const tol = distanceToleranceFor(distanceKm);
+  return tol === 0 ? 0 : tol + 0.15;
+}
+
+/** 用于 prompt 与 UI 文案的距离带标签，如 "±10% · 9.0–11.0km"。 */
+export function distanceBandLabel(distanceKm: number, tolerance: number): string {
+  const pct = Math.round(tolerance * 100);
+  if (!Number.isFinite(distanceKm) || distanceKm <= 0 || tolerance <= 0) return '同距离';
+  return `±${pct}% · ${(distanceKm * (1 - tolerance)).toFixed(1)}–${(
+    distanceKm * (1 + tolerance)
+  ).toFixed(1)}km`;
 }
 
 const DECOUPLING_LABEL: Record<string, string> = {
@@ -90,6 +119,71 @@ function categoryLine(c: ActivityComparison | null): string | null {
     );
   }
   return bits.join(' | ');
+}
+
+function fmtTemp(v: number): string {
+  return `${v.toFixed(1)}°C`;
+}
+
+function envDeltaText(label: string, delta: number, unit: string, digits = 0): string {
+  const abs = digits > 0 ? Math.abs(delta).toFixed(digits) : String(Math.round(Math.abs(delta)));
+  return `${label}${delta >= 0 ? '高' : '低'} ${abs}${unit}`;
+}
+
+/** 温度 / 爬升 / 同温档环境可比性。 */
+function environmentLines(env: ActivityEnvironmentSummary | null | undefined): string[] {
+  if (!env) return [];
+  const lines: string[] = [];
+
+  const currentBits: string[] = [];
+  if (env.currentTempC != null) currentBits.push(fmtTemp(env.currentTempC));
+  if (env.currentAscentM != null) currentBits.push(`爬升 ${Math.round(env.currentAscentM)}m`);
+
+  const peerBits: string[] = [];
+  if (env.peerAvgTempC != null) peerBits.push(`均 ${fmtTemp(env.peerAvgTempC)}`);
+  if (env.peerAvgAscentM != null) peerBits.push(`均爬升 ${Math.round(env.peerAvgAscentM)}m`);
+
+  if (currentBits.length > 0 && peerBits.length > 0) {
+    const deltas: string[] = [];
+    if (env.tempDeltaC != null) deltas.push(envDeltaText('温度', env.tempDeltaC, '°C', 1));
+    if (env.ascentDeltaM != null) {
+      deltas.push(
+        `爬升${env.ascentDeltaM >= 0 ? '多' : '少'} ${Math.round(Math.abs(env.ascentDeltaM))}m`,
+      );
+    }
+    lines.push(
+      `环境可比（同距离样本 ${env.peerCount} 次）: 本次 ${currentBits.join(' / ')}` +
+        ` | 样本 ${peerBits.join(' / ')}` +
+        (deltas.length > 0 ? `（${deltas.join('，')}）` : ''),
+    );
+  } else if (currentBits.length > 0) {
+    lines.push(`环境: 本次 ${currentBits.join(' / ')}`);
+  } else if (peerBits.length > 0) {
+    lines.push(`环境: 同距离样本 ${peerBits.join(' / ')}`);
+  }
+
+  const band = env.tempBand;
+  if (band) {
+    const bits = [`样本 ${band.count} 次（含本次）`];
+    if (band.rank) bits.push(`本次排名 ${band.rank.byPace}/${band.rank.total}`);
+    if (band.avgPaceSecPerKm != null) {
+      bits.push(
+        `档内均 ${fmtPace(band.avgPaceSecPerKm)}/km` +
+          (band.paceDeltaSecPerKm != null
+            ? `（${deltaVsGroup(band.paceDeltaSecPerKm)}）`
+            : ''),
+      );
+    }
+    if (band.avgHeartRate != null) {
+      bits.push(
+        `均心率 ${Math.round(band.avgHeartRate)}bpm` +
+          (band.hrDeltaBpm != null ? `（${fmtHrDelta(band.hrDeltaBpm)}）` : ''),
+      );
+    }
+    lines.push(`同温档 ${band.label}: ${bits.join(' | ')}`);
+  }
+
+  return lines;
 }
 
 function comparisonSection(c: ActivityComparison | null, fallbackTitle: string): string[] {
@@ -164,7 +258,7 @@ function performanceLines(insight: ActivityInsightResponse | null): string[] {
  * 无任何可比内容时返回空串（调用方直接拼接）。
  */
 export function formatActivityContext(input: ActivityContextInput): string {
-  const { insight, routeComparison, distanceComparison } = input;
+  const { insight, routeComparison, distanceComparison, environment } = input;
 
   const lines: string[] = [];
   lines.push(...performanceLines(insight));
@@ -186,6 +280,8 @@ export function formatActivityContext(input: ActivityContextInput): string {
 
   const cat = categoryLine(distanceComparison) ?? categoryLine(routeComparison);
   if (cat) lines.push(cat);
+
+  lines.push(...environmentLines(environment));
 
   if (lines.length === 0) return '';
   return [

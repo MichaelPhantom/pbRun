@@ -4,6 +4,12 @@
 
 import * as db from './db';
 import { buildActivityInsight, computeComparison } from './activity-insight';
+import {
+  distanceBandLabel,
+  distanceToleranceFor,
+  routeDistanceToleranceFor,
+} from './activity-coach-context';
+import { summarizeActivityEnvironment } from './activity-environment';
 import { routeKeyOf } from './insight-compare';
 import type { ActivityInsightResponse } from './types';
 
@@ -20,11 +26,18 @@ export function getActivityInsight(activityId: number): ActivityInsightResponse 
 
   const routeKey = routeKeyOf(activity.name);
   const distanceKm = activity.distance ?? 0;
-  const { activities: peers, basis } = db.getPeerActivities(activityId, routeKey, distanceKm);
+  const distanceTolerance = distanceToleranceFor(distanceKm);
+  const { activities: peers, basis } = db.getPeerActivities(
+    activityId,
+    routeKey,
+    distanceKm,
+    distanceTolerance,
+    routeDistanceToleranceFor(distanceKm),
+  );
 
   const comparison = computeComparison(
     basis,
-    routeKey ?? `约 ${distanceKm.toFixed(1)}km`,
+    routeKey ?? distanceBandLabel(distanceKm, distanceTolerance),
     {
       activityId,
       date: (activity.start_time_local || activity.start_time || '').slice(0, 10),
@@ -56,5 +69,19 @@ export function getActivityInsight(activityId: number): ActivityInsightResponse 
       heartRate: activity.average_heart_rate ?? null,
     },
     comparison,
+    environment: summarizeActivityEnvironment(
+      {
+        paceSecPerKm: activity.average_pace ?? null,
+        heartRate: activity.average_heart_rate ?? null,
+        temperatureC: activity.average_temperature ?? null,
+        ascentM: activity.total_ascent ?? null,
+      },
+      peers.map((p) => ({
+        paceSecPerKm: p.paceSecPerKm,
+        heartRate: p.heartRate,
+        temperatureC: p.temperatureC,
+        ascentM: p.ascentM,
+      })),
+    ),
   });
 }

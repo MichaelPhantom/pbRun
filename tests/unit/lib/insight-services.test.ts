@@ -44,6 +44,8 @@ jest.mock('@/app/lib/db', () => ({
     distance: 7.9,
     average_pace: 340,
     average_heart_rate: 170,
+    average_temperature: 26,
+    total_ascent: 120,
     time_in_hr_zone: '[0,0,1800,1800,600,0,0]',
   })),
   getActivityLaps: jest.fn(() => [
@@ -55,8 +57,8 @@ jest.mock('@/app/lib/db', () => ({
   getPeerActivities: jest.fn(() => ({
     basis: 'route',
     activities: [
-      { activityId: 1, date: '2026-08-01', name: '两江新区 - 乳酸阈值', distanceKm: 7, paceSecPerKm: 355, heartRate: 175 },
-      { activityId: 2, date: '2026-08-15', name: '两江新区 - 基础训练', distanceKm: 7.5, paceSecPerKm: 350, heartRate: 172 },
+      { activityId: 1, date: '2026-08-01', name: '两江新区 - 乳酸阈值', distanceKm: 7, paceSecPerKm: 355, heartRate: 175, temperatureC: 25, ascentM: 90 },
+      { activityId: 2, date: '2026-08-15', name: '两江新区 - 基础训练', distanceKm: 7.5, paceSecPerKm: 350, heartRate: 172, temperatureC: 27, ascentM: 110 },
     ],
   })),
 }));
@@ -101,5 +103,11 @@ describe('activity-insight-service.getActivityInsight', () => {
     expect(r!.comparison).not.toBeNull();
     expect(r!.comparison!.basis).toBe('route');
     expect(r!.comparison!.rank).not.toBeNull();
+    expect(r!.environment).toMatchObject({
+      peerCount: 2,
+      currentTempC: 26,
+      currentAscentM: 120,
+      tempBand: { label: '24–28°C', count: 3 },
+    });
   });
 });

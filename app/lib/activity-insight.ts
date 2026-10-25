@@ -6,6 +6,7 @@ import { computeDecouplingPct, decouplingTone, mean, type RecordSample } from '.
 import { classifyActivity } from './insight-compare';
 import type {
   ActivityComparison,
+  ActivityEnvironmentSummary,
   ActivityLapAnalysis,
   ActivityInsightResponse,
   ActivityLap,
@@ -228,6 +229,7 @@ export function buildActivityInsight(params: {
   hrZoneJson: string | null | undefined;
   current: CurrentActivity;
   comparison: ActivityComparison | null;
+  environment?: ActivityEnvironmentSummary | null;
 }): ActivityInsightResponse {
   const lapInputs: LapInput[] = params.laps
     .slice()
@@ -249,6 +251,7 @@ export function buildActivityInsight(params: {
     comparison: params.comparison,
     decouplingPct: dc,
     hrZoneBreakdown: hrZoneBreakdown(params.hrZoneJson),
+    environment: params.environment ?? null,
   };
 }
 
