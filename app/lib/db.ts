@@ -854,6 +854,25 @@ export function getActivityTrack(activityId: number): ActivityTrack | null {
   }
 }
 
+/**
+ * 活动 GPS 首点（用于「同起点」可比样本过滤）。
+ * 只经 SQLite JSON1 提取两个数字，不反序列化整条轨迹（~100KB/条）。
+ */
+export function getActivityStartGeo(activityId: number): { lat: number; lng: number } | null {
+  const db = getDatabase();
+  const row = db
+    .prepare(
+      `SELECT CASE WHEN json_valid(track) THEN json_extract(track, '$.coords[0][0]') END AS lat,
+              CASE WHEN json_valid(track) THEN json_extract(track, '$.coords[0][1]') END AS lng
+       FROM activities
+       WHERE activity_id = ? AND track IS NOT NULL`,
+    )
+    .get(activityId) as { lat?: number | null; lng?: number | null } | undefined;
+  if (row?.lat == null || row?.lng == null) return null;
+  if (!Number.isFinite(row.lat) || !Number.isFinite(row.lng)) return null;
+  return { lat: row.lat, lng: row.lng };
+}
+
 /** 日期参数校验: 格式必须为 YYYY-MM-DD 且 startDate <= endDate */
 function validateRange(startDate: string, endDate: string, fnName: string): void {
   const re = /^\d{4}-\d{2}-\d{2}$/;
@@ -1171,6 +1190,8 @@ interface PeerActivityRow {
   average_heart_rate: number | null;
   average_temperature: number | null;
   total_ascent: number | null;
+  start_lat: number | null;
+  start_lng: number | null;
 }
 
 /** 同路线/同距离对比中的同行活动（含环境字段，供 AI 可比性分析）。 */
@@ -1185,6 +1206,10 @@ export interface PeerActivity {
   temperatureC: number | null;
   /** 累计爬升（m） */
   ascentM: number | null;
+  /** GPS 首点纬度（无轨迹为 null） */
+  startLat: number | null;
+  /** GPS 首点经度（无轨迹为 null） */
+  startLng: number | null;
 }
 
 function mapPeerRow(r: PeerActivityRow): PeerActivity {
@@ -1197,6 +1222,8 @@ function mapPeerRow(r: PeerActivityRow): PeerActivity {
     heartRate: r.average_heart_rate,
     temperatureC: r.average_temperature,
     ascentM: r.total_ascent,
+    startLat: r.start_lat,
+    startLng: r.start_lng,
   };
 }
 
@@ -1221,7 +1248,9 @@ export function getPeerActivities(
     const routeHi = distanceKm > 0 ? distanceKm * (1 + routeDistanceTolerance) : Number.MAX_SAFE_INTEGER;
     const rows = db.prepare(
       `SELECT activity_id, name, start_time_local, distance, average_pace,
-              average_heart_rate, average_temperature, total_ascent
+              average_heart_rate, average_temperature, total_ascent,
+              CASE WHEN json_valid(track) THEN json_extract(track, '$.coords[0][0]') END AS start_lat,
+              CASE WHEN json_valid(track) THEN json_extract(track, '$.coords[0][1]') END AS start_lng
        FROM activities
        WHERE activity_id != ?
          AND (name = ? OR name LIKE ?)
@@ -1237,7 +1266,9 @@ export function getPeerActivities(
   const hi = distanceKm * (1 + distanceTolerance);
   const rows = db.prepare(
     `SELECT activity_id, name, start_time_local, distance, average_pace,
-            average_heart_rate, average_temperature, total_ascent
+            average_heart_rate, average_temperature, total_ascent,
+            CASE WHEN json_valid(track) THEN json_extract(track, '$.coords[0][0]') END AS start_lat,
+            CASE WHEN json_valid(track) THEN json_extract(track, '$.coords[0][1]') END AS start_lng
      FROM activities
      WHERE activity_id != ? AND distance >= ? AND distance <= ?
      ORDER BY start_time_local DESC LIMIT 20`

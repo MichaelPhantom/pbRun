@@ -57,10 +57,11 @@ jest.mock('@/app/lib/db', () => ({
   getPeerActivities: jest.fn(() => ({
     basis: 'route',
     activities: [
-      { activityId: 1, date: '2026-08-01', name: '两江新区 - 乳酸阈值', distanceKm: 7, paceSecPerKm: 355, heartRate: 175, temperatureC: 25, ascentM: 90 },
-      { activityId: 2, date: '2026-08-15', name: '两江新区 - 基础训练', distanceKm: 7.5, paceSecPerKm: 350, heartRate: 172, temperatureC: 27, ascentM: 110 },
+      { activityId: 1, date: '2026-08-01', name: '两江新区 - 乳酸阈值', distanceKm: 7, paceSecPerKm: 355, heartRate: 175, temperatureC: 25, ascentM: 90, startLat: 29.5, startLng: 106.5 },
+      { activityId: 2, date: '2026-08-15', name: '两江新区 - 基础训练', distanceKm: 7.5, paceSecPerKm: 350, heartRate: 172, temperatureC: 27, ascentM: 110, startLat: 29.501, startLng: 106.501 },
     ],
   })),
+  getActivityStartGeo: jest.fn(() => null),
 }));
 
 import { getInsight } from '@/app/lib/insight-service';
@@ -109,5 +110,59 @@ describe('activity-insight-service.getActivityInsight', () => {
       currentAscentM: 120,
       tempBand: { label: '24–28°C', count: 3 },
     });
+  });
+});
+
+test('路线查询回退 distance 时 label 使用距离带 (不误用路线名)', () => {
+    const db = jest.requireMock('@/app/lib/db');
+    (db.getPeerActivities as jest.Mock).mockReturnValueOnce({
+      basis: 'distance',
+      activities: [
+        { activityId: 3, date: '2026-08-20', name: '其它 - 节奏跑', distanceKm: 7.8, paceSecPerKm: 345, heartRate: 170 },
+      ],
+    });
+    const r = getActivityInsight(99)!;
+    expect(r.comparison!.basis).toBe('distance');
+    expect(r.comparison!.label).toContain('±');
+    expect(r.comparison!.label).not.toContain('两江新区');
+  });
+
+describe('activity-insight-service 同起点校验', () => {
+  test('GPS 同起点过滤异地同名样本', () => {
+    const db = jest.requireMock('@/app/lib/db');
+    (db.getActivityStartGeo as jest.Mock).mockReturnValueOnce({ lat: 29.5, lng: 106.5 });
+    (db.getPeerActivities as jest.Mock).mockReturnValueOnce({
+      basis: 'route',
+      activities: [
+        { activityId: 1, date: '2026-08-01', name: '两江新区 - 乳酸阈值', distanceKm: 7, paceSecPerKm: 355, heartRate: 175, startLat: 29.501, startLng: 106.501 },
+        { activityId: 2, date: '2026-08-15', name: '两江新区 - 基础训练', distanceKm: 7.5, paceSecPerKm: 350, heartRate: 172, startLat: 31.2, startLng: 108.2 },
+      ],
+    });
+    const r = getActivityInsight(99)!;
+    expect(r.comparison!.basis).toBe('route');
+    expect(r.comparison!.label).toContain('同起点');
+    expect(r.comparison!.peers.map((p) => p.activityId)).toEqual([1]);
+  });
+
+  test('同路线样本全在异地 → 回退同距离口径', () => {
+    const db = jest.requireMock('@/app/lib/db');
+    (db.getActivityStartGeo as jest.Mock).mockReturnValueOnce({ lat: 29.5, lng: 106.5 });
+    (db.getPeerActivities as jest.Mock)
+      .mockReturnValueOnce({
+        basis: 'route',
+        activities: [
+          { activityId: 1, date: '2026-08-01', name: '两江新区 - 乳酸阈值', distanceKm: 7, paceSecPerKm: 355, heartRate: 175, startLat: 31.2, startLng: 108.2 },
+        ],
+      })
+      .mockReturnValueOnce({
+        basis: 'distance',
+        activities: [
+          { activityId: 3, date: '2026-08-20', name: '其它 - 节奏跑', distanceKm: 7.8, paceSecPerKm: 345, heartRate: 170, startLat: 31.2, startLng: 108.2 },
+        ],
+      });
+    const r = getActivityInsight(99)!;
+    expect(r.comparison!.basis).toBe('distance');
+    expect(r.comparison!.label).toContain('±');
+    expect(r.comparison!.peers.map((p) => p.activityId)).toEqual([3]);
   });
 });

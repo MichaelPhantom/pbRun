@@ -10,6 +10,7 @@ import {
   routeDistanceToleranceFor,
 } from './activity-coach-context';
 import { summarizeActivityEnvironment } from './activity-environment';
+import { filterSameStart, type GeoPoint } from './geo';
 import { routeKeyOf } from './insight-compare';
 import type { ActivityInsightResponse } from './types';
 
@@ -27,17 +28,50 @@ export function getActivityInsight(activityId: number): ActivityInsightResponse 
   const routeKey = routeKeyOf(activity.name);
   const distanceKm = activity.distance ?? 0;
   const distanceTolerance = distanceToleranceFor(distanceKm);
-  const { activities: peers, basis } = db.getPeerActivities(
+  const initial = db.getPeerActivities(
     activityId,
     routeKey,
     distanceKm,
     distanceTolerance,
     routeDistanceToleranceFor(distanceKm),
   );
+  let peers = initial.activities;
+  let basis = initial.basis;
+  let label =
+    initial.basis === 'route' && routeKey
+      ? routeKey
+      : distanceBandLabel(distanceKm, distanceTolerance);
+
+  // GPS 同起点校验：名称前缀只能证明「同区域」，首点距离才能证明「同起点」。
+  // 无 GPS 的同行保留（室内/无轨迹），有 GPS 且超过 2km 的剔除。
+  let startGeo: GeoPoint | null = null;
+  try {
+    startGeo = db.getActivityStartGeo(activityId);
+  } catch {
+    /* 降级：无 GPS 校验 */
+  }
+  if (startGeo) {
+    const filtered = filterSameStart(peers, startGeo);
+    if (basis === 'route' && peers.length > 0 && filtered.kept.length === 0) {
+      // 同路线样本全在异地（同名不同起点）→ 回退到同距离口径
+      const fallback = db.getPeerActivities(
+        activityId,
+        null,
+        distanceKm,
+        distanceTolerance,
+      );
+      peers = fallback.activities;
+      basis = fallback.basis;
+      label = distanceBandLabel(distanceKm, distanceTolerance);
+    } else {
+      peers = filtered.kept;
+      if (basis === 'route') label = `${routeKey} · 同起点`;
+    }
+  }
 
   const comparison = computeComparison(
     basis,
-    routeKey ?? distanceBandLabel(distanceKm, distanceTolerance),
+    label,
     {
       activityId,
       date: (activity.start_time_local || activity.start_time || '').slice(0, 10),

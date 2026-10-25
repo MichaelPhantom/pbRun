@@ -33,6 +33,7 @@ beforeEach(() => {
       average_temperature: 26, vdot_value: 42, training_load: 60, total_training_effect: 3.8,
       time_in_hr_zone: JSON.stringify([0, 0, 1800, 1800, 600, 0, 0]),
       threshold_heart_rate: 178,
+      track: JSON.stringify({ coords: [[29.5, 106.5], [29.6, 106.6]], n: 2 }),
     },
     {
       activity_id: 2, name: '两江新区 - 基础训练', activity_type: 'running', sub_sport_type: '路跑',
@@ -41,6 +42,7 @@ beforeEach(() => {
       average_pace: 370, average_heart_rate: 150, average_cadence: 178, average_stride_length: 0.9,
       average_temperature: 22, vdot_value: null, training_load: 45,
       time_in_hr_zone: JSON.stringify([0, 600, 1800, 0, 0, 0, 0]),
+      track: JSON.stringify({ coords: [[29.501, 106.501], [29.61, 106.61]], n: 2 }),
     },
     {
       activity_id: 3, name: '渝中区 - 长距离跑', activity_type: 'running', sub_sport_type: '路跑',
@@ -49,6 +51,7 @@ beforeEach(() => {
       average_pace: 371, average_heart_rate: 149, average_cadence: 178,
       average_temperature: 24, vdot_value: 40, training_load: 150,
       time_in_hr_zone: JSON.stringify([0, 0, 2400, 2600, 1200, 0, 0]),
+      track: '{bad-json', // 回归: 畸形轨迹不应让同行/首点查询整体抛错
     },
   ];
   for (const r of rows) mgr.upsertActivity(r);
@@ -140,6 +143,16 @@ describe('db.ts 洞察查询 (真实 SQL)', () => {
     // 环境字段随同行返回（供 AI 同温档/爬升可比性）
     expect(activities[0].temperatureC).toBe(22);
     expect(activities[0].ascentM).toBeNull();
+    expect(activities[0].startLat).toBeCloseTo(29.501);
+    expect(activities[0].startLng).toBeCloseTo(106.501);
+  });
+
+  test('getActivityStartGeo 只经 JSON1 提取首点; 无轨迹返回 null', async () => {
+    const db = await loadDb();
+    expect(db.getActivityStartGeo(1)).toEqual({ lat: 29.5, lng: 106.5 });
+    expect(db.getActivityStartGeo(3)).toBeNull(); // 畸形 JSON → json_valid 守卫
+    expect(db.getActivityStartGeo(999)).toBeNull();
+    expect(() => db.getPeerActivities(1, null, 8)).not.toThrow();
   });
 
   test('getPeerActivities 同路线也按距离带过滤 (5K 不与 30K 直接对比)', async () => {

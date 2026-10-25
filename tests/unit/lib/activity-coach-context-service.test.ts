@@ -4,6 +4,7 @@
 jest.mock('@/app/lib/db', () => ({
   getActivityById: jest.fn(),
   getPeerActivities: jest.fn(),
+  getActivityStartGeo: jest.fn(),
 }));
 jest.mock('@/app/lib/activity-insight-service', () => ({
   getActivityInsight: jest.fn(),
@@ -19,6 +20,7 @@ import type { PeerActivity } from '@/app/lib/db';
 const dbMock = db as unknown as {
   getActivityById: jest.Mock;
   getPeerActivities: jest.Mock;
+  getActivityStartGeo: jest.Mock;
 };
 const serviceMock = activityService as unknown as { getActivityInsight: jest.Mock };
 
@@ -51,7 +53,13 @@ const insightStub: ActivityInsightResponse = {
   hrZoneBreakdown: [],
 };
 
-const peer = (id: number, name: string, pace: number): PeerActivity => ({
+const peer = (
+  id: number,
+  name: string,
+  pace: number,
+  startLat: number | null = 29.5,
+  startLng: number | null = 106.5,
+): PeerActivity => ({
   activityId: id,
   date: '2026-09-20T08:00:00',
   name,
@@ -60,11 +68,14 @@ const peer = (id: number, name: string, pace: number): PeerActivity => ({
   heartRate: 158,
   temperatureC: 25.5,
   ascentM: 90,
+  startLat,
+  startLng,
 });
 
 beforeEach(() => {
   jest.clearAllMocks();
   dbMock.getActivityById.mockReturnValue(activity);
+  dbMock.getActivityStartGeo.mockReturnValue(null);
   serviceMock.getActivityInsight.mockReturnValue(insightStub);
   dbMock.getPeerActivities.mockImplementation(
     (_id: number, routeKey: string | null) => {
@@ -152,5 +163,49 @@ describe('buildActivityContextBlock', () => {
       });
     expect(buildActivityContextBlock(activity)).toBe('');
     spy.mockRestore();
+  });
+
+  test('GPS 同起点过滤：异地同名样本被剔除，标签标注同起点', () => {
+    dbMock.getActivityStartGeo.mockReturnValue({ lat: 29.5, lng: 106.5 });
+    dbMock.getPeerActivities.mockImplementation((_id: number, routeKey: string | null) => {
+      if (routeKey) {
+        return {
+          basis: 'route',
+          activities: [
+            peer(1, '世纪公园 - 轻松跑', 310, 29.501, 106.501),
+            peer(2, '世纪公园 - 长距离', 320, 30.5, 107.5), // 约 120km 外
+          ],
+        };
+      }
+      return { basis: 'distance', activities: [peer(3, '滨江 - 节奏跑', 305)] };
+    });
+    const text = buildActivityContextBlock(activity);
+    expect(text).toContain('同路线/同名样本（世纪公园 · 同起点）');
+    expect(text).toContain('样本 2 次（含本次）'); // 1 个同起点 + 本次
+    expect(text).not.toContain('120km 外');
+  });
+
+  test('GPS 过滤后同路线为空 → 不生成同路线段，同距离仍保留', () => {
+    dbMock.getActivityStartGeo.mockReturnValue({ lat: 29.5, lng: 106.5 });
+    dbMock.getPeerActivities.mockImplementation((_id: number, routeKey: string | null) => {
+      if (routeKey) {
+        return {
+          basis: 'route',
+          activities: [peer(1, '世纪公园 - 轻松跑', 310, 30.5, 107.5)],
+        };
+      }
+      return { basis: 'distance', activities: [peer(3, '滨江 - 节奏跑', 305)] };
+    });
+    const text = buildActivityContextBlock(activity);
+    expect(text).not.toContain('同路线/同名样本');
+    expect(text).toContain('同距离样本');
+  });
+
+  test('GPS 查询失败 → 降级为不校验，保留全部同名样本', () => {
+    dbMock.getActivityStartGeo.mockImplementation(() => {
+      throw new Error('no track');
+    });
+    const text = buildActivityContextBlock(activity);
+    expect(text).toContain('同路线/同名样本（世纪公园）');
   });
 });

@@ -9,7 +9,7 @@
  *
  * 容错纪律：任何一步 DB 查询失败都只降级该段，绝不阻塞 AI 主流程。
  */
-import { getPeerActivities, type PeerActivity } from './db';
+import { getActivityStartGeo, getPeerActivities, type PeerActivity } from './db';
 import { computeComparison, type ComparisonPeerInput } from './activity-insight';
 import { getActivityInsight } from './activity-insight-service';
 import {
@@ -19,6 +19,7 @@ import {
   routeDistanceToleranceFor,
 } from './activity-coach-context';
 import { summarizeActivityEnvironment } from './activity-environment';
+import { filterSameStart, type GeoPoint } from './geo';
 import { routeKeyOf } from './insight-compare';
 import type { Activity, ActivityComparison, ActivityInsightResponse } from './types';
 
@@ -78,6 +79,12 @@ export function buildActivityContextBlock(
   let distanceRows: PeerActivity[] = [];
   let routeRows: PeerActivity[] = [];
   const routeKey = routeKeyOf(activity.name);
+  let startGeo: GeoPoint | null = null;
+  try {
+    startGeo = getActivityStartGeo(activityId);
+  } catch {
+    /* 降级：无 GPS 校验 */
+  }
 
   if (routeKey) {
     try {
@@ -89,8 +96,17 @@ export function buildActivityContextBlock(
         routeTolerance,
       );
       if (r.basis === 'route' && r.activities.length > 0) {
-        routeRows = r.activities;
-        routeComparison = computeComparison('route', routeKey, current, asPeers(r.activities));
+        // 同名不同起点（如「两江新区」跨多个起点）时剔除异地样本；
+        // 无 GPS 的同行保留，避免误删室内/无轨迹记录。
+        routeRows = filterSameStart(r.activities, startGeo).kept;
+        if (routeRows.length > 0) {
+          routeComparison = computeComparison(
+            'route',
+            startGeo ? `${routeKey} · 同起点` : routeKey,
+            current,
+            asPeers(routeRows),
+          );
+        }
       }
     } catch {
       /* 降级 */
