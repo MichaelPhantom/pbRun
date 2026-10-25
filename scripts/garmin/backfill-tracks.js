@@ -5,9 +5,9 @@
  * 数据源: .cache/fit/{activity_id} (每日同步缓存的原始 FIT, 无需重新鉴权拉取)。
  * 流程:
  *   1. 备份 activities.db → .bak.<timestamp> (可回滚)
- *   2. ALTER TABLE activities ADD COLUMN track TEXT (若不存在; 幂等)
+ *   2. 补齐 track / start_lat / start_lng 列 (若不存在; 幂等)
  *   3. 逐活动解析缓存 FIT → 提取降采样轨迹 (fit-parser._extractTrack)
- *   4. UPDATE activities SET track=? WHERE activity_id=? (仅写 track 列, 不动其他字段)
+ *   4. UPDATE activities SET track=?, start_lat=?, start_lng=? WHERE activity_id=? (仅写路线/首点, 不动其他字段)
  *
  * 幂等: 可重复运行 (覆盖同值); 无 GPS 活动写 NULL (室内/跑步机, 详情页不渲染地图)。
  * 不依赖 Garmin API/凭证 — 纯本地缓存解析。
@@ -36,13 +36,15 @@ async function main() {
   const db = new Database(DB_PATH);
   const parser = new GarminFITParser();
 
-  // 2. 迁移: 加 track 列 (幂等)
+  // 2. 迁移: 补齐路线/首点列 (幂等)
   const cols = db.prepare("SELECT name FROM pragma_table_info('activities')").all().map(r => r.name);
-  if (!cols.includes('track')) {
-    db.exec('ALTER TABLE activities ADD COLUMN track TEXT');
-    log('已添加 track 列');
-  } else {
-    log('track 列已存在, 跳过迁移');
+  for (const [name, type] of [['track', 'TEXT'], ['start_lat', 'REAL'], ['start_lng', 'REAL']]) {
+    if (!cols.includes(name)) {
+      db.exec(`ALTER TABLE activities ADD COLUMN ${name} ${type}`);
+      log(`已添加 ${name} 列`);
+    } else {
+      log(`${name} 列已存在, 跳过迁移`);
+    }
   }
 
   // 3. 取所有 activity_id (数值, 与缓存文件名对应)
@@ -50,7 +52,9 @@ async function main() {
   log(`DB 共 ${rows.length} 条活动, 缓存 FIT 文件 ${fs.readdirSync(FIT_CACHE_DIR).length} 个`);
 
   let updated = 0, noGps = 0, noCache = 0, errors = 0;
-  const updateStmt = db.prepare('UPDATE activities SET track = ? WHERE activity_id = ?');
+  const updateStmt = db.prepare(
+    'UPDATE activities SET track = ?, start_lat = ?, start_lng = ? WHERE activity_id = ?'
+  );
 
   for (const row of rows) {
     const cachePath = path.join(FIT_CACHE_DIR, String(row.activity_id));
@@ -58,7 +62,12 @@ async function main() {
     try {
       const { activity } = await parser.parseFitFile(cachePath);
       if (!activity) { errors++; continue; }
-      updateStmt.run(activity.track ?? null, row.activity_id);
+      updateStmt.run(
+        activity.track ?? null,
+        activity.start_lat ?? null,
+        activity.start_lng ?? null,
+        row.activity_id
+      );
       if (activity.track) updated++; else noGps++;
     } catch (e) {
       errors++;

@@ -21,7 +21,6 @@ let tmpDb: string;
 beforeEach(() => {
   tmpDb = path.join(os.tmpdir(), `pbrun-insight-${Date.now()}-${Math.random().toString(36).slice(2)}.db`);
   const mgr = new DatabaseManager(tmpDb);
-  mgr.db.exec('ALTER TABLE activities ADD COLUMN track TEXT');
 
   const rows = [
     {
@@ -34,6 +33,9 @@ beforeEach(() => {
       time_in_hr_zone: JSON.stringify([0, 0, 1800, 1800, 600, 0, 0]),
       threshold_heart_rate: 178,
       track: JSON.stringify({ coords: [[29.5, 106.5], [29.6, 106.6]], n: 2 }),
+      // 预计算首点优先于 JSON1 解析 (回填后的正常形态)
+      start_lat: 30.123,
+      start_lng: 107.456,
     },
     {
       activity_id: 2, name: '两江新区 - 基础训练', activity_type: 'running', sub_sport_type: '路跑',
@@ -149,7 +151,9 @@ describe('db.ts 洞察查询 (真实 SQL)', () => {
 
   test('getActivityStartGeo 只经 JSON1 提取首点; 无轨迹返回 null', async () => {
     const db = await loadDb();
-    expect(db.getActivityStartGeo(1)).toEqual({ lat: 29.5, lng: 106.5 });
+    expect(db.getActivityStartGeo(1)).toEqual({ lat: 30.123, lng: 107.456 });
+    expect(db.hasActivityColumn('start_lat')).toBe(true);
+    expect(db.hasActivityColumn('not_a_column')).toBe(false);
     expect(db.getActivityStartGeo(3)).toBeNull(); // 畸形 JSON → json_valid 守卫
     expect(db.getActivityStartGeo(999)).toBeNull();
     expect(() => db.getPeerActivities(1, null, 8)).not.toThrow();

@@ -103,6 +103,11 @@ class DatabaseManager {
         vdot_value REAL,                              -- VDOT 跑力值
         training_load INTEGER,                        -- 训练负荷
 
+        -- 路线与地理 (track 由 FIT 解析写入; start_lat/lng 为首点, 供同起点查询走索引)
+        track TEXT,                                   -- 降采样 GPS 轨迹 JSON (coords/bounds/elev)
+        start_lat REAL,                               -- 轨迹首点纬度 (无 GPS 为 NULL)
+        start_lng REAL,                               -- 轨迹首点经度 (无 GPS 为 NULL)
+
         -- 元数据
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,    -- 创建时间
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP     -- 更新时间
@@ -158,7 +163,11 @@ class DatabaseManager {
       // 心率变异性（FIT hrv 消息，仅部分活动有）
       ['hrv_rmssd', 'REAL'],                         // RMSSD（毫秒，由 RR 间期计算）
       // 时区（2026-10-06 修复 start_time_local 时区缺陷时引入）
-      ['start_tz_offset_min', 'INTEGER']             // start_time_local 相对 UTC 的分钟偏移（Asia/Shanghai = 480）
+      ['start_tz_offset_min', 'INTEGER'],            // start_time_local 相对 UTC 的分钟偏移（Asia/Shanghai = 480）
+      // 路线与地理（新库直接建表；旧库经 ALTER 补齐）
+      ['track', 'TEXT'],                             // 降采样 GPS 轨迹 JSON
+      ['start_lat', 'REAL'],                         // 轨迹首点纬度
+      ['start_lng', 'REAL']                          // 轨迹首点经度
     ];
     for (const [name, type] of newActivityColumns) {
       try {
@@ -167,6 +176,20 @@ class DatabaseManager {
         if (!/duplicate column name/i.test(e.message)) throw e;
       }
     }
+    // 索引放在 ALTER 之后: 旧库先补 start_lat/lng 列, 再建索引
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_activities_start_geo
+      ON activities(start_lat, start_lng)
+    `);
+    // 旧库首点回填: 只补 start_lat 仍为空的轨迹行; 幂等且无需 FIT 缓存。
+    this.db.exec(`
+      UPDATE activities
+      SET start_lat = json_extract(track, '$.coords[0][0]'),
+          start_lng = json_extract(track, '$.coords[0][1]')
+      WHERE track IS NOT NULL
+        AND json_valid(track)
+        AND start_lat IS NULL
+    `);
 
     // Create activity_laps table
     this.db.exec(`

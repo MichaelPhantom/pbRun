@@ -76,11 +76,14 @@ describe('makeFixtureDb', () => {
     expect(rmSpy).toHaveBeenCalledWith('/tmp/x/activities.db');
   });
 
-  test('建库: 补 track 列 + 写活动/lap/记录 + 关闭并返回路径', () => {
+  test('建库: schema 自带 track/geo 列 + 写活动/lap/记录 + 关闭并返回路径', () => {
     const out = makeFixtureDb('/tmp/x/activities.db');
 
     expect(DatabaseManager).toHaveBeenCalledWith('/tmp/x/activities.db');
-    expect(mockDb.exec).toHaveBeenCalledWith('ALTER TABLE activities ADD COLUMN track TEXT');
+    // track/start_lat/start_lng 已进 db-manager 建表语句, 夹具不再额外 ALTER
+    expect(mockDb.exec).not.toHaveBeenCalledWith(
+      'ALTER TABLE activities ADD COLUMN track TEXT',
+    );
     expect(mockDb.upsertActivity).toHaveBeenCalledTimes(samples.length);
 
     // laps: 4 段, 均带 activity_id, cumulative_time 递增

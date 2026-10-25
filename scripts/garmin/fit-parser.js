@@ -202,6 +202,9 @@ class GarminFITParser {
 
       // 路线轨迹 (JSON 字符串; 无 GPS 为 null, 室内/跑步机自动跳过)
       activityData.track = trackData ? JSON.stringify(trackData) : null;
+      // 首点坐标落列 (索引化), 供「同起点」对比快速查询; 无 GPS 为 null。
+      activityData.start_lat = trackData?.coords?.[0]?.[0] ?? null;
+      activityData.start_lng = trackData?.coords?.[0]?.[1] ?? null;
 
       return { activity: activityData, laps: lapsData, records: recordsData };
     } catch (error) {

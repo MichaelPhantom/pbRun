@@ -53,6 +53,20 @@ describe('构造与列迁移', () => {
     expect(mgr.dbPath).toContain('app/data/activities.db');
   });
 
+  test('建表/迁移后回填旧行首点 (JSON1, 幂等)', () => {
+    new DatabaseManager('/tmp/x.db');
+    const sqls = mockExec.mock.calls.map((c) => String(c[0]));
+    expect(sqls.some((q) => /CREATE INDEX IF NOT EXISTS idx_activities_start_geo/.test(q))).toBe(true);
+    expect(
+      sqls.some(
+        (q) =>
+          /UPDATE activities/.test(q) &&
+          /start_lat = json_extract\(track, '\$\.coords\[0\]\[0\]'\)/.test(q) &&
+          /start_lat IS NULL/.test(q),
+      ),
+    ).toBe(true);
+  });
+
   test('列已存在 (duplicate column) → 静默跳过全部 ALTER', () => {
     mockExec.mockImplementation((sql) => {
       if (/ALTER TABLE/i.test(sql)) throw new Error('duplicate column name: sport_type');

@@ -73,21 +73,30 @@ test('FIT 缓存目录不存在 → exit(1) (未开始备份)', async () => {
   expect(fsMock.copyFileSync).not.toHaveBeenCalled();
 });
 
-test('先备份 DB 再迁移; track 列缺失时添加', async () => {
+test('先备份 DB 再迁移; 路线/首点列缺失时逐个添加', async () => {
   await main();
   expect(fsMock.copyFileSync).toHaveBeenCalledWith(
     expect.stringContaining('activities.db'),
     expect.stringMatching(/activities\.db\.bak\.\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}/),
   );
   expect(mockDb.exec).toHaveBeenCalledWith('ALTER TABLE activities ADD COLUMN track TEXT');
+  expect(mockDb.exec).toHaveBeenCalledWith('ALTER TABLE activities ADD COLUMN start_lat REAL');
+  expect(mockDb.exec).toHaveBeenCalledWith('ALTER TABLE activities ADD COLUMN start_lng REAL');
   expect(out()).toContain('已添加 track 列');
+  expect(out()).toContain('已添加 start_lat 列');
 });
 
-test('track 列已存在 → 跳过迁移 (不重复 ALTER)', async () => {
-  colStmt.all.mockReturnValueOnce([{ name: 'activity_id' }, { name: 'track' }]);
+test('路线/首点列已存在 → 跳过迁移 (不重复 ALTER)', async () => {
+  colStmt.all.mockReturnValueOnce([
+    { name: 'activity_id' },
+    { name: 'track' },
+    { name: 'start_lat' },
+    { name: 'start_lng' },
+  ]);
   await main();
   expect(mockDb.exec).not.toHaveBeenCalled();
   expect(out()).toContain('track 列已存在, 跳过迁移');
+  expect(out()).toContain('start_lat 列已存在, 跳过迁移');
 });
 
 describe('逐活动处理', () => {
@@ -97,13 +106,24 @@ describe('逐活动处理', () => {
       { activity_id: 1002, name: '跑步机', start_time_local: '2026-09-19T20:00:00' },
     ]);
     mockParseFitFile
-      .mockResolvedValueOnce({ activity: { track: { coords: [[1, 2], [3, 4]], n: 2 } } })
-      .mockResolvedValueOnce({ activity: { track: null } });
+      .mockResolvedValueOnce({
+        activity: {
+          track: { coords: [[1, 2], [3, 4]], n: 2 },
+          start_lat: 1,
+          start_lng: 2,
+        },
+      })
+      .mockResolvedValueOnce({ activity: { track: null, start_lat: null, start_lng: null } });
 
     await main();
 
-    expect(updateStmt.run).toHaveBeenCalledWith({ coords: [[1, 2], [3, 4]], n: 2 }, 1001);
-    expect(updateStmt.run).toHaveBeenCalledWith(null, 1002);
+    expect(updateStmt.run).toHaveBeenCalledWith(
+      { coords: [[1, 2], [3, 4]], n: 2 },
+      1,
+      2,
+      1001,
+    );
+    expect(updateStmt.run).toHaveBeenCalledWith(null, null, null, 1002);
     expect(out()).toMatch(/回填轨迹=1, 无GPS=1, 无缓存=0, 错误=0/);
   });
 

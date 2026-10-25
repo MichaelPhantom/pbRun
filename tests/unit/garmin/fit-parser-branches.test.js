@@ -466,6 +466,9 @@ describe('parseFitFile (文件级入口)', () => {
     expect(res.activity.sport_type).toBeTruthy();
     expect(typeof res.activity.track).toBe('string'); // 有 GPS → JSON 字符串
     expect(JSON.parse(res.activity.track).coords.length).toBe(2);
+    // 首点同时落列, 供同起点查询走索引
+    expect(res.activity.start_lat).toBeCloseTo(29.56);
+    expect(res.activity.start_lng).toBeCloseTo(106.55);
     expect(res.activity.user_weight).toBe(65);
     expect(res.activity.workout_name).toBe('基础训练');
   });
@@ -474,6 +477,8 @@ describe('parseFitFile (文件级入口)', () => {
     mockParseAsync.mockResolvedValueOnce(minimalFit({ records: [{ heart_rate: 150 }] }));
     const res = await p.parseFitFile('/tmp/a.fit');
     expect(res.activity.track).toBeNull();
+    expect(res.activity.start_lat).toBeNull();
+    expect(res.activity.start_lng).toBeNull();
   });
 
   test('解析抛 Error → 记录 message 并返回空结果', async () => {

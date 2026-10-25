@@ -153,9 +153,8 @@ function makeFixtureDb(outPath = process.argv[2] || DEFAULT_OUT_PATH) {
 
   const db = new DatabaseManager(outPath);
 
-  // 生产库的 track 列由 backfill-tracks.js 经 ALTER TABLE 添加 (非建表语句),
-  // 夹具需补齐, 否则详情页 getActivityTrack 报 "no such column: track"。
-  db.db.exec('ALTER TABLE activities ADD COLUMN track TEXT');
+  // 生产 schema 已包含 track / start_lat / start_lng (见 db-manager)；
+  // 夹具走同一 DatabaseManager 建表，无需再 ALTER。
 
   for (const s of samples) db.upsertActivity(s);
 

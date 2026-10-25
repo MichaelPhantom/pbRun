@@ -35,6 +35,8 @@ import { hrZoneOf, resolveMaxHr } from './hr-zones';
 
 // Database connection (singleton)
 let db: Database.Database | null = null;
+// activities 列缓存 (兼容旧库: 新列可能尚未迁移)
+let activityColumns: Set<string> | null = null;
 
 /** 数据源文件路径 (供健康探针/错误诊断复用)。 */
 export function getDatabasePath(): string {
@@ -80,6 +82,41 @@ function getDatabase(): Database.Database {
     db = new Database(dbPath, { readonly: true });
   }
   return db;
+}
+
+function getActivityColumns(): Set<string> {
+  if (!activityColumns) {
+    const conn = getDatabase();
+    const rows = conn.prepare('PRAGMA table_info(activities)').all() as { name: string }[];
+    activityColumns = new Set(rows.map((r) => r.name));
+  }
+  return activityColumns;
+}
+
+/** 当前 DB 的 activities 是否有某列 (旧库未跑迁移时用于降级 SQL)。 */
+export function hasActivityColumn(name: string): boolean {
+  try {
+    return getActivityColumns().has(name);
+  } catch {
+    return false;
+  }
+}
+
+/** 同行查询的 GPS 首点选择表达式：优先预计算列，旧行回退 JSON1。 */
+function startGeoSelect(): { lat: string; lng: string } {
+  const hasTrack = hasActivityColumn('track');
+  const hasStartLat = hasActivityColumn('start_lat');
+  const hasStartLng = hasActivityColumn('start_lng');
+  const latJson = hasTrack
+    ? "CASE WHEN json_valid(track) THEN json_extract(track, '$.coords[0][0]') END"
+    : 'NULL';
+  const lngJson = hasTrack
+    ? "CASE WHEN json_valid(track) THEN json_extract(track, '$.coords[0][1]') END"
+    : 'NULL';
+  return {
+    lat: hasStartLat ? `COALESCE(start_lat, ${latJson})` : latJson,
+    lng: hasStartLng ? `COALESCE(start_lng, ${lngJson})` : lngJson,
+  };
 }
 
 /**
@@ -860,12 +897,12 @@ export function getActivityTrack(activityId: number): ActivityTrack | null {
  */
 export function getActivityStartGeo(activityId: number): { lat: number; lng: number } | null {
   const db = getDatabase();
+  const geo = startGeoSelect();
   const row = db
     .prepare(
-      `SELECT CASE WHEN json_valid(track) THEN json_extract(track, '$.coords[0][0]') END AS lat,
-              CASE WHEN json_valid(track) THEN json_extract(track, '$.coords[0][1]') END AS lng
+      `SELECT ${geo.lat} AS lat, ${geo.lng} AS lng
        FROM activities
-       WHERE activity_id = ? AND track IS NOT NULL`,
+       WHERE activity_id = ?`,
     )
     .get(activityId) as { lat?: number | null; lng?: number | null } | undefined;
   if (row?.lat == null || row?.lng == null) return null;
@@ -1242,6 +1279,7 @@ export function getPeerActivities(
   routeDistanceTolerance = 0.25,
 ): { activities: PeerActivity[]; basis: 'route' | 'distance' } {
   const db = getDatabase();
+  const geo = startGeoSelect();
   // 路线: 名称以 "<routeKey> -" 开头 或 名称恰为 routeKey; 再按距离带过滤
   if (routeKey) {
     const routeLo = distanceKm > 0 ? distanceKm * (1 - routeDistanceTolerance) : 0;
@@ -1249,8 +1287,8 @@ export function getPeerActivities(
     const rows = db.prepare(
       `SELECT activity_id, name, start_time_local, distance, average_pace,
               average_heart_rate, average_temperature, total_ascent,
-              CASE WHEN json_valid(track) THEN json_extract(track, '$.coords[0][0]') END AS start_lat,
-              CASE WHEN json_valid(track) THEN json_extract(track, '$.coords[0][1]') END AS start_lng
+              ${geo.lat} AS start_lat,
+              ${geo.lng} AS start_lng
        FROM activities
        WHERE activity_id != ?
          AND (name = ? OR name LIKE ?)
@@ -1267,8 +1305,8 @@ export function getPeerActivities(
   const rows = db.prepare(
     `SELECT activity_id, name, start_time_local, distance, average_pace,
             average_heart_rate, average_temperature, total_ascent,
-            CASE WHEN json_valid(track) THEN json_extract(track, '$.coords[0][0]') END AS start_lat,
-            CASE WHEN json_valid(track) THEN json_extract(track, '$.coords[0][1]') END AS start_lng
+            ${geo.lat} AS start_lat,
+            ${geo.lng} AS start_lng
      FROM activities
      WHERE activity_id != ? AND distance >= ? AND distance <= ?
      ORDER BY start_time_local DESC LIMIT 20`
@@ -1287,4 +1325,5 @@ export function closeDatabase(): void {
     db.close();
     db = null;
   }
+  activityColumns = null;
 }
