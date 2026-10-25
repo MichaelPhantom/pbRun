@@ -6,6 +6,11 @@
 ## [Unreleased]
 
 ### Added
+- **路线/首点 schema 补齐**：`activities` 建表语句正式包含 `track` / `start_lat` / `start_lng`
+  与 `(start_lat, start_lng)` 索引；旧库经 `db-manager` 幂等 ALTER 补齐。`fit-parser` 在写入
+  track 的同时落首点列；`backfill-tracks.js` 同步回填首点。读取层用
+  `COALESCE(start_lat, json_extract(track,...))` 兼容未回填旧行，并新增 `hasActivityColumn`
+  兼容尚未迁移的旧库（缺列时自动降级为 JSON1/NULL）。
 - **汇总 AI 的区间环比**（`period-comparison.ts` + `previousDateRange`）：非「全部历史」区间会
   对比**上一个等长区间**的跑量/次数/时长/平均配速/平均跑力/训练负荷（绝对值 + 变化率），
   注入全局教练上下文；上一区间无活动或 `days=0` 时自动省略，避免虚假基线。

@@ -345,6 +345,8 @@ CREATE TABLE activities (
   vdot_value REAL,
   workout_name TEXT,
   track TEXT,                             -- 降采样路线轨迹 JSON; 无 GPS 为 NULL
+  start_lat REAL,                         -- 轨迹首点纬度; 无 GPS 为 NULL
+  start_lng REAL,                         -- 轨迹首点经度; 无 GPS 为 NULL
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
@@ -352,8 +354,12 @@ CREATE TABLE activities (
 
 > **track 列** (路线轨迹): 存降采样后的 GPS 多段线 + 海拔剖面 + 包围盒 (JSON, ~≤40KB/条)。
 > 由 `scripts/garmin/fit-parser.js` 的 `_extractTrack` 在 FIT 解析时生成, 经 `upsertActivity` 动态列写入。
+> **start_lat/start_lng** 同步写入轨迹首点, 带 `(start_lat, start_lng)` 索引; 供活动 AI 的
+> 「同起点」过滤直接走索引, 避免每次解析整条 track JSON。旧行未回填时读取层用
+> `COALESCE(start_lat, json_extract(track,...))` 自动回退。
 > 新活动随每日同步自动写入; 历史 310 条 FIT 用 `scripts/garmin/backfill-tracks.js` 一次性回填
-> (读 `.cache/fit/{activity_id}`, 备份 DB + 幂等 + 无需重新鉴权)。查询: `db.getActivityTrack(id)`。
+> (读 `.cache/fit/{activity_id}`, 备份 DB + 幂等 + 无需重新鉴权)。查询: `db.getActivityTrack(id)` /
+> `db.getActivityStartGeo(id)`。
 
 #### 时间域约定 (UTC 存储 + 本地墙钟, 2026-10-06 修复)
 
