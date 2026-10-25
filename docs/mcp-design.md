@@ -1,7 +1,7 @@
 # pbRun MCP Server 设计方案
 
 > 为 AI 客户端（Claude Desktop / opencode 等）提供结构化跑步数据访问能力
-> 状态: 已实施 (2026-08-08), 15 个 tools (含路线轨迹 + 年度里程)
+> 状态: 已实施 (2026-08-08), 16 个 tools (含路线轨迹 + 年度里程 + 当次可比样本)
 
 ## 1. 架构
 
@@ -31,7 +31,7 @@
 pbRun/
 ├── mcp-server/
 │   ├── index.ts              # MCP server 入口 (stdio transport)
-│   ├── tools.ts              # 15 个 tool 定义与 handler
+│   ├── tools.ts              # 16 个 tool 定义与 handler
 │   ├── analysis.ts           # 纯逻辑 (降采样/ACWR/跨期对比, 可单测)
 │   ├── tsconfig.json         # 独立编译配置 (module node16, 输出 dist/)
 │   ├── dist/                 # 编译产物 (已 .gitignore)
@@ -44,7 +44,7 @@ pbRun/
 
 > 部署: 无 systemd unit — stdio 进程由 AI 客户端按需拉起 (见 §6.1)。
 
-## 3. Tools 清单 (15 个)
+## 3. Tools 清单 (16 个)
 
 ### 3.1 基础数据 (复用 db.ts, 13 个)
 
@@ -64,7 +64,16 @@ pbRun/
 | `get_activity_track` | `getActivityTrack` | `activityId` | `{track: ActivityTrack \| null}` | 路线轨迹 (降采样 GPS+海拔+包围盒); 室内为 null |
 | `get_daily_distances` | `getDailyDistances` | `year?`(默认当前年) | `{date, km}[]` | 年度每日里程 (热力图/连续性) |
 
-### 3.2 AI 专用 (新增, 2 个)
+### 3.2 AI 专用 (新增, 3 个)
+
+#### `get_activity_comparables` — 当次横向可比样本
+
+输入 `activityId`，输出单次活动的：
+- `insight`：分段角色/主课漂移/心率区间/逐秒解耦/同路线对比/环境可比性；
+- `contextText`：可直接注入 LLM prompt 的【本次表现与可比样本】文本块。
+
+与 Web 端活动 AI 使用同一套 `activity-insight-service` / `activity-coach-context-service`，
+避免 MCP 与页面口径漂移。
 
 #### `compare_periods` — 跨期对比
 
@@ -185,7 +194,7 @@ DB_PATH=/home/ubuntu/project/pbRun/app/data/activities.db MAX_HR=194 \
 | 4 | 实现 compare_periods (db.ts 新增 getPeriodStats) | ✅ |
 | 5 | 实现 get_training_load_analysis (db.ts 新增 getTrainingLoads, ACWR) | ✅ |
 | 6 | opencode 配置 (已写入 ~/.config/opencode); 确认无需 systemd (stdio 由客户端拉起) | ✅ |
-| 7 | 端到端验证 (stdio 客户端逐一调用 15 个 tool) | ✅ 全部通过 |
+| 7 | 端到端验证 (stdio 客户端逐一调用 16 个 tool) | ✅ 全部通过 |
 | 8 | 打磨: 纯逻辑抽离 analysis.ts (可单测)、结构化错误、日期校验、优雅退出 | ✅ |
 | 9 | 单元测试: db 新函数 10 例 + analysis 纯逻辑 18 例 | ✅ 全部通过 |
 | 10 | 修复 format.ts locale 脆弱性 (toLocaleDateString → 确定性 YYYY/MM/DD) | ✅ 全量测试 271 通过 |
@@ -193,7 +202,7 @@ DB_PATH=/home/ubuntu/project/pbRun/app/data/activities.db MAX_HR=194 \
 
 构建: `npm run build:mcp` (tsc -p mcp-server) → `mcp-server/dist/`
 测试: `npm test -- tests/unit/lib/db-mcp.test.ts tests/unit/mcp/analysis.test.ts`
-说明: 实际 tool 数为 15 (13 基础 + 2 AI), 设计文档原 "12 个" 为笔误。
+说明: 实际 tool 数为 16 (13 基础 + 3 AI), 设计文档原 "12 个" 为笔误。
 注意: `next build` 时勿设置 `NODE_ENV=development` (Next 16 已知 bug 会使 /_global-error
 prerender 崩溃, vercel/next.js#85668 等); 正常构建 (不设或 NODE_ENV=production) 无此问题。
 

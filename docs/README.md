@@ -40,7 +40,7 @@
 | [API 接口文档](api-reference.md) | 完整的 RESTful API 参考 |
 | [训练洞察与 AI 教练](insight.md) | 动态洞察指标体系 + AI 教练体系 (活动级/全局) |
 | [VDOT 计算说明](vdot-calculation.md) | VDOT 跑力计算公式和训练建议 |
-| [MCP Server 设计](mcp-design.md) | AI 客户端接入 (15 个 tools, 已实施) |
+| [MCP Server 设计](mcp-design.md) | AI 客户端接入 (16 个 tools, 已实施) |
 | [测试方案](testing-strategy.md) | Jest + Playwright 测试架构 |
 | [Strava 集成设计](strava-integration-design.md) | Strava 数据源集成方案 |
 
@@ -135,7 +135,7 @@ pbRun/
 │       ├── runner-profile.ts          # 跑者画像
 │       ├── llm.ts / coach-stream.ts   # prompt、请求体、SSE 出流与回退
 │       └── components/{ai,charts,map} # AI 对话、图表、路线图
-├── mcp-server/             # MCP Server (stdio, 15 tools)
+├── mcp-server/             # MCP Server (stdio, 16 tools)
 ├── scripts/                # 数据同步与维护
 │   ├── garmin/             # Garmin 同步/解析/校验/回填
 │   ├── strava/             # Strava 同步/OAuth/GPX

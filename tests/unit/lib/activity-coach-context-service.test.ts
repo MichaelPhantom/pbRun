@@ -102,6 +102,12 @@ describe('buildActivityContextBlock', () => {
     expect(serviceMock.getActivityInsight).not.toHaveBeenCalled();
   });
 
+  test('传入预计算 insight → 跳过重复深挖查询', () => {
+    const text = buildActivityContextBlock(activity, insightStub);
+    expect(serviceMock.getActivityInsight).not.toHaveBeenCalled();
+    expect(text).toContain('同距离样本');
+  });
+
   test('无路线指纹（跑步机）→ 只查同距离', () => {
     const text = buildActivityContextBlock({ ...activity, name: '跑步机' });
     expect(text).toContain('同距离样本');

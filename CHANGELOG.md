@@ -6,6 +6,11 @@
 ## [Unreleased]
 
 ### Added
+- **MCP `get_activity_comparables`（第 16 个 tool）**：把 Web 端活动 AI 的当次可比上下文
+  暴露给 MCP 客户端——返回结构化 `insight`（分段/对比/环境/解耦）与可直接注入 prompt 的
+  `contextText`；与页面共用 `activity-insight-service` / `activity-coach-context-service`，
+  避免口径漂移。`mcp-server/tsconfig.json` 排除浏览器专用的 `theme.ts`，修复
+  `npm run build:mcp` 因 DOM 类型缺失而失败。
 - **单次活动 AI 的环境可比性**（`app/lib/activity-environment.ts`）：同距离样本的
   平均温度/累计爬升 + 本次差值，并按 `<10 / 10–18 / 18–24 / 24–28 / ≥28°C`
   同温档给出档内排名、配速差与心率差。`getPeerActivities` 同步返回

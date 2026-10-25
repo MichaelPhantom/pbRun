@@ -25,7 +25,7 @@
 | 统计 | `/stats?period=` | `getStats` / `getPersonalRecords` | 汇总 AI，周/月/年/全部映射 | ✅ |
 | 汇总 AI 对话 | `POST /api/insight/coach` | `insight-service.ts` → `formatInsightForCoach` | 区间指标 + 跑者画像 + 趋势 | ✅ |
 | 模型目录 | `GET /api/llm/models` | `model-curation.ts` 固定白名单 | — | ✅ |
-| MCP Server | `mcp-server/`（stdio） | 15 个 tools 复用 `app/lib/db.ts` | 不调用 LLM（由客户端自行对话） | ✅ |
+| MCP Server | `mcp-server/`（stdio） | 16 个 tools 复用 `app/lib/db.ts` 与活动深挖服务 | `get_activity_comparables` 直接返回当次可比 `contextText` | ✅ |
 | 数据同步 | `scripts/garmin` / `scripts/strava` | FIT/GPX → SQLite，VDOT 计算 | — | ✅ |
 
 ---

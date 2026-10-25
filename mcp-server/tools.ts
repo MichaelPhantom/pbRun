@@ -1,5 +1,5 @@
 /**
- * pbRun MCP Server — 15 个 tool 的定义与 handler。
+ * pbRun MCP Server — 16 个 tool 的定义与 handler。
  * 直接复用 app/lib/db.ts 的查询函数（只读访问 activities.db）；
  * 纯计算逻辑 (降采样/ACWR/跨期对比) 在 ./analysis.ts, 可单测。
  */
@@ -24,6 +24,8 @@ import {
   getActivityTrack,
   getDailyDistances,
 } from '../app/lib/db';
+import { getActivityInsight } from '../app/lib/activity-insight-service';
+import { buildActivityContextBlock } from '../app/lib/activity-coach-context-service';
 import {
   assertDateRange,
   computeCompareDelta,
@@ -128,6 +130,40 @@ export async function registerTools(server: McpServer): Promise<void> {
         const activity = getActivityById(args.activityId);
         if (!activity) throw new Error(`未找到活动: activity_id=${args.activityId}`);
         return { activityId: args.activityId, laps: getActivityLaps(args.activityId) };
+      })
+  );
+
+  await server.registerTool(
+    'get_activity_comparables',
+    {
+      title: '单条活动可比样本',
+      description:
+        '按 activity_id 返回单次活动的横向可比上下文：分段角色/主课漂移/心率区间/逐秒解耦 + ' +
+        '同路线/同距离/同类训练配速排名 + 温度/爬升/同温档环境可比性。' +
+        '适合 AI 做「当次横向复盘」，而不是全局趋势分析；返回 insight(结构化) 与 contextText(可直接注入 prompt 的文本块)。' +
+        'distance 为公里, 配速为秒/公里。',
+      inputSchema: {
+        activityId: z.number().int().positive().describe('活动 ID'),
+      },
+    },
+    (args) =>
+      run(() => {
+        const activity = getActivityById(args.activityId);
+        if (!activity) throw new Error(`未找到活动: activity_id=${args.activityId}`);
+        const insight = getActivityInsight(args.activityId);
+        if (!insight) throw new Error(`未找到活动深挖数据: activity_id=${args.activityId}`);
+        return {
+          activityId: args.activityId,
+          name: activity.name,
+          date: (activity.start_time_local || activity.start_time || '').slice(0, 10),
+          distanceKm: activity.distance ?? null,
+          averagePaceSecPerKm: activity.average_pace ?? null,
+          averageHeartRate: activity.average_heart_rate ?? null,
+          temperatureC: activity.average_temperature ?? null,
+          ascentM: activity.total_ascent ?? null,
+          insight,
+          contextText: buildActivityContextBlock(activity, insight),
+        };
       })
   );
 

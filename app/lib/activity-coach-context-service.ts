@@ -20,7 +20,7 @@ import {
 } from './activity-coach-context';
 import { summarizeActivityEnvironment } from './activity-environment';
 import { routeKeyOf } from './insight-compare';
-import type { Activity, ActivityComparison } from './types';
+import type { Activity, ActivityComparison, ActivityInsightResponse } from './types';
 
 function localDay(a: Activity): string {
   return (a.start_time_local || a.start_time || '').slice(0, 10);
@@ -40,8 +40,14 @@ function asPeers(rows: PeerActivity[]): ComparisonPeerInput[] {
 /**
  * 构建活动 AI 的【本次表现与可比样本】块。
  * 无活动 / 无任何可比数据时返回空串。
+ *
+ * @param precomputedInsight 已由调用方取好的深挖结果（MCP/复用场景），
+ *   传入时跳过重复的 getActivityInsight 查询。
  */
-export function buildActivityContextBlock(activity: Activity | null): string {
+export function buildActivityContextBlock(
+  activity: Activity | null,
+  precomputedInsight?: ActivityInsightResponse | null,
+): string {
   if (!activity) return '';
   const activityId = activity.activity_id;
   const distanceKm = activity.distance ?? 0;
@@ -57,11 +63,13 @@ export function buildActivityContextBlock(activity: Activity | null): string {
   const routeTolerance = routeDistanceToleranceFor(distanceKm);
 
   // 1) 当次深挖（分段角色/漂移/区间/解耦）。失败则仅丢失该段。
-  let insight = null;
-  try {
-    insight = getActivityInsight(activityId);
-  } catch {
-    /* 降级 */
+  let insight: ActivityInsightResponse | null = precomputedInsight ?? null;
+  if (precomputedInsight === undefined) {
+    try {
+      insight = getActivityInsight(activityId);
+    } catch {
+      /* 降级 */
+    }
   }
 
   // 2) 同路线/同名样本 + 同距离样本。两组独立取，互不替代。

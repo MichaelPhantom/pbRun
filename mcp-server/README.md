@@ -5,7 +5,7 @@
 - **传输**: stdio (本地 AI 客户端直连, 无端口/认证)
 - **DB**: 只读访问 `app/data/activities.db` (SQLite WAL, 与 Next.js + cron 写入无冲突)
 - **依赖复用**: 直接 import `app/lib/{db,types,vdot-pace}.ts` (无 Next.js 依赖)
-- **目录**: `index.ts` 入口 / `tools.ts` 15 个 tool / `analysis.ts` 纯逻辑 (可单测)
+- **目录**: `index.ts` 入口 / `tools.ts` 16 个 tool / `analysis.ts` 纯逻辑 (可单测)
 
 ## 构建与运行
 
@@ -32,20 +32,22 @@ node mcp-server/dist/mcp-server/index.js
 ## 测试
 
 ```bash
-npm test -- tests/unit/lib/db-mcp.test.ts tests/unit/mcp/analysis.test.ts
+npm test -- tests/unit/lib/db-mcp.test.ts tests/unit/mcp/analysis.test.ts tests/unit/mcp/tools-comparables.test.ts
 ```
 
 - `tests/unit/lib/db-mcp.test.ts` — db.ts 新增查询函数 (mock better-sqlite3)
 - `tests/unit/mcp/analysis.test.ts` — 降采样 / 日期 / 心率区间 / 跨期对比 / ACWR 纯逻辑
+- `tests/unit/mcp/tools-comparables.test.ts` — 当次可比工具的成功/活动不存在/深挖缺失路径
 
-## 工具清单 (15 个)
+## 工具清单 (16 个)
 
 基础数据 (13 个, 复用 db.ts): `list_activities`, `get_activity`, `get_activity_laps`,
 `get_activity_records` (支持降采样), `get_activity_track` (路线轨迹), `get_stats`,
 `get_personal_records`, `get_vdot_history`, `get_vdot_trend`, `get_hr_zone_analysis`,
 `get_pace_zone_analysis`, `get_month_summaries`, `get_daily_distances` (年度每日里程)
 
-AI 专用 (2 个): `compare_periods` (跨期对比), `get_training_load_analysis` (ACWR 训练负荷分析)
+AI 专用 (3 个): `get_activity_comparables` (当次横向可比样本 + 环境修正 + 可直接注入
+prompt 的 contextText), `compare_periods` (跨期对比), `get_training_load_analysis` (ACWR 训练负荷分析)
 
 ## 数据完整性契约 (重要)
 
@@ -116,7 +118,7 @@ mcp_servers:
     enabled: true
 ```
 
-新会话自动加载; 验证: `hermes mcp test pbRun` (应显示 `Connected` + 15 tools)。
+新会话自动加载; 验证: `hermes mcp test pbRun` (应显示 `Connected` + 16 tools)。
 
 ## 重新构建 (代码变更后)
 
