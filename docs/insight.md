@@ -99,7 +99,8 @@ activities / activity_laps / activity_records (SQLite)
   - `/insight?days=` 与 `/analysis?days=`：近一周 / 近一月 / 近三月 / 近半年 / 全部；
   - `/stats?period=`：周→7、月→30、年→365、总→0。
 - 上下文：【跑者画像】+【全局洞察指标】（`insight-coach.ts` 的 `formatInsightForCoach`
-  把该区间的 `InsightResponse` 序列化为文本块）
+  把该区间的 `InsightResponse` 序列化为文本块）+【区间环比】（`period-comparison.ts`
+  对比当前区间与上一个等长区间的跑量/次数/时长/配速/跑力/负荷；无基线或全部历史时省略）
 - Prompt：`llm.ts` 的 `GLOBAL_COACH_PROMPT`（总体诊断/能力演进/结构评估/多维洞察/优势短板/未来处方）
 - 消息构造：`buildGlobalCoachMessages` / `buildGlobalCoachFollowupMessages`
 - UI：`app/lib/components/ai/GlobalCoach.tsx`（洞察页、分析页、统计页复用）
@@ -137,6 +138,7 @@ activities / activity_laps / activity_records (SQLite)
 | 洞察→教练上下文 + 全局消息 | `tests/unit/lib/insight-coach.test.ts` |
 | Prompt 注入顺序 | `tests/unit/lib/llm.test.ts` |
 | 区间参数（7/30/90/180/365/0/all） | `tests/unit/lib/date-utils.test.ts` |
+| 区间环比 | `tests/unit/lib/period-comparison.test.ts` |
 | 洞察 API | `tests/unit/api/insight-route.test.ts` |
 | 教练/活动深挖 API | `tests/unit/api/insight-coach-route.test.ts` |
 | 活动 AI 路由校验/追问/降级 | `tests/unit/api/analysis-*.test.ts` |

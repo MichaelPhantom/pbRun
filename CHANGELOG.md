@@ -6,6 +6,9 @@
 ## [Unreleased]
 
 ### Added
+- **汇总 AI 的区间环比**（`period-comparison.ts` + `previousDateRange`）：非「全部历史」区间会
+  对比**上一个等长区间**的跑量/次数/时长/平均配速/平均跑力/训练负荷（绝对值 + 变化率），
+  注入全局教练上下文；上一区间无活动或 `days=0` 时自动省略，避免虚假基线。
 - **GPS 同起点校验**（`app/lib/geo.ts` + `db.getActivityStartGeo`）：活动 AI 与详情深挖的
   同路线样本先用 GPS 首点做 Haversine 距离校验（默认 ≤2km），剔除同名不同起点的活动；
   无轨迹/室内记录保留，当前活动无 GPS 时跳过。仅用 SQLite JSON1 提取首点坐标，

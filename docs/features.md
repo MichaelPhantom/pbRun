@@ -85,8 +85,13 @@
 | 直接调用 API | body `days` | `7/30/90/180/365/0` 或 `all` | 非法值回落 30 |
 
 上下文 =【跑者画像】+【全局洞察指标】（VDOT 趋势 / ACWR / 强度分布 / 周期化 / 有氧解耦 /
-类别·气温·路线对比 / 配速-心率模型 / findings），并由 `formatInsightForCoach` 序列化为文本块。
-追问复用同一上下文（`buildGlobalCoachFollowupMessages`），前端回传 history。
+类别·气温·路线对比 / 配速-心率模型 / findings）+【区间环比】，并由 `formatInsightForCoach`
+与 `formatPeriodComparison` 序列化为文本块。
+
+**区间环比**（`period-comparison.ts`）：当前区间 vs **上一个等长区间**，输出跑量/次数/时长/
+平均配速/平均跑力/训练负荷的绝对值与变化率。无上一区间活动时整段省略（不做虚假基线）；
+`days=0`（全部历史）无「上一区间」，自动跳过。追问复用同一上下文
+（`buildGlobalCoachFollowupMessages`），前端回传 history。
 
 ---
 
@@ -100,6 +105,7 @@
 | 活动 AI 路由（校验/追问/降级） | `api/activities/[id]/analysis` | `tests/unit/api/analysis-*.test.ts` |
 | 汇总 AI 路由（区间/追问/回退） | `api/insight/coach` | `tests/unit/api/insight-coach-route.test.ts` |
 | 区间参数（7/30/90/180/365/0/all） | `date-utils.ts` | `tests/unit/lib/date-utils.test.ts` |
+| 区间环比（当前 vs 上一等长区间） | `period-comparison.ts` | `tests/unit/lib/period-comparison.test.ts` |
 | 汇总 AI 页面映射 | `InsightClient` / `AnalysisClient` / `StatsClient` | `tests/unit/components|pages` |
 | CI 门槛与文档漂移 | `.github/workflows/test.yml` | `tests/unit/ci/*` / `tests/unit/docs/*` |
 

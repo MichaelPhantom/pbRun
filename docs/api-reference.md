@@ -685,6 +685,8 @@ Content-Type: application/json
 
 `days` 支持 7 / 30 / 90 / 180 / 365 / 0（`0` 或 `all` = 全部历史），非法值回落 30；
 页面入口：`/insight?days=`、`/analysis?days=`、`/stats?period=`（周→7 / 月→30 / 年→365 / 总→0）。
+对于非「全部历史」区间，服务端会额外计算**上一等长区间**的跑量/次数/时长/配速/跑力/负荷，
+作为【区间环比】注入教练上下文；无上一区间活动或 `days=0` 时自动省略。
 
 `model` 只接受白名单值（`app/lib/model-curation.ts`）：默认
 `deepseek-v4.1-flash-wb`，可选 `glm-5.3-flash` / `kimi-k3` /
