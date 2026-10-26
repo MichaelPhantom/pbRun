@@ -169,15 +169,23 @@ describe('DashboardPage (首页) 数据编排', () => {
     expect(screen.getByText('本月距离')).toBeInTheDocument();
   });
 
-  test('当月里程按 loadPoints 聚合 (m→km), 跑次按 load>0 天数计', async () => {
+  test('当月里程按 loadPoints 聚合 (m→km), 跑步天数按 load>0 天数计', async () => {
     render(await DashboardPage());
     // 当月 7 天 × 8000m = 56.00 km (formatDistance 两位小数)
     expect(screen.getByText('56.00 km')).toBeInTheDocument();
-    // 活动天数 = 当月 load>0 的天数 = 7
+    // 跑步天数 = 当月 load>0 的天数 = 7
     expect(screen.getAllByText('7').length).toBeGreaterThan(0);
     // 当月训练负荷 = 7 × 60 = 420
     expect(screen.getAllByText('420').length).toBeGreaterThan(0);
     // 上月 3 天 × 12000m = 36.00 km → 本月超出, delta 非空
     expect(screen.getByText('vs 上月')).toBeInTheDocument();
+  });
+
+  test('口径标签: 数据源是跑步口径 (getTrainingLoads), 标签不得写「活动天数」', async () => {
+    // 真实库 2026-10 有 16 个活动日, 但只有 15 个跑步日 (多出力量训练/爬楼)。
+    // 旧标签「活动天数」会让用户以为漏了一天, 而数值本身是对的。
+    render(await DashboardPage());
+    expect(screen.getByText('跑步天数')).toBeInTheDocument();
+    expect(screen.queryByText('活动天数')).toBeNull();
   });
 });

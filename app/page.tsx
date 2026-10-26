@@ -52,7 +52,10 @@ export default async function DashboardPage() {
   const thisMonthKm = sumKm(monthStr);
   const lastMonthKm = sumKm(prevMonthStr);
 
-  // 当月跑次 (有负荷的天数 — 保守计数)
+  // 当月跑步天数 (有负荷的天数 — 保守计数)。
+  // 数据源 getTrainingLoads 是**跑步口径**, 因此这里数的是「跑步的天数」而不是
+  // 「所有活动的天数」: 真实库 2026-10 有 16 个活动日, 但只有 15 个跑步日
+  // (多出来的是力量训练/爬楼)。标签必须与口径一致, 否则用户会以为漏了一天。
   const thisMonthRuns = loadPoints.filter((p) => p.date.startsWith(monthStr) && (p.load ?? 0) > 0).length;
   // 当月均配速: 总时长 / 总距离(km)
   const monthAgg = loadPoints
@@ -174,7 +177,10 @@ export default async function DashboardPage() {
             delta={Math.abs(thisMonthKm - lastMonthKm) > 0.05 ? thisMonthKm - lastMonthKm : null}
             deltaLabel="vs 上月"
           />
-          <StatCard value={thisMonthRuns} label="活动天数" />
+          <StatCard
+            value={thisMonthRuns}
+            label="跑步天数"
+          />
           <StatCard value={monthAvgPace != null ? formatPace(monthAvgPace, false) : "--"} unit="/km" label="平均配速" />
           <StatCard value={monthLoad.toFixed(0)} label="训练负荷" />
         </div>
