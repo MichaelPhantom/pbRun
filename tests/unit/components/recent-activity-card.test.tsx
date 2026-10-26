@@ -65,6 +65,19 @@ describe('RecentActivityCard', () => {
     expect(screen.getByRole('heading', { name: /篮球 2026/ })).toBeInTheDocument();
   });
 
+  test('非跑步卡片不展示 VDOT (跑力是跑步指标), 心率/负荷照常', () => {
+    render(
+      <RecentActivityCard
+        activity={act({ activity_type: 'basketball', name: '篮球', vdot_value: 45.2, training_load: 60 })}
+      />,
+    );
+    expect(screen.queryByText('VDOT')).toBeNull();
+    expect(screen.queryByText('45.2')).toBeNull();
+    // 负荷与心率与运动类型无关, 仍然展示
+    expect(screen.getByText('负荷')).toBeInTheDocument();
+    expect(screen.getByText('60.0')).toBeInTheDocument();
+  });
+
   test('旧库空 activity_type 按跑步处理: 展示配速, 不显示类型徽标', () => {
     const { container } = render(
       <RecentActivityCard activity={act({ activity_type: '', average_pace: 330 })} />,

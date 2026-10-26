@@ -223,6 +223,22 @@ describe('ListClient 活动列表 (交互/筛选/无限滚动)', () => {
     expect(screen.getByRole('button', { name: /篮球 2026/ })).toBeInTheDocument();
   });
 
+  test('非跑步卡片不展示「即时跑力」(VDOT 是跑步指标), 训练负荷照常', () => {
+    renderList({
+      initialActivitiesByMonth: {
+        '2026-09': [
+          act({ activity_type: 'basketball', name: '篮球', vdot_value: 45.2, training_load: 60 }),
+        ],
+      },
+    });
+    const card = screen.getByRole('button', { name: /篮球/ });
+    expect(card).not.toHaveTextContent('即时跑力');
+    expect(card).not.toHaveTextContent('45.2');
+    // 训练负荷与运动类型无关, 仍然展示
+    expect(card).toHaveTextContent('训练负荷');
+    expect(card).toHaveTextContent('60.0');
+  });
+
   test('活动缺 distance 时显示 --, 且缺负荷/跑力不渲染对应块', () => {
     renderList({
       initialActivitiesByMonth: {

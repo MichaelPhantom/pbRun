@@ -44,7 +44,9 @@ export function RecentActivityCard({ activity }: { activity: Activity }) {
         activity.training_load != null ||
         activity.average_heart_rate != null) && (
         <div className="flex flex-wrap gap-3 text-[11px] text-fg-secondary">
-          {activity.vdot_value != null && (
+          {/* VDOT 是跑步跑力指标: 非跑步活动即使 DB 里残留了值也不展示
+              (详情页同样按 running 门控「即时跑力」)。 */}
+          {running && activity.vdot_value != null && (
             <span>
               VDOT <span className="tnum font-medium text-fg-secondary">{activity.vdot_value.toFixed(1)}</span>
             </span>

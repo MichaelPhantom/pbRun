@@ -350,7 +350,7 @@ function ActivityCard({
             <span className="font-medium text-fg-secondary">{a.training_load.toFixed(1)}</span> 训练负荷
           </span>
         )}
-        {a.vdot_value != null && (
+        {running && a.vdot_value != null && (
           <span className="text-fg-secondary">
             <span className="font-medium text-fg-secondary">{a.vdot_value.toFixed(1)}</span> 即时跑力
           </span>
