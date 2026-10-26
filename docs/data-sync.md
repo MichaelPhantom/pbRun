@@ -354,6 +354,8 @@ CREATE TABLE activities (
 
 > **activity_records 单位**：`distance` 为**公里**、`speed` 为 **km/h**（解析器 `lengthUnit=km`,
 > `speedUnit=km/h`）；`altitude` 为米，`temperature` 为 °C。聚合/图表计算前按需换算为米/秒。
+> 历史逐秒温度用 `npm run backfill:temp` 从 `.cache/fit` 回填（备份 DB、仅补 NULL、幂等）；
+> 新活动随每日同步自动写入。
 >
 > **track 列** (路线轨迹): 存降采样后的 GPS 多段线 + 海拔剖面 + 包围盒 (JSON, ~≤40KB/条)。
 > 由 `scripts/garmin/fit-parser.js` 的 `_extractTrack` 在 FIT 解析时生成, 经 `upsertActivity` 动态列写入。

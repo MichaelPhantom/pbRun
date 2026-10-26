@@ -83,8 +83,9 @@ activities / activity_laps / activity_records (SQLite)
   - 同路线/同名：以活动名称「地点前缀」为指纹的历史样本，按路线距离带过滤
     （`<5km ±35%` / `5–12km ±25%` / `>12km ±23%`），再用 GPS 首点做 **≤2km 同起点校验**
     （无轨迹保留），输出排名、组均/组最佳、心率差；
-  - 同位置（跨名称）：`start_lat/start_lng` 索引取 GPS 首点 ≤1.5km 候选，Haversine 精筛；
-    即使名称不同，同一公园/田径场/起点也能进入可比组；
+  - 同位置（跨名称）：`start_lat/start_lng` 索引取 GPS 首点 ≤1.5km 候选，Haversine 精筛，
+    再做轨迹形状相似度校验（包围盒 IoU/质心/双向最近点/长度比）；即使名称不同，
+    同一公园/田径场/起点的同类路线也能进入可比组；
   - 同距离：按距离分档独立查询（`<5km ±20%` / `5–12km ±10%` / `>12km ±8%`），
     与 UI 深挖面板同一容差；
   - 同类训练：名称 + 距离推断类别（轻松/节奏/阈值/间歇/长距离/比赛），样本 ≥2 才输出；
@@ -126,7 +127,8 @@ activities / activity_laps / activity_records (SQLite)
 - **心率区间占比**（`hrZoneBreakdown`）：解析活动 `time_in_hr_zone` JSON。
 - **逐秒有氧解耦**：复用 `computeDecouplingPct`。
 - **同路线对比**（`db.getPeerActivities` + `computeComparison`）：优先按路线指纹找同行历史，否则按距离分档回退；输出配速排名与相对均值的差值。
-- **同位置对比**（`getLocationPeerActivities` + `filterSameStart`）：GPS 首点 ≤1.5km + 距离分档，跨名称匹配同一地点。
+- **同位置对比**（`getLocationPeerActivities` + `filterSameStart` + `route-shape.ts`）：
+  GPS 首点 ≤1.5km + 距离分档 + 轨迹形状相似度（阈值 0.55），跨名称匹配同一路线。
 - **环境可比性**（`summarizeActivityEnvironment`）：同组样本的温度/爬升均值、本次差值，以及同温档排名/配速差/心率差；详情面板同步展示，保证用户能看到 AI 使用的参照系。
 - **海拔修正 / 温度漂移**：`gradeAdjustedPace`（Minetti 2002）与 `computeTemperatureDrift`；详情面板展示等价平路配速与起止温度。
 
@@ -145,6 +147,7 @@ activities / activity_laps / activity_records (SQLite)
 | 海拔修正（等价平路配速） | `tests/unit/lib/grade-adjust.test.ts` |
 | 逐秒温度漂移 | `tests/unit/lib/activity-temperature.test.ts` |
 | GPS 同起点校验 | `tests/unit/lib/geo.test.ts` |
+| 路线形状相似度 | `tests/unit/lib/route-shape.test.ts` |
 | 洞察→教练上下文 + 全局消息 | `tests/unit/lib/insight-coach.test.ts` |
 | Prompt 注入顺序 | `tests/unit/lib/llm.test.ts` |
 | 区间参数（7/30/90/180/365/0/all） | `tests/unit/lib/date-utils.test.ts` |

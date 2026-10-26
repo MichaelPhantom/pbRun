@@ -6,6 +6,14 @@
 ## [Unreleased]
 
 ### Added
+- **轨迹形状相似度聚类**（`route-shape.ts` + `db.getActivityTracks`）：在同位置候选中
+  再按包围盒 IoU / 质心距离 / 双向最近点平均距离 / 长度比打分（阈值 0.55），剔除
+  同起点但不同环线/折返方向的活动；活动深挖与 AI 的 `locationComparison` 标签会标注
+  `· 同路径`。
+- **历史逐秒温度回填**（`scripts/garmin/backfill-record-temperature.js` +
+  `npm run backfill:temp`）：从 `.cache/fit` 按 `record_index` 回填旧记录温度，
+  仅更新 `temperature IS NULL`，备份 DB、支持 `--dry-run`、幂等；已对生产库回填
+  **714,017** 条温度记录（227 个活动，121 个无温度设备/活动）。
 - **跨名称「同位置」对比**（`db.getLocationPeerActivities` + `filterSameStart`）：用
   `start_lat/start_lng` 索引做经纬度包围盒预筛，Haversine 精筛 ≤1.5km，再按距离分档；
   即使活动名称不同（同一公园/田径场/起点）也能进入「同位置样本」。活动深挖 API 新增
