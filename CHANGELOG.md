@@ -6,6 +6,15 @@
 ## [Unreleased]
 
 ### Added
+- **跨名称「同位置」对比**（`db.getLocationPeerActivities` + `filterSameStart`）：用
+  `start_lat/start_lng` 索引做经纬度包围盒预筛，Haversine 精筛 ≤1.5km，再按距离分档；
+  即使活动名称不同（同一公园/田径场/起点）也能进入「同位置样本」。活动深挖 API 新增
+  `locationComparison`，AI prompt 优先输出同位置段，UI 面板独立展示且与主对比去重。
+- **海拔修正（等价平路配速）**（`grade-adjust.ts`）：逐秒海拔/距离 + Minetti 2002 能量成本
+  模型估算 GAP（实际 vs 等价、差值、爬升/公里）；活动详情 API 新增 `gradeAdjusted`，
+  AI prompt 与 UI 同步展示。坡度截断 ±30%，记录不足返回 null。
+- **逐秒温度漂移**（`activity-temperature.ts`）：`activity_records` 新增 `temperature` 列并由
+  fit-parser 写入；前后 10% 均值给出起止温度与漂移，活动详情 API 新增 `temperatureDrift`。
 - **路线/首点 schema 补齐**：`activities` 建表语句正式包含 `track` / `start_lat` / `start_lng`
   与 `(start_lat, start_lng)` 索引；旧库经 `db-manager` 幂等 ALTER 补齐。`fit-parser` 在写入
   track 的同时落首点列；`backfill-tracks.js` 同步回填首点。读取层用
@@ -54,6 +63,8 @@
   `CurrentActivity.name` 参与 `classifyActivity`，详情深挖与 AI 上下文同时受益。
 - **移除无引用的 `app/lib/coach-context.ts` 及其单测**：近况信息已由
   `runner-profile.ts` 完整覆盖，死代码不再保留。相关 FAQ 说明同步更新。
+- **逐秒记录单位纠正**：`activity_records.distance` 实际为**公里**、`speed` 为 **km/h**
+  （fit-parser `lengthUnit=km`），类型注释与文档已更正；`gradeAdjustedPace` 内部换算为米。
 - **`getPeerActivities` 新增 `distanceTolerance` / `routeDistanceTolerance` 参数**（默认仍 0.25，
   保持旧调用行为）：活动 AI 用 0.1 取更严格的同距离样本；同路线样本同时按 ±25% 距离带过滤，
   避免同一条路线的 5K 与 30K 直接对比。详情 UI 的 ±25% fallback 不变。

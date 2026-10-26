@@ -718,6 +718,9 @@ GET /api/activities/{id}/insight
 | `decouplingPct` | 逐秒有氧解耦（%） |
 | `hrZoneBreakdown` | 心率区间占比 `{zone, seconds, pct}[]` |
 | `environment` | 环境可比性：本次/样本均温、爬升、同温档排名与配速/心率差（无数据时为 `null`） |
+| `locationComparison` | 跨名称同位置对比：GPS 首点 ≤1.5km + 距离分档；无 GPS/未迁移时为 `null` |
+| `gradeAdjusted` | 等价平路配速（Minetti 2002）：实际/等价配速、差值、爬升/公里（记录不足为 `null`） |
+| `temperatureDrift` | 逐秒温度漂移：起止温度、差值、最小/最大（无逐秒温度为 `null`） |
 | `comparison.label` | 路线对比含 `· 同起点` 表示已通过 GPS 首点校验；距离回退为 `±x% · a–bkm` |
 
 ---
@@ -738,7 +741,9 @@ GET /api/activities/{id}/insight
 - 同距离：按距离分档独立查询（`<5km ±20%` / `5–12km ±10%` / `>12km ±8%`），
   与深挖面板同一容差；
 - 同类训练：由名称 + 距离推断类别，样本 ≥2 才输出；
+- 同位置：GPS 首点 ≤1.5km + 距离分档，跨名称匹配同一地点；
 - 环境可比：同距离样本平均温度/爬升、本次与样本差值，以及同温档排名/配速差/心率差；
+- 海拔修正：Minetti 2002 等价平路配速；温度漂移：逐秒温度起止差；
 - 任一查询失败只降级对应段落，不阻塞 AI 主流程。
   实现：`app/lib/activity-coach-context.ts` + `activity-coach-context-service.ts`。
 

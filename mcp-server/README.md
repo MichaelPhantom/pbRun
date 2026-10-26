@@ -72,7 +72,9 @@ prompt 的 contextText), `compare_periods` (跨期对比), `get_training_load_an
 | 字段 | 单位 |
 |------|------|
 | `Activity.distance` | 公里 (db.ts 原始值) |
-| `ActivityLap.distance` / `get_activity_records` / `get_vdot_history.distance` / 统计接口 distance | 米 |
+| `ActivityLap.distance` / `get_vdot_history.distance` / 统计接口 distance | 米 |
+| `get_activity_records.distance` | 公里 (fit-parser lengthUnit=km) |
+| `get_activity_records.speed` | km/h |
 | `MonthSummary.totalDistance` | 公里 (唯一例外, 与 `activities.distance` 同源) |
 | `average_pace` | 秒/公里 |
 | 时长 | 秒 |

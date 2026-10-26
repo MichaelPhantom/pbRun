@@ -39,7 +39,9 @@
 | 气温 | 分档对比 | 温度分档 `<10 / 10–18 / 18–24 / 24–28 / ≥28°C`，比较心率/配速/效率 |
 | 路线 | 路线对比 | 以活动名称"地点前缀"（` - ` 之前）为路线指纹，聚合次数/最佳/均值/配速趋势 |
 
-> 单位约定：`activities.distance` 为**公里**；`activity_laps.distance` 为**米**；聚合接口返回距离统一为**米**（见 `db.ts` 各函数与 `types.ts`）。
+> 单位约定：`activities.distance` 为**公里**；`activity_laps.distance` 为**米**；
+> `activity_records.distance` 为**公里**、`speed` 为 **km/h**（fit-parser `lengthUnit=km`）；
+> 聚合接口返回距离统一为**米**（见 `db.ts` 各函数与 `types.ts`）。
 
 ---
 
@@ -81,11 +83,15 @@ activities / activity_laps / activity_records (SQLite)
   - 同路线/同名：以活动名称「地点前缀」为指纹的历史样本，按路线距离带过滤
     （`<5km ±35%` / `5–12km ±25%` / `>12km ±23%`），再用 GPS 首点做 **≤2km 同起点校验**
     （无轨迹保留），输出排名、组均/组最佳、心率差；
+  - 同位置（跨名称）：`start_lat/start_lng` 索引取 GPS 首点 ≤1.5km 候选，Haversine 精筛；
+    即使名称不同，同一公园/田径场/起点也能进入可比组；
   - 同距离：按距离分档独立查询（`<5km ±20%` / `5–12km ±10%` / `>12km ±8%`），
     与 UI 深挖面板同一容差；
   - 同类训练：名称 + 距离推断类别（轻松/节奏/阈值/间歇/长距离/比赛），样本 ≥2 才输出；
   - 环境可比：同距离样本的平均温度/爬升、本次与样本的差值，以及同温档
-    （`<10 / 10–18 / 18–24 / 24–28 / ≥28°C`）的排名/配速差/心率差。
+    （`<10 / 10–18 / 18–24 / 24–28 / ≥28°C`）的排名/配速差/心率差；
+  - 海拔修正：Minetti 2002 估算的等价平路配速（实际 vs 等价、爬升/公里）；
+  - 温度漂移：逐秒温度前后 10% 均值（起跑 → 结束）。
 - Prompt：`llm.ts` 的 `SYSTEM_PROMPT`（6 大分析框架）；第 6 项明确要求「横向定位优先，
   长期趋势仅作背景」。
 - UI：`app/lib/components/ai/AiAnalysis.tsx`（嵌入活动详情页，锚点 `#ai-coach`）
@@ -120,7 +126,9 @@ activities / activity_laps / activity_records (SQLite)
 - **心率区间占比**（`hrZoneBreakdown`）：解析活动 `time_in_hr_zone` JSON。
 - **逐秒有氧解耦**：复用 `computeDecouplingPct`。
 - **同路线对比**（`db.getPeerActivities` + `computeComparison`）：优先按路线指纹找同行历史，否则按距离分档回退；输出配速排名与相对均值的差值。
+- **同位置对比**（`getLocationPeerActivities` + `filterSameStart`）：GPS 首点 ≤1.5km + 距离分档，跨名称匹配同一地点。
 - **环境可比性**（`summarizeActivityEnvironment`）：同组样本的温度/爬升均值、本次差值，以及同温档排名/配速差/心率差；详情面板同步展示，保证用户能看到 AI 使用的参照系。
+- **海拔修正 / 温度漂移**：`gradeAdjustedPace`（Minetti 2002）与 `computeTemperatureDrift`；详情面板展示等价平路配速与起止温度。
 
 ---
 
@@ -134,6 +142,8 @@ activities / activity_laps / activity_records (SQLite)
 | 活动 AI 可比样本格式 | `tests/unit/lib/activity-coach-context.test.ts` |
 | 活动 AI 可比样本取数与降级 | `tests/unit/lib/activity-coach-context-service.test.ts` |
 | 温度/爬升/同温档可比性 | `tests/unit/lib/activity-environment.test.ts` |
+| 海拔修正（等价平路配速） | `tests/unit/lib/grade-adjust.test.ts` |
+| 逐秒温度漂移 | `tests/unit/lib/activity-temperature.test.ts` |
 | GPS 同起点校验 | `tests/unit/lib/geo.test.ts` |
 | 洞察→教练上下文 + 全局消息 | `tests/unit/lib/insight-coach.test.ts` |
 | Prompt 注入顺序 | `tests/unit/lib/llm.test.ts` |

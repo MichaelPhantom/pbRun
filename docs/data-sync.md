@@ -352,6 +352,9 @@ CREATE TABLE activities (
 );
 ```
 
+> **activity_records 单位**：`distance` 为**公里**、`speed` 为 **km/h**（解析器 `lengthUnit=km`,
+> `speedUnit=km/h`）；`altitude` 为米，`temperature` 为 °C。聚合/图表计算前按需换算为米/秒。
+>
 > **track 列** (路线轨迹): 存降采样后的 GPS 多段线 + 海拔剖面 + 包围盒 (JSON, ~≤40KB/条)。
 > 由 `scripts/garmin/fit-parser.js` 的 `_extractTrack` 在 FIT 解析时生成, 经 `upsertActivity` 动态列写入。
 > **start_lat/start_lng** 同步写入轨迹首点, 带 `(start_lat, start_lng)` 索引; 供活动 AI 的
