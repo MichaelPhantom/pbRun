@@ -347,6 +347,9 @@ CREATE TABLE activities (
   track TEXT,                             -- 降采样路线轨迹 JSON; 无 GPS 为 NULL
   start_lat REAL,                         -- 轨迹首点纬度; 无 GPS 为 NULL
   start_lng REAL,                         -- 轨迹首点经度; 无 GPS 为 NULL
+  route_cells TEXT,                       -- geohash-7 网格签名 JSON 数组; 无轨迹为 NULL
+  route_bounds TEXT,                      -- 抗尖峰包围盒 JSON (p2–p98); 无轨迹为 NULL
+  route_km REAL,                          -- 清洗后轨迹长度 (公里); 无轨迹为 NULL
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
@@ -365,6 +368,19 @@ CREATE TABLE activities (
 > 新活动随每日同步自动写入; 历史 310 条 FIT 用 `scripts/garmin/backfill-tracks.js` 一次性回填
 > (读 `.cache/fit/{activity_id}`, 备份 DB + 幂等 + 无需重新鉴权)。查询: `db.getActivityTrack(id)` /
 > `db.getActivityStartGeo(id)`。
+>
+> **route_cells / route_bounds / route_km** (路线签名): 由 `track` 派生，供跨名称「同路线」
+> 聚类做 SQL 预筛 —— 用 `route_km` 索引按长度比（≤1.35）粗筛，再在 JS 层算 geohash-7 网格
+> Jaccard（≥0.2），只对少量候选加载完整轨迹做 DTW 精判。这样「同一条环线从不同入口起跑」
+> （起点 >1.5km）也能召回，而不必反序列化全库 track。
+> - 写入: `fit-parser.js` 在解析 FIT 时调用 `scripts/common/route-signature.js` 的
+>   `deriveRouteSignature`，随 `upsertActivity` 动态列落库；无轨迹写 NULL（不写空数组，
+>   让 SQL 的 `IS NOT NULL` 过滤生效）。
+> - 历史回填: `npm run backfill:routes`（读 `activities.track`，无需 FIT 缓存/鉴权；备份 DB、
+>   幂等、`--force` 全量重算、`--dry-run` 只统计）。
+> - 口径一致: TS 实现 `app/lib/route-shape.ts` 与 CJS 实现 `scripts/common/route-signature.js`
+>   由 `tests/unit/lib/route-signature-parity.test.ts` 守护（网格/包围盒/长度逐项相等）。
+> - 查询: `db.getRouteShapePeerActivities(id, cells, lengthKm, distanceKm, tol)`。
 
 #### 时间域约定 (UTC 存储 + 本地墙钟, 2026-10-06 修复)
 
