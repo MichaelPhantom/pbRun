@@ -185,8 +185,9 @@ export interface ActivityRecord {
   pace?: number | null;                           // 配速（秒/公里），由步频与步幅推导或同步时写入
   power?: number | null;                          // 功率（瓦）
   altitude?: number | null;                       // 海拔（米）
-  speed?: number | null;                          // 速度（米/秒）
-  distance?: number | null;                       // 累计距离（米）
+  temperature?: number | null;                    // 逐秒温度（°C）
+  speed?: number | null;                          // 速度（km/h；fit-parser lengthUnit=km）
+  distance?: number | null;                       // 累计距离（公里；fit-parser lengthUnit=km）
 }
 
 export interface ActivityQueryParams {
@@ -570,7 +571,7 @@ export interface ComparisonPeer {
 
 /** 同路线 (或同类型) 历史对比。 */
 export interface ActivityComparison {
-  basis: 'route' | 'category' | 'distance';
+  basis: 'route' | 'category' | 'distance' | 'location';
   label: string;
   peers: ComparisonPeer[];
   rank: { byPace: number; total: number } | null; // 本次在该组中的配速排名 (1=最快)
@@ -629,12 +630,40 @@ export interface ActivityEnvironmentSummary {
   tempBand: TemperatureBandSummary | null;
 }
 
+/** 海拔/坡度修正后的等价平路配速（Minetti 2002 估算）。 */
+export interface GradeAdjustedPace {
+  equivalentPaceSecPerKm: number;
+  actualPaceSecPerKm: number;
+  /** 等价 − 实际（负=等价平路更快，说明有净爬升） */
+  deltaSecPerKm: number;
+  distanceMeters: number;
+  ascentPerKm: number;
+  sampleCount: number;
+  model: 'minetti-2002';
+}
+
+/** 活动内温度漂移（逐秒温度的前后 10% 均值）。 */
+export interface TemperatureDrift {
+  startC: number;
+  endC: number;
+  deltaC: number;
+  minC: number;
+  maxC: number;
+  sampleCount: number;
+}
+
 export interface ActivityInsightResponse {
   activityId: number;
   lapAnalysis: ActivityLapAnalysis;
   comparison: ActivityComparison | null;
   decouplingPct: number | null;                   // 逐秒解耦
   hrZoneBreakdown: { zone: number; seconds: number; pct: number }[];
+  /** 跨名称的「同位置」对比（GPS 首点 ≤1.5km + 距离分档）；未迁移/无 GPS 时为 null/缺省。 */
+  locationComparison?: ActivityComparison | null;
   /** 同路线/同距离样本的温度与爬升可比性；无环境数据时为 null/缺省。 */
   environment?: ActivityEnvironmentSummary | null;
+  /** 海拔/坡度修正后的等价平路配速；记录不足时为 null/缺省。 */
+  gradeAdjusted?: GradeAdjustedPace | null;
+  /** 活动内温度漂移；无逐秒温度时为 null/缺省。 */
+  temperatureDrift?: TemperatureDrift | null;
 }

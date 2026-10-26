@@ -21,8 +21,22 @@ jest.mock('@/app/lib/db', () => ({
     { activityId: 1, date: '2026-09-04', distanceMeters: 15600, durationSeconds: 5200 },
   ]),
   getActivityRecordSamples: jest.fn(() => [
-    ...Array.from({ length: 80 }, (_, i) => ({ elapsed_sec: i, heart_rate: 150, speed: 3, distance: i })),
-    ...Array.from({ length: 80 }, (_, i) => ({ elapsed_sec: 80 + i, heart_rate: 160, speed: 2.9, distance: 80 + i })),
+    ...Array.from({ length: 80 }, (_, i) => ({
+      elapsed_sec: i,
+      heart_rate: 150,
+      speed: 3,
+      distance: (i * 5) / 1000,
+      altitude: 20 + i * 0.05,
+      temperature: 26 + i * 0.01,
+    })),
+    ...Array.from({ length: 80 }, (_, i) => ({
+      elapsed_sec: 80 + i,
+      heart_rate: 160,
+      speed: 2.9,
+      distance: ((80 + i) * 5) / 1000,
+      altitude: 24 + i * 0.05,
+      temperature: 26.8 + i * 0.01,
+    })),
   ]),
   getFormSamples: jest.fn(() => [
     { date: '2026-09-01', cadence: 179, strideLength: 0.9, groundContactMs: 248, verticalOscillation: 7.1, verticalRatio: 8.1 },
@@ -62,6 +76,7 @@ jest.mock('@/app/lib/db', () => ({
     ],
   })),
   getActivityStartGeo: jest.fn(() => null),
+  getLocationPeerActivities: jest.fn(() => []),
 }));
 
 import { getInsight } from '@/app/lib/insight-service';
@@ -110,6 +125,10 @@ describe('activity-insight-service.getActivityInsight', () => {
       currentAscentM: 120,
       tempBand: { label: '24–28°C', count: 3 },
     });
+    expect(r!.gradeAdjusted).toMatchObject({ model: 'minetti-2002' });
+    expect(r!.gradeAdjusted!.ascentPerKm).toBeGreaterThan(0);
+    expect(r!.temperatureDrift).toMatchObject({ sampleCount: 160 });
+    expect(r!.temperatureDrift!.deltaC).toBeGreaterThan(0);
   });
 });
 
@@ -125,6 +144,21 @@ test('路线查询回退 distance 时 label 使用距离带 (不误用路线名)
     expect(r.comparison!.basis).toBe('distance');
     expect(r.comparison!.label).toContain('±');
     expect(r.comparison!.label).not.toContain('两江新区');
+  });
+
+
+  test('跨名称同位置对比：GPS 首点 ≤1.5km + 距离带', () => {
+    const db = jest.requireMock('@/app/lib/db');
+    (db.getActivityStartGeo as jest.Mock).mockReturnValueOnce({ lat: 29.5, lng: 106.5 });
+    (db.getLocationPeerActivities as jest.Mock).mockReturnValueOnce([
+      { activityId: 42, date: '2026-08-20', name: '其它 - 节奏跑', distanceKm: 7.8, paceSecPerKm: 335, heartRate: 168, startLat: 29.501, startLng: 106.501 },
+      { activityId: 43, date: '2026-08-21', name: '远处 - 节奏跑', distanceKm: 7.9, paceSecPerKm: 330, heartRate: 166, startLat: 31.2, startLng: 108.2 },
+    ]);
+    const r = getActivityInsight(99)!;
+    expect(r.locationComparison).not.toBeNull();
+    expect(r.locationComparison!.basis).toBe('location');
+    expect(r.locationComparison!.label).toContain('GPS');
+    expect(r.locationComparison!.peers.map((p) => p.activityId)).toEqual([42]);
   });
 
 describe('activity-insight-service 同起点校验', () => {

@@ -298,6 +298,7 @@ class DatabaseManager {
         pace REAL,
         power INTEGER,                                -- 功率（瓦）
         altitude REAL,                                -- 海拔（米）
+        temperature REAL,                             -- 逐秒温度（°C，部分设备/传感器才有）
         speed REAL,                                   -- 速度（米/秒）
         distance REAL,                                -- 累计距离（米）
         FOREIGN KEY (activity_id) REFERENCES activities(activity_id) ON DELETE CASCADE
@@ -310,7 +311,8 @@ class DatabaseManager {
     }
     // 逐秒记录扩展列（功率/海拔/速度/距离）
     const newRecordColumns = [
-      ['power', 'INTEGER'], ['altitude', 'REAL'], ['speed', 'REAL'], ['distance', 'REAL']
+      ['power', 'INTEGER'], ['altitude', 'REAL'], ['temperature', 'REAL'],
+      ['speed', 'REAL'], ['distance', 'REAL']
     ];
     for (const [name, type] of newRecordColumns) {
       try {
@@ -416,7 +418,7 @@ class DatabaseManager {
       return;
     }
 
-    const columns = ['activity_id', 'record_index', 'elapsed_sec', 'heart_rate', 'cadence', 'step_length', 'pace', 'power', 'altitude', 'speed', 'distance'];
+    const columns = ['activity_id', 'record_index', 'elapsed_sec', 'heart_rate', 'cadence', 'step_length', 'pace', 'power', 'altitude', 'temperature', 'speed', 'distance'];
     const placeholders = columns.map(() => '?').join(', ');
     const insertStmt = this.db.prepare(`
       INSERT INTO activity_records (${columns.join(', ')})
@@ -436,6 +438,7 @@ class DatabaseManager {
           row.pace ?? null,
           row.power ?? null,
           row.altitude ?? null,
+          row.temperature ?? null,
           row.speed ?? null,
           row.distance ?? null
         );

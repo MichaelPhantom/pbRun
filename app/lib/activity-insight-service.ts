@@ -3,16 +3,30 @@
  */
 
 import * as db from './db';
-import { buildActivityInsight, computeComparison } from './activity-insight';
+import { buildActivityInsight, computeComparison, type ComparisonPeerInput } from './activity-insight';
 import {
   distanceBandLabel,
   distanceToleranceFor,
   routeDistanceToleranceFor,
 } from './activity-coach-context';
 import { summarizeActivityEnvironment } from './activity-environment';
-import { filterSameStart, type GeoPoint } from './geo';
+import { computeTemperatureDrift } from './activity-temperature';
+import { gradeAdjustedPace } from './grade-adjust';
+import { filterSameStart, haversineKm, SAME_LOCATION_RADIUS_KM, type GeoPoint } from './geo';
 import { routeKeyOf } from './insight-compare';
-import type { ActivityInsightResponse } from './types';
+import type { PeerActivity } from './db';
+import type { ActivityComparison, ActivityInsightResponse } from './types';
+
+function toPeerInputs(rows: PeerActivity[]): ComparisonPeerInput[] {
+  return rows.map((p) => ({
+    activityId: p.activityId,
+    date: p.date.slice(0, 10),
+    name: p.name,
+    distanceKm: p.distanceKm,
+    paceSecPerKm: p.paceSecPerKm,
+    heartRate: p.heartRate,
+  }));
+}
 
 /**
  * 生成指定活动的深挖洞察 (分段/漂移/区间/同路线对比)。
@@ -69,26 +83,44 @@ export function getActivityInsight(activityId: number): ActivityInsightResponse 
     }
   }
 
-  const comparison = computeComparison(
-    basis,
-    label,
-    {
-      activityId,
-      date: (activity.start_time_local || activity.start_time || '').slice(0, 10),
-      name: activity.name,
-      distanceKm,
-      paceSecPerKm: activity.average_pace ?? null,
-      heartRate: activity.average_heart_rate ?? null,
-    },
-    peers.map((p) => ({
-      activityId: p.activityId,
-      date: p.date.slice(0, 10),
-      name: p.name,
-      distanceKm: p.distanceKm,
-      paceSecPerKm: p.paceSecPerKm,
-      heartRate: p.heartRate,
-    })),
-  );
+  const current = {
+    activityId,
+    date: (activity.start_time_local || activity.start_time || '').slice(0, 10),
+    name: activity.name,
+    distanceKm,
+    paceSecPerKm: activity.average_pace ?? null,
+    heartRate: activity.average_heart_rate ?? null,
+  };
+  const comparison = computeComparison(basis, label, current, toPeerInputs(peers));
+
+  // 跨名称「同位置」：GPS 首点 ≤1.5km + 同距离分档。即使路线名不同，也能找到
+  // 同一公园/田径场/起点附近的可比活动。
+  let locationComparison: ActivityComparison | null = null;
+  if (startGeo && distanceKm > 0) {
+    try {
+      const candidates = db.getLocationPeerActivities(
+        activityId,
+        startGeo.lat,
+        startGeo.lng,
+        SAME_LOCATION_RADIUS_KM,
+        distanceKm,
+        distanceTolerance,
+      );
+      const sameLocation = candidates.filter((p) => {
+        if (p.startLat == null || p.startLng == null) return false;
+        const km = haversineKm(startGeo, { lat: p.startLat, lng: p.startLng });
+        return km != null && km <= SAME_LOCATION_RADIUS_KM;
+      });
+      locationComparison = computeComparison(
+        'location',
+        `GPS ≤${SAME_LOCATION_RADIUS_KM}km`,
+        current,
+        toPeerInputs(sameLocation),
+      );
+    } catch {
+      /* 降级：无同位置对比 */
+    }
+  }
 
   return buildActivityInsight({
     activityId,
@@ -103,6 +135,11 @@ export function getActivityInsight(activityId: number): ActivityInsightResponse 
       heartRate: activity.average_heart_rate ?? null,
     },
     comparison,
+    locationComparison,
+    gradeAdjusted: gradeAdjustedPace(records, {
+      actualPaceSecPerKm: activity.average_pace ?? null,
+    }),
+    temperatureDrift: computeTemperatureDrift(records),
     environment: summarizeActivityEnvironment(
       {
         paceSecPerKm: activity.average_pace ?? null,

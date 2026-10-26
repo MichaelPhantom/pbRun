@@ -45,6 +45,8 @@ beforeEach(() => {
       average_temperature: 22, vdot_value: null, training_load: 45,
       time_in_hr_zone: JSON.stringify([0, 600, 1800, 0, 0, 0, 0]),
       track: JSON.stringify({ coords: [[29.501, 106.501], [29.61, 106.61]], n: 2 }),
+      start_lat: 29.501,
+      start_lng: 106.501,
     },
     {
       activity_id: 3, name: '渝中区 - 长距离跑', activity_type: 'running', sub_sport_type: '路跑',
@@ -65,7 +67,16 @@ beforeEach(() => {
   ]);
   const recs = [];
   for (let i = 0; i < 160; i++) {
-    recs.push({ activity_id: 3, record_index: i, elapsed_sec: i, heart_rate: 150, speed: 2.8, distance: i * 2.8 });
+    recs.push({
+      activity_id: 3,
+      record_index: i,
+      elapsed_sec: i,
+      heart_rate: 150,
+      speed: 2.8,
+      distance: i * 2.8,
+      altitude: 100 + i * 0.01,
+      temperature: 25 + i * 0.01,
+    });
   }
   mgr.insertActivityRecords(3, recs);
 
@@ -109,11 +120,27 @@ describe('db.ts 洞察查询 (真实 SQL)', () => {
     expect(runs[0].distanceMeters).toBeCloseTo(18600, 0);
   });
 
-  test('getActivityRecordSamples 返回逐秒记录', async () => {
+  test('getActivityRecordSamples 返回逐秒记录 + 海拔/温度', async () => {
     const db = await loadDb();
     const recs = db.getActivityRecordSamples(3);
     expect(recs.length).toBe(160);
     expect(recs[0].heart_rate).toBe(150);
+    expect(recs[0].altitude).toBeCloseTo(100);
+    expect(recs[0].temperature).toBeCloseTo(25);
+    expect(recs[159].temperature).toBeCloseTo(25 + 159 * 0.01);
+  });
+
+  test('getLocationPeerActivities 跨名称按首点半径 + 距离带筛选', async () => {
+    const db = await loadDb();
+    // 当前活动 1 在 (29.5,106.5)；活动 2 首点 (29.501,106.501) 约 150m，距离 7km
+    const peers = db.getLocationPeerActivities(1, 29.5, 106.5, 1.5, 7, 0.1);
+    expect(peers.map((p) => p.activityId)).toEqual([2]);
+    // 半径过小 → 无候选
+    expect(db.getLocationPeerActivities(1, 29.5, 106.5, 0.01, 7, 0.1)).toEqual([]);
+    // 距离带不匹配 → 无候选
+    expect(db.getLocationPeerActivities(1, 29.5, 106.5, 1.5, 20, 0.1)).toEqual([]);
+    // 非法半径/距离 → 空
+    expect(db.getLocationPeerActivities(1, 29.5, 106.5, 0, 7)).toEqual([]);
   });
 
   test('getActivityCountInRange 计数', async () => {

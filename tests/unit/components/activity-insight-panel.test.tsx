@@ -272,3 +272,105 @@ describe('同路线/同距离对比', () => {
     expect(screen.getAllByText('--').length).toBeGreaterThan(0);
   });
 });
+
+describe('海拔/温度修正', () => {
+  test('等价平路配速与温度漂移', () => {
+    render(
+      <ActivityInsightPanel
+        data={base({
+          gradeAdjusted: {
+            equivalentPaceSecPerKm: 290,
+            actualPaceSecPerKm: 300,
+            deltaSecPerKm: -10,
+            distanceMeters: 10000,
+            ascentPerKm: 12,
+            sampleCount: 100,
+            model: 'minetti-2002',
+          },
+          temperatureDrift: {
+            startC: 24,
+            endC: 26.5,
+            deltaC: 2.5,
+            minC: 23,
+            maxC: 27,
+            sampleCount: 100,
+          },
+        })}
+      />,
+    );
+    expect(screen.getByText('等价平路配速')).toBeInTheDocument();
+    expect(screen.getByText('4:50')).toBeInTheDocument();
+    expect(screen.getByText(/实际 5:00\/km · 爬升 12.0m\/km/)).toBeInTheDocument();
+    expect(screen.getByText('温度漂移')).toBeInTheDocument();
+    expect(screen.getByText('+2.5')).toBeInTheDocument();
+    expect(screen.getByText('24.0 → 26.5°C')).toBeInTheDocument();
+  });
+
+  test('无 GAP/温度数据 → 不渲染修正区', () => {
+    render(<ActivityInsightPanel data={base()} />);
+    expect(screen.queryByText('等价平路配速')).not.toBeInTheDocument();
+    expect(screen.queryByText('温度漂移')).not.toBeInTheDocument();
+  });
+});
+
+describe('同位置（跨名称）对比', () => {
+  const peer = (id: number, date: string, pace: number) => ({
+    activityId: id,
+    date,
+    name: `活动${id}`,
+    category: 'tempo',
+    distanceKm: 8,
+    paceSecPerKm: pace,
+    heartRate: 160,
+    paceDeltaSecPerKm: pace - 300,
+  });
+
+  const location = {
+    basis: 'location',
+    label: 'GPS ≤1.5km',
+    peers: [peer(21, '2026-09-01', 295), peer(22, '2026-09-10', 305)],
+    rank: { byPace: 2, total: 3 },
+    paceDeltaSecPerKm: -5,
+    hrDeltaBpm: 2,
+    groupAvgPaceSecPerKm: 300,
+    groupBestPaceSecPerKm: 295,
+    bestActivityId: 21,
+    currentCategory: 'tempo',
+    sameCategory: null,
+  } as never;
+
+  test('位置对比独立展示；主对比样本不同则两组都渲染', () => {
+    render(
+      <ActivityInsightPanel
+        data={base({
+          locationComparison: location,
+          comparison: {
+            ...location,
+            basis: 'route',
+            label: '两江新区',
+            peers: [peer(31, '2026-08-01', 310)],
+          } as never,
+        })}
+      />,
+    );
+    expect(screen.getByText('同位置对比（GPS ≤1.5km）')).toBeInTheDocument();
+    expect(screen.getByText('同路线对比（两江新区）')).toBeInTheDocument();
+  });
+
+  test('位置与主对比样本集相同 → 只展示同位置，不重复', () => {
+    render(
+      <ActivityInsightPanel
+        data={base({
+          locationComparison: location,
+          comparison: {
+            ...location,
+            basis: 'route',
+            label: '两江新区',
+          } as never,
+        })}
+      />,
+    );
+    expect(screen.getByText('同位置对比（GPS ≤1.5km）')).toBeInTheDocument();
+    expect(screen.queryByText('同路线对比（两江新区）')).not.toBeInTheDocument();
+  });
+});

@@ -22,6 +22,9 @@ export interface GeoPeer {
 
 const EARTH_RADIUS_KM = 6371.0088;
 
+/** 跨名称「同位置」默认半径（首点距离）。 */
+export const SAME_LOCATION_RADIUS_KM = 1.5;
+
 function toRad(deg: number): number {
   return (deg * Math.PI) / 180;
 }

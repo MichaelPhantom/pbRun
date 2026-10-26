@@ -160,6 +160,7 @@ export function buildActivityContextBlock(
       insight,
       routeComparison,
       distanceComparison,
+      locationComparison: insight?.locationComparison ?? null,
       environment,
     });
   } catch {

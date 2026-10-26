@@ -7,10 +7,12 @@ import { classifyActivity } from './insight-compare';
 import type {
   ActivityComparison,
   ActivityEnvironmentSummary,
-  ActivityLapAnalysis,
   ActivityInsightResponse,
   ActivityLap,
+  ActivityLapAnalysis,
   ComparisonPeer,
+  GradeAdjustedPace,
+  TemperatureDrift,
 } from './types';
 
 export interface LapInput {
@@ -229,7 +231,10 @@ export function buildActivityInsight(params: {
   hrZoneJson: string | null | undefined;
   current: CurrentActivity;
   comparison: ActivityComparison | null;
+  locationComparison?: ActivityComparison | null;
   environment?: ActivityEnvironmentSummary | null;
+  gradeAdjusted?: GradeAdjustedPace | null;
+  temperatureDrift?: TemperatureDrift | null;
 }): ActivityInsightResponse {
   const lapInputs: LapInput[] = params.laps
     .slice()
@@ -249,9 +254,12 @@ export function buildActivityInsight(params: {
     activityId: params.activityId,
     lapAnalysis: analyzeLaps(lapInputs),
     comparison: params.comparison,
+    locationComparison: params.locationComparison ?? null,
     decouplingPct: dc,
     hrZoneBreakdown: hrZoneBreakdown(params.hrZoneJson),
     environment: params.environment ?? null,
+    gradeAdjusted: params.gradeAdjusted ?? null,
+    temperatureDrift: params.temperatureDrift ?? null,
   };
 }
 

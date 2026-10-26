@@ -37,6 +37,7 @@ import { hrZoneOf, resolveMaxHr } from './hr-zones';
 let db: Database.Database | null = null;
 // activities 列缓存 (兼容旧库: 新列可能尚未迁移)
 let activityColumns: Set<string> | null = null;
+let recordColumns: Set<string> | null = null;
 
 /** 数据源文件路径 (供健康探针/错误诊断复用)。 */
 export function getDatabasePath(): string {
@@ -97,6 +98,24 @@ function getActivityColumns(): Set<string> {
 export function hasActivityColumn(name: string): boolean {
   try {
     return getActivityColumns().has(name);
+  } catch {
+    return false;
+  }
+}
+
+function getRecordColumns(): Set<string> {
+  if (!recordColumns) {
+    const conn = getDatabase();
+    const rows = conn.prepare('PRAGMA table_info(activity_records)').all() as { name: string }[];
+    recordColumns = new Set(rows.map((r) => r.name));
+  }
+  return recordColumns;
+}
+
+/** activity_records 是否有某列 (旧库 altitude/temperature 迁移兼容)。 */
+export function hasRecordColumn(name: string): boolean {
+  try {
+    return getRecordColumns().has(name);
   } catch {
     return false;
   }
@@ -1133,10 +1152,16 @@ export function getActivityRecordSamples(activityId: number): {
   heart_rate: number | null;
   speed: number | null;
   distance: number | null;
+  altitude: number | null;
+  temperature: number | null;
 }[] {
   const db = getDatabase();
+  const hasAltitude = hasRecordColumn('altitude');
+  const hasTemperature = hasRecordColumn('temperature');
+  const altitudeExpr = hasAltitude ? 'altitude' : 'NULL AS altitude';
+  const temperatureExpr = hasTemperature ? 'temperature' : 'NULL AS temperature';
   const rows = db.prepare(
-    `SELECT elapsed_sec, heart_rate, speed, distance
+    `SELECT elapsed_sec, heart_rate, speed, distance, ${altitudeExpr}, ${temperatureExpr}
      FROM activity_records
      WHERE activity_id = ?
      ORDER BY record_index`
@@ -1145,6 +1170,8 @@ export function getActivityRecordSamples(activityId: number): {
     heart_rate: number | null;
     speed: number | null;
     distance: number | null;
+    altitude: number | null;
+    temperature: number | null;
   }[];
   return rows;
 }
@@ -1318,6 +1345,56 @@ export function getPeerActivities(
 }
 
 /**
+ * 跨名称「同位置」候选：GPS 首点落在半径内 + 距离分档。
+ *
+ * 使用 start_lat/start_lng 索引做经纬度包围盒预筛，调用方再用 Haversine
+ * 剔除包围盒四角；只在已迁移（含首点列）的库上启用。
+ */
+export function getLocationPeerActivities(
+  activityId: number,
+  lat: number,
+  lng: number,
+  radiusKm: number,
+  distanceKm: number,
+  distanceTolerance = 0.1,
+): PeerActivity[] {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || radiusKm <= 0 || distanceKm <= 0) {
+    return [];
+  }
+  if (!hasActivityColumn('start_lat') || !hasActivityColumn('start_lng')) return [];
+
+  const db = getDatabase();
+  const dLat = radiusKm / 111.32;
+  const cosLat = Math.cos((lat * Math.PI) / 180);
+  const dLng = Math.abs(cosLat) < 1e-6 ? 360 : radiusKm / (111.32 * cosLat);
+  const loKm = distanceKm * (1 - distanceTolerance);
+  const hiKm = distanceKm * (1 + distanceTolerance);
+
+  const rows = db.prepare(
+    `SELECT activity_id, name, start_time_local, distance, average_pace,
+            average_heart_rate, average_temperature, total_ascent,
+            start_lat, start_lng
+     FROM activities
+     WHERE activity_id != ?
+       AND start_lat IS NOT NULL AND start_lng IS NOT NULL
+       AND start_lat BETWEEN ? AND ?
+       AND start_lng BETWEEN ? AND ?
+       AND distance BETWEEN ? AND ?
+     ORDER BY start_time_local ASC
+     LIMIT 200`
+  ).all(
+    activityId,
+    lat - dLat,
+    lat + dLat,
+    lng - dLng,
+    lng + dLng,
+    loKm,
+    hiKm,
+  ) as PeerActivityRow[];
+  return rows.map(mapPeerRow);
+}
+
+/**
  * Close database connection.
  */
 export function closeDatabase(): void {
@@ -1326,4 +1403,5 @@ export function closeDatabase(): void {
     db = null;
   }
   activityColumns = null;
+  recordColumns = null;
 }

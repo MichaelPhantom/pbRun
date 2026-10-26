@@ -93,6 +93,40 @@ beforeEach(() => {
   );
 });
 
+
+  test('跨名称同位置对比注入（来自 getActivityInsight.locationComparison）', () => {
+    serviceMock.getActivityInsight.mockReturnValueOnce({
+      ...insightStub,
+      locationComparison: {
+        basis: 'location',
+        label: 'GPS ≤1.5km',
+        peers: [
+          {
+            activityId: 9,
+            date: '2026-09-01',
+            name: '其它 - 节奏跑',
+            category: 'tempo',
+            distanceKm: 10,
+            paceSecPerKm: 298,
+            heartRate: 159,
+            paceDeltaSecPerKm: -2,
+          },
+        ],
+        rank: { byPace: 2, total: 2 },
+        paceDeltaSecPerKm: -2,
+        hrDeltaBpm: -1,
+        groupAvgPaceSecPerKm: 298,
+        groupBestPaceSecPerKm: 298,
+        bestActivityId: 9,
+        currentCategory: 'tempo',
+        sameCategory: null,
+      },
+    });
+    const text = buildActivityContextBlock(activity);
+    expect(text).toContain('同位置样本（GPS ≤1.5km）');
+    expect(text).toContain('最近样本: 09-01 10.0km 4:58 159bpm 比本次快 2s/km');
+  });
+
 describe('buildActivityContextBlock', () => {
   test('同时注入同路线/同距离与环境可比样本', () => {
     const text = buildActivityContextBlock(activity);

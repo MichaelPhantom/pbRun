@@ -25,6 +25,8 @@ export interface ActivityContextInput {
   routeComparison: ActivityComparison | null;
   /** 同距离历史对比；恒为独立口径。 */
   distanceComparison: ActivityComparison | null;
+  /** 跨名称「同位置」对比（GPS 首点 ≤1.5km + 距离分档）。 */
+  locationComparison?: ActivityComparison | null;
   /** 温度/爬升/同温档环境可比性；无数据时省略。 */
   environment?: ActivityEnvironmentSummary | null;
 }
@@ -250,6 +252,27 @@ function performanceLines(insight: ActivityInsightResponse | null): string[] {
       pct < 5 ? 'excellent' : pct < 8 ? 'good' : pct < 10 ? 'fair' : 'poor';
     lines.push(`有氧解耦: ${pct.toFixed(1)}%（${DECOUPLING_LABEL[tone]}）`);
   }
+
+  const gap = insight.gradeAdjusted;
+  if (gap) {
+    const d = Math.round(gap.deltaSecPerKm);
+    lines.push(
+      `海拔修正: 实际 ${fmtPace(gap.actualPaceSecPerKm)}/km → 等价平路 ${fmtPace(
+        gap.equivalentPaceSecPerKm,
+      )}/km（${d === 0 ? '持平' : d < 0 ? `快 ${Math.abs(d)}s/km` : `慢 ${d}s/km`}；` +
+        `爬升 ${gap.ascentPerKm.toFixed(1)}m/km，Minetti 估算）`,
+    );
+  }
+
+  const tempDrift = insight.temperatureDrift;
+  if (tempDrift) {
+    const d = Math.round(tempDrift.deltaC * 10) / 10;
+    lines.push(
+      `温度漂移: ${tempDrift.startC.toFixed(1)}°C → ${tempDrift.endC.toFixed(1)}°C（${
+        d > 0 ? '+' : ''
+      }${d.toFixed(1)}°C）`,
+    );
+  }
   return lines;
 }
 
@@ -257,28 +280,44 @@ function performanceLines(insight: ActivityInsightResponse | null): string[] {
  * 生成注入 activity AI prompt 的可比数据块。
  * 无任何可比内容时返回空串（调用方直接拼接）。
  */
+function samePeerSet(a: ActivityComparison | null, b: ActivityComparison | null): boolean {
+  if (!a || !b || a.peers.length !== b.peers.length) return false;
+  return a.peers.every((p) => b.peers.some((q) => q.activityId === p.activityId));
+}
+
 export function formatActivityContext(input: ActivityContextInput): string {
-  const { insight, routeComparison, distanceComparison, environment } = input;
+  const {
+    insight,
+    routeComparison,
+    distanceComparison,
+    locationComparison,
+    environment,
+  } = input;
 
   const lines: string[] = [];
   lines.push(...performanceLines(insight));
 
-  const routeLines = comparisonSection(routeComparison, '同路线/同名样本');
-  lines.push(...routeLines);
-
-  // 路线与距离两组样本完全相同时不重复输出（常见于只有一条路线且距离带重合）。
-  const samePeerSet =
-    routeComparison != null &&
-    distanceComparison != null &&
-    routeComparison.peers.length === distanceComparison.peers.length &&
-    routeComparison.peers.every((p) =>
-      distanceComparison.peers.some((q) => q.activityId === p.activityId),
-    );
-  if (!samePeerSet) {
+  // 顺序: 同位置（跨名称，最贴近「同一地点」）→ 同路线/同名 → 同距离。
+  // 样本集完全相同时只保留更具体的一组，避免重复占 token。
+  const showLocation = locationComparison != null;
+  if (showLocation) {
+    lines.push(...comparisonSection(locationComparison, '同位置样本'));
+  }
+  if (routeComparison && !(showLocation && samePeerSet(routeComparison, locationComparison))) {
+    lines.push(...comparisonSection(routeComparison, '同路线/同名样本'));
+  }
+  if (
+    distanceComparison &&
+    !(showLocation && samePeerSet(distanceComparison, locationComparison)) &&
+    !samePeerSet(distanceComparison, routeComparison)
+  ) {
     lines.push(...comparisonSection(distanceComparison, '同距离样本'));
   }
 
-  const cat = categoryLine(distanceComparison) ?? categoryLine(routeComparison);
+  const cat =
+    categoryLine(distanceComparison) ??
+    categoryLine(routeComparison) ??
+    categoryLine(locationComparison ?? null);
   if (cat) lines.push(cat);
 
   lines.push(...environmentLines(environment));

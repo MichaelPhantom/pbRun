@@ -556,10 +556,14 @@ class GarminFITParser {
       // 新增：功率、海拔、速度、距离
       const power = this._safeGetInt(r, 'power');
       const altitude = this._recordAltitudeMeters(r);
+      const temperature = this._safeGetFloat(r, 'temperature');
       const speed = this._safeGetFloat(r, 'enhanced_speed') ?? this._safeGetFloat(r, 'speed');
       const distance = this._safeGetFloat(r, 'distance');
 
-      if (heartRate != null || cadence != null || stepLength != null || power != null || altitude != null || speed != null || distance != null) {
+      if (
+        heartRate != null || cadence != null || stepLength != null || power != null ||
+        altitude != null || temperature != null || speed != null || distance != null
+      ) {
         let pace = null;
         if (cadence != null && cadence > 0 && stepLength != null && stepLength > 0) {
           const secPerKm = 60000 / (cadence * stepLength);
@@ -576,6 +580,7 @@ class GarminFITParser {
           pace,
           power: power ?? null,
           altitude: altitude != null ? Math.round(altitude * 10) / 10 : null,
+          temperature: temperature != null ? Math.round(temperature * 10) / 10 : null,
           speed: speed != null ? Math.round(speed * 1000) / 1000 : null,
           distance: distance != null ? Math.round(distance * 1000) / 1000 : null,
         });

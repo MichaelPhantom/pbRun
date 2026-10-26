@@ -453,7 +453,7 @@ describe('parseFitFile (文件级入口)', () => {
     mockParseAsync.mockResolvedValueOnce(
       minimalFit({
         records: [
-          { position_lat: 29.56, position_long: 106.55, enhanced_altitude: 0.3, heart_rate: 150 },
+          { position_lat: 29.56, position_long: 106.55, enhanced_altitude: 0.3, heart_rate: 150, temperature: 27.5 },
           { position_lat: 29.57, position_long: 106.56, enhanced_altitude: 0.31, heart_rate: 152 },
         ],
         activity_metrics: [{ vo2_max: 52 }],
@@ -469,8 +469,10 @@ describe('parseFitFile (文件级入口)', () => {
     // 首点同时落列, 供同起点查询走索引
     expect(res.activity.start_lat).toBeCloseTo(29.56);
     expect(res.activity.start_lng).toBeCloseTo(106.55);
+    expect(JSON.parse(res.activity.track).coords.length).toBe(2);
     expect(res.activity.user_weight).toBe(65);
     expect(res.activity.workout_name).toBe('基础训练');
+    expect(res.records[0].temperature).toBeCloseTo(27.5);
   });
 
   test('无 GPS → track 为 null (室内/跑步机)', async () => {

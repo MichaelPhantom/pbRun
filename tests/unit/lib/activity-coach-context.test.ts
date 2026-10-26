@@ -25,6 +25,23 @@ function insight(over: Partial<ActivityInsightResponse> = {}): ActivityInsightRe
     },
     comparison: null,
     decouplingPct: 4.2,
+    gradeAdjusted: {
+      equivalentPaceSecPerKm: 290,
+      actualPaceSecPerKm: 300,
+      deltaSecPerKm: -10,
+      distanceMeters: 10000,
+      ascentPerKm: 12,
+      sampleCount: 100,
+      model: 'minetti-2002',
+    },
+    temperatureDrift: {
+      startC: 24,
+      endC: 26.5,
+      deltaC: 2.5,
+      minC: 23,
+      maxC: 27,
+      sampleCount: 100,
+    },
     hrZoneBreakdown: [
       { zone: 1, seconds: 100, pct: 10 },
       { zone: 2, seconds: 400, pct: 40 },
@@ -122,6 +139,8 @@ describe('formatActivityContext', () => {
     expect(text).toContain('最快分段 4:35/km（第 3 段）');
     expect(text).toContain('Z1 10.0% / Z2 40.0% / Z3 50.0%');
     expect(text).toContain('有氧解耦: 4.2%（优秀）');
+    expect(text).toContain('海拔修正: 实际 5:00/km → 等价平路 4:50/km（快 10s/km；爬升 12.0m/km，Minetti 估算）');
+    expect(text).toContain('温度漂移: 24.0°C → 26.5°C（+2.5°C）');
     expect(text).toContain('同路线/同名样本（世纪公园）: 样本 9 次（含本次）');
     expect(text).toContain('本次排名 3/9');
     expect(text).toContain('组均 5:12/km（快 12s/km）');

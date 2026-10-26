@@ -233,8 +233,10 @@ export function computeLoadInsight(
 export interface RecordSample {
   elapsed_sec: number;
   heart_rate: number | null;
-  speed: number | null; // m/s
-  distance: number | null; // m
+  speed: number | null; // km/h（逐秒记录原单位）
+  distance: number | null; // km（逐秒记录原单位）
+  altitude?: number | null; // m
+  temperature?: number | null; // °C
 }
 
 export interface DecouplingInput {
