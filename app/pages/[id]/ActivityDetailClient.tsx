@@ -7,7 +7,7 @@ import type { Activity, ActivityLap, ActivityRecord, ActivityTrack, ActivityInsi
 import { SectionCard } from '@/app/components/ui/SectionCard';
 import { Badge } from '@/app/components/ui/Badge';
 import { DataTable } from '@/app/components/ui/DataTable';
-import ActivityTrendCharts from '@/app/lib/components/charts/ActivityTrendCharts';
+import ActivityTrendCharts, { trendChartTitle } from '@/app/lib/components/charts/ActivityTrendCharts';
 import { ActivityInsightPanel, ROLE_LABEL, ROLE_TONE } from '@/app/lib/components/charts/ActivityInsightPanel';
 import { AiAnalysis } from '@/app/lib/components/ai/AiAnalysis';
 import { activityTypeLabel, activityTypeIcon, isRunningType } from '@/app/lib/sport';
@@ -152,10 +152,11 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
         </div>
       </SectionCard>
 
-      {/* 趋势图 */}
-      {records.length > 0 && (
-        <SectionCard title={running ? '配速 / 心率 / 步频 / 海拔 趋势' : '心率 / 海拔 趋势'} accent>
-          <ActivityTrendCharts records={records} />
+      {/* 趋势图。标题由 trendChartTitle 派生 —— 只列出真的会渲染的图,
+          避免真实库里 107 条非跑步活动全无海拔记录却承诺「海拔 趋势」。 */}
+      {records.length > 0 && trendChartTitle(records, running) !== '趋势' && (
+        <SectionCard title={trendChartTitle(records, running)} accent>
+          <ActivityTrendCharts records={records} running={running} />
         </SectionCard>
       )}
 

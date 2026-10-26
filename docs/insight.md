@@ -156,6 +156,9 @@ activities / activity_laps / activity_records (SQLite)
 
 - `ActivityInsightPanel` **整张卡片不渲染**「最快分段 / 主课均配速」（显示 `--` 会被误读成数据缺失）；
 - `ActivityDetailClient` 不对非跑步分段做「最快 K」高亮；
+- `ActivityTrendCharts` 不渲染配速/步频/步幅三图（非跑步的 `cadence` 是划水/踏频/移动步频），
+  且卡片标题由 `trendChartTitle` **按实际可渲染的图派生** —— 真实库 107 条非跑步活动
+  `altitude` 全为 0/null，旧标题写死「心率 / 海拔 趋势」属于空承诺；
 - `activity-coach-context.ts` 的 `performanceLines` 按 `insight.running` **二次把关**，
   不输出「主课配速 / 最快分段 / 等价平路」行，标题改「本次分段（按相对快慢划分, 不比配速）」，
   口径说明改为「非跑步活动：不比较配速/步频/跑力」。
@@ -170,6 +173,7 @@ activities / activity_laps / activity_records (SQLite)
 | 类别/气温/路线/周期化 | `tests/unit/lib/insight-compare.test.ts` |
 | 活动深挖计算 | `tests/unit/lib/activity-insight.test.ts`（含非跑步：按相对心率识别强度段、不外传配速派生量） |
 | 活动深挖面板（非跑步不渲染配速卡片） | `tests/unit/components/activity-insight-panel.test.tsx` |
+| 趋势图（海拔图渲染 / 非跑步去配速步频 / 标题按数据派生） | `tests/unit/components/activity-trend-charts.test.tsx` |
 | 活动 AI 可比样本格式 | `tests/unit/lib/activity-coach-context.test.ts`（含非跑步不输出配速/等价平路行） |
 | 活动 AI 可比样本取数与降级 | `tests/unit/lib/activity-coach-context-service.test.ts` |
 | 温度/爬升/同温档可比性 | `tests/unit/lib/activity-environment.test.ts` |

@@ -488,8 +488,22 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
   test('非跑步活动的趋势图标题不宣称配速/步频', async () => {
     db.getActivityById.mockReturnValue({ ...activity, activity_type: 'indoor_cardio', name: '室内有氧' });
     render(await page('2003'));
+    // 标题由实际数据派生: 非跑步去掉配速/步频, 但记录里有 altitude → 保留海拔
     expect(screen.getByText('心率 / 海拔 趋势')).toBeInTheDocument();
     expect(screen.queryByText(/配速 \/ 心率 \/ 步频 \/ 海拔 趋势/)).toBeNull();
+  });
+
+  test('非跑步且记录无海拔 → 标题只说「心率 趋势」, 不空承诺海拔', async () => {
+    // 真实库实测: 107 条非跑步活动的 activity_records 里 altitude 全部为
+    // 0/null(0/107), 旧标题写死「心率 / 海拔 趋势」是空承诺。
+    db.getActivityById.mockReturnValue({ ...activity, activity_type: 'lap_swimming', name: '泳池游泳' });
+    db.getActivityRecords.mockReturnValue(
+      records.map((r) => ({ ...r, altitude: 0, cadence: 48, pace: null })),
+    );
+    render(await page('2004'));
+    expect(screen.getByText('心率 趋势')).toBeInTheDocument();
+    expect(screen.queryByText(/海拔 趋势/)).toBeNull();
+    expect(screen.queryByText(/配速/)).toBeNull();
   });
 
   test('无 GPS / 无逐秒记录 / 无分段 / 无跑步动态 → 对应区块不渲染', async () => {

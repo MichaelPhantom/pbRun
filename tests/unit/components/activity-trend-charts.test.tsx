@@ -20,7 +20,7 @@ jest.mock('@/app/lib/echarts-theme', () => ({
   resolveColor: jest.fn((_v: string, fallback: string) => fallback),
 }));
 
-import ActivityTrendCharts from '@/app/lib/components/charts/ActivityTrendCharts';
+import ActivityTrendCharts, { trendChartKinds, trendChartTitle } from '@/app/lib/components/charts/ActivityTrendCharts';
 import type { ActivityRecord } from '@/app/lib/types';
 
 type ChartStub = {
@@ -95,6 +95,121 @@ describe('渲染条件', () => {
     const stride = charts[charts.length - 1];
     const series = stride.options[0].series as { data: number[] }[];
     expect(series[0].data).toEqual([105, 102]);
+  });
+
+  test('海拔图: 详情页标题承诺「海拔 趋势」, 必须真的渲染 (0 值视为无数据)', () => {
+    render(
+      <ActivityTrendCharts
+        records={[
+          rec({ elapsed_sec: 0, altitude: 0 }), // FIT 未采气压计时恒为 0 → 无数据
+          rec({ elapsed_sec: 60, altitude: 120 }),
+          rec({ elapsed_sec: 120, altitude: 135 }),
+        ]}
+      />,
+    );
+    expect(screen.getByText('海拔趋势')).toBeInTheDocument();
+    const alt = charts.find((c) => (c.options[0].yAxis as { name?: string }).name === '海拔')!;
+    const series = alt.options[0].series as { data: (number | null)[] }[];
+    // 首个 0 值无前值可填充 → null, 后两点原样保留
+    expect(series[0].data).toEqual([null, 120, 135]);
+  });
+
+  test('海拔全为 0 → 不渲染海拔图 (视为无数据)', () => {
+    render(
+      <ActivityTrendCharts
+        records={[rec({ elapsed_sec: 0, altitude: 0, heart_rate: 140 }), rec({ elapsed_sec: 60, altitude: 0, heart_rate: 145 })]}
+      />,
+    );
+    expect(screen.queryByText('海拔趋势')).not.toBeInTheDocument();
+  });
+
+  test('海拔与其它指标并存 → 五图同时渲染', () => {
+    render(
+      <ActivityTrendCharts
+        records={[
+          rec({ elapsed_sec: 0, heart_rate: 140, cadence: 180, step_length: 1.0, pace: 300, altitude: 50 }),
+          rec({ elapsed_sec: 60, heart_rate: 150, cadence: 182, step_length: 1.02, pace: 310, altitude: 60 }),
+        ]}
+      />,
+    );
+    expect(screen.getByText('心率趋势')).toBeInTheDocument();
+    expect(screen.getByText('配速趋势')).toBeInTheDocument();
+    expect(screen.getByText('步频趋势')).toBeInTheDocument();
+    expect(screen.getByText('步幅趋势')).toBeInTheDocument();
+    expect(screen.getByText('海拔趋势')).toBeInTheDocument();
+  });
+
+  test('非跑步: 不渲染配速/步频/步幅三图, 心率与海拔照常', () => {
+    // 真实库: 篮球 cadence 最高 250、乒乓球 214、羽毛球 154 —— 都不是「步/分」;
+    // 且非跑步记录的 pace 字段全部缺失。渲染成步频/配速曲线纯属误导。
+    render(
+      <ActivityTrendCharts
+        running={false}
+        records={[
+          rec({ elapsed_sec: 0, heart_rate: 110, cadence: 200, step_length: 1.1, pace: 300, altitude: 300 }),
+          rec({ elapsed_sec: 60, heart_rate: 120, cadence: 220, step_length: 1.1, pace: 305, altitude: 310 }),
+        ]}
+      />,
+    );
+    expect(screen.getByText('心率趋势')).toBeInTheDocument();
+    expect(screen.getByText('海拔趋势')).toBeInTheDocument();
+    expect(screen.queryByText('配速趋势')).not.toBeInTheDocument();
+    expect(screen.queryByText('步频趋势')).not.toBeInTheDocument();
+    expect(screen.queryByText('步幅趋势')).not.toBeInTheDocument();
+    // 只初始化两张图, 不浪费渲染非跑步无意义的曲线
+    expect(init).toHaveBeenCalledTimes(2);
+  });
+
+  test('非跑步且仅有 cadence/pace → 整体不渲染', () => {
+    const { container } = render(
+      <ActivityTrendCharts
+        running={false}
+        records={[rec({ elapsed_sec: 0, cadence: 200, pace: 300 }), rec({ elapsed_sec: 60, cadence: 220, pace: 310 })]}
+      />,
+    );
+    expect(container).toBeEmptyDOMElement();
+    expect(init).not.toHaveBeenCalled();
+  });
+});
+
+describe('trendChartTitle (标题只列出真的会渲染的图)', () => {
+  test('跑步全指标 → 五图标题', () => {
+    const recs = [
+      rec({ elapsed_sec: 0, heart_rate: 140, cadence: 180, step_length: 1.0, pace: 300, altitude: 50 }),
+    ];
+    expect(trendChartTitle(recs, true)).toBe('配速 / 心率 / 步频 / 步幅 / 海拔 趋势');
+  });
+
+  test('跑步缺海拔 → 标题不含海拔', () => {
+    const recs = [rec({ elapsed_sec: 0, heart_rate: 140, cadence: 180, pace: 300 })];
+    expect(trendChartTitle(recs, true)).toBe('配速 / 心率 / 步频 趋势');
+  });
+
+  test('非跑步: 去掉配速/步频/步幅', () => {
+    const recs = [rec({ elapsed_sec: 0, heart_rate: 110, cadence: 200, pace: 300, altitude: 300 })];
+    expect(trendChartTitle(recs, false)).toBe('心率 / 海拔 趋势');
+  });
+
+  test('非跑步且 altitude 为 0 → 只有心率', () => {
+    const recs = [rec({ elapsed_sec: 0, heart_rate: 110, cadence: 200, altitude: 0 })];
+    expect(trendChartTitle(recs, false)).toBe('心率 趋势');
+  });
+
+  test('无任何可渲染指标 → 空标题 (详情页据此不渲染整张卡)', () => {
+    expect(trendChartTitle([rec({ elapsed_sec: 0 })], true)).toBe('趋势');
+    expect(trendChartTitle([], true)).toBe('趋势');
+  });
+
+  test('与组件实际渲染的图严格一致 (kinds 即单一来源)', () => {
+    const recs = [rec({ elapsed_sec: 0, heart_rate: 140, cadence: 180, step_length: 1.0, pace: 300 })];
+    const kinds = trendChartKinds(recs, true);
+    expect(kinds).toEqual({ heartRate: true, pace: true, cadence: true, stride: true, altitude: false });
+    const title = trendChartTitle(recs, true);
+    expect(title).toContain('配速');
+    expect(title).toContain('心率');
+    expect(title).toContain('步频');
+    expect(title).toContain('步幅');
+    expect(title).not.toContain('海拔');
   });
 });
 
