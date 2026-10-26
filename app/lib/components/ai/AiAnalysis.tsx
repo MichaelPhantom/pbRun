@@ -9,6 +9,7 @@ import { ModelSelector } from './ModelSelector';
 import { useModelCatalog } from './useModelCatalog';
 import { useStickToBottom } from './useStickToBottom';
 import { suggestFollowups } from './followup-suggestions';
+import { isRunningType } from '@/app/lib/sport';
 import type { ChatMessage } from '@/app/lib/llm';
 import type { Activity } from '@/app/lib/types';
 
@@ -293,6 +294,9 @@ export function AiAnalysis({
     !busy && lastAssistant && !lastAssistant.error && lastAssistant.content
       ? suggestFollowups({
           analysisText: lastAssistant.content.slice(-2500),
+          // 非跑步活动(游泳/球类/力量训练)不推步频/跑姿/PB 类追问:
+          // 这些指标的分母与语义都是跑步专属, 泳池的 cadence 是划水频次。
+          running: isRunningType(activity?.activity_type),
           activity: {
             distanceKm: activity?.distance ?? 0,
             averagePace: activity?.average_pace ?? null,

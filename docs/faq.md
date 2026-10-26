@@ -159,6 +159,10 @@
   31-60 天均值对比）。见 `app/lib/runner-profile.ts`。
 - **智能追问建议**: 分析完成后展示上下文相关的一键追问 chips（强度结构/心率
   漂移/恢复/技术/目标），见 `app/lib/components/ai/followup-suggestions.ts`。
+  **非跑步活动不推「跑步技术（步频/步幅/跑姿）」与「PB/跑力目标」** —— 泳池游泳的
+  `average_cadence` 是划水频次、篮球是移动步频，`vdotTrend` 是跑步跑力趋势；
+  改推「这项训练和跑步计划如何搭配」。判定入口是 `AiAnalysis` 传入的
+  `running: isRunningType(activity.activity_type)`。
 - **模型策略**: 429 限流先等待冷却再回退 auto；429 错误文案可操作化。
 - **结果呈现**: MarkdownLite 增强 — emoji 章节标题带品牌左边框、`---` 分割线、
   ✅/⚠️ 列表项去重项目符号。

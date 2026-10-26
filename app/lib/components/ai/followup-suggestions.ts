@@ -10,6 +10,12 @@
 export interface FollowupContext {
   /** 分析结果 Markdown 文本 (用于检测已覆盖哪些话题, 避免重复建议) */
   analysisText: string;
+  /**
+   * 是否跑步口径 (`isRunningType(activity_type)`)。`false` 时不建议跑步专属话题
+   * （步频/步幅/跑姿、PB、跑力趋势）—— 泳池游泳的 `average_cadence` 是划水频次、
+   * 篮球是运球/移动步频，把它们当「跑步步频偏低」来追问纯属误导。
+   */
+  running?: boolean;
   /** 活动摘要 (从画像/活动提取的关键指标) */
   activity: {
     distanceKm: number;
@@ -34,6 +40,7 @@ export function suggestFollowups(ctx: FollowupContext): string[] {
   const out: string[] = [];
   const text = ctx.analysisText || '';
   const has = (kw: string) => text.includes(kw);
+  const running = ctx.running !== false;
 
   // 1. 训练结构失衡 (高价值): 若 Z4+Z5 占比过高且未在分析中强调
   if (
@@ -57,16 +64,21 @@ export function suggestFollowups(ctx: FollowupContext): string[] {
     out.push('我目前的疲劳状态如何？接下来两天该怎么安排？');
   }
 
-  // 4. 跑步技术: 有步频数据但未深入
-  if (ctx.activity.averageCadence != null && !has('步频') && !has('技术')) {
+  // 4. 跑步技术: 有步频数据但未深入（仅跑步 —— 非跑步的 cadence 是划水/踏频）
+  if (running && ctx.activity.averageCadence != null && !has('步频') && !has('技术')) {
     out.push('我的跑步技术（步频/步幅/跑姿）还有哪些优化空间？');
   }
 
-  // 5. 训练计划: 根据跑力趋势给长期建议
-  if (ctx.profile.vdotTrend === 'up') {
-    out.push('以我目前的进步速度，下一个目标应该定多少？多久能达成？');
+  // 5. 训练计划: 根据跑力趋势给长期建议（PB/跑力只对跑步成立）
+  if (running) {
+    if (ctx.profile.vdotTrend === 'up') {
+      out.push('以我目前的进步速度，下一个目标应该定多少？多久能达成？');
+    } else {
+      out.push('我距离下一个 PB 还有多远？需要重点提升什么？');
+    }
   } else {
-    out.push('我距离下一个 PB 还有多远？需要重点提升什么？');
+    // 非跑步: 问训练负荷与交叉训练配比, 而不是 PB
+    out.push('这项训练和我的跑步计划该如何搭配？训练量需要调整吗？');
   }
 
   // 6. 伤病预防 (通用兜底)

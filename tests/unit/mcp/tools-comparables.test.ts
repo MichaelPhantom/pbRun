@@ -86,6 +86,43 @@ test('返回结构化 insight + contextText + 活动摘要', async () => {
   expect(contextService.buildActivityContextBlock).toHaveBeenCalledWith(activity, insight);
 });
 
+test('非跑步活动: averagePaceSecPerKm 置空并显式声明 running=false', async () => {
+  // 泳池游泳真实形态: average_pace 是「每公里游泳时间」1670s/km。
+  // 若原样返回, MCP 客户端会把它当配速解读成「慢得离谱的跑步」。
+  (db.getActivityById as jest.Mock).mockReturnValue({
+    ...activity,
+    activity_type: 'lap_swimming',
+    distance: 2.05,
+    average_pace: 1670.7,
+    average_heart_rate: 102,
+  });
+  (insightService.getActivityInsight as jest.Mock).mockReturnValue({
+    ...insight,
+    running: false,
+    lapAnalysis: { laps: [], workLaps: 8, bestPaceSecPerKm: null, workAvgPaceSecPerKm: null },
+    gradeAdjusted: null,
+  });
+  const handler = tools.get('get_activity_comparables')!;
+  const out = await handler({ activityId: 7 });
+  const body = JSON.parse(out.content[0].text);
+  expect(body.running).toBe(false);
+  expect(body.averagePaceSecPerKm).toBeNull();
+  // 心率/距离/环境等非配速量照常返回
+  expect(body.averageHeartRate).toBe(102);
+  expect(body.distanceKm).toBe(2.05);
+  expect(body.insight.lapAnalysis.workLaps).toBe(8);
+  expect(body.insight.gradeAdjusted).toBeNull();
+});
+
+test('跑步活动: running=true 且保留 averagePaceSecPerKm', async () => {
+  (insightService.getActivityInsight as jest.Mock).mockReturnValue({ ...insight, running: true });
+  const handler = tools.get('get_activity_comparables')!;
+  const out = await handler({ activityId: 7 });
+  const body = JSON.parse(out.content[0].text);
+  expect(body.running).toBe(true);
+  expect(body.averagePaceSecPerKm).toBe(300);
+});
+
 test('活动不存在 → 结构化错误 (isError=true)', async () => {
   (db.getActivityById as jest.Mock).mockReturnValueOnce(null);
   const handler = tools.get('get_activity_comparables')!;

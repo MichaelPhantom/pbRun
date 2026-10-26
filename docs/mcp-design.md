@@ -74,11 +74,16 @@ pbRun/
 #### `get_activity_comparables` — 当次横向可比样本
 
 输入 `activityId`，输出单次活动的：
+- `running`：是否跑步口径（`isRunningType(activity_type)`）。为 `false` 时
+  `averagePaceSecPerKm` 恒为 `null`，`insight` 里的配速派生字段（`bestPaceSecPerKm` /
+  `workAvgPaceSecPerKm` / `bestLapIndex`）与 `gradeAdjusted` 也已置空 ——
+  这些量的分母是「每公里」，对游泳/球类/力量训练没有可比语义；
 - `insight`：分段角色/主课漂移/心率区间/逐秒解耦/同路线对比/环境可比性；
 - `contextText`：可直接注入 LLM prompt 的【本次表现与可比样本】文本块。
 
 与 Web 端活动 AI 使用同一套 `activity-insight-service` / `activity-coach-context-service`，
-避免 MCP 与页面口径漂移。
+避免 MCP 与页面口径漂移。非跑步活动的分段角色改按**相对心率**识别强度段
+（游泳 lap 常无 `average_pace`，按配速会让所有段落进 `steady`）。
 
 #### `compare_periods` — 跨期对比
 

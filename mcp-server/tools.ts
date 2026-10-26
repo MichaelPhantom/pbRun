@@ -141,7 +141,10 @@ export async function registerTools(server: McpServer): Promise<void> {
         '按 activity_id 返回单次活动的横向可比上下文：分段角色/主课漂移/心率区间/逐秒解耦 + ' +
         '同路线/同距离/同类训练配速排名 + 温度/爬升/同温档环境可比性。' +
         '适合 AI 做「当次横向复盘」，而不是全局趋势分析；返回 insight(结构化) 与 contextText(可直接注入 prompt 的文本块)。' +
-        'distance 为公里, 配速为秒/公里。',
+        'distance 为公里, 配速为秒/公里。' +
+        'running=false 表示非跑步活动（游泳/球类/力量训练等）：此时 averagePaceSecPerKm 恒为 null，' +
+        'insight.lapAnalysis 的配速派生字段与 gradeAdjusted 也已置空 —— 这些量的分母是「每公里」，' +
+        '对非跑步运动没有可比语义，请勿把它们当作配速解读。',
       inputSchema: {
         activityId: z.number().int().positive().describe('活动 ID'),
       },
@@ -152,12 +155,17 @@ export async function registerTools(server: McpServer): Promise<void> {
         if (!activity) throw new Error(`未找到活动: activity_id=${args.activityId}`);
         const insight = getActivityInsight(args.activityId);
         if (!insight) throw new Error(`未找到活动深挖数据: activity_id=${args.activityId}`);
+        // 非跑步活动的 average_pace 是「每公里游泳/击球时间」(泳池 1670s/km、
+        // 乒乓球 30826s/km)，直接返回会被客户端当配速解读。以 insight.running
+        // 为准显式置空，并单独声明口径，避免每个消费方各自猜测。
+        const running = insight.running !== false;
         return {
           activityId: args.activityId,
           name: activity.name,
           date: (activity.start_time_local || activity.start_time || '').slice(0, 10),
+          running,
           distanceKm: activity.distance ?? null,
-          averagePaceSecPerKm: activity.average_pace ?? null,
+          averagePaceSecPerKm: running ? (activity.average_pace ?? null) : null,
           averageHeartRate: activity.average_heart_rate ?? null,
           temperatureC: activity.average_temperature ?? null,
           ascentM: activity.total_ascent ?? null,
