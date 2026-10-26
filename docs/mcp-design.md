@@ -52,6 +52,13 @@ pbRun/
 > 其余统计类工具均为**跑步口径**（只含 `running` / `track_running` / `treadmill_running`），
 > 见 `docs/features.md` §1.1。MCP 直接复用 `app/lib/db.ts`，与 Web 端完全同源，
 > 不存在「MCP 数据比页面多」的口径漂移。
+>
+> **口径必须写进 tool description**，不能只写在本文档里：MCP 是 LLM 的唯一数据入口，
+> 若 description 不声明口径，模型会把「游泳/篮球不计入」的统计当成全部运动的总量来
+> 解读（例如看到 `totalDistance` 只含跑步，却推断「用户几乎不运动」）。这类缺陷不报错、
+> 不让测试变红，只在模型输出里显形。`tests/unit/mcp/tool-scope-contract.test.ts`
+> 逐项断言：9 个表现分析工具必须含「跑步口径」、2 个活动日志工具必须含「全类型口径」、
+> 且所有 16 个工具都有非空 title/description。
 
 | Tool | db.ts 函数 | 参数 | 输出 | 说明 |
 |------|-----------|------|------|------|

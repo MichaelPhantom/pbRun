@@ -70,7 +70,10 @@ export async function registerTools(server: McpServer): Promise<void> {
     'list_activities',
     {
       title: '活动列表',
-      description: '列出跑步活动（支持分页、类型与日期过滤）。distance 为公里, 配速为秒/公里。默认每页 20 条: pagination.total 为筛选后的总条数, 未取完时请用 offset 翻页 (limit 最大 100)。',
+      description:
+        '列出活动（**全类型口径**：含跑步/游泳/球类/力量训练等，非跑步活动的配速与步频语义不同，' +
+        '请勿当跑步配速解读）。支持分页、类型与日期过滤。distance 为公里, 配速为秒/公里。' +
+        '默认每页 20 条: pagination.total 为筛选后的总条数, 未取完时请用 offset 翻页 (limit 最大 100)。',
       inputSchema: {
         limit: z.number().int().min(1).max(100).optional().describe('每页数量 (1-100, 默认 20)'),
         offset: z.number().int().min(0).optional().describe('偏移量 (默认 0)'),
@@ -221,7 +224,7 @@ export async function registerTools(server: McpServer): Promise<void> {
     {
       title: '年度每日里程',
       description:
-        '返回指定年份每天累计跑步里程 (按本地日期聚合)。返回 [{date:YYYY-MM-DD, km}], 无活动的日期不出现。用于年度里程热力图与连续性分析。',
+        '返回指定年份每天累计跑步里程 (按本地日期聚合)。**跑步口径**。返回 [{date:YYYY-MM-DD, km}], 无活动的日期不出现。用于年度里程热力图与连续性分析。',
       inputSchema: {
         year: z.number().int().min(2000).max(2100).optional().describe('年份 (默认当前年)'),
       },
@@ -234,7 +237,10 @@ export async function registerTools(server: McpServer): Promise<void> {
     'get_stats',
     {
       title: '汇总统计',
-      description: '指定周期（周/月/年/全部）的汇总统计。totalDistance 为米, totalDuration 为秒。',
+      description:
+        '指定周期（周/月/年/全部）的汇总统计。**跑步口径**：只统计跑步类活动' +
+        '（running/track_running/treadmill_running），游泳/球类/力量训练不计入。' +
+        'totalDistance 为米, totalDuration 为秒。',
       inputSchema: {
         period: PERIOD_ENUM.optional().describe('统计周期 (默认 total)'),
       },
@@ -246,7 +252,9 @@ export async function registerTools(server: McpServer): Promise<void> {
     'get_personal_records',
     {
       title: '个人纪录 (PB)',
-      description: '指定周期内 1.6K/3K/5K/10K/半马/全马 的个人最佳成绩与最长距离。',
+      description:
+        '指定周期内 1.6K/3K/5K/10K/半马/全马 的个人最佳成绩与最长距离。' +
+        '**跑步口径**：只统计跑步类活动，非跑步不计入。',
       inputSchema: {
         period: z.enum(['week', 'month', 'year', 'total', '6months']).optional().describe('统计周期 (默认 total)'),
       },
@@ -259,7 +267,8 @@ export async function registerTools(server: McpServer): Promise<void> {
     {
       title: 'VDOT 跑力历史',
       description:
-        '各次活动对应的 VDOT 跑力值（按时间倒序）。默认仅返回最近 50 条: 返回含 total (总条数) / returned (本次条数), 未取全量时请用 offset 翻页 (limit 最大 100, 一次最多 100 条)。',
+        '各次活动对应的 VDOT 跑力值（按时间倒序）。**跑步口径**：只含跑步类活动（VDOT 是跑步跑力指标）。' +
+        '默认仅返回最近 50 条: 返回含 total (总条数) / returned (本次条数), 未取全量时请用 offset 翻页 (limit 最大 100, 一次最多 100 条)。',
       inputSchema: {
         limit: z.number().int().min(1).max(100).optional().describe('每页条数 (1-100, 默认 50)'),
         offset: z.number().int().min(0).optional().describe('偏移量 (默认 0, 配合 limit 翻页取全量)'),
@@ -279,7 +288,8 @@ export async function registerTools(server: McpServer): Promise<void> {
     'get_vdot_trend',
     {
       title: 'VDOT 跑力趋势',
-      description: 'VDOT 按周/月聚合的趋势（平均值/最大/最小）。total_distance 为米。',
+      description:
+        'VDOT 按周/月聚合的趋势（平均值/最大/最小）。total_distance 为米。**跑步口径**。',
       inputSchema: {
         startDate: z.string().optional().describe('开始日期 YYYY-MM-DD'),
         endDate: z.string().optional().describe('结束日期 YYYY-MM-DD'),
@@ -297,7 +307,9 @@ export async function registerTools(server: McpServer): Promise<void> {
     'get_hr_zone_analysis',
     {
       title: '心率区间分析',
-      description: '按周/月聚合各心率区间 (Z1-Z5) 的活动次数/时长/距离/平均配速等。zoneRanges 为基于 MAX_HR 的 BPM 区间。',
+      description:
+        '按周/月聚合各心率区间 (Z1-Z5) 的活动次数/时长/距离/平均配速等。' +
+        '**跑步口径**：非跑步活动不计入（其配速/距离语义不同）。zoneRanges 为基于 MAX_HR 的 BPM 区间。',
       inputSchema: {
         startDate: z.string().optional().describe('开始日期 YYYY-MM-DD'),
         endDate: z.string().optional().describe('结束日期 YYYY-MM-DD'),
@@ -331,7 +343,8 @@ export async function registerTools(server: McpServer): Promise<void> {
     'get_pace_zone_analysis',
     {
       title: '配速区间分析',
-      description: '按当前跑力 VDOT 将分段 (laps) 归入 Z1-Z5 配速区间并聚合统计。distance 为米。',
+      description:
+        '按当前跑力 VDOT 将分段 (laps) 归入 Z1-Z5 配速区间并聚合统计。distance 为米。**跑步口径**。',
       inputSchema: {
         startDate: z.string().describe('开始日期 YYYY-MM-DD'),
         endDate: z.string().describe('结束日期 YYYY-MM-DD'),
@@ -357,7 +370,9 @@ export async function registerTools(server: McpServer): Promise<void> {
     'get_month_summaries',
     {
       title: '月度汇总',
-      description: '按月汇总总距离与活动次数（倒序, 默认最近 12 个月, 可用 limit/offset 扩展）。totalDistance 为公里（与 activities.distance 一致）。',
+      description:
+        '按月汇总总距离与活动次数（倒序, 默认最近 12 个月, 可用 limit/offset 扩展）。' +
+        '**全类型口径**（活动日志，与 list_activities 一致，含非跑步）。totalDistance 为公里（与 activities.distance 一致）。',
       inputSchema: {
         limit: z.number().int().min(1).max(100).optional().describe('返回月份数 (默认 12)'),
         offset: z.number().int().min(0).optional().describe('偏移量 (默认 0)'),
@@ -370,7 +385,8 @@ export async function registerTools(server: McpServer): Promise<void> {
     'compare_periods',
     {
       title: '跨期对比',
-      description: '对比两个日期区间的训练总量与强度差异（B 相对 A 的变化率）。delta.avg_pace_diff 负值表示变快。',
+      description:
+        '对比两个日期区间的训练总量与强度差异（B 相对 A 的变化率）。delta.avg_pace_diff 负值表示变快。**跑步口径**。',
       inputSchema: {
         periodA: z.object({
           startDate: z.string().describe('区间 A 开始日期 YYYY-MM-DD'),
@@ -396,7 +412,9 @@ export async function registerTools(server: McpServer): Promise<void> {
     'get_training_load_analysis',
     {
       title: '训练负荷分析 (ACWR)',
-      description: '基于近 N 天训练负荷计算 ACWR 急慢性负荷比与连续训练/休息天数, 并给出建议。load 无单位 (Garmin 训练负荷)。',
+      description:
+        '基于近 N 天训练负荷计算 ACWR 急慢性负荷比与连续训练/休息天数, 并给出建议。' +
+        '**跑步口径**（只统计跑步类活动的负荷）。load 无单位 (Garmin 训练负荷)。',
       inputSchema: {
         days: z.number().int().min(7).max(365).optional().describe('分析天数窗口 (默认 28, 需至少 7 天)'),
       },
