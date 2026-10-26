@@ -372,3 +372,83 @@ describe('工具动作', () => {
     expect(screen.queryByRole('button', { name: '回到底部' })).not.toBeInTheDocument();
   });
 });
+
+describe('非跑步活动的文案口径', () => {
+  const nonRun = {
+    activity_id: 9,
+    activity_type: 'lap_swimming',
+    name: '泳池游泳',
+    distance: 2.05,
+    duration: 3425,
+    average_pace: 1670,
+    average_cadence: 48,
+  } as never;
+
+  test('空状态引导语不宣称配速/步频/跑力, 改说时长/心率/强度分段', async () => {
+    render(<AiAnalysis activityId={9} activity={nonRun} />);
+    await waitFor(() => expect(screen.getByText(/个人基础/)).toBeInTheDocument());
+    // 游泳的 average_pace=1670s/km 与 cadence=48 都不是跑步配速/步频
+    expect(screen.queryByText(/配速、心率、步频/)).toBeNull();
+    expect(screen.queryByText(/跑力趋势/)).toBeNull();
+    expect(screen.getByText(/时长、心率区间、强度分段/)).toBeInTheDocument();
+    // 仍保留「同类训练」横向对比承诺
+    expect(screen.getByText(/同类训练/)).toBeInTheDocument();
+  });
+
+  test('跑步活动的引导语保留配速/步频/跑力', async () => {
+    render(
+      <AiAnalysis
+        activityId={1}
+        activity={{ activity_id: 1, activity_type: 'running', name: '晨跑', distance: 10 } as never}
+      />,
+    );
+    await waitFor(() => expect(screen.getByText(/个人基础/)).toBeInTheDocument());
+    expect(screen.getByText(/配速、心率、步频/)).toBeInTheDocument();
+    expect(screen.getByText(/跑力趋势/)).toBeInTheDocument();
+  });
+
+  test('非跑步「更深入」提示词不要求分析跑步经济性与配速执行', async () => {
+    const user = userEvent.setup();
+    render(<AiAnalysis activityId={9} activity={nonRun} />);
+    await user.click(screen.getByRole('button', { name: '生成分析' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: '复制' })).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: '更深入' }));
+    await waitFor(() => {
+      const q = analysisBodies(fetchMock).at(-1).question as string;
+      expect(q).toMatch(/心率区间分布/);
+      expect(q).not.toMatch(/跑步经济性|配速执行/);
+    });
+  });
+
+  test('非跑步「更精炼」提示词称「训练」而非「跑步」', async () => {
+    const user = userEvent.setup();
+    render(<AiAnalysis activityId={9} activity={nonRun} />);
+    await user.click(screen.getByRole('button', { name: '生成分析' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: '更精炼' })).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: '更精炼' }));
+    await waitFor(() => {
+      const q = analysisBodies(fetchMock).at(-1).question as string;
+      expect(q).toContain('本次训练');
+      expect(q).not.toContain('本次跑步');
+    });
+  });
+
+  test('跑步「更精炼」提示词仍称「本次跑步」', async () => {
+    const user = userEvent.setup();
+    render(
+      <AiAnalysis
+        activityId={1}
+        activity={{ activity_id: 1, activity_type: 'running', name: '晨跑', distance: 10 } as never}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: '生成分析' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: '更精炼' })).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: '更精炼' }));
+    await waitFor(() => {
+      expect(analysisBodies(fetchMock).at(-1).question).toContain('本次跑步');
+    });
+  });
+});

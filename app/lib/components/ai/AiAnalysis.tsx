@@ -54,6 +54,10 @@ export function AiAnalysis({
 }) {
   const { models, configured, model, choose } = useModelCatalog();
 
+  // 活动口径: 跑步与其它运动（游泳/球类/力量训练）的可展示指标与文案完全不同,
+  // 判定单点来自 app/lib/sport.ts（与 DB SQL / 详情页共用同一份列表）。
+  const running = isRunningType(activity?.activity_type);
+
   const [turns, setTurns] = useState<Turn[]>([]);
   const [status, setStatus] = useState<Status>('idle');
   const [question, setQuestion] = useState('');
@@ -250,14 +254,21 @@ export function AiAnalysis({
     }
   }
 
-  function regenerateWithHint(hint: string) {
+  /**
+   * 重生成的两个变体。参数收窄为字面量联合：此前是 `string` + else 兜底
+   * 「请换一个角度重新分析」，但只有两处调用点，兜底分支不可达（覆盖率上
+   * 一直靠人为输入硬凑）。改成联合类型后编译器即保证只有两条路径。
+   */
+  function regenerateWithHint(hint: 'concise' | 'detailed') {
     const history = turns.map((t) => ({ role: t.role, content: t.content } as ChatMessage));
+    // 非跑步活动不能问「跑步经济性 / 配速执行」—— 泳池/球类没有配速语义,
+    // 模型会被引导去讨论它拿不到的指标。
     const q =
       hint === 'concise'
-        ? '请用更精炼的方式重新总结本次跑步的关键结论 (保留最重要的 3-4 点)。'
-        : hint === 'detailed'
+        ? `请用更精炼的方式重新总结本次${running ? '跑步' : '训练'}的关键结论 (保留最重要的 3-4 点)。`
+        : running
           ? '请更深入地展开分析 (尤其是心率漂移、跑步经济性与配速执行细节), 并给出更具体的下次训练处方。'
-          : '请换一个角度重新分析本次跑步。';
+          : '请更深入地展开分析 (尤其是心率区间分布、强度结构与动作质量), 并给出更具体的下次训练处方。';
     runStream({ model, question: q, history });
   }
 
@@ -296,7 +307,7 @@ export function AiAnalysis({
           analysisText: lastAssistant.content.slice(-2500),
           // 非跑步活动(游泳/球类/力量训练)不推步频/跑姿/PB 类追问:
           // 这些指标的分母与语义都是跑步专属, 泳池的 cadence 是划水频次。
-          running: isRunningType(activity?.activity_type),
+          running,
           activity: {
             distanceKm: activity?.distance ?? 0,
             averagePace: activity?.average_pace ?? null,
@@ -357,8 +368,17 @@ export function AiAnalysis({
 
       {configured && !hasAnalysis && status === 'idle' && (
         <p className="py-2 text-sm text-fg-muted">
-          结合你的<span className="font-medium text-fg-secondary">个人基础（跑量 / 个人纪录 / 跑力趋势 / 疲劳状态）</span>
-          与本次活动的配速、心率、步频、分段表现，并横向对比<span className="font-medium text-fg-secondary">同路线 / 同距离 / 同类训练</span>的可比样本，点击「生成分析」获取量身定制的专业解读与训练建议。生成后可继续追问。
+          {running ? (
+            <>
+              结合你的<span className="font-medium text-fg-secondary">个人基础（跑量 / 个人纪录 / 跑力趋势 / 疲劳状态）</span>
+              与本次活动的配速、心率、步频、分段表现，并横向对比<span className="font-medium text-fg-secondary">同路线 / 同距离 / 同类训练</span>的可比样本，点击「生成分析」获取量身定制的专业解读与训练建议。生成后可继续追问。
+            </>
+          ) : (
+            <>
+              结合你的<span className="font-medium text-fg-secondary">个人基础（周训练量 / 疲劳状态 / 训练结构）</span>
+              与本次活动的时长、心率区间、强度分段与动作表现，并横向对比<span className="font-medium text-fg-secondary">同类训练</span>的可比样本，点击「生成分析」获取针对这项运动的专业解读与训练建议。生成后可继续追问。
+            </>
+          )}
         </p>
       )}
 
