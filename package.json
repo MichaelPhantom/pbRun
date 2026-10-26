@@ -29,7 +29,8 @@
     "test:coverage": "jest --coverage",
     "test:watch": "jest --watch",
     "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui"
+    "test:e2e:ui": "playwright test --ui",
+    "backfill:temp": "node scripts/garmin/backfill-record-temperature.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

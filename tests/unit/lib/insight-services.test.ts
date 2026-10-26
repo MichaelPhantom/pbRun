@@ -77,6 +77,8 @@ jest.mock('@/app/lib/db', () => ({
   })),
   getActivityStartGeo: jest.fn(() => null),
   getLocationPeerActivities: jest.fn(() => []),
+  getActivityTrack: jest.fn(() => null),
+  getActivityTracks: jest.fn(() => new Map()),
 }));
 
 import { getInsight } from '@/app/lib/insight-service';
@@ -158,6 +160,36 @@ test('路线查询回退 distance 时 label 使用距离带 (不误用路线名)
     expect(r.locationComparison).not.toBeNull();
     expect(r.locationComparison!.basis).toBe('location');
     expect(r.locationComparison!.label).toContain('GPS');
+    expect(r.locationComparison!.peers.map((p) => p.activityId)).toEqual([42]);
+  });
+
+
+  test('同位置候选再做路线形状校验（剔除异形路线）', () => {
+    const db = jest.requireMock('@/app/lib/db');
+    const shape = (lat: number, lng: number) => ({
+      coords: [
+        [lat, lng],
+        [lat + 0.0045, lng],
+        [lat + 0.0045, lng + 0.0045],
+        [lat, lng + 0.0045],
+        [lat, lng],
+      ],
+      n: 5,
+    });
+    (db.getActivityStartGeo as jest.Mock).mockReturnValueOnce({ lat: 29.5, lng: 106.5 });
+    (db.getLocationPeerActivities as jest.Mock).mockReturnValueOnce([
+      { activityId: 42, date: '2026-08-20', name: '其它 - 节奏跑', distanceKm: 7.8, paceSecPerKm: 335, heartRate: 168, startLat: 29.501, startLng: 106.501 },
+      { activityId: 43, date: '2026-08-21', name: '异地 - 节奏跑', distanceKm: 7.9, paceSecPerKm: 330, heartRate: 166, startLat: 29.502, startLng: 106.502 },
+    ]);
+    (db.getActivityTrack as jest.Mock).mockReturnValueOnce(shape(29.5, 106.5));
+    (db.getActivityTracks as jest.Mock).mockReturnValueOnce(
+      new Map([
+        [42, shape(29.5001, 106.5001)],
+        [43, shape(30.5, 107.5)],
+      ]),
+    );
+    const r = getActivityInsight(99)!;
+    expect(r.locationComparison!.label).toContain('同路径');
     expect(r.locationComparison!.peers.map((p) => p.activityId)).toEqual([42]);
   });
 

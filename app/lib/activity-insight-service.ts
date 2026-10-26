@@ -13,6 +13,7 @@ import { summarizeActivityEnvironment } from './activity-environment';
 import { computeTemperatureDrift } from './activity-temperature';
 import { gradeAdjustedPace } from './grade-adjust';
 import { filterSameStart, haversineKm, SAME_LOCATION_RADIUS_KM, type GeoPoint } from './geo';
+import { buildRouteShape, filterByRouteShape } from './route-shape';
 import { routeKeyOf } from './insight-compare';
 import type { PeerActivity } from './db';
 import type { ActivityComparison, ActivityInsightResponse } from './types';
@@ -111,11 +112,28 @@ export function getActivityInsight(activityId: number): ActivityInsightResponse 
         const km = haversineKm(startGeo, { lat: p.startLat, lng: p.startLng });
         return km != null && km <= SAME_LOCATION_RADIUS_KM;
       });
+      // 路径形状校验：同起点但不同环线/折返方向不混为一组。
+      let shapeFiltered = sameLocation;
+      let shapeLabel = `GPS ≤${SAME_LOCATION_RADIUS_KM}km`;
+      try {
+        const currentShape = buildRouteShape(db.getActivityTrack(activityId));
+        const tracks = db.getActivityTracks(sameLocation.map((p) => p.activityId));
+        const shapes = new Map(
+          [...tracks.entries()].map(([id, track]) => [id, buildRouteShape(track)] as const),
+        );
+        const filtered = filterByRouteShape(currentShape, sameLocation, shapes);
+        if (currentShape && filtered.verified > 0) {
+          shapeFiltered = filtered.kept;
+          shapeLabel = `GPS ≤${SAME_LOCATION_RADIUS_KM}km · 同路径`;
+        }
+      } catch {
+        /* 降级：不做形状校验 */
+      }
       locationComparison = computeComparison(
         'location',
-        `GPS ≤${SAME_LOCATION_RADIUS_KM}km`,
+        shapeLabel,
         current,
-        toPeerInputs(sameLocation),
+        toPeerInputs(shapeFiltered),
       );
     } catch {
       /* 降级：无同位置对比 */

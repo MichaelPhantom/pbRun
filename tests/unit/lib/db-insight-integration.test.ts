@@ -176,6 +176,14 @@ describe('db.ts 洞察查询 (真实 SQL)', () => {
     expect(activities[0].startLng).toBeCloseTo(106.501);
   });
 
+  test('getActivityTracks 批量读取轨迹, 跳过畸形/不存在', async () => {
+    const db = await loadDb();
+    const tracks = db.getActivityTracks([1, 2, 3, 999]);
+    expect([...tracks.keys()].sort()).toEqual([1, 2]);
+    expect(tracks.get(1)?.coords).toHaveLength(2);
+    expect(db.getActivityTracks([]).size).toBe(0);
+  });
+
   test('getActivityStartGeo 只经 JSON1 提取首点; 无轨迹返回 null', async () => {
     const db = await loadDb();
     expect(db.getActivityStartGeo(1)).toEqual({ lat: 30.123, lng: 107.456 });

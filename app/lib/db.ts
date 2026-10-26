@@ -911,6 +911,33 @@ export function getActivityTrack(activityId: number): ActivityTrack | null {
 }
 
 /**
+ * 批量读取多条活动的轨迹（用于「同位置」路线形状校验）。
+ * 只解析传入 ids 的 track，避免逐条 N+1 查询。
+ */
+export function getActivityTracks(activityIds: number[]): Map<number, ActivityTrack> {
+  const out = new Map<number, ActivityTrack>();
+  if (activityIds.length === 0) return out;
+  if (!hasActivityColumn('track')) return out;
+  const db = getDatabase();
+  const ids = [...new Set(activityIds.filter((id) => Number.isFinite(id)))];
+  if (ids.length === 0) return out;
+  const placeholders = ids.map(() => '?').join(',');
+  const rows = db.prepare(
+    `SELECT activity_id, track FROM activities
+     WHERE activity_id IN (${placeholders}) AND track IS NOT NULL`
+  ).all(...ids) as { activity_id: number; track: string | null }[];
+  for (const row of rows) {
+    if (!row.track) continue;
+    try {
+      out.set(row.activity_id, JSON.parse(row.track) as ActivityTrack);
+    } catch {
+      /* 畸形轨迹忽略 */
+    }
+  }
+  return out;
+}
+
+/**
  * 活动 GPS 首点（用于「同起点」可比样本过滤）。
  * 只经 SQLite JSON1 提取两个数字，不反序列化整条轨迹（~100KB/条）。
  */
