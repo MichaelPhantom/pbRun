@@ -13,8 +13,7 @@ import { summarizeActivityEnvironment } from './activity-environment';
 import { computeTemperatureDrift } from './activity-temperature';
 import { gradeAdjustedPace } from './grade-adjust';
 import { filterSameStart, haversineKm, SAME_LOCATION_RADIUS_KM, type GeoPoint } from './geo';
-import { buildRouteShape, filterByRouteShape } from './route-shape';
-import { deriveRouteSignature } from './route-signature';
+import { buildRouteShape, filterByRouteShape, routeSignatureOf } from './route-shape';
 import { routeKeyOf } from './insight-compare';
 import type { PeerActivity } from './db';
 import type { ActivityComparison, ActivityInsightResponse } from './types';
@@ -122,9 +121,8 @@ export function getActivityInsight(activityId: number): ActivityInsightResponse 
         const currentTrack = db.getActivityTrack(activityId);
         const currentShape = buildRouteShape(currentTrack);
         // 网格签名扩召回：按轨迹重叠补充候选（与起点半径候选合并去重）。
-        const signature = currentShape
-          ? deriveRouteSignature(currentTrack)
-          : null;
+        // 复用已构建的形状派生签名：同一条轨迹不必再清洗一遍
+        const signature = currentShape ? routeSignatureOf(currentShape) : null;
         if (signature && !signature.weak) {
           const shapeCandidates = db.getRouteShapePeerActivities(
             activityId,

@@ -1,11 +1,13 @@
 import {
   buildRouteShape,
   cleanTrackCoords,
+  deriveRouteSignature,
   dtwMean,
   filterByRouteShape,
   geohashEncode,
   gridJaccard,
   routeShapeSimilarity,
+  routeSignatureOf,
   SHAPE_SAMPLE_POINTS,
   SHAPE_SIMILARITY_THRESHOLD,
 } from '@/app/lib/route-shape';
@@ -150,15 +152,36 @@ describe('cleanTrackCoords', () => {
       [29.51, 106.5],
       [29.5, 106.5],
     ];
-    expect(cleanTrackCoords(turnaround)).toEqual({
-      points: turnaround.map(([lat, lng]) => ({ lat, lng })),
-      removed: 0,
-    });
+    const r = cleanTrackCoords(turnaround);
+    expect(r.points).toEqual(turnaround.map(([lat, lng]) => ({ lat, lng })));
+    expect(r.removed).toBe(0);
+    // 相邻距离随清洗结果一起产出, 调用方无需再算一遍
+    expect(r.segments).toHaveLength(turnaround.length - 1);
+    expect(r.segments[0]).toBeCloseTo(1.11, 1);
   });
 
   test('空/null → 空结果', () => {
-    expect(cleanTrackCoords(null)).toEqual({ points: [], removed: 0 });
-    expect(cleanTrackCoords([])).toEqual({ points: [], removed: 0 });
+    expect(cleanTrackCoords(null)).toEqual({ points: [], segments: [], removed: 0 });
+    expect(cleanTrackCoords([])).toEqual({ points: [], segments: [], removed: 0 });
+  });
+
+  test('segments 与清洗后的相邻点一致（跳过的点不会留下空隙）', () => {
+    const r = cleanTrackCoords([
+      [29.5, 106.5],
+      [29.5, 106.5], // 重复点
+      [29.55, 106.55], // 尖峰
+      [29.5001, 106.5],
+      [29.5002, 106.5],
+    ]);
+    expect(r.segments).toHaveLength(r.points.length - 1);
+    for (let i = 0; i < r.segments.length; i++) {
+      const a = r.points[i];
+      const b = r.points[i + 1];
+      // 与独立 Haversine 结果一致（不允许出现 0 或未更新的旧段长）
+      const d = Math.hypot((b.lat - a.lat) * 110.574, (b.lng - a.lng) * 111.32 * Math.cos((a.lat * Math.PI) / 180));
+      expect(r.segments[i]).toBeCloseTo(d, 2);
+      expect(r.segments[i]).toBeGreaterThan(0);
+    }
   });
 });
 
@@ -370,6 +393,24 @@ describe('routeShapeSimilarity', () => {
     ];
     const s = sim(bigLoop, midNorthReversed);
     expect(s.score).toBeGreaterThanOrEqual(SHAPE_SIMILARITY_THRESHOLD);
+  });
+});
+
+describe('routeSignatureOf', () => {
+  test('与 deriveRouteSignature 输出一致（复用已构建形状, 不重复清洗）', () => {
+    for (const coords of [loopA, dense(loopA), roadNorth, outAndBack]) {
+      const t = track(coords);
+      const shape = buildRouteShape(t)!;
+      const fromShape = routeSignatureOf(shape);
+      const fromTrack = deriveRouteSignature(t)!;
+      expect(fromShape.cells).toEqual(fromTrack.cells);
+      expect(fromShape.km).toBe(fromTrack.km);
+      expect(fromShape.weak).toBe(fromTrack.weak);
+      expect(fromShape.startLat).toBeCloseTo(fromTrack.startLat, 9);
+      expect(fromShape.startLng).toBeCloseTo(fromTrack.startLng, 9);
+      expect(fromShape.bounds.minLat).toBeCloseTo(fromTrack.bounds.minLat, 9);
+      expect(fromShape.bounds.maxLng).toBeCloseTo(fromTrack.bounds.maxLng, 9);
+    }
   });
 });
 

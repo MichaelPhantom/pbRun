@@ -6,5 +6,5 @@
  * 而不必从形状相似度里挑导出。
  */
 
-export { deriveRouteSignature, GRID_PRECISION } from './route-shape';
+export { deriveRouteSignature, routeSignatureOf, GRID_PRECISION } from './route-shape';
 export type { RouteSignature } from './route-shape';

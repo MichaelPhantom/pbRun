@@ -19,6 +19,10 @@ const GRID_PRECISION = 7;
 const GRID_SAMPLE_STEP_M = 25;
 const GRID_SAMPLE_MAX = 1200;
 const EARTH_RADIUS_KM = 6371.0088;
+/** 每度纬度公里数（球面 R=6371.0088，与 Haversine 同源）。
+ *  用 WGS84 的 110.574 会引入 ~0.5% 系统偏差，长度比/网格判定会被带偏。 */
+const KM_PER_DEG_LAT = 111.1949;
+const KM_PER_DEG_LNG = 111.1949;
 const DEDUPE_KM = 0.001;
 const SPIKE_SEGMENT_RATIO = 8;
 const SPIKE_MIN_JUMP_KM = 0.15;
@@ -40,6 +44,23 @@ function haversineKm(a, b) {
     Math.sin(dLat / 2) ** 2 +
     Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
   return 2 * EARTH_RADIUS_KM * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+/**
+ * 短距离平面近似（公里）—— 与 `app/lib/route-shape.ts` 的 `planarKm` 同口径。
+ *
+ * Haversine 每次 4 次三角函数；轨迹清洗要算数万次，整条轨迹共用基准纬度
+ * cos 后可快一个数量级。单次跑步跨度 <50km 时误差 <0.05%，远小于 GPS 噪声。
+ */
+function planarKm(a, b, cosLat) {
+  const dx = (b.lat - a.lat) * KM_PER_DEG_LAT;
+  const dy = (b.lng - a.lng) * KM_PER_DEG_LNG * cosLat;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+/** 以首点纬度为基准的 cos（整条轨迹复用）。 */
+function originCos(points) {
+  return Math.cos((((points[0] && points[0].lat) || 0) * Math.PI) / 180);
 }
 
 /** 标准 geohash 编码（base32，经纬度交替二分）。 */
@@ -94,6 +115,23 @@ function percentile(sorted, p) {
   return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
 }
 
+/**
+ * 累计距离（公里）—— 与 `app/lib/route-shape.ts` 的 `cumulativeKm` 同口径。
+ * `segmentsIn` 为 cleanTrackCoords 已算好的相邻距离，传入时零额外计算。
+ */
+function cumulativeKm(points, segmentsIn) {
+  const cum = [0];
+  if (segmentsIn && segmentsIn.length === points.length - 1) {
+    for (let i = 1; i < points.length; i++) cum.push(cum[i - 1] + segmentsIn[i - 1]);
+    return { cum, total: cum[cum.length - 1] || 0 };
+  }
+  const cosLat = originCos(points);
+  for (let i = 1; i < points.length; i++) {
+    cum.push(cum[i - 1] + planarKm(points[i - 1], points[i], cosLat));
+  }
+  return { cum, total: cum[cum.length - 1] || 0 };
+}
+
 /** 清洗轨迹（与 app/lib/route-shape.ts 同口径）。 */
 function cleanTrackCoords(coords) {
   const raw = [];
@@ -105,10 +143,11 @@ function cleanTrackCoords(coords) {
     if (Math.abs(lat) < 1e-9 && Math.abs(lng) < 1e-9) continue;
     raw.push({ lat, lng });
   }
-  if (raw.length === 0) return [];
+  if (raw.length === 0) return { points: [], segments: [] };
 
+  const cosLat = originCos(raw);
   const segs = [];
-  for (let i = 1; i < raw.length; i++) segs.push(haversineKm(raw[i - 1], raw[i]) || 0);
+  for (let i = 1; i < raw.length; i++) segs.push(planarKm(raw[i - 1], raw[i], cosLat));
   const scale =
     segs.length >= SPIKE_SCALE_MIN_SEGMENTS
       ? percentile([...segs].sort((a, b) => a - b), 0.25)
@@ -117,23 +156,28 @@ function cleanTrackCoords(coords) {
   const neighbor = Math.max(SPIKE_NEIGHBOR_MIN_KM, scale * SPIKE_NEIGHBOR_RATIO);
 
   const out = [];
+  const outSegs = [];
   for (let i = 0; i < raw.length; i++) {
     const p = raw[i];
+    let d = 0;
     if (out.length > 0) {
-      const d = haversineKm(out[out.length - 1], p) || 0;
+      // out 末点与 raw[i-1] 相同时复用已算段长; 否则(前一点被删)重算
+      const lastOut = out[out.length - 1];
+      d = lastOut === raw[i - 1] ? segs[i - 1] : planarKm(lastOut, p, cosLat);
       if (d < DEDUPE_KM) continue;
     }
     if (i > 0 && i < raw.length - 1) {
       const prev = raw[i - 1];
       const next = raw[i + 1];
-      const dp = haversineKm(prev, p) || 0;
-      const dn = haversineKm(p, next) || 0;
-      const db = haversineKm(prev, next) || 0;
+      const dp = segs[i - 1];
+      const dn = segs[i];
+      const db = planarKm(prev, next, cosLat);
       if (dp > jump && dn > jump && db < neighbor && db > DEDUPE_KM) continue;
     }
     out.push(p);
+    if (out.length > 1) outSegs.push(d);
   }
-  return out;
+  return { points: out, segments: outSegs };
 }
 
 /**
@@ -143,16 +187,17 @@ function cleanTrackCoords(coords) {
  * 25m 且**沿线段插值**，使稀疏/密集轨迹、不同入口起跑的环线得到一致的
  * 网格覆盖密度。直接在顶点上步进会让稀疏轨迹只覆盖折线顶点。
  */
-function resampleByDistance(points, stepM, maxPoints) {
+function resampleByDistance(points, stepM, maxPoints, cumIn) {
   if (points.length === 0) return [];
   const stepKm = Math.max(0.001, stepM / 1000);
+  const cum = cumIn || cumulativeKm(points).cum;
   const out = [points[0]];
   let nextAt = stepKm;
   let walked = 0;
   for (let i = 1; i < points.length && out.length < maxPoints; i++) {
     const a = points[i - 1];
     const b = points[i];
-    const seg = haversineKm(a, b) || 0;
+    const seg = cum[i] - cum[i - 1];
     if (seg <= 0) continue;
     while (walked + seg >= nextAt && out.length < maxPoints) {
       const t = (nextAt - walked) / seg;
@@ -167,8 +212,7 @@ function resampleByDistance(points, stepM, maxPoints) {
   const last = points[points.length - 1];
   if (out.length < maxPoints) {
     const tail = out[out.length - 1];
-    const gap = haversineKm(tail, last);
-    if (gap != null && gap > 0.0005) out.push(last);
+    if (planarKm(tail, last, originCos(points)) > 0.0005) out.push(last);
   }
   return out;
 }
@@ -187,14 +231,13 @@ function resampleByDistance(points, stepM, maxPoints) {
  * }}
  */
 function deriveRouteSignature(track) {
-  const coords = cleanTrackCoords(track && track.coords);
+  const { points: coords, segments } = cleanTrackCoords(track && track.coords);
   if (coords.length < 2) return null;
 
-  let total = 0;
-  for (let i = 1; i < coords.length; i++) total += haversineKm(coords[i - 1], coords[i]) || 0;
+  const { cum, total } = cumulativeKm(coords, segments);
   if (!(total >= 0.05)) return null;
 
-  const sampled = resampleByDistance(coords, GRID_SAMPLE_STEP_M, GRID_SAMPLE_MAX);
+  const sampled = resampleByDistance(coords, GRID_SAMPLE_STEP_M, GRID_SAMPLE_MAX, cum);
   const cells = [...new Set(sampled.map((p) => geohashEncode(p.lat, p.lng, GRID_PRECISION)))]
     .filter((c) => c.length > 0)
     .sort();
