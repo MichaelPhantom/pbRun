@@ -124,7 +124,7 @@ export default function InsightClient({
     [load.weekly],
   );
 
-  // 类别分布 (按活动数)
+  // 类别分布 (按跑步次数; 数据源 getInsightActivityRows 是跑步口径)
   const categoryBars = useMemo(
     () =>
       (categories?.stats ?? []).slice(0, 8).map((c, i) => ({
@@ -360,7 +360,7 @@ export default function InsightClient({
             按训练类别聚合各类课的结构画像。平均配速/心率为时长加权，效率 = 速度/心率（越高越经济）。
           </p>
           <div className="mb-4">
-            <InsightBarChart data={categoryBars} ariaLabel="训练类别活动数分布" height={180} valueSuffix=" 次" />
+            <InsightBarChart data={categoryBars} ariaLabel="训练类别跑步次数分布" height={180} valueSuffix=" 次" />
           </div>
           <DataTable
             caption="训练类别对比明细"

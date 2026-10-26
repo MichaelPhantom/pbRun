@@ -135,6 +135,14 @@ describe('InsightClient', () => {
     }
   });
 
+  test('类别分布的 aria-label 称「跑步次数」(数据源为跑步口径)', () => {
+    // getInsightActivityRows 带 runningTypeClause, 分类里的 count 是跑步次数而非
+    // 全部活动次数。旧 aria-label「训练类别活动数分布」会让读屏用户以为含游泳/球类。
+    render(<InsightClient insight={insight} timeRangeDays={90} />);
+    expect(screen.getByRole('img', { name: '训练类别跑步次数分布' })).toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: '训练类别活动数分布' })).toBeNull();
+  });
+
   test('days=0 → 范围显示「全部历史」而不是 2000-01-01', () => {
     render(<InsightClient insight={insight} timeRangeDays={0} />);
     expect(screen.getByText(/全部历史/)).toBeInTheDocument();
