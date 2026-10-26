@@ -51,7 +51,7 @@ export default function DanielsPage() {
 
       <SectionCard title="配速区间（Z1–Z5）">
         <p className="mb-3 text-sm leading-relaxed text-fg-secondary">
-          根据<strong className="text-fg">当前跑力（VDOT）</strong>，按丹尼尔斯建议的强度区间换算成目标配速（秒/公里）。分析页「跑力与详细指标」表格中，各配速区间下的活动次数、总时长、平均配速/步频/步幅等，均基于单次活动的分段（laps）落入的配速区间进行统计。
+          根据<strong className="text-fg">当前跑力（VDOT）</strong>，按丹尼尔斯建议的强度区间换算成目标配速（秒/公里）。分析页「跑力与详细指标」表格按该配速区间归集**跑步分段（laps）**，展示各区间的平均心率、步频与步幅；「心率区间与详细指标」则按心率区间展示平均配速、步频与步幅。
         </p>
         <p className="text-sm text-fg-secondary">
           合理分配各配速区间的训练量，有助于在提升有氧基础的同时控制强度、避免过度训练。

@@ -111,7 +111,8 @@ activities / activity_laps / activity_records (SQLite)
   - `/stats?period=`：周→7、月→30、年→365、总→0。
 - 上下文：【跑者画像】+【全局洞察指标】（`insight-coach.ts` 的 `formatInsightForCoach`
   把该区间的 `InsightResponse` 序列化为文本块）+【区间环比】（`period-comparison.ts`
-  对比当前区间与上一个等长区间的跑量/次数/时长/配速/跑力/负荷；无基线或全部历史时省略）
+  对比当前区间与上一个等长区间的跑量/跑步次数/时长/配速/跑力/负荷；跑步口径，
+  非跑步活动不计入；无基线或全部历史时省略）
 - Prompt：`llm.ts` 的 `GLOBAL_COACH_PROMPT`（总体诊断/能力演进/结构评估/多维洞察/优势短板/未来处方）
 - 消息构造：`buildGlobalCoachMessages` / `buildGlobalCoachFollowupMessages`
 - UI：`app/lib/components/ai/GlobalCoach.tsx`（洞察页、分析页、统计页复用）

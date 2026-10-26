@@ -26,8 +26,8 @@ test.describe('统计页面', () => {
     await expect(page.getByText('个人纪录')).toBeVisible();
     await expect(page.getByText('5公里最佳成绩')).toBeVisible();
     await expect(page.getByText('10公里最佳成绩')).toBeVisible();
-    // 单次最长距离 18.6 km
-    await expect(page.getByText('单次训练最长距离')).toBeVisible();
+    // 单次最长距离 18.6 km（跑步口径：游泳/球类不参与）
+    await expect(page.getByText('单次跑步最长距离')).toBeVisible();
     await expect(page.getByText(/18\.6/)).toBeVisible();
   });
 });

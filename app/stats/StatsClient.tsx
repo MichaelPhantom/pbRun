@@ -81,7 +81,8 @@ export default function StatsClient({ data, pr, period, currentVdot }: StatsClie
             <RecordRow key={item.distanceLabel} item={item} />
           ))}
           <li className="flex items-center justify-between px-1 py-3">
-            <span className="text-sm text-fg-secondary">单次训练最长距离</span>
+            {/* 数据源 getPersonalRecords 带 runningTypeClause → 跑步口径, 不能称「训练」 */}
+            <span className="text-sm text-fg-secondary">单次跑步最长距离</span>
             <div className="text-right">
               <span className="tnum text-sm font-medium text-fg">
                 {pr.longestRunMeters > 0 ? `${(pr.longestRunMeters / 1000).toFixed(1)} km` : '--'}

@@ -96,6 +96,9 @@ describe('app/daniels/page.tsx 丹尼尔斯介绍页', () => {
     // 当前跑力口径: getStats('week') 只含跑步 → 文案必须点明「跑步活动」
     expect(screen.getByText(/近一周跑步活动的 VDOT 平均值/)).toBeInTheDocument();
     expect(screen.queryByText(/近一周活动的 VDOT 平均值/)).toBeNull();
+    // 配速区间表实际只有 心率/步频/步幅 三列 (无活动次数/总时长/均配速) → 文案不得承诺
+    expect(screen.getByText(/平均心率、步频与步幅/)).toBeInTheDocument();
+    expect(screen.queryByText(/活动次数、总时长/)).toBeNull();
   });
 });
 

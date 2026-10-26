@@ -63,7 +63,7 @@ export function formatPeriodComparison(
     `- 跑量: ${curKm.toFixed(1)} km vs ${prevKm.toFixed(1)} km${fmtSignedPct(
       pct(curKm, prevKm),
     )}`,
-    `- 次数: ${current.totalActivities} vs ${previous.totalActivities}（${fmtCountDelta(
+    `- 跑步次数: ${current.totalActivities} vs ${previous.totalActivities}（${fmtCountDelta(
       current.totalActivities,
       previous.totalActivities,
     )}）`,

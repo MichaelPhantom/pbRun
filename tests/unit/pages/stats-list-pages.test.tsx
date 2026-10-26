@@ -170,7 +170,9 @@ describe('app/stats/page.tsx', () => {
     render(await StatsPage({ searchParams: Promise.resolve({}) }));
     expect(db.getStats).toHaveBeenCalledWith('week');
     expect(screen.getByText('当前跑力').previousElementSibling).toHaveTextContent('--');
-    expect(screen.getByText('单次训练最长距离').parentElement).toHaveTextContent('--');
+    expect(screen.getByText('单次跑步最长距离').parentElement).toHaveTextContent('--');
+    // 数据源 getPersonalRecords 是跑步口径 → 不得称「训练」
+    expect(screen.queryByText('单次训练最长距离')).toBeNull();
     // 个人纪录空列表 → 无 RecordRow
     expect(screen.queryByText('5 km')).not.toBeInTheDocument();
     // 心率/爬升等可空字段回退

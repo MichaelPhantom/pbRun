@@ -181,10 +181,11 @@ pbRun 是跑步分析工具，但 Garmin 同步会把篮球/游泳/力量训练�
 类别·气温·路线对比 / 配速-心率模型 / findings）+【区间环比】，并由 `formatInsightForCoach`
 与 `formatPeriodComparison` 序列化为文本块。
 
-**区间环比**（`period-comparison.ts`）：当前区间 vs **上一个等长区间**，输出跑量/次数/时长/
-平均配速/平均跑力/训练负荷的绝对值与变化率。无上一区间活动时整段省略（不做虚假基线）；
-`days=0`（全部历史）无「上一区间」，自动跳过。追问复用同一上下文
-（`buildGlobalCoachFollowupMessages`），前端回传 history。
+**区间环比**（`period-comparison.ts`）：当前区间 vs **上一个等长区间**，输出跑量/跑步次数/时长/
+平均配速/平均跑力/训练负荷的绝对值与变化率。所有指标都是**跑步口径**（`getPeriodStats` 带
+`runningTypeClause`），故次数行写「跑步次数」而非「次数」—— 否则模型会以为含游泳/球类。
+无上一区间活动时整段省略（不做虚假基线）；`days=0`（全部历史）无「上一区间」，自动跳过。
+追问复用同一上下文（`buildGlobalCoachFollowupMessages`），前端回传 history。
 
 ---
 
