@@ -201,7 +201,9 @@ describe('app/analysis/AnalysisClient.tsx 渲染', () => {
 
     expect(screen.getByRole('heading', { name: '训练分析' })).toBeInTheDocument();
     expect(screen.getByText('46.7')).toBeInTheDocument();
-    expect(screen.getByText('近一周活动平均')).toBeInTheDocument();
+    expect(screen.getByText('近一周跑步平均')).toBeInTheDocument();
+    // 数据源 getStats('week') 是跑步口径 → 不得称「活动平均」
+    expect(screen.queryByText('近一周活动平均')).toBeNull();
     expect(screen.getByText('Fitness (CTL)')).toBeInTheDocument();
     expect(screen.getByText('Fatigue (ATL)')).toBeInTheDocument();
     expect(screen.getByText('Form (TSB)')).toBeInTheDocument();

@@ -32,7 +32,7 @@ export default function DanielsPage() {
         <ul className="list-inside list-disc space-y-1.5 text-sm text-fg-secondary">
           <li>单次活动：根据该次的<strong className="text-fg">距离、用时与平均心率</strong>，用丹尼尔斯公式将配速换算为摄氧量当量，并结合运动时长推算 %VO2max，得到 VDOT = VO2 ÷ %VO2max。</li>
           <li>若提供心率，会按心率区间（Z1–Z5）做小幅修正，以反映不同强度下的效率差异。</li>
-          <li><strong className="text-fg">当前跑力</strong>：分析页展示的「当前跑力」为<strong className="text-fg">近一周活动的 VDOT 平均值</strong>，用于代表你当前的训练水平并计算配速区间。</li>
+          <li><strong className="text-fg">当前跑力</strong>：分析页展示的「当前跑力」为<strong className="text-fg">近一周跑步活动的 VDOT 平均值</strong>（只含跑步，游泳/球类不参与），用于代表你当前的训练水平并计算配速区间。</li>
         </ul>
       </SectionCard>
 

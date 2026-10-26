@@ -150,7 +150,8 @@ export default function AnalysisClient({
             {currentVdot != null ? currentVdot.toFixed(1) : '--'}
           </span>
           <Badge variant="brand">VDOT</Badge>
-          {currentVdot != null && <span className="text-xs text-fg-muted">近一周活动平均</span>}
+          {/* 数据源 getStats('week') 是跑步口径, 故称「跑步」而非「活动」 */}
+          {currentVdot != null && <span className="text-xs text-fg-muted">近一周跑步平均</span>}
         </div>
         <div className="mt-3">
           <div className="h-2 w-full overflow-hidden rounded-full bg-surface-2">

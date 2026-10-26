@@ -93,7 +93,9 @@ describe('app/daniels/page.tsx 丹尼尔斯介绍页', () => {
       'href',
       '/analysis',
     );
-    expect(screen.getByText(/近一周活动的 VDOT 平均值/)).toBeInTheDocument();
+    // 当前跑力口径: getStats('week') 只含跑步 → 文案必须点明「跑步活动」
+    expect(screen.getByText(/近一周跑步活动的 VDOT 平均值/)).toBeInTheDocument();
+    expect(screen.queryByText(/近一周活动的 VDOT 平均值/)).toBeNull();
   });
 });
 
