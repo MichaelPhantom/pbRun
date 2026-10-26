@@ -27,27 +27,49 @@ export interface LapInput {
 /**
  * 识别每个 lap 的角色 (热身/主课/恢复/冷身/匀速)。
  *
- * 规则: 以整体配速为基准 —
+ * **跑步**按整体配速为基准 —
  *  - 明显慢于基准 (pace > baseline*1.15) 且靠前的段 → warmup
  *  - 明显快于基准 (pace < baseline*0.92) → work
  *  - 快慢之间, 位于两个 work 段之间 → recovery
  *  - 靠后的慢段 → cooldown
  *  - 其余 → steady
+ *
+ * **非跑步**改用整体心率为基准（`opts.running === false`）—— 泳池游泳/球类的
+ * lap 常常没有 `average_pace`（划水/休息段距离为 0），但有稳定的分段心率。
+ * 用配速做基准会让所有段都落进 `steady`，「主课」永远识别不出来；用相对心率
+ * 则能识别出「高心率主课段 / 低心率恢复段」，这才是这类运动的强度结构。
+ *
+ * `opts.running === false` 时**不输出任何配速派生量**（`bestPaceSecPerKm` /
+ * `bestLapIndex` / `workAvgPaceSecPerKm`）。原因：泳池游泳的「每公里时间」是
+ * 1670s/km、乒乓球 30826s/km、羽毛球 47198s/km —— 这些值一旦被当成「最快分段
+ * 配速」展示或被 AI 读取，会被解读成「慢得离谱的跑步」。
  */
-export function analyzeLaps(laps: LapInput[]): ActivityLapAnalysis {
-  const valid = laps.filter((l) => l.paceSecPerKm != null && l.paceSecPerKm > 0);
-  const baseline = mean(valid.map((l) => l.paceSecPerKm!));
+export function analyzeLaps(
+  laps: LapInput[],
+  opts: { running?: boolean } = {},
+): ActivityLapAnalysis {
+  const running = opts.running !== false;
+
+  // 跑步按配速、非跑步按心率取基准；两者都是「越大越轻松」的语义，
+  // 因此下面的 isSlow/isFast 判断与角色映射可以共用一套阈值。
+  const metricOf = (l: LapInput): number | null => {
+    const v = running ? l.paceSecPerKm : l.heartRate;
+    return v != null && Number.isFinite(v) && v > 0 ? v : null;
+  };
+  const valid = laps.map(metricOf).filter((v): v is number => v != null);
+  const baseline = mean(valid);
 
   const roles: ActivityLapAnalysis['laps'] = laps.map((l, i) => {
     let role: ActivityLapAnalysis['laps'][number]['role'] = 'steady';
-    const p = l.paceSecPerKm;
-    if (baseline != null && p != null && p > 0) {
-      const isSlow = p > baseline * 1.12;
-      const isFast = p < baseline * 0.92;
+    const p = metricOf(l);
+    if (baseline != null && p != null) {
+      // 方向: 跑步的配速「越小越费力」, 非跑步的心率「越大越费力」。
+      const hard = running ? p < baseline * 0.92 : p > baseline * 1.12;
+      const easy = running ? p > baseline * 1.12 : p < baseline * 0.92;
       const nearEnd = i >= laps.length - 2;
       const nearStart = i <= 1;
-      if (isFast) role = 'work';
-      else if (isSlow) {
+      if (hard) role = 'work';
+      else if (easy) {
         if (nearStart) role = 'warmup';
         else if (nearEnd) role = 'cooldown';
         else role = 'recovery';
@@ -72,7 +94,7 @@ export function analyzeLaps(laps: LapInput[]): ActivityLapAnalysis {
   let workHrDrift: number | null = null;
   if (workHrs.length >= 2) workHrDrift = workHrs[workHrs.length - 1] - workHrs[0];
 
-  // 最快段
+  // 最快段（仅跑步口径输出；非跑步的「每公里时间」语义完全不同，见函数头注释）
   let bestPaceSecPerKm: number | null = null;
   let bestLapIndex: number | null = null;
   for (const l of laps) {
@@ -81,12 +103,17 @@ export function analyzeLaps(laps: LapInput[]): ActivityLapAnalysis {
       bestLapIndex = l.lapIndex;
     }
   }
+  if (!running) {
+    bestPaceSecPerKm = null;
+    bestLapIndex = null;
+  }
 
   return {
     laps: roles,
     workLaps: work.length,
     workDistanceMeters: Math.round(workDistanceMeters),
-    workAvgPaceSecPerKm: workDistanceMeters > 0 ? workDur / (workDistanceMeters / 1000) : null,
+    workAvgPaceSecPerKm:
+      running && workDistanceMeters > 0 ? workDur / (workDistanceMeters / 1000) : null,
     workAvgHeartRate: workHrs.length ? mean(workHrs) : null,
     workHrDrift,
     bestPaceSecPerKm,
@@ -235,7 +262,14 @@ export function buildActivityInsight(params: {
   environment?: ActivityEnvironmentSummary | null;
   gradeAdjusted?: GradeAdjustedPace | null;
   temperatureDrift?: TemperatureDrift | null;
+  /**
+   * 是否跑步口径（默认 true）。`false` 时屏蔽一切「配速派生」量：
+   * 分段最快/主课均配速、等价平路配速。这些量的分母是「每公里」，
+   * 对泳池/球类/力量训练没有可比语义（见 `analyzeLaps` 头注释）。
+   */
+  running?: boolean;
 }): ActivityInsightResponse {
+  const running = params.running !== false;
   const lapInputs: LapInput[] = params.laps
     .slice()
     .sort((a, b) => a.lap_index - b.lap_index)
@@ -252,13 +286,16 @@ export function buildActivityInsight(params: {
 
   return {
     activityId: params.activityId,
-    lapAnalysis: analyzeLaps(lapInputs),
+    running,
+    lapAnalysis: analyzeLaps(lapInputs, { running }),
     comparison: params.comparison,
     locationComparison: params.locationComparison ?? null,
     decouplingPct: dc,
     hrZoneBreakdown: hrZoneBreakdown(params.hrZoneJson),
     environment: params.environment ?? null,
-    gradeAdjusted: params.gradeAdjusted ?? null,
+    // 非跑步不输出等价平路配速: 输入是「每公里游泳时间」，Minetti 模型只对
+    // 跑步步态的能量成本成立，套在泳池/球类上会产出看似精确的伪数值。
+    gradeAdjusted: running ? (params.gradeAdjusted ?? null) : null,
     temperatureDrift: params.temperatureDrift ?? null,
   };
 }

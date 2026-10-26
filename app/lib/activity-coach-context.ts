@@ -231,27 +231,34 @@ function comparisonSection(c: ActivityComparison | null, fallbackTitle: string):
 function performanceLines(insight: ActivityInsightResponse | null): string[] {
   if (!insight) return [];
   const lines: string[] = [];
+  const running = insight.running !== false;
   const lap = insight.lapAnalysis;
   if (lap && lap.laps.length > 0) {
     const bits = [`${lap.laps.length} 段`];
     if (lap.workLaps > 0) {
       bits.push(`主课 ${lap.workLaps} 段 / ${(lap.workDistanceMeters / 1000).toFixed(2)}km`);
-      if (lap.workAvgPaceSecPerKm != null) bits.push(`主课配速 ${fmtPace(lap.workAvgPaceSecPerKm)}/km`);
+      // 配速绝对值只对跑步输出: `insight.running` 是服务端已判定的口径,
+      // 这里再按它把关 (而不是信任 lapAnalysis 里是否恰好为 null), 避免
+      // 任何上游字段回填把泳池的「每公里时间」当成配速泄给模型。
+      if (running && lap.workAvgPaceSecPerKm != null) {
+        bits.push(`主课配速 ${fmtPace(lap.workAvgPaceSecPerKm)}/km`);
+      }
       if (lap.workAvgHeartRate != null) bits.push(`主课心率 ${fmtHr(lap.workAvgHeartRate)}`);
       if (lap.workHrDrift != null) {
         const d = Math.round(lap.workHrDrift);
         bits.push(`主课心率漂移 ${d > 0 ? '+' : ''}${d}bpm`);
       }
     } else {
-      bits.push('未识别出明显主课段（整体配速均匀）');
+      // 非跑步没有「配速均匀」这个概念 —— 用中性的「未识别出明显强度分段」。
+      bits.push(running ? '未识别出明显主课段（整体配速均匀）' : '未识别出明显强度分段');
     }
-    if (lap.bestPaceSecPerKm != null && lap.bestPaceSecPerKm > 0) {
+    if (running && lap.bestPaceSecPerKm != null && lap.bestPaceSecPerKm > 0) {
       bits.push(
         `最快分段 ${fmtPace(lap.bestPaceSecPerKm)}/km` +
           (lap.bestLapIndex != null ? `（第 ${lap.bestLapIndex} 段）` : ''),
       );
     }
-    lines.push(`本次分段: ${bits.join(' | ')}`);
+    lines.push(`${running ? '本次分段' : '本次分段（按相对快慢划分, 不比配速）'}: ${bits.join(' | ')}`);
   }
 
   const zones = (insight.hrZoneBreakdown ?? []).filter((z) => z.pct > 0);
@@ -270,7 +277,9 @@ function performanceLines(insight: ActivityInsightResponse | null): string[] {
   }
 
   const gap = insight.gradeAdjusted;
-  if (gap) {
+  // 非跑步不算 GAP: Minetti 是跑步步态的能量成本模型, 对泳池/球类的
+  // 「每公里时间」不成立。即使上游误传也在这里吞掉。
+  if (gap && running) {
     const d = Math.round(gap.deltaSecPerKm);
     lines.push(
       `海拔修正: 实际 ${fmtPace(gap.actualPaceSecPerKm)}/km → 等价平路 ${fmtPace(
@@ -339,9 +348,12 @@ export function formatActivityContext(input: ActivityContextInput): string {
   lines.push(...environmentLines(environment));
 
   if (lines.length === 0) return '';
+  const running = insight?.running !== false;
   return [
     '【本次表现与可比样本】',
-    '（横向对比口径：配速差为「本次 − 样本」，负值=本次更快；仅统计与本次可比的历史样本。）',
+    running
+      ? '（横向对比口径：配速差为「本次 − 样本」，负值=本次更快；仅统计与本次可比的历史样本。）'
+      : '（非跑步活动：不比较配速/步频/跑力，这些量的分母是「每公里」，对游泳/球类/力量训练没有可比语义；样本仅作强度与心率参照。）',
     ...lines,
   ].join('\n');
 }

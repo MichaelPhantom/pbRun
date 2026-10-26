@@ -721,14 +721,15 @@ GET /api/activities/{id}/insight
 
 | 字段 | 说明 |
 |------|------|
-| `lapAnalysis` | 分段角色（`warmup`/`work`/`recovery`/`cooldown`/`steady`）、主课段数/距离/均配速/心率漂移、最快段 |
+| `running` | 是否跑步口径（`isRunningType(activity_type)`）。为 `false` 时服务端已把「配速派生」字段置空：`lapAnalysis.bestPaceSecPerKm` / `bestLapIndex` / `workAvgPaceSecPerKm` 与 `gradeAdjusted` 全为 `null`；客户端据此**整张卡片不渲染**而非显示 `--` |
+| `lapAnalysis` | 分段角色（`warmup`/`work`/`recovery`/`cooldown`/`steady`）、主课段数/距离/均配速/心率漂移、最快段。跑步按**配速**识别强度段，非跑步改按**相对心率**（游泳 lap 常无 `average_pace`，用配速会让所有段落进 `steady`、永远识别不出主课） |
 | `comparison` | 同路线（或同距离）对比：`basis`、`peers`、`rank` 配速排名、`paceDeltaSecPerKm`、`hrDeltaBpm` |
 | `decouplingPct` | 逐秒有氧解耦（%） |
 | `hrZoneBreakdown` | 心率区间占比 `{zone, seconds, pct}[]` |
 | `environment` | 环境可比性：本次/样本均温、爬升、同温档排名与配速/心率差（无数据时为 `null`） |
 | `locationComparison` | 跨名称同位置对比：GPS 首点 ≤1.5km + 距离分档 + 轨迹形状校验；无 GPS/未迁移时为 `null` |
 | `locationComparison.routeQuality` | 同路径几何质量：`verifiedPeers`（**有轨迹、真正参与校验**的同伴数，无轨迹的候选不计入）、`roadKm`（路面偏差中位数）、`maxRoadKm`（最差同伴）、`gridJaccard`（网格重合中位数）。未做形状校验时**显式返回 `null`**（不是缺键），客户端可直接按 `null` 分支渲染 |
-| `gradeAdjusted` | 等价平路配速（Minetti 2002）：实际/等价配速、差值、爬升/公里（记录不足为 `null`） |
+| `gradeAdjusted` | 等价平路配速（Minetti 2002）：实际/等价配速、差值、爬升/公里。记录不足**或非跑步**时为 `null`（Minetti 是跑步步态模型，套在泳池/球类的「每公里时间」上会产出伪精确值） |
 | `temperatureDrift` | 逐秒温度漂移：起止温度、差值、最小/最大（无逐秒温度为 `null`） |
 | `comparison.label` | 路线对比含 `· 同起点` 表示已通过 GPS 首点校验；距离回退为 `±x% · a–bkm` |
 | `comparison`（非跑步） | 恒为 `null`：非跑步不做配速横向对比（泳池 1670s/km 与跑步 270s/km 不可比）；`lapAnalysis` / `hrZoneBreakdown` / `decouplingPct` 等个人指标照常返回 |
@@ -765,6 +766,13 @@ GET /api/activities/{id}/insight
 活动数据段对非跑步**整行不输出**配速/步频/步幅/触地/跑力行（分段改用时长），
 避免模型把泳池的 1670 s/km 解读成「配速偏慢」。同时非跑步活动不做配速横向对比
 （`paceComparable` 守卫），分段/心率区间等个人指标照常提供。
+
+**非跑步的可比样本块也按同一口径收敛**（`activity-coach-context.ts`）：分段行
+不输出「主课配速 / 最快分段」（泳池 1670s/km、乒乓球 30826s/km 不是配速），标题改为
+「本次分段（按相对快慢划分, 不比配速）」；GAP 行整段省略；口径说明改为「非跑步活动：
+不比较配速/步频/跑力，这些量的分母是「每公里」，对游泳/球类/力量训练没有可比语义」。
+这里按 `insight.running` **再次把关**，而不是信任上游字段是否恰好为 `null` —— 任何
+上游回填都不该把「每公里时间」当配速泄给模型。
 
 **请求**
 

@@ -70,7 +70,9 @@ pbRun 是跑步分析工具，但 Garmin 同步会把篮球/游泳/力量训练�
 | 活动卡片 / 仪表盘「最近活动」 | 隐藏配速（泳池 1670s/km、乒乓 30826s/km 不是跑步配速），改显示类型徽标；无名称时按类型兜底命名 |
 | 活动详情页概览 | 隐藏「即时跑力 / 平均配速 / 步频 / 步幅」整列（不是显示 `--`，那会让人以为数据缺失） |
 | 活动详情页分段表 | 隐藏配速与步频列，不给「最快 K」徽章；趋势图标题去掉「配速 / 步频」 |
+| 活动详情页「深度分析」面板 | 不渲染「最快分段 / 主课均配速」两张卡片（泳池 1670s/km 显示成配速会被读成「慢得离谱」）；主课段数与心率漂移照常展示。分段角色改按**相对心率**识别 —— 游泳 lap 常无 `average_pace`，按配速做基准会让所有段落进 `steady`、永远识别不出主课 |
 | 活动 AI prompt | 换用 `NON_RUNNING_SYSTEM_PROMPT`（综合体能教练 + 交叉训练视角）；活动数据段不输出配速/步频/步幅/触地/跑力行，分段改用时长 |
+| 活动 AI 可比样本块 | 不输出「主课配速 / 最快分段 / 等价平路」；标题改「本次分段（按相对快慢划分, 不比配速）」，口径说明明确「不比较配速/步频/跑力」 |
 
 跑步类型判定单点定义在纯模块 `app/lib/sport.ts`（`RUNNING_ACTIVITY_TYPES` /
 `isRunningType` / `activityTypeLabel` / `activityTypeIcon`）：`db.ts` 的 SQL 片段由该
@@ -188,8 +190,10 @@ pbRun 是跑步分析工具，但 Garmin 同步会把篮球/游泳/力量训练�
 | **统计口径：表现分析只取跑步** | `db.runningTypeClause` / `db.isRunningType`（19 处查询） | `tests/unit/lib/db-insight-integration.test.ts`（真实 SQL：趋势/区间/纪录/负荷全部排除非跑步） |
 | **统计口径：活动日志保留全类型** | `getActivities` / `getMonthSummaries` | `tests/unit/lib/db-insight-integration.test.ts`（月度汇总 count 与列表 total 严格相等） |
 | **跑步类型判定单一来源** | `app/lib/sport.ts`（`RUNNING_ACTIVITY_TYPES` 派生 SQL + 客户端判定） | `tests/unit/lib/sport.test.ts`（类型集合/旧库空值/展示名/图标回落） |
-| **UI 不把非跑步指标当跑步指标** | `ListClient` / `ActivityDetailClient` / `RecentActivityCard` | `tests/unit/components/list-client.test.tsx` / `tests/unit/pages/activity-detail.test.tsx` / `tests/unit/components/recent-activity-card.test.tsx` |
+| **UI 不把非跑步指标当跑步指标** | `ListClient` / `ActivityDetailClient` / `RecentActivityCard` / `ActivityInsightPanel` | `tests/unit/components/list-client.test.tsx` / `tests/unit/pages/activity-detail.test.tsx` / `tests/unit/components/recent-activity-card.test.tsx` / `tests/unit/components/activity-insight-panel.test.tsx`（非跑步不渲染「最快分段/主课均配速」卡片） |
+| **深挖响应显式声明运动口径** | `ActivityInsightResponse.running` + `activity-insight.ts` 的 `analyzeLaps({running})` | `tests/unit/lib/activity-insight.test.ts`（非跑步不外传 `bestPaceSecPerKm`/`workAvgPaceSecPerKm`/`gradeAdjusted`；按相对心率识别强度段） |
 | **AI prompt 按运动类型分流** | `llm.ts` 的 `SYSTEM_PROMPT` / `NON_RUNNING_SYSTEM_PROMPT` | `tests/unit/lib/llm.test.ts`（非跑步不出现跑步术语与配速行） |
+| **AI 可比样本块按运动口径收敛** | `activity-coach-context.ts` 的 `performanceLines`（按 `insight.running` 二次把关） | `tests/unit/lib/activity-coach-context.test.ts`（非跑步不出现配速/等价平路行，口径说明改非跑步语义） |
 | **同路径几何质量只统计可校验的同伴** | `activity-insight-service.ts` 的 `summarizeRouteQuality` | `tests/unit/lib/insight-services.test.ts`（无轨迹同伴不计入 `verifiedPeers`；未校验时 `routeQuality` 显式 `null`） |
 | **旧库 / 坏数据一律降级不崩页** | `db.ts` 的列探测与 `getActivityTracks` / `getActivityStartGeo` / 网格通道 | `tests/unit/lib/db-degradation.test.ts`（缺列、畸形 JSON、非法坐标、非法 id 全部返回空/`null`） |
 | **AI 出流回退契约头** | `coach-stream.ts`（`X-Model-Fallback` / `-Requested` / `-Used`） | `tests/unit/api/coach-stream-gaps.test.ts`（回退成功、两个断开时机、错误体读取失败） |
@@ -233,9 +237,13 @@ pbRun 是跑步分析工具，但 Garmin 同步会把篮球/游泳/力量训练�
     `cleanTrackCoords` 直接产出相邻距离供下游复用、同一条轨迹只算一次累计里程、
     洞察服务用 `routeSignatureOf(shape)` 复用已构建形状（不再二次清洗）、
     DTW 改为按需计算（默认关闭，省掉单对 92% 开销）。
-- **湿度/风/体感温度仍缺数据源**：Garmin 活动 FIT 通常没有 `weather_conditions` 消息，
-  `average_temperature` 可用但湿度/风不可得；已实现**温度漂移**与**等价平路配速**，
-  体感温度需接入外部天气 API（按 GPS+时间回查），当前不做伪估算。
+- **湿度/风/体感温度：已实测确认 FIT 无数据源（定案，不再作为待办）**。
+  扫描 `/mnt/oci-block/garmin/fit` + `/home/ubuntu/project/dailysync/export/fit` 全部
+  **625 个真实 FIT 文件**：`weather_conditions` 消息 **0** 个、含 `humidity` 的记录 **0** 条、
+  含 `wind_speed`/`wind_direction` 的记录 **0** 条（`fit-file-parser` 认识该消息名，
+  但 Garmin 设备并不写入）。`average_temperature` 可用，故已实现**温度漂移**与
+  **等价平路配速**。体感温度只能接入外部天气 API（按 GPS + 时间回查），
+  **当前不做伪估算** —— 用温度反推湿度会产出看似精确的假数据。
 - **GAP 是估算模型**：Minetti 2002 对陡坡/越野/极端下坡误差较大；用于横向可比，
   不替代功率计/实测。坡度截断 ±30%，记录不足时返回 null。
 

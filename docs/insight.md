@@ -127,7 +127,8 @@ activities / activity_laps / activity_records (SQLite)
 
 `GET /api/activities/[id]/insight`（UI: `ActivityInsightPanel`）提供：
 
-- **分段角色识别**（`analyzeLaps`）：以整体配速为基准，将每段标记为 热身/主课/恢复/冷身/匀速；主课段（明显快于基准）聚合出段数、距离、时长加权配速、心率漂移。
+- **分段角色识别**（`analyzeLaps`）：跑步以整体**配速**为基准，将每段标记为
+  热身/主课/恢复/冷身/匀速；主课段（明显快于基准）聚合出段数、距离、时长加权配速、心率漂移。
 - **心率区间占比**（`hrZoneBreakdown`）：解析活动 `time_in_hr_zone` JSON。
 - **逐秒有氧解耦**：复用 `computeDecouplingPct`。
 - **同路线对比**（`db.getPeerActivities` + `computeComparison`）：优先按路线指纹找同行历史，否则按距离分档回退；输出配速排名与相对均值的差值。
@@ -137,6 +138,28 @@ activities / activity_laps / activity_records (SQLite)
 - **环境可比性**（`summarizeActivityEnvironment`）：同组样本的温度/爬升均值、本次差值，以及同温档排名/配速差/心率差；详情面板同步展示，保证用户能看到 AI 使用的参照系。
 - **海拔修正 / 温度漂移**：`gradeAdjustedPace`（Minetti 2002）与 `computeTemperatureDrift`；详情面板展示等价平路配速与起止温度。
 
+### 非跑步活动的口径（`running` 契约）
+
+`ActivityInsightResponse.running` 是**显式的运动口径声明**，由服务端
+`isRunningType(activity_type)` 判定。为 `false` 时：
+
+| 字段 | 处理 |
+|------|------|
+| `lapAnalysis.bestPaceSecPerKm` / `bestLapIndex` | `null`（泳池 1670s/km、乒乓球 30826s/km、羽毛球 47198s/km 不是配速） |
+| `lapAnalysis.workAvgPaceSecPerKm` | `null`（同上，分母是「每公里」） |
+| `gradeAdjusted` | `null`（Minetti 2002 是跑步步态的能量成本模型，套在泳池/球类上产出伪精确值） |
+| `comparison` / `locationComparison` | `null`（非跑步不做配速横向对比） |
+| `lapAnalysis.laps[].role` | **按相对心率**识别强度段（心率 > 基准 ×1.12 = 主课，< ×0.92 = 轻松）；游泳 lap 常无 `average_pace`，按配速做基准会让所有段落进 `steady`、永远识别不出主课 |
+| `decouplingPct` / `hrZoneBreakdown` / `workLaps` / `workAvgHeartRate` / `workHrDrift` / `environment` / `temperatureDrift` | 照常返回（纯个人指标，与配速语义无关） |
+
+消费方（UI / AI 上下文 / MCP）一律按该字段分支，而不是猜测字段是否为 `null`：
+
+- `ActivityInsightPanel` **整张卡片不渲染**「最快分段 / 主课均配速」（显示 `--` 会被误读成数据缺失）；
+- `ActivityDetailClient` 不对非跑步分段做「最快 K」高亮；
+- `activity-coach-context.ts` 的 `performanceLines` 按 `insight.running` **二次把关**，
+  不输出「主课配速 / 最快分段 / 等价平路」行，标题改「本次分段（按相对快慢划分, 不比配速）」，
+  口径说明改为「非跑步活动：不比较配速/步频/跑力」。
+
 ---
 
 ## 测试
@@ -145,8 +168,9 @@ activities / activity_laps / activity_records (SQLite)
 |------|----------|
 | 洞察计算 | `tests/unit/lib/insight.test.ts` |
 | 类别/气温/路线/周期化 | `tests/unit/lib/insight-compare.test.ts` |
-| 活动深挖计算 | `tests/unit/lib/activity-insight.test.ts` |
-| 活动 AI 可比样本格式 | `tests/unit/lib/activity-coach-context.test.ts` |
+| 活动深挖计算 | `tests/unit/lib/activity-insight.test.ts`（含非跑步：按相对心率识别强度段、不外传配速派生量） |
+| 活动深挖面板（非跑步不渲染配速卡片） | `tests/unit/components/activity-insight-panel.test.tsx` |
+| 活动 AI 可比样本格式 | `tests/unit/lib/activity-coach-context.test.ts`（含非跑步不输出配速/等价平路行） |
 | 活动 AI 可比样本取数与降级 | `tests/unit/lib/activity-coach-context-service.test.ts` |
 | 温度/爬升/同温档可比性 | `tests/unit/lib/activity-environment.test.ts` |
 | 海拔修正（等价平路配速） | `tests/unit/lib/grade-adjust.test.ts` |

@@ -218,6 +218,7 @@ export function getActivityInsight(activityId: number): ActivityInsightResponse 
 
   return buildActivityInsight({
     activityId,
+    running: paceComparable,
     laps,
     records,
     hrZoneJson: activity.time_in_hr_zone,
@@ -230,9 +231,13 @@ export function getActivityInsight(activityId: number): ActivityInsightResponse 
     },
     comparison,
     locationComparison,
-    gradeAdjusted: gradeAdjustedPace(records, {
-      actualPaceSecPerKm: activity.average_pace ?? null,
-    }),
+    // GAP 只在跑步口径计算: Minetti 模型是跑步步态的能量成本，非跑步活动的
+    // average_pace 语义完全不同（泳池 1670s/km），算出来是伪精确值。
+    gradeAdjusted: paceComparable
+      ? gradeAdjustedPace(records, {
+          actualPaceSecPerKm: activity.average_pace ?? null,
+        })
+      : null,
     temperatureDrift: computeTemperatureDrift(records),
     environment: summarizeActivityEnvironment(
       {

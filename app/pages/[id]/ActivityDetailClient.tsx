@@ -214,7 +214,9 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
               { key: 'asc', label: '爬升', unit: 'm' },
             ]}
             rows={laps.map((lap) => {
-              const isBest = lap.lap_index === bestLapIndex;
+              // 最快段高亮只对跑步有意义: 非跑步的 lap.average_pace 是「每公里
+              // 游泳/击球时间」, 拿它排序得到的「最快」不是运动学概念。
+              const isBest = running && lap.lap_index === bestLapIndex;
               const role = roleByLap.get(lap.lap_index);
               return {
                 key: lap.id,

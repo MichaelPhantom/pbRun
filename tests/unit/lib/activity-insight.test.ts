@@ -51,6 +51,44 @@ describe('analyzeLaps', () => {
     const r = analyzeLaps(uniform);
     expect(r.laps.every((l) => l.role === 'steady')).toBe(true);
   });
+
+  test('非跑步: 按相对心率识别强度段, 但不外传绝对配速 (bestPace/workAvgPace)', () => {
+    // 泳池游泳的真实形态: lap 距离多为 0/50/100m, average_pace 常缺失,
+    // 但有稳定的分段心率。用配速做基准会让所有段落进 steady、永远识别不出
+    // 「主课」; 用相对心率才能识别强度结构。
+    const swim: LapInput[] = [
+      { lapIndex: 0, distanceMeters: 0, paceSecPerKm: null, heartRate: 80, cadence: null, power: null },
+      { lapIndex: 1, distanceMeters: 50, paceSecPerKm: 2400, heartRate: 110, cadence: null, power: null },
+      { lapIndex: 2, distanceMeters: 100, paceSecPerKm: 1850, heartRate: 150, cadence: null, power: null },
+      { lapIndex: 3, distanceMeters: 100, paceSecPerKm: 1900, heartRate: 155, cadence: null, power: null },
+      { lapIndex: 4, distanceMeters: 50, paceSecPerKm: 2600, heartRate: 95, cadence: null, power: null },
+    ];
+    const r = analyzeLaps(swim, { running: false });
+    // 心率 80 明显低于均值 → 靠前 → warmup; 150/155 明显高于均值 → work;
+    // 95 明显低于均值且靠后 → cooldown
+    expect(r.workLaps).toBe(2);
+    expect(r.laps.map((l) => l.role)).toEqual(['warmup', 'steady', 'work', 'work', 'cooldown']);
+    // 绝对配速不外传 —— 否则 UI/AI 会把它当「最快配速 31:40/km」
+    expect(r.bestPaceSecPerKm).toBeNull();
+    expect(r.bestLapIndex).toBeNull();
+    expect(r.workAvgPaceSecPerKm).toBeNull();
+    // 心率与段数照常可用
+    expect(r.workAvgHeartRate).toBe(152.5);
+    expect(r.workDistanceMeters).toBe(200);
+  });
+
+  test('非跑步: 心率缺失时退回 steady, 不误判 (也不崩)', () => {
+    const r = analyzeLaps(
+      [
+        { lapIndex: 0, distanceMeters: 0, paceSecPerKm: null, heartRate: null, cadence: null, power: null },
+        { lapIndex: 1, distanceMeters: 0, paceSecPerKm: null, heartRate: null, cadence: null, power: null },
+      ],
+      { running: false },
+    );
+    expect(r.laps.every((l) => l.role === 'steady')).toBe(true);
+    expect(r.workLaps).toBe(0);
+    expect(r.bestPaceSecPerKm).toBeNull();
+  });
 });
 
 describe('computeComparison', () => {
@@ -257,10 +295,51 @@ describe('buildActivityInsight', () => {
       },
     });
     expect(r.activityId).toBe(99);
+    expect(r.running).toBe(true); // 默认按跑步口径
     expect(r.lapAnalysis.workLaps).toBe(3);
     expect(r.decouplingPct).not.toBeNull();
     expect(r.hrZoneBreakdown.length).toBe(2);
     expect(r.comparison).toBeNull();
     expect(r.environment?.currentTempC).toBe(26);
+  });
+
+  test('非跑步口径: running=false, 且屏蔽配速派生量与等价平路配速', () => {
+    const r = buildActivityInsight({
+      activityId: 100,
+      running: false,
+      laps: [
+        {
+          id: 1,
+          activity_id: 100,
+          lap_index: 0,
+          duration: 539,
+          cumulative_time: 539,
+          distance: 11.4,
+          average_pace: 47197.9, // 羽毛球真实值
+          average_heart_rate: 76,
+        },
+      ],
+      records: [],
+      hrZoneJson: '[30,0,0,0,0,0,0]',
+      current: { activityId: 100, date: '2026-01-24', distanceKm: 0.011, paceSecPerKm: 47197.9, heartRate: 76 },
+      comparison: null,
+      // 即使上游误算了 GAP, 非跑步口径也必须吞掉 —— Minetti 是跑步步态模型
+      gradeAdjusted: {
+        equivalentPaceSecPerKm: 47197.9,
+        actualPaceSecPerKm: 47197.9,
+        deltaSecPerKm: 0,
+        distanceMeters: 600,
+        ascentPerKm: 0,
+        sampleCount: 40,
+        model: 'minetti-2002',
+      },
+    });
+    expect(r.running).toBe(false);
+    expect(r.lapAnalysis.bestPaceSecPerKm).toBeNull();
+    expect(r.lapAnalysis.bestLapIndex).toBeNull();
+    expect(r.lapAnalysis.workAvgPaceSecPerKm).toBeNull();
+    expect(r.gradeAdjusted).toBeNull();
+    // 心率区间与解耦等纯个人指标不受影响
+    expect(r.hrZoneBreakdown).toEqual([{ zone: 1, seconds: 30, pct: 100 }]);
   });
 });

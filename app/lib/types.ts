@@ -677,6 +677,16 @@ export interface TemperatureDrift {
 
 export interface ActivityInsightResponse {
   activityId: number;
+  /**
+   * 本次是否跑步口径（`isRunningType(activity_type)`）。
+   *
+   * 服务端已按此口径把「配速派生」字段置空（`bestPaceSecPerKm` /
+   * `workAvgPaceSecPerKm` / `bestLapIndex` / `gradeAdjusted`），客户端据此
+   * 决定**不渲染**配速卡片而不是渲染成 `--`。声明在响应里而不是让 UI 自行
+   * 判断，是为了让 UI / AI 上下文 / MCP 三个消费方口径一致 —— 任何一方
+   * 单独猜都会再次漏掉非跑步活动。
+   */
+  running: boolean;
   lapAnalysis: ActivityLapAnalysis;
   comparison: ActivityComparison | null;
   decouplingPct: number | null;                   // 逐秒解耦

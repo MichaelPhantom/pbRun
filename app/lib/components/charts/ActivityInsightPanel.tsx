@@ -157,7 +157,8 @@ function ComparisonBlock({
 export function ActivityInsightPanel({ data }: { data: ActivityInsightResponse | null }) {
   if (!data) return null;
 
-  const { lapAnalysis, comparison, locationComparison, decouplingPct, hrZoneBreakdown, environment } = data;
+  const { lapAnalysis, comparison, locationComparison, decouplingPct, hrZoneBreakdown, environment, running } = data;
+  const isRunning = running !== false;
   const showLocation = !!locationComparison && locationComparison.peers.length > 0;
   const showPrimary = !!comparison && comparison.peers.length > 0 && !(showLocation && samePeerSet(locationComparison, comparison));
 
@@ -180,11 +181,17 @@ export function ActivityInsightPanel({ data }: { data: ActivityInsightResponse |
 
   return (
     <SectionCard title="深度分析" accent>
-      {/* 主课摘要 */}
+      {/* 主课摘要。非跑步不渲染「最快分段 / 主课均配速」卡片: 泳池游泳的
+          每公里时间(1670s/km)、乒乓球的 30826s/km 不是配速, 显示成配速会
+          让人以为「慢得离谱」。改为只展示与配速无关的段数与心率漂移。 */}
       <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatCard value={lapAnalysis.bestPaceSecPerKm != null ? fmtPace(lapAnalysis.bestPaceSecPerKm) : '--'} unit="/km" label="最快分段" accent hint={lapAnalysis.bestLapIndex != null ? `第 ${lapAnalysis.bestLapIndex} 段` : undefined} />
+        {isRunning && (
+          <StatCard value={lapAnalysis.bestPaceSecPerKm != null ? fmtPace(lapAnalysis.bestPaceSecPerKm) : '--'} unit="/km" label="最快分段" accent hint={lapAnalysis.bestLapIndex != null ? `第 ${lapAnalysis.bestLapIndex} 段` : undefined} />
+        )}
         <StatCard value={String(lapAnalysis.workLaps)} label="主课段数" hint={`${(lapAnalysis.workDistanceMeters / 1000).toFixed(2)} km`} />
-        <StatCard value={lapAnalysis.workAvgPaceSecPerKm != null ? fmtPace(lapAnalysis.workAvgPaceSecPerKm) : '--'} unit="/km" label="主课均配速" />
+        {isRunning && (
+          <StatCard value={lapAnalysis.workAvgPaceSecPerKm != null ? fmtPace(lapAnalysis.workAvgPaceSecPerKm) : '--'} unit="/km" label="主课均配速" />
+        )}
         <StatCard value={lapAnalysis.workHrDrift != null ? `${lapAnalysis.workHrDrift >= 0 ? '+' : ''}${lapAnalysis.workHrDrift.toFixed(0)}` : '--'} unit="bpm" label="主课心率漂移" />
       </div>
 

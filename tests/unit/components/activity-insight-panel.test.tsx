@@ -73,6 +73,26 @@ describe('空数据与主课摘要', () => {
     expect(screen.getByText('-3')).toBeInTheDocument();
     expect(screen.queryByText(/^第 \d+ 段$/)).not.toBeInTheDocument();
   });
+
+  test('非跑步: 不渲染「最快分段 / 主课均配速」卡片 (不是显示 --)', () => {
+    // 泳池游泳的 average_pace 是每公里游泳时间(1670s/km), 渲染成配速会让人
+    // 以为「慢得离谱」。契约是**整张卡片不渲染**, 而非显示 '--' —— 后者会被
+    // 误读为「数据缺失」。
+    render(<ActivityInsightPanel data={base({ running: false })} />);
+    expect(screen.queryByText('最快分段')).not.toBeInTheDocument();
+    expect(screen.queryByText('主课均配速')).not.toBeInTheDocument();
+    // 与配速无关的指标照常展示
+    expect(screen.getByText('主课段数')).toBeInTheDocument();
+    expect(screen.getByText('主课心率漂移')).toBeInTheDocument();
+    expect(screen.getByText('6.00 km')).toBeInTheDocument();
+    expect(screen.getByText('+8')).toBeInTheDocument();
+  });
+
+  test('跑步(running=true 或未声明)保留配速卡片', () => {
+    render(<ActivityInsightPanel data={base({ running: true })} />);
+    expect(screen.getByText('最快分段')).toBeInTheDocument();
+    expect(screen.getByText('主课均配速')).toBeInTheDocument();
+  });
 });
 
 describe('心率区间与解耦', () => {

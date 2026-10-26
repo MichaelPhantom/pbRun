@@ -178,6 +178,81 @@ describe('formatActivityContext', () => {
     expect(text).not.toContain('最快分段');
   });
 
+  test('非跑步: 不输出配速/等价平路行, 且口径说明改为非跑步语义', () => {
+    // 泳池游泳真实形态: average_pace 是每公里游泳时间。若把 1670s/km 交给模型
+    // 当「配速」, 它会得出「慢得离谱」的结论 —— 这是本轮修复的核心缺陷。
+    const text = formatActivityContext({
+      insight: insight({
+        running: false,
+        lapAnalysis: {
+          laps: [
+            { lapIndex: 0, distanceMeters: 50, paceSecPerKm: 2400, heartRate: 109, cadence: null, power: null, role: 'warmup' },
+            { lapIndex: 1, distanceMeters: 100, paceSecPerKm: 1670, heartRate: 130, cadence: null, power: null, role: 'work' },
+          ],
+          workLaps: 1,
+          workDistanceMeters: 100,
+          // 服务端已按非跑步口径置空, 这里模拟「若上游仍传值也不外泄」的兜底
+          workAvgPaceSecPerKm: 1670,
+          workAvgHeartRate: 130,
+          workHrDrift: 21,
+          bestPaceSecPerKm: 1670,
+          bestLapIndex: 1,
+        },
+        // 非跑步的 GAP 在服务层已置空; 这里即使传入也必须被忽略
+        gradeAdjusted: {
+          equivalentPaceSecPerKm: 1600,
+          actualPaceSecPerKm: 1670,
+          deltaSecPerKm: -70,
+          distanceMeters: 775,
+          ascentPerKm: 0,
+          sampleCount: 60,
+          model: 'minetti-2002',
+        },
+      }),
+      routeComparison: null,
+      distanceComparison: null,
+    });
+    // 分段段数/心率/漂移照常输出, 但标题改为「不比配速」
+    expect(text).toContain('本次分段（按相对快慢划分, 不比配速）: 2 段');
+    expect(text).toContain('主课 1 段 / 0.10km');
+    expect(text).toContain('主课心率 130bpm');
+    expect(text).toContain('主课心率漂移 +21bpm');
+    // 任何配速绝对值都不出现
+    expect(text).not.toContain('27:50/km'); // 1670s/km
+    expect(text).not.toContain('最快分段');
+    expect(text).not.toContain('主课配速');
+    expect(text).not.toContain('海拔修正');
+    expect(text).not.toContain('等价平路');
+    // 口径说明明确告知模型不要比配速
+    expect(text).toContain('不比较配速/步频/跑力');
+  });
+
+  test('非跑步无强度分段 → 用中性文案, 不说「整体配速均匀」', () => {
+    const text = formatActivityContext({
+      insight: insight({
+        running: false,
+        lapAnalysis: {
+          laps: [
+            { lapIndex: 0, distanceMeters: 0, paceSecPerKm: null, heartRate: 100, cadence: null, power: null, role: 'steady' },
+          ],
+          workLaps: 0,
+          workDistanceMeters: 0,
+          workAvgPaceSecPerKm: null,
+          workAvgHeartRate: null,
+          workHrDrift: null,
+          bestPaceSecPerKm: null,
+          bestLapIndex: null,
+        },
+        decouplingPct: null,
+        hrZoneBreakdown: [],
+      }),
+      routeComparison: null,
+      distanceComparison: null,
+    });
+    expect(text).toContain('未识别出明显强度分段');
+    expect(text).not.toContain('整体配速均匀');
+  });
+
   test('路线与距离样本集完全相同时不重复输出同距离段', () => {
     const c = comparison();
     const text = formatActivityContext({
