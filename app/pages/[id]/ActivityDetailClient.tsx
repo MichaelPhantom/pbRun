@@ -106,7 +106,13 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
           { value: activity.average_stride_length != null ? activity.average_stride_length.toFixed(2) : '--', unit: activity.average_stride_length != null ? 'm' : undefined, label: '步幅' },
         ]
       : []),
-    { value: activity.average_power != null ? String(Math.round(activity.average_power)) : '--', unit: activity.average_power != null ? 'W' : undefined, label: '平均功率' },
+    // 平均功率按字段存在性渲染: 真实库 241/241 条跑步活动都有功率, 107 条非跑步
+    // 活动全部为 NULL(0/107)。旧实现无条件渲染该格, 非跑步页会永远显示 '--' ——
+    // 与「隐藏配速整列而不是显示 --」是同一原则: 一个恒为空的数据格会让人
+    // 以为数据缺失/同步失败, 而不是「这项运动没有功率」。
+    ...(activity.average_power != null
+      ? [{ value: String(Math.round(activity.average_power)), unit: 'W', label: '平均功率' }]
+      : []),
   ];
 
   return (

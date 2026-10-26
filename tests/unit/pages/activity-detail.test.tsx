@@ -459,6 +459,9 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
     for (const label of ['距离', '时长', '平均心率', '训练负荷']) {
       expect(within(overview).getByText(label)).toBeInTheDocument();
     }
+    // 平均功率: 真实库 107 条非跑步活动全部无功率(0/107) → 整格不渲染,
+    // 而不是永远显示 '--' 让人以为同步失败
+    expect(within(overview).queryByText('平均功率')).toBeNull();
     expect(within(overview).queryByText("27'50''")).toBeNull();
 
     // 标题兜底用类型名而不是「跑步」; 类型徽标可见
