@@ -41,6 +41,7 @@ test.describe('活动详情页', () => {
     await expect(page.getByRole('heading', { name: '跑步动态' })).toBeVisible();
     await expect(page.getByText('触地时间')).toBeVisible();
     await expect(page.getByText('垂直摆动')).toBeVisible();
+    await expect(page.getByText('垂直振幅比')).toBeVisible();
     // 无 gct_balance → 不显示「触地平衡」(而不是 '--')
     await expect(page.getByText('触地平衡')).toHaveCount(0);
   });

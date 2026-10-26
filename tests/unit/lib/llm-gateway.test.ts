@@ -123,6 +123,27 @@ describe('buildAnalysisMessages 的空值/坏数据兜底', () => {
     expect(content).toContain('名称: --');
     expect(content).not.toMatch(/undefined|NaN/);
     expect(content).toContain('触地平衡: --');
+    // 垂直振幅比同样入 prompt: 真实库 241/241 条跑步活动都有值, 但此前
+    // UI 与 prompt 都没用它 —— 数据在库里却拿不到。
+    expect(content).toContain('垂直振幅比: --');
+  });
+
+  test('跑姿四项都进 prompt (触地平衡/触地时间/垂直摆动/垂直振幅比)', () => {
+    const [, user] = buildAnalysisMessages(
+      {
+        ...sparse,
+        average_gct_balance: 50.2,
+        average_ground_contact_time: 241.5,
+        average_vertical_oscillation: 7.39,
+        average_vertical_ratio: 8.1,
+      } as Activity,
+      [],
+    );
+    const content = user.content as string;
+    expect(content).toContain('触地平衡: 50.2%');
+    expect(content).toContain('触地时间: 242ms');
+    expect(content).toContain('垂直摆动: 7.4cm');
+    expect(content).toContain('垂直振幅比: 8.1%');
   });
 
   test('time_in_hr_zone 非法 JSON → --; 含 null 槽位保留占位不错位', () => {

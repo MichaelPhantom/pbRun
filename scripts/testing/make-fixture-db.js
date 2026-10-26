@@ -80,6 +80,7 @@ const samples = [
     // 渲染条件 (旧实现只判 gct_balance) 在 e2e 里永远测不到, 缺陷会一直潜伏。
     average_ground_contact_time: 241.5,
     average_vertical_oscillation: 7.4,
+    average_vertical_ratio: 8.1,
     total_ascent: 25,
     total_descent: 20,
     average_temperature: 26,

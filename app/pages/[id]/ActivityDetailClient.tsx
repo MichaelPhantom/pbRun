@@ -175,7 +175,8 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
       {(running &&
         (activity.average_gct_balance != null ||
           activity.average_ground_contact_time != null ||
-          activity.average_vertical_oscillation != null)) && (
+          activity.average_vertical_oscillation != null ||
+          activity.average_vertical_ratio != null)) && (
         <SectionCard title="跑步动态">
           <div className="flex flex-wrap gap-3">
             {activity.average_gct_balance != null && (
@@ -194,6 +195,15 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
               <div className="rounded-lg bg-surface-2 px-3 py-2">
                 <div className="text-[11px] text-fg-secondary">垂直摆动</div>
                 <div className="tnum mt-0.5 font-medium text-fg">{activity.average_vertical_oscillation.toFixed(1)} cm</div>
+              </div>
+            )}
+            {/* 垂直振幅比 = 垂直摆动 / 步幅: 跑步经济性的核心指标之一, 真实库
+                241/241 条跑步活动都有值(6.69–10.48%), 但此前 UI 与 AI prompt
+                都没展示 —— 数据在库里却拿不到。 */}
+            {activity.average_vertical_ratio != null && (
+              <div className="rounded-lg bg-surface-2 px-3 py-2">
+                <div className="text-[11px] text-fg-secondary">垂直振幅比</div>
+                <div className="tnum mt-0.5 font-medium text-fg">{activity.average_vertical_ratio.toFixed(1)} %</div>
               </div>
             )}
           </div>

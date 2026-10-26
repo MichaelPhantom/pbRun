@@ -104,6 +104,7 @@ const activity = {
   average_gct_balance: 50.2,
   average_ground_contact_time: 231,
   average_vertical_oscillation: 7.4,
+  average_vertical_ratio: 8.1,
 };
 
 const laps = [
@@ -259,6 +260,7 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
     expect(screen.getByText('触地平衡')).toBeInTheDocument();
     expect(screen.getByText('触地时间')).toBeInTheDocument();
     expect(screen.getByText('垂直摆动')).toBeInTheDocument();
+    expect(screen.getByText('垂直振幅比')).toBeInTheDocument();
 
     // 分段表: 最快 K2 徽章 + 行
     expect(screen.getByText(/最快 K2/)).toBeInTheDocument();
@@ -518,6 +520,7 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
       average_gct_balance: null,
       average_ground_contact_time: 241.5,
       average_vertical_oscillation: 7.39,
+      average_vertical_ratio: 8.1,
     });
     render(await page('1005'));
 
@@ -526,6 +529,8 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
     expect(screen.getByText(/^242 ms$/)).toBeInTheDocument(); // 241.5 四舍五入
     expect(screen.getByText('垂直摆动')).toBeInTheDocument();
     expect(screen.getByText(/^7\.4 cm$/)).toBeInTheDocument();
+    expect(screen.getByText('垂直振幅比')).toBeInTheDocument();
+    expect(screen.getByText(/^8\.1 %$/)).toBeInTheDocument();
     // 无 gct_balance → 不渲染「触地平衡」, 而不是显示 '--'
     expect(screen.queryByText('触地平衡')).toBeNull();
   });
@@ -558,6 +563,7 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
       average_gct_balance: null,
       average_ground_contact_time: null,
       average_vertical_oscillation: null,
+      average_vertical_ratio: null,
       average_power: null,
       vdot_value: null,
       training_load: null,

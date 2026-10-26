@@ -441,7 +441,7 @@ export function buildAnalysisMessages(
   const runningLines = running
     ? `平均配速: ${formatPace(activity.average_pace, false)}  最大速度: ${activity.max_speed != null ? (activity.max_speed * 3.6).toFixed(1) : '--'} km/h
 平均步频: ${fmtNum(activity.average_cadence, 0, 'spm')}  步幅: ${fmtNum(activity.average_stride_length, 2, 'm')}
-触地平衡: ${fmtNum(activity.average_gct_balance, 1, '%')}  触地时间: ${fmtNum(activity.average_ground_contact_time, 0, 'ms')}  垂直摆动: ${fmtNum(activity.average_vertical_oscillation, 1, 'cm')}
+触地平衡: ${fmtNum(activity.average_gct_balance, 1, '%')}  触地时间: ${fmtNum(activity.average_ground_contact_time, 0, 'ms')}  垂直摆动: ${fmtNum(activity.average_vertical_oscillation, 1, 'cm')}  垂直振幅比: ${fmtNum(activity.average_vertical_ratio, 1, '%')}
 VDOT: ${fmtNum(activity.vdot_value, 1)}  有氧训练效果: ${fmtNum(activity.total_training_effect, 1)}  无氧: ${fmtNum(activity.total_anaerobic_training_effect, 1)}
 TSS: ${fmtNum(activity.training_stress_score, 0)}  IF: ${fmtNum(activity.intensity_factor, 2)}`
     : `平均速度: ${activity.average_speed != null ? activity.average_speed.toFixed(2) : '--'} km/h  最大速度: ${activity.max_speed != null ? (activity.max_speed * 3.6).toFixed(1) : '--'} km/h
