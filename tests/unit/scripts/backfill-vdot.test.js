@@ -219,6 +219,60 @@ describe('training_load 决策', () => {
     await main();
     expect(mockCalc.calculateTrainingLoad).not.toHaveBeenCalled();
   });
+
+  test('非跑步类型 → 也不算 VDOT (即便有代表性心率与够长的 lap)', async () => {
+    // 真实库: 篮球 lap 1665m/2604m 且带心率与「配速」(其实是每公里打球时间),
+    // 乒乓 35m/39m lap 也有值。若不筛运动类型, Daniels 公式会把这些「速度」当成
+    // 跑步速度算出伪 VDOT —— 而 vdot_value 在 UI/AI/MCP 里全被当作跑力展示。
+    mockDb.getActivity.mockImplementation((id) => ({
+      activity_id: id,
+      vdot_value: 45, // 旧值: 必须被清掉
+      training_load: 50,
+      average_heart_rate: 107,
+      distance: 1.67,
+      duration: 3167,
+      activity_type: 'basketball',
+    }));
+    lapsStmt.all.mockReturnValue([
+      { distance: 1665.8, duration: 3167, average_heart_rate: 107, average_pace: 1901.2 },
+    ]);
+    mockCalc.isRepresentativeEffort.mockReturnValue(true);
+    setArgs([]);
+    await main();
+    expect(mockCalc.calculateVdotFromPace).not.toHaveBeenCalled();
+    // 旧 VDOT 被显式清空, 而不是保留伪值
+    expect(mockDb.updateActivityFields).toHaveBeenCalledWith(1001, { vdot_value: null });
+  });
+
+  test('缺 activity_type (旧库) 视为跑步 → 正常算 VDOT', async () => {
+    mockDb.getActivity.mockImplementation((id) => ({
+      activity_id: id,
+      vdot_value: null,
+      training_load: null,
+      average_heart_rate: 160,
+      distance: 10,
+      duration: 3600,
+      activity_type: null,
+    }));
+    setArgs([]);
+    await main();
+    expect(mockCalc.calculateVdotFromPace).toHaveBeenCalled();
+  });
+
+  test('track_running / treadmill_running 同样算 VDOT (跑步全集)', async () => {
+    mockDb.getActivity.mockImplementation((id) => ({
+      activity_id: id,
+      vdot_value: null,
+      training_load: null,
+      average_heart_rate: 160,
+      distance: 10,
+      duration: 3600,
+      activity_type: id === 1001 ? 'track_running' : 'treadmill_running',
+    }));
+    setArgs([]);
+    await main();
+    expect(mockCalc.calculateVdotFromPace).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('dry-run 与计数', () => {

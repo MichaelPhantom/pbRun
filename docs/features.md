@@ -46,6 +46,14 @@ pbRun 是跑步分析工具，但 Garmin 同步会把篮球/游泳/力量训练�
 跑步类型集合为 `running` / `track_running` / `treadmill_running`（`db.runningTypeClause`
 与 `db.isRunningType` 单点定义）；缺 `activity_type` 列或值为空时按跑步处理（旧库兼容）。
 
+**写入侧也必须同口径**：不只是查询要筛跑步，**回填脚本写入 `vdot_value` /
+`training_load` 时同样只处理跑步类型**（`scripts/garmin/backfill-vdot.js` 的
+`isRunningActivity`）。否则只要非跑步活动存在「距离 >400m + 带心率/配速」的 lap
+（真实库篮球 lap 1665m/2604m 就有），Daniels 公式会把「每公里打球时间」当成跑步
+速度算出**伪 VDOT**，而 `vdot_value` 在 UI / AI / MCP 里全被当作跑力展示 ——
+查询侧再严也挡不住脏数据。当前真实库 107 条非跑步活动 `vdot_value` 全为 null
+（0/107，因为非跑步最高心率 131 达不到 Z3+ 门槛），但这是**尚未触发**而非安全。
+
 **为什么必须隔离**（真实库 348 条活动实测）：
 
 | 指标 | 混类型 | 仅跑步 | 后果 |
@@ -192,6 +200,7 @@ pbRun 是跑步分析工具，但 Garmin 同步会把篮球/游泳/力量训练�
 | CI 门槛与文档漂移 | `.github/workflows/test.yml` | `tests/unit/ci/*` / `tests/unit/docs/*` |
 | **统计口径：表现分析只取跑步** | `db.runningTypeClause` / `db.isRunningType`（19 处查询） | `tests/unit/lib/db-insight-integration.test.ts`（真实 SQL：趋势/区间/纪录/负荷全部排除非跑步） |
 | **统计口径：活动日志保留全类型** | `getActivities` / `getMonthSummaries` | `tests/unit/lib/db-insight-integration.test.ts`（月度汇总 count 与列表 total 严格相等） |
+| **统计口径：写入侧也必须筛跑步** | `scripts/garmin/backfill-vdot.js` 的 `isRunningActivity`（VDOT 与 training_load 同口径） | `tests/unit/scripts/backfill-vdot.test.js`（非跑步即便有代表性心率与 >400m lap 也不写 VDOT、旧伪值被清空；缺类型视为跑步；track/treadmill 正常计算） |
 | **跑步类型判定单一来源** | `app/lib/sport.ts`（`RUNNING_ACTIVITY_TYPES` 派生 SQL + 客户端判定） | `tests/unit/lib/sport.test.ts`（类型集合/旧库空值/展示名/图标回落） |
 | **MCP tool description 必须声明统计口径** | `mcp-server/tools.ts`（9 个表现分析工具写「跑步口径」、2 个活动日志工具写「全类型口径」） | `tests/unit/mcp/tool-scope-contract.test.ts`（逐项断言口径措辞、`list_activities` 不再自称「列出跑步活动」、`get_activity_comparables` 声明 `running=false` 时配速派生字段为 `null`、16 个工具均有非空 title/description） |
 | **UI 不把非跑步指标当跑步指标** | `ListClient` / `ActivityDetailClient` / `RecentActivityCard` / `ActivityInsightPanel` / `ActivityTrendCharts` | `tests/unit/components/list-client.test.tsx` / `tests/unit/pages/activity-detail.test.tsx` / `tests/unit/components/recent-activity-card.test.tsx` / `tests/unit/components/activity-insight-panel.test.tsx`（非跑步不渲染「最快分段/主课均配速」卡片） / `tests/unit/components/activity-trend-charts.test.tsx`（非跑步不渲染配速/步频/步幅图） |

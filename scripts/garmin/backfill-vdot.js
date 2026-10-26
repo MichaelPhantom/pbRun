@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 /**
  * 回填 VDOT / training_load（新口径）
+ * - **仅跑步类型**（running / track_running / treadmill_running，缺类型视为 running）：
+ *   VDOT 与 training_load 都是跑步口径指标，非跑步活动（游泳/球类/力量训练）一律不写
  * - VDOT 仅 Z3+ 代表性强度（最快 Z3+ lap，否则全程 Z3+ 才计），日常轻松跑置 null（不把训练平均强度当能力）
  * - training_load 优先 FIT 官方（fit-parser 已提取），缺省才自定义
  * - clamp %VO2max 已在 calculator 内
@@ -58,21 +60,30 @@ async function main() {
       if ((!laps || laps.length === 0) && Array.isArray(parsed.laps)) laps = parsed.laps;
 
       // 计算代表段
+      // VDOT 是**跑步跑力**指标（Daniels 的 VO2max 推算依赖跑步速度与跑步经济性），
+      // 必须与 sync.js 的 `runnableTypes` 同口径。此前这里只对 training_load 做了
+      // 类型筛选、对 VDOT 完全没筛 —— 只要非跑步活动有一个距离 >400m 且带心率/配速
+      // 的 lap（真实库篮球 1665m/2604m、乒乓 35m 都有 lap 记录），就会算出「游泳 VDOT」
+      // 这类伪能力值。缺 activity_type 视为 running（旧库兼容，与 app/lib/sport.ts 一致）。
+      const runnableTypes = ['running', 'treadmill_running', 'track_running'];
+      const isRunningActivity = runnableTypes.includes(activityRow.activity_type || 'running');
       let seg = null;
       const wholeHr = activityRow.average_heart_rate ?? parsed.activity?.average_heart_rate;
       const wholeDist = parsed.activity?.distance ?? activityRow.distance;
       const wholeDur = parsed.activity?.duration ?? activityRow.duration;
-      if (Array.isArray(laps) && laps.length > 0) {
-        const cands = laps.filter(l => l.distance > 400 && l.duration > 30 && l.average_heart_rate && l.average_pace);
-        if (cands.length > 0) {
-          const best = cands.reduce((a, b) => (a.average_pace < b.average_pace ? a : b));
-          if (calc.isRepresentativeEffort(best.average_heart_rate)) seg = { d: best.distance, t: best.duration };
-          else if (wholeHr && calc.isRepresentativeEffort(wholeHr)) seg = { d: (wholeDist || 0) * 1000, t: wholeDur || 0 };
+      if (isRunningActivity) {
+        if (Array.isArray(laps) && laps.length > 0) {
+          const cands = laps.filter(l => l.distance > 400 && l.duration > 30 && l.average_heart_rate && l.average_pace);
+          if (cands.length > 0) {
+            const best = cands.reduce((a, b) => (a.average_pace < b.average_pace ? a : b));
+            if (calc.isRepresentativeEffort(best.average_heart_rate)) seg = { d: best.distance, t: best.duration };
+            else if (wholeHr && calc.isRepresentativeEffort(wholeHr)) seg = { d: (wholeDist || 0) * 1000, t: wholeDur || 0 };
+          } else if (wholeHr && calc.isRepresentativeEffort(wholeHr)) {
+            seg = { d: (wholeDist || 0) * 1000, t: wholeDur || 0 };
+          }
         } else if (wholeHr && calc.isRepresentativeEffort(wholeHr)) {
           seg = { d: (wholeDist || 0) * 1000, t: wholeDur || 0 };
         }
-      } else if (wholeHr && calc.isRepresentativeEffort(wholeHr)) {
-        seg = { d: (wholeDist || 0) * 1000, t: wholeDur || 0 };
       }
 
       let newVdot = null;
@@ -81,11 +92,8 @@ async function main() {
 
       // training_load 决策
       let newLoad = fitLoad;
-      if (newLoad == null && wholeDur && wholeHr) {
-        const types = ['running', 'treadmill_running', 'track_running'];
-        if (types.includes(activityRow.activity_type || 'running')) {
-          newLoad = calc.calculateTrainingLoad(wholeDur, wholeHr);
-        }
+      if (newLoad == null && wholeDur && wholeHr && isRunningActivity) {
+        newLoad = calc.calculateTrainingLoad(wholeDur, wholeHr);
       }
       const oldLoad = activityRow.training_load;
 
