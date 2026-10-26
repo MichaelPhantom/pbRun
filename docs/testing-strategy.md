@@ -773,7 +773,12 @@ setupTestDb();
 > 见 a11y 章节；WebKit 的 Safari 特有渲染/事件差异）在 CI 即可暴露。
 > 每档浏览器各自上传 artifact `playwright-report-<browser>`。
 > 注: WebKit 在 Linux 下需额外系统库（`npx playwright install --with-deps webkit`），
-> CI 的 ubuntu-latest 有 root 可装；本地无 root 时 WebKit 不可运行，属已知限制。
+> CI 的 ubuntu-24.04 有 root 可装；本地无 root 时 WebKit 不可运行，属已知限制。
+> **e2e 作业固定 `runs-on: ubuntu-24.04`，不用 `ubuntu-latest`**：`ubuntu-latest`
+> 已于 2026-10-19 起迁移到 Ubuntu 26，而 Playwright 1.59.1 的依赖表只到
+> ubuntu24.04 —— 在 26 上 `--with-deps` 会在**安装阶段**直接 exit 1（2026-10-25 起
+> 三个引擎同时失败，与代码无关）。升级 Playwright 到含 ubuntu26 依赖表的版本后
+> 可改回 `ubuntu-latest`，`tests/unit/ci/*` 会守护 runner 与文档的一致性。
 
 
 > 注意 `run: <cmd> | tee` 必须配 `set -o pipefail`，否则管道的退出码取 `tee`（恒为 0）——

@@ -137,6 +137,15 @@
   避免同一条路线的 5K 与 30K 直接对比。详情 UI 的 ±25% fallback 不变。
 
 ### Fixed
+- **CI e2e 三引擎从 2026-10-25 起持续失败：`ubuntu-latest` 迁移到 Ubuntu 26，
+  而 Playwright 1.59.1 没有对应的依赖表**。`npx playwright install --with-deps`
+  按 `hostPlatform.js` 把发行版映射到 `nativeDeps` 的键（只有 ubuntu20.04/22.04/24.04），
+  Ubuntu 26 落到 `ubuntu26.04-x64` 后查不到条目，安装步骤直接 exit 1 —— 失败发生在
+  **跑测试之前**，因此三个引擎同时红，且与代码改动无关（2026-10-12 最后一次全绿，
+  2026-10-25 起连续 12 次失败）。修复：e2e 作业固定 `runs-on: ubuntu-24.04`（Playwright
+  官方支持的版本），并在 workflow 里注明「升级 Playwright 到含 ubuntu26 依赖表的版本后
+  可改回 `ubuntu-latest`」。`quality` 作业（typecheck / lint / jest + coverage /
+  `next build`）全程为绿，本次改动不影响它。
 - **`routeQuality` 未做形状校验时是 `undefined` 而非 `null`（契约漂移）**。
   文档与 MCP schema 都约定「未做形状校验时为 `null`」，但代码只在
   `routeQuality` 有值时才赋值 —— `JSON.stringify` 会把 `undefined` 整个键丢掉，

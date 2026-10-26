@@ -109,7 +109,12 @@ jobs:
           NEXT_TELEMETRY_DISABLED: '1'
 
   e2e:
-    runs-on: ubuntu-latest
+    # 固定 24.04 而不是 ubuntu-latest: `ubuntu-latest` 已于 2026-10-19 起迁移到
+    # Ubuntu 26, 而 Playwright 1.59.1 的 `nativeDeps` 只到 ubuntu24.04 —— 在 26 上
+    # `npx playwright install --with-deps` 找不到依赖表, 直接 exit 1 (2026-10-25 起
+    # 三个引擎的 e2e 全部在「安装 Playwright 浏览器」这步失败)。
+    # 升级 Playwright 到含 ubuntu26 依赖表的版本后, 可改回 ubuntu-latest。
+    runs-on: ubuntu-24.04
     # 矩阵并行: chromium (主) + firefox + webkit (三引擎, 覆盖 Blink/Gecko/WebKit)。
     # 并行不增加总时长, 且能发现浏览器差异类缺陷 (2026-09-27 实测: firefox 下曾暴露
     # isMobile 不支持; webkit 覆盖 Safari 特有渲染/事件差异)。
