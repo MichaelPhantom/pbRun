@@ -506,6 +506,45 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
     expect(screen.queryByText(/配速/)).toBeNull();
   });
 
+  test('gct_balance 缺失但有触地时间/垂直摆动 → 跑步动态仍渲染(真实库 348/348 全是这种)', async () => {
+    // 真实库实测: average_gct_balance 348/348 全为 NULL, 而触地时间与垂直摆动
+    // 在 241/241 条跑步活动中都有值。旧展示条件只判 gct_balance, 导致这张卡片
+    // 在生产环境从未渲染过 —— 已有的跑姿数据用户永远看不到。
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      average_gct_balance: null,
+      average_ground_contact_time: 241.5,
+      average_vertical_oscillation: 7.39,
+    });
+    render(await page('1005'));
+
+    expect(screen.getByText('跑步动态')).toBeInTheDocument();
+    expect(screen.getByText('触地时间')).toBeInTheDocument();
+    expect(screen.getByText(/^242 ms$/)).toBeInTheDocument(); // 241.5 四舍五入
+    expect(screen.getByText('垂直摆动')).toBeInTheDocument();
+    expect(screen.getByText(/^7\.4 cm$/)).toBeInTheDocument();
+    // 无 gct_balance → 不渲染「触地平衡」, 而不是显示 '--'
+    expect(screen.queryByText('触地平衡')).toBeNull();
+  });
+
+  test('非跑步活动即便有触地时间/垂直摆动也不渲染跑步动态', async () => {
+    // 这三项是跑步步态指标: 游泳/球类没有步态语义。真实库非跑步全为 NULL(0/107),
+    // 但写入门控一旦失效就会泄漏, 所以 UI 侧也按 running 双保险。
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'basketball',
+      name: '篮球',
+      average_gct_balance: null,
+      average_ground_contact_time: 220,
+      average_vertical_oscillation: 8.1,
+    });
+    render(await page('2005'));
+
+    expect(screen.queryByText('跑步动态')).toBeNull();
+    expect(screen.queryByText('触地时间')).toBeNull();
+    expect(screen.queryByText('垂直摆动')).toBeNull();
+  });
+
   test('无 GPS / 无逐秒记录 / 无分段 / 无跑步动态 → 对应区块不渲染', async () => {
     db.getActivityTrack.mockReturnValue(null);
     db.getActivityRecords.mockReturnValue([]);
@@ -514,6 +553,8 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
       ...activity,
       name: '',
       average_gct_balance: null,
+      average_ground_contact_time: null,
+      average_vertical_oscillation: null,
       average_power: null,
       vdot_value: null,
       training_load: null,

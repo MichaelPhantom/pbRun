@@ -160,14 +160,24 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
         </SectionCard>
       )}
 
-      {/* 跑步动态 */}
-      {activity.average_gct_balance != null && (
+      {/* 跑步动态。展示条件必须是**三项任一非空且为跑步**: 此前只判
+          `average_gct_balance`, 而真实库 348/348 条活动的 gct_balance 全为 NULL
+          (该字段 Garmin 只在部分高阶手表/双传感器配置下写入), 但触地时间与垂直
+          摆动在 241/241 条跑步活动里都有值 —— 结果这张卡片在生产环境**从未渲染过**,
+          用户永远看不到已有的跑姿数据。非跑步活动三项全为 NULL(0/107), 但加上
+          running 门控是双保险: 这三项都是跑步步态指标, 不该出现在游泳/球类页。 */}
+      {(running &&
+        (activity.average_gct_balance != null ||
+          activity.average_ground_contact_time != null ||
+          activity.average_vertical_oscillation != null)) && (
         <SectionCard title="跑步动态">
           <div className="flex flex-wrap gap-3">
-            <div className="rounded-lg bg-surface-2 px-3 py-2">
-              <div className="text-[11px] text-fg-secondary">触地平衡</div>
-              <div className="tnum mt-0.5 font-medium text-fg">{activity.average_gct_balance.toFixed(1)} %</div>
-            </div>
+            {activity.average_gct_balance != null && (
+              <div className="rounded-lg bg-surface-2 px-3 py-2">
+                <div className="text-[11px] text-fg-secondary">触地平衡</div>
+                <div className="tnum mt-0.5 font-medium text-fg">{activity.average_gct_balance.toFixed(1)} %</div>
+              </div>
+            )}
             {activity.average_ground_contact_time != null && (
               <div className="rounded-lg bg-surface-2 px-3 py-2">
                 <div className="text-[11px] text-fg-secondary">触地时间</div>

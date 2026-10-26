@@ -32,6 +32,19 @@ test.describe('活动详情页', () => {
     await expect(page.getByRole('heading', { name: '深度分析' })).toBeVisible();
   });
 
+  test('应显示跑步动态 (触地时间/垂直摆动, 真实库 241/241 条跑步活动都有)', async ({ page }) => {
+    await page.goto('/pbrun/pages/900000001');
+    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(1200);
+    // 真实库 average_gct_balance 348/348 全为 NULL, 旧展示条件只判该字段 →
+    // 这张卡片在生产环境从未渲染过。夹具按真实分布只写触地时间/垂直摆动。
+    await expect(page.getByRole('heading', { name: '跑步动态' })).toBeVisible();
+    await expect(page.getByText('触地时间')).toBeVisible();
+    await expect(page.getByText('垂直摆动')).toBeVisible();
+    // 无 gct_balance → 不显示「触地平衡」(而不是 '--')
+    await expect(page.getByText('触地平衡')).toHaveCount(0);
+  });
+
   test('应显示 AI 教练分析区', async ({ page }) => {
     await page.goto('/pbrun/pages/900000001');
     await page.waitForLoadState('networkidle');

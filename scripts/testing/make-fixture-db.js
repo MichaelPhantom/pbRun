@@ -75,6 +75,11 @@ const samples = [
     max_heart_rate: 182,
     average_cadence: 182,
     average_stride_length: 0.95,
+    // 跑姿动态: 真实库 241/241 条跑步活动都有这两项, 而 average_gct_balance
+    // 348/348 全为 NULL —— 夹具必须照这个分布写, 否则详情页「跑步动态」卡片的
+    // 渲染条件 (旧实现只判 gct_balance) 在 e2e 里永远测不到, 缺陷会一直潜伏。
+    average_ground_contact_time: 241.5,
+    average_vertical_oscillation: 7.4,
     total_ascent: 25,
     total_descent: 20,
     average_temperature: 26,
