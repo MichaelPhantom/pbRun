@@ -580,6 +580,8 @@ export interface ActivityComparison {
   groupAvgPaceSecPerKm: number | null;            // 组均配速 (含本次)
   groupBestPaceSecPerKm: number | null;           // 组内最快配速
   bestActivityId: number | null;                  // 组内最快配速对应的活动 (含本次)
+  /** 同路径对比的几何质量 (仅 basis='location' 且做过形状校验时有值)。 */
+  routeQuality?: RouteQuality | null;
   /** 分类对标: 本次训练类别 (由名称推断)。 */
   currentCategory: TrainingCategory;
   /** 分类对标: 同类别内的配速排名与组均 (更公平的同类比较); 同类样本<2 时为 null。 */
@@ -590,6 +592,25 @@ export interface ActivityComparison {
     avgPaceSecPerKm: number | null;
     deltaSecPerKm: number | null;                 // 本次 vs 同类均配速 (负=更快)
   } | null;
+}
+
+/**
+ * 同路径对比的几何质量。
+ *
+ * 回答「这些同伴到底跑的是不是同一条路面」，而不只是「配速差多少」：
+ *  - roadKm: 双向平均垂直距离的中位数 (公里) —— 与配速/进度错位无关；
+ *  - maxRoadKm: 最差一个同伴的垂直距离 (公里)；
+ *  - gridJaccard: 网格签名的中位 Jaccard (0–1)。
+ */
+export interface RouteQuality {
+  /** 参与形状校验的同伴总数（注意：`ActivityComparison.peers` 只展示最近 8 条） */
+  verifiedPeers: number;
+  /** 双向平均垂直距离中位数 (公里) */
+  roadKm: number | null;
+  /** 最差同伴的双向平均垂直距离 (公里) */
+  maxRoadKm: number | null;
+  /** 网格签名 Jaccard 中位数 (0–1) */
+  gridJaccard: number | null;
 }
 
 /** 活动详情深挖 API 响应。 */

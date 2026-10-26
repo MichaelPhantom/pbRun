@@ -65,6 +65,14 @@ function ComparisonBlock({
             心率 {c.hrDeltaBpm >= 0 ? '+' : ''}{c.hrDeltaBpm.toFixed(0)} bpm
           </Badge>
         )}
+        {c.routeQuality?.roadKm != null && (
+          <Badge variant="neutral">
+            路面偏差 {Math.round(c.routeQuality.roadKm * 1000)}m
+            {c.routeQuality.gridJaccard != null
+              ? ` · 网格 ${(c.routeQuality.gridJaccard * 100).toFixed(0)}%`
+              : ''}
+          </Badge>
+        )}
       </div>
 
       {/* 分类对标: 本次 vs 同组 (含组均/组最佳) + 同类公平比较 */}

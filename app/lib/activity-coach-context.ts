@@ -206,6 +206,17 @@ function comparisonSection(c: ActivityComparison | null, fallbackTitle: string):
   if (hr) bits.push(hr);
 
   const lines = [`${title}: ${bits.join(' | ')}`];
+  // 几何质量: 让 AI 能判断「同路径」到底有多贴合, 而不是只看到配速差。
+  const q = c.routeQuality;
+  if (q && q.roadKm != null) {
+    const qb = [`${q.verifiedPeers} 位同伴路径对齐`];
+    qb.push(`平均垂直偏差 ${Math.round(q.roadKm * 1000)}m`);
+    if (q.maxRoadKm != null && q.maxRoadKm > q.roadKm) {
+      qb.push(`最差 ${Math.round(q.maxRoadKm * 1000)}m`);
+    }
+    if (q.gridJaccard != null) qb.push(`网格重合 ${(q.gridJaccard * 100).toFixed(0)}%`);
+    lines.push(`  路面重合: ${qb.join(' | ')}`);
+  }
   const recent = c.peers.slice(0, 4).map(peerLine).filter(Boolean);
   if (recent.length > 0) lines.push(`  最近样本: ${recent.join('；')}`);
   return lines;

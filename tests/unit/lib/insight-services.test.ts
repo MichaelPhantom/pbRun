@@ -193,6 +193,13 @@ test('路线查询回退 distance 时 label 使用距离带 (不误用路线名)
     const r = getActivityInsight(99)!;
     expect(r.locationComparison!.label).toContain('同路径');
     expect(r.locationComparison!.peers.map((p) => p.activityId)).toEqual([42]);
+    // 几何质量: 让 AI/UI 能说明「有多贴合」而不只报配速差
+    const q = r.locationComparison!.routeQuality!;
+    expect(q.verifiedPeers).toBe(1);
+    expect(q.roadKm).toBeLessThan(0.05);
+    expect(q.maxRoadKm).toBeLessThan(0.05);
+    // 11m 起点差在 153m 网格上会切到不同 cell, 只要求显著重叠
+    expect(q.gridJaccard).toBeGreaterThan(0.5);
   });
 
   test('网格签名扩召回：起点 >1.5km 但同一条大环线被补入', () => {

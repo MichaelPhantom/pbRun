@@ -86,9 +86,10 @@ activities / activity_laps / activity_records (SQLite)
   - 同位置（跨名称）：双通道召回 —— ① `start_lat/start_lng` 索引取 GPS 首点 ≤1.5km
     候选（Haversine 精筛）；② 持久化的 `route_cells`（geohash-7）+ `route_km` 索引按
     长度比/距离档预筛、网格 Jaccard ≥0.2 并入 —— 补上「同一条环线从不同入口起跑」
-    （起点 >1.5km）。合并去重后统一做轨迹形状相似度校验（起点对齐 DTW + 网格 Jaccard
+    （起点 >1.5km）。合并去重后统一做轨迹形状相似度校验（路面重叠垂直距离 + 网格 Jaccard
     + 抗尖峰包围盒 + 质心 + 长度比，阈值 0.55）；即使名称不同，同一公园/田径场/起点
-    的同类路线也能进入可比组；
+    的同类路线也能进入可比组。同时输出 `routeQuality`（参与校验的同伴数、路面偏差
+    中位数/最差值、网格重合中位数），供 AI 说明「这些同伴有多贴合」而不只报配速差；
   - 同距离：按距离分档独立查询（`<5km ±20%` / `5–12km ±10%` / `>12km ±8%`），
     与 UI 深挖面板同一容差；
   - 同类训练：名称 + 距离推断类别（轻松/节奏/阈值/间歇/长距离/比赛），样本 ≥2 才输出；
@@ -151,7 +152,7 @@ activities / activity_laps / activity_records (SQLite)
 | 海拔修正（等价平路配速） | `tests/unit/lib/grade-adjust.test.ts` |
 | 逐秒温度漂移 | `tests/unit/lib/activity-temperature.test.ts` |
 | GPS 同起点校验 | `tests/unit/lib/geo.test.ts` |
-| 路线形状相似度（DTW/网格/清洗/环线入口） | `tests/unit/lib/route-shape.test.ts` |
+| 路线形状相似度（路面重叠/网格/清洗/环线入口/平移不变性） | `tests/unit/lib/route-shape.test.ts` |
 | 签名复用（`routeSignatureOf` 与 `deriveRouteSignature` 等值） | `tests/unit/lib/route-shape.test.ts` |
 | 路线签名 TS↔CJS 一致性 | `tests/unit/lib/route-signature-parity.test.ts` |
 | 路线签名回填脚本 | `tests/unit/scripts/backfill-route-signatures.test.js` |

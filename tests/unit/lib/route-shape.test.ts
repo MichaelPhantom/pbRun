@@ -87,11 +87,11 @@ function laps(coords: [number, number][], nLaps: number, n = 400): [number, numb
   return dense(pts, n);
 }
 
+/** 默认带上 DTW 诊断量（这些用例要校验 dtwKm）。 */
 function sim(a: [number, number][], b: [number, number][]) {
-  return routeShapeSimilarity(
-    buildRouteShape(track(a))!,
-    buildRouteShape(track(b))!,
-  );
+  return routeShapeSimilarity(buildRouteShape(track(a))!, buildRouteShape(track(b))!, {
+    includeDtw: true,
+  });
 }
 
 describe('geohashEncode / gridJaccard', () => {
@@ -312,9 +312,47 @@ describe('routeShapeSimilarity', () => {
     const s = sim(loopA, loopB);
     expect(s.score).toBeGreaterThan(0.9);
     expect(s.shapeScore).toBeGreaterThan(0.9);
+    expect(s.roadKm).toBeLessThan(0.02);
     expect(s.gridJaccard).toBe(1);
     expect(s.dtwKm).toBeLessThan(0.05);
     expect(s.lengthRatio).toBeCloseTo(1, 1);
+  });
+
+  test('同形状环线整体平移 800m → 低分（路面重叠是位置敏感的）', () => {
+    // 起点对齐 DTW 对平移不变: 两条形状相同的环线平移到各自起点后完全重合,
+    // 曾给出 0.63 分。路面重叠（垂直距离）天然位置敏感, 必须剔除。
+    const shifted = loopA.map(([lat, lng]) => [lat + 0.0072, lng] as [number, number]);
+    const s = sim(loopA, shifted);
+    expect(s.roadKm).toBeGreaterThan(0.4);
+    expect(s.gridJaccard).toBe(0);
+    expect(s.bboxIoU).toBe(0);
+    expect(s.score).toBeLessThan(SHAPE_SIMILARITY_THRESHOLD);
+    // 诊断量 DTW 仍接近 0 —— 这正是它不能做主信号的原因
+    expect(s.dtwKm).toBeLessThan(0.05);
+  });
+
+  test('同一环线从不同入口起跑（入口偏移 450m）→ 仍判同路', () => {
+    // 真实场景: 同一公园环线, 从另一个门进入。累计里程整体错位 450m,
+    // 起点对齐 DTW 会把这段「进度错位」记成形状差异 (实测 0.29km) 而误判;
+    // 路面垂直距离与进度无关, 必须仍判为同路。
+    const base = dense(loopA, 1200);
+    const k = 288; // 1200 点 ≈ 1.871km → 288 点 ≈ 450m
+    const offsetEntry: [number, number][] = [...base.slice(k), ...base.slice(0, k), base[0]];
+    const s = sim(base, offsetEntry);
+    expect(s.roadKm).toBeLessThan(0.05);
+    expect(s.dtwKm).toBeGreaterThan(0.15); // DTW 被进度错位误导
+    expect(s.score).toBeGreaterThan(0.85);
+  });
+
+  test('同一路面不同配速（沿路线进度错位）→ 仍判同路', () => {
+    // 生产库真实情形: 同一条 10km 环线, 配速 5:00 与 6:30, 累计里程进度差数百米。
+    // 用入口偏移模拟进度错位, 验证路面信号不受影响。
+    const base = dense(loopA, 1200);
+    const k = 128; // ≈200m 进度错位
+    const shifted: [number, number][] = [...base.slice(k), ...base.slice(0, k), base[0]];
+    const s = sim(base, shifted);
+    expect(s.roadKm).toBeLessThan(0.05);
+    expect(s.score).toBeGreaterThanOrEqual(SHAPE_SIMILARITY_THRESHOLD);
   });
 
   test('反向跑同一环线 → 满分（方向无关）', () => {
@@ -354,10 +392,14 @@ describe('routeShapeSimilarity', () => {
     expect(sim(loopA, roadNorth).score).toBeLessThan(SHAPE_SIMILARITY_THRESHOLD);
   });
 
-  test('出去再原路返回（4.4km）vs 单程（2.2km）→ 低分（长度比 2.0）', () => {
+  test('出去再原路返回（4.4km）vs 单程（2.2km）→ 低分（长度比门禁）', () => {
+    // 两者路面完全相同（垂直距离 ~0）, 但距离差 2 倍 —— 不同路线/训练类型。
+    // 垂直距离无法区分, 必须由长度比硬门禁兜底。
     const s = sim(roadNorth, outAndBack);
     expect(s.lengthRatio).toBeGreaterThan(1.8);
-    expect(s.score).toBeLessThan(SHAPE_SIMILARITY_THRESHOLD);
+    expect(s.lengthGate).toBe(true);
+    expect(s.roadKm).toBeLessThan(0.01);
+    expect(s.score).toBe(0);
   });
 
   test('同一环线跑 4 圈 vs 5 圈 → 仍判为同一路线（长度比 1.25）', () => {

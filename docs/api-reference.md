@@ -719,6 +719,7 @@ GET /api/activities/{id}/insight
 | `hrZoneBreakdown` | 心率区间占比 `{zone, seconds, pct}[]` |
 | `environment` | 环境可比性：本次/样本均温、爬升、同温档排名与配速/心率差（无数据时为 `null`） |
 | `locationComparison` | 跨名称同位置对比：GPS 首点 ≤1.5km + 距离分档 + 轨迹形状校验；无 GPS/未迁移时为 `null` |
+| `locationComparison.routeQuality` | 同路径几何质量：`verifiedPeers`（参与校验的同伴数）、`roadKm`（路面偏差中位数）、`maxRoadKm`（最差同伴）、`gridJaccard`（网格重合中位数）；未做形状校验时为 `null` |
 | `gradeAdjusted` | 等价平路配速（Minetti 2002）：实际/等价配速、差值、爬升/公里（记录不足为 `null`） |
 | `temperatureDrift` | 逐秒温度漂移：起止温度、差值、最小/最大（无逐秒温度为 `null`） |
 | `comparison.label` | 路线对比含 `· 同起点` 表示已通过 GPS 首点校验；距离回退为 `±x% · a–bkm` |

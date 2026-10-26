@@ -13,10 +13,49 @@ import { summarizeActivityEnvironment } from './activity-environment';
 import { computeTemperatureDrift } from './activity-temperature';
 import { gradeAdjustedPace } from './grade-adjust';
 import { filterSameStart, haversineKm, SAME_LOCATION_RADIUS_KM, type GeoPoint } from './geo';
-import { buildRouteShape, filterByRouteShape, routeSignatureOf } from './route-shape';
+import {
+  buildRouteShape,
+  filterByRouteShape,
+  routeShapeSimilarity,
+  routeSignatureOf,
+  type RouteShape,
+} from './route-shape';
 import { routeKeyOf } from './insight-compare';
 import type { PeerActivity } from './db';
-import type { ActivityComparison, ActivityInsightResponse } from './types';
+import type { ActivityComparison, ActivityInsightResponse, RouteQuality } from './types';
+
+/**
+ * 汇总「同路径」对比的几何质量。
+ *
+ * 为什么需要：`同路径` 标签只说明通过了 0.55 阈值，AI 无法判断这条路线到底
+ * 有多贴合。给出垂直距离中位数/最差值后，AI 能说明「8 位同伴平均只差 12m，
+ * 是同一条环线」或「最差一位差 140m，可能是同公园的另一条环线」。
+ */
+function summarizeRouteQuality(
+  current: RouteShape,
+  peers: PeerActivity[],
+  shapes: Map<number, RouteShape | null>,
+): RouteQuality | null {
+  const roads: number[] = [];
+  const grids: number[] = [];
+  for (const p of peers) {
+    const shape = shapes.get(p.activityId);
+    if (!shape) continue;
+    const sim = routeShapeSimilarity(current, shape);
+    if (Number.isFinite(sim.roadKm) && sim.roadKm < 999) roads.push(sim.roadKm);
+    if (Number.isFinite(sim.gridJaccard)) grids.push(sim.gridJaccard);
+  }
+  if (roads.length === 0) return null;
+  roads.sort((a, b) => a - b);
+  grids.sort((a, b) => a - b);
+  const median = (xs: number[]) => xs[Math.floor(xs.length / 2)];
+  return {
+    verifiedPeers: roads.length,
+    roadKm: Math.round(median(roads) * 1000) / 1000,
+    maxRoadKm: Math.round(roads[roads.length - 1] * 1000) / 1000,
+    gridJaccard: grids.length > 0 ? Math.round(median(grids) * 1000) / 1000 : null,
+  };
+}
 
 function toPeerInputs(rows: PeerActivity[]): ComparisonPeerInput[] {
   return rows.map((p) => ({
@@ -117,6 +156,7 @@ export function getActivityInsight(activityId: number): ActivityInsightResponse 
       // 起点可能相距 >1.5km，仅靠起点半径会漏掉，但轨迹网格高度重叠。
       let shapeFiltered = sameLocation;
       let shapeLabel = `GPS ≤${SAME_LOCATION_RADIUS_KM}km`;
+      let routeQuality: RouteQuality | null = null;
       try {
         const currentTrack = db.getActivityTrack(activityId);
         const currentShape = buildRouteShape(currentTrack);
@@ -147,6 +187,7 @@ export function getActivityInsight(activityId: number): ActivityInsightResponse 
         if (currentShape && filtered.verified > 0) {
           shapeFiltered = filtered.kept;
           shapeLabel = `GPS ≤${SAME_LOCATION_RADIUS_KM}km · 同路径`;
+          routeQuality = summarizeRouteQuality(currentShape, shapeFiltered, shapes);
         }
       } catch {
         /* 降级：不做形状校验 */
@@ -157,6 +198,9 @@ export function getActivityInsight(activityId: number): ActivityInsightResponse 
         current,
         toPeerInputs(shapeFiltered),
       );
+      if (locationComparison && routeQuality) {
+        locationComparison.routeQuality = routeQuality;
+      }
     } catch {
       /* 降级：无同位置对比 */
     }
