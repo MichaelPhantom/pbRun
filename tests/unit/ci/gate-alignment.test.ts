@@ -140,6 +140,21 @@ describe('test:ci ↔ CI quality 作业对齐', () => {
     }
   });
 
+  test('e2e 趋势卡标题断言必须容忍图表增减 (不得写死完整清单)', () => {
+    // 标题由 trendChartTitle(records, running) 按**实际可渲染的图**派生:
+    // 夹具多一个 step_length 就会多出「步幅」, 少海拔就会少一项。写死完整字面串
+    // 会让组件正确行为(e2e 里 3 个引擎同时)误报红。
+    const spec = read('tests/e2e/activity-detail.spec.ts');
+    const line = spec.split('\n').find((l) => l.includes('趋势/'));
+    expect(line).toBeDefined();
+    const m = line!.match(/\/(.+)\//);
+    expect(m).toBeDefined();
+    const re = new RegExp(m![1]);
+    // 两种合法形态都必须匹配
+    expect(re.test('配速 / 心率 / 步频 / 海拔 趋势')).toBe(true);
+    expect(re.test('配速 / 心率 / 步频 / 步幅 / 海拔 趋势')).toBe(true);
+  });
+
   test('余量守护不得在顶层求值覆盖率产物 (否则 CI 会 ENOENT 崩整套件)', () => {
     const src = read('tests/unit/ci/threshold-margin.test.ts');
     // 顶层 `const x = actuals()` 会在 describe.skip 时照样执行 → CI (coverage 目录存在但

@@ -26,7 +26,9 @@ test.describe('活动详情页', () => {
     await page.goto('/pbrun/pages/900000001');
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(1500);
-    await expect(page.getByText(/配速 \/ 心率 \/ 步频 \/ 海拔 趋势/)).toBeVisible();
+    // 标题由实际可渲染的图派生 (trendChartTitle), 不要写死完整图表清单:
+    // 夹具里同时有 step_length, 标题会多出「步幅」; 缺海拔时又会少一项。
+    await expect(page.getByText(/配速 \/ 心率 \/ 步频( \/ 步幅)? \/ 海拔 趋势/)).toBeVisible();
     await expect(page.getByRole('heading', { name: '深度分析' })).toBeVisible();
   });
 
