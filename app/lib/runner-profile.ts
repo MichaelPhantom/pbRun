@@ -148,9 +148,11 @@ export function buildRunnerProfile(exclude: Activity): RunnerProfile {
     /* 降级 */
   }
 
-  // ---- 数据起始年份 (取最早一条; 单人历史通常 < 500 条) ----
+  // ---- 数据起始年份 (取最早一条跑步; 单人历史通常 < 500 条) ----
+  // 必须与 getStats('total') 的跑步口径一致: 否则「生涯 2140km / 241 次」会配上
+  // 一条更早的力量训练年份 (非跑步活动更早入库), 让 AI 误判跑龄。
   try {
-    const all = getActivities({ page: 1, limit: 500 });
+    const all = getActivities({ page: 1, limit: 500, runningOnly: true });
     const first = all.data[all.data.length - 1];
     if (first) firstRunYear = parseInt(activityDay(first).slice(0, 4), 10) || null;
   } catch {
@@ -200,9 +202,12 @@ function recentVolume(exclude: Activity, day: string) {
     const from60ms = addDays(base, -60).getTime();
     const selfTime = new Date(exclude.start_time_local || exclude.start_time || 0).getTime();
     // 取近 60 天 (单人 < 300 条), 排除本次, 按时窗归集
+    // 跑步口径: 近 7/28 天跑量、周环比、配速趋势、上次跑步都只在跑步内部有意义
+    // (篮球 1.6km / 乒乓 0.03km 会虚增「跑量」, 游泳 1670s/km 会拉歪配速趋势)。
     const res = getActivities({
       page: 1,
       limit: 300,
+      runningOnly: true,
       startDate: `${from60}T00:00:00`,
       endDate: exclude.start_time,
     });
@@ -258,9 +263,12 @@ function computeIntensityDist(exclude: Activity, day: string): { zone: number; p
   try {
     const base = new Date(`${day}T00:00:00Z`);
     const from28 = ymd(addDays(base, -28));
+    // 心率区间强度分布同样只取跑步: 力量训练/爬楼/游泳的区间时长会占满 Z1,
+    // 实测近 28 天 Z1 占比 7.0% (全类型) vs 0.6% (跑步), Z3 48.3% vs 52.8%。
     const res = getActivities({
       page: 1,
       limit: 300,
+      runningOnly: true,
       startDate: `${from28}T00:00:00`,
       endDate: exclude.start_time,
     });

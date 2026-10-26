@@ -12,10 +12,12 @@ import { POST } from '@/app/api/activities/[id]/analysis/route';
 import { NextRequest } from 'next/server';
 
 jest.mock('@/app/lib/db', () => ({
+  // isRunningType 现在从 sport.ts 转出, 路由/服务会直接调用, mock 必须提供
+  isRunningType: jest.fn(() => true),
   getActivityById: jest.fn(() => ({
     activity_id: 1,
     name: '测试跑',
-    activity_type: '跑步',
+    activity_type: 'running',
     start_time: '2026-09-12T11:08:31.000Z',
     distance: 10,
     duration: 3000,

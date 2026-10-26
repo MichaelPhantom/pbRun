@@ -194,6 +194,8 @@ export interface ActivityQueryParams {
   page?: number;                                 // 页码
   limit?: number;                                // 每页数量
   type?: string;                                 // 活动类型过滤
+  /** 只取跑步类型（表现分析口径，见 db.runningTypeClause） */
+  runningOnly?: boolean;
   startDate?: string;                            // 开始日期
   endDate?: string;                              // 结束日期
 }

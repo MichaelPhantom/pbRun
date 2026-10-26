@@ -23,7 +23,7 @@ export function formatInsightForCoach(insight: InsightResponse): string {
   const { vdot, load, decoupling, form, paceHr, categories, weather, routes, periodization } = insight;
 
   L.push(
-    `数据区间: ${insight.range.startDate} ~ ${insight.range.endDate}（${insight.activityCount} 次活动）`,
+    `数据区间: ${insight.range.startDate} ~ ${insight.range.endDate}（${insight.activityCount} 次跑步）`,
   );
 
   // VDOT

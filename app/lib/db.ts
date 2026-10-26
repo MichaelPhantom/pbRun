@@ -31,7 +31,14 @@ import { getPaceZoneBoundsFromVdot, getPaceZoneCenterFromVdot } from './vdot-pac
 import { periodKeyOf } from './date-utils';
 import { localDateRangeToUtc } from './timezone';
 import { hrZoneOf, resolveMaxHr } from './hr-zones';
+import { RUNNING_ACTIVITY_TYPES } from './sport';
 
+
+/**
+ * 是否属于跑步类型 —— 从 `sport.ts` 转出，保持调用方 `db.isRunningType(...)` 不变。
+ * 纯判定放在 `sport.ts` 以便客户端组件复用（不必引入 better-sqlite3）。
+ */
+export { isRunningType } from './sport';
 
 // Database connection (singleton)
 let db: Database.Database | null = null;
@@ -144,7 +151,7 @@ function startGeoSelect(): { lat: string; lng: string } {
 export function getActivities(
   params: ActivityQueryParams
 ): PaginatedResponse<Activity> {
-  const { page = 1, limit = 20, type, startDate, endDate } = params;
+  const { page = 1, limit = 20, type, runningOnly, startDate, endDate } = params;
   const offset = (page - 1) * limit;
 
   const db = getDatabase();
@@ -156,6 +163,9 @@ export function getActivities(
   if (type) {
     query += ' AND activity_type = ?';
     queryParams.push(type);
+  }
+  if (runningOnly) {
+    query += ` AND ${runningTypeClause('activities')}`;
   }
   if (startDate) {
     query += ' AND start_time >= ?';
@@ -296,7 +306,7 @@ export function getStats(period?: 'week' | 'month' | 'year' | 'total'): StatsRes
       default:
         startDate = now;
     }
-    dateFilter = 'WHERE start_time >= ?';
+    dateFilter = 'AND start_time >= ?';
     queryParams.push(startDate.toISOString());
   }
 
@@ -313,7 +323,7 @@ export function getStats(period?: 'week' | 'month' | 'year' | 'total'): StatsRes
       AVG(average_stride_length) as averageStrideLength,
       SUM(training_load) as totalTrainingLoad
     FROM activities
-    ${dateFilter}
+    WHERE ${runningTypeClause('activities')} ${dateFilter}
   `;
 
   const result = db.prepare(query).get(...queryParams) as {
@@ -430,6 +440,7 @@ export function getPersonalRecords(period: 'week' | 'month' | 'year' | 'total' |
   const rows = db.prepare(
     `SELECT activity_id, distance, duration, start_time FROM activities
      WHERE start_time >= ? AND start_time <= ? AND distance > 0
+       AND ${runningTypeClause('activities')}
      ORDER BY start_time ASC`
   ).all(toInclusiveStart(startStr, 'getPersonalRecords'), toInclusiveEnd(endStr, 'getPersonalRecords')) as { activity_id: number; distance: number; duration: number; start_time: string }[];
 
@@ -502,7 +513,8 @@ export function getPaceZoneStats(
      FROM activity_laps al
      INNER JOIN activities a ON a.activity_id = al.activity_id
      WHERE a.start_time >= ? AND a.start_time <= ?
-       AND al.average_pace IS NOT NULL AND al.distance > 0`
+       AND al.average_pace IS NOT NULL AND al.distance > 0
+       AND ${runningTypeClause('a')}`
   ).all(toInclusiveStart(startDate, 'getPaceZoneStats'), toInclusiveEnd(endDate, 'getPaceZoneStats')) as LapRow[];
 
   const zoneStats: Record<number, {
@@ -601,6 +613,7 @@ export function getVDOTHistory(limit: number = 50, offset: number = 0): VDOTData
       duration
     FROM activities
     WHERE vdot_value IS NOT NULL
+      AND ${runningTypeClause('activities')}
     ORDER BY start_time DESC
     LIMIT ? OFFSET ?
   `;
@@ -613,7 +626,10 @@ export function getVDOTHistory(limit: number = 50, offset: number = 0): VDOTData
 export function getVDOTHistoryTotal(): number {
   const db = getDatabase();
   const row = db
-    .prepare('SELECT COUNT(*) AS count FROM activities WHERE vdot_value IS NOT NULL')
+    .prepare(
+      `SELECT COUNT(*) AS count FROM activities
+       WHERE vdot_value IS NOT NULL AND ${runningTypeClause('activities')}`,
+    )
     .get() as { count: number };
   return row.count;
 }
@@ -654,6 +670,7 @@ export function getHrZoneStats(params: HrZoneAnalysisParams): HrZoneStat[] {
      FROM activity_laps al
      INNER JOIN activities a ON a.activity_id = al.activity_id
      WHERE al.average_heart_rate IS NOT NULL AND al.average_heart_rate > 0 AND al.distance > 0
+       AND ${runningTypeClause('a')}
      ${dateFilter}
      ORDER BY a.start_time, al.lap_index`
   ).all(...queryParams) as {
@@ -738,7 +755,7 @@ export function getVDOTTrend(params: VDOTTrendParams): VDOTTrendPoint[] {
   const { startDate, endDate, groupBy } = params;
   const db = getDatabase();
 
-  let dateFilter = 'WHERE vdot_value IS NOT NULL';
+  let dateFilter = `WHERE vdot_value IS NOT NULL AND ${runningTypeClause('activities')}`;
   const queryParams: string[] = [];
 
   if (startDate) {
@@ -815,7 +832,8 @@ export function getPeriodStats(startDate: string, endDate: string): PeriodStats 
        AVG(vdot_value) AS avgVDOT,
        SUM(training_load) AS totalTrainingLoad
      FROM activities
-     WHERE start_time >= ? AND start_time <= ?`
+     WHERE start_time >= ? AND start_time <= ?
+       AND ${runningTypeClause('activities')}`
   ).get(start, end) as {
     totalDistance?: number | null;
     totalDuration?: number | null;
@@ -854,6 +872,7 @@ export function getTrainingLoads(startDate: string, endDate: string): TrainingLo
        SUM(duration) AS duration
      FROM activities
      WHERE start_time_local IS NOT NULL AND start_time_local >= ? AND start_time_local <= ?
+       AND ${runningTypeClause('activities')}
      GROUP BY date
      ORDER BY date`
   ).all(startDate, endDate + 'T23:59:59.999') as { date: string; load: number; distance: number; duration: number }[];
@@ -872,7 +891,9 @@ export function getTrainingLoads(startDate: string, endDate: string): TrainingLo
 export function getLatestVdot(): number | null {
   const db = getDatabase();
   const row = db.prepare(
-    'SELECT vdot_value FROM activities WHERE vdot_value IS NOT NULL ORDER BY start_time DESC LIMIT 1'
+    `SELECT vdot_value FROM activities
+     WHERE vdot_value IS NOT NULL AND ${runningTypeClause('activities')}
+     ORDER BY start_time DESC LIMIT 1`
   ).get() as { vdot_value?: number } | undefined;
   return row?.vdot_value ?? null;
 }
@@ -890,6 +911,7 @@ export function getDailyDistances(year: number): { date: string; km: number }[] 
      FROM activities
      WHERE start_time_local IS NOT NULL
        AND start_time_local >= ? AND start_time_local <= ?
+       AND ${runningTypeClause('activities')}
      GROUP BY date
      ORDER BY date`
   ).all(`${year}-01-01`, `${year}-12-31T23:59:59.999`) as { date: string; km: number }[];
@@ -1018,6 +1040,7 @@ export function getVdotSamples(startDate: string, endDate: string): VdotSample[]
     `SELECT start_time_local AS date, vdot_value AS vdot
      FROM activities
      WHERE vdot_value IS NOT NULL AND start_time >= ? AND start_time <= ?
+       AND ${runningTypeClause('activities')}
      ORDER BY start_time_local`
   ).all(start, end) as { date: string; vdot: number }[];
   return rows
@@ -1038,7 +1061,8 @@ export function getHrZoneTotals(startDate: string, endDate: string): number[] {
   const end = toInclusiveEnd(endDate, 'getHrZoneTotals');
   const rows = db.prepare(
     `SELECT time_in_hr_zone FROM activities
-     WHERE time_in_hr_zone IS NOT NULL AND start_time >= ? AND start_time <= ?`
+     WHERE time_in_hr_zone IS NOT NULL AND start_time >= ? AND start_time <= ?
+       AND ${runningTypeClause('activities')}`
   ).all(start, end) as { time_in_hr_zone: string }[];
   const totals = [0, 0, 0, 0, 0, 0, 0];
   for (const row of rows) {
@@ -1074,6 +1098,7 @@ export function getLongRuns(
     `SELECT activity_id, start_time_local, distance, duration
      FROM activities
      WHERE distance >= ? AND duration > 0 AND start_time >= ? AND start_time <= ?
+       AND ${runningTypeClause('activities')}
      ORDER BY start_time_local`
   ).all(minKm, start, end) as {
     activity_id: number;
@@ -1107,6 +1132,7 @@ export function getFormSamples(startDate: string, endDate: string): {
             average_ground_contact_time, average_vertical_oscillation, average_vertical_ratio
      FROM activities
      WHERE start_time >= ? AND start_time <= ?
+       AND ${runningTypeClause('activities')}
      ORDER BY start_time_local`
   ).all(start, end) as {
     start_time_local: string;
@@ -1141,6 +1167,7 @@ export function getPaceHrSamples(
      FROM activities
      WHERE distance >= ? AND duration > 0 AND average_heart_rate > 0
        AND start_time >= ? AND start_time <= ?
+       AND ${runningTypeClause('activities')}
      ORDER BY start_time_local`
   ).all(minKm, start, end) as {
     distance: number;
@@ -1165,7 +1192,8 @@ export function getActivityCountInRange(startDate: string, endDate: string): num
   const start = toInclusiveStart(startDate, 'getActivityCountInRange');
   const end = toInclusiveEnd(endDate, 'getActivityCountInRange');
   const row = db.prepare(
-    'SELECT COUNT(*) AS count FROM activities WHERE start_time >= ? AND start_time <= ?'
+    `SELECT COUNT(*) AS count FROM activities
+     WHERE start_time >= ? AND start_time <= ? AND ${runningTypeClause('activities')}`
   ).get(start, end) as { count: number };
   return row?.count ?? 0;
 }
@@ -1209,6 +1237,7 @@ export function getLatestThresholdHr(): number | null {
   const row = db.prepare(
     `SELECT threshold_heart_rate FROM activities
      WHERE threshold_heart_rate IS NOT NULL AND threshold_heart_rate > 0
+       AND ${runningTypeClause('activities')}
      ORDER BY start_time DESC LIMIT 1`
   ).get() as { threshold_heart_rate?: number } | undefined;
   return row?.threshold_heart_rate ?? null;
@@ -1241,6 +1270,7 @@ export function getInsightActivityRows(startDate: string, endDate: string): Insi
             training_load, average_temperature
      FROM activities
      WHERE start_time >= ? AND start_time <= ?
+       AND ${runningTypeClause('activities')}
      ORDER BY start_time_local`
   ).all(start, end) as {
     activity_id: number;
@@ -1319,6 +1349,33 @@ function mapPeerRow(r: PeerActivityRow): PeerActivity {
 }
 
 /**
+ * SQL 片段：只保留跑步类型（`running` / `track_running` / `treadmill_running`）。
+ * 缺 `activity_type` 列时退化为恒真（旧库/未迁移库不会因缺列报错）。
+ *
+ * ## 两种口径（必须显式区分）
+ *
+ * pbRun 是跑步分析工具，但 Garmin 同步会把篮球/游泳/力量训练等一并写入同一张
+ * `activities` 表。生产库实测 348 条活动里只有 241 条是跑步，其余 107 条的距离、
+ * 配速、步频、心率区间语义完全不同：
+ *
+ *  - **表现分析口径（只取跑步）**：配速/心率/步频/VDOT/心率区间/配速区间/跑姿/
+ *    个人纪录/训练负荷/同路线对比/训练洞察。实测若不隔离：`/stats` 平均配速
+ *    从 369s/km 变成 989s/km（16:29/km）；心率区间 Z1 总时长从 698s 变成 91221s
+ *    （"轻松跑占比 66%" vs 实际 4%）；跑姿趋势混入篮球步频 16、跳绳 8。
+ *  - **活动日志口径（全类型）**：`/list` 的月度汇总与活动卡片 —— 用户明确要在
+ *    列表里看到所有运动，且带 `activity_type` 筛选器。故 `getMonthSummaries` /
+ *    `getActivities` 默认不过滤，其「N 公里 / N 次」与展开后的列表严格一致。
+ *
+ * 跑步类型集合来自 `sport.ts` 的 `RUNNING_ACTIVITY_TYPES`（单一来源，
+ * 与客户端 `isRunningType` 共用），避免 SQL 与 JS 两套列表漂移。
+ */
+function runningTypeClause(alias: string): string {
+  if (!hasActivityColumn('activity_type')) return '1=1';
+  const list = RUNNING_ACTIVITY_TYPES.map((t) => `'${t}'`).join(',');
+  return `${alias}.activity_type IN (${list})`;
+}
+
+/**
  * 查找与指定活动同路线的历史活动 (用于活动详情对比)。
  * 路线以名称的"地点前缀"( ' - ' 之前) 为指纹; 若无法识别则回退到"相近距离"。
  * 返回按时间升序的同行活动 (不含当前活动)。
@@ -1347,6 +1404,7 @@ export function getPeerActivities(
        WHERE activity_id != ?
          AND (name = ? OR name LIKE ?)
          AND distance >= ? AND distance <= ?
+         AND ${runningTypeClause('activities')}
        ORDER BY start_time_local`
     ).all(activityId, routeKey, `${routeKey} -%`, routeLo, routeHi) as PeerActivityRow[];
     if (rows.length > 0) {
@@ -1363,6 +1421,7 @@ export function getPeerActivities(
             ${geo.lng} AS start_lng
      FROM activities
      WHERE activity_id != ? AND distance >= ? AND distance <= ?
+       AND ${runningTypeClause('activities')}
      ORDER BY start_time_local DESC LIMIT 20`
   ).all(activityId, lo, hi) as PeerActivityRow[];
   return {
@@ -1407,6 +1466,7 @@ export function getLocationPeerActivities(
        AND start_lat BETWEEN ? AND ?
        AND start_lng BETWEEN ? AND ?
        AND distance BETWEEN ? AND ?
+       AND ${runningTypeClause('activities')}
      ORDER BY start_time_local ASC
      LIMIT 200`
   ).all(
@@ -1467,6 +1527,7 @@ export function getRouteShapePeerActivities(
        AND route_cells IS NOT NULL
        AND route_km BETWEEN ? AND ?
        AND distance BETWEEN ? AND ?
+       AND ${runningTypeClause('activities')}
      ORDER BY start_time_local ASC
      LIMIT ?`
   ).all(activityId, loLen, hiLen, loKm, hiKm, limit) as (PeerActivityRow & {

@@ -10,6 +10,7 @@ import { DataTable } from '@/app/components/ui/DataTable';
 import ActivityTrendCharts from '@/app/lib/components/charts/ActivityTrendCharts';
 import { ActivityInsightPanel, ROLE_LABEL, ROLE_TONE } from '@/app/lib/components/charts/ActivityInsightPanel';
 import { AiAnalysis } from '@/app/lib/components/ai/AiAnalysis';
+import { activityTypeLabel, activityTypeIcon, isRunningType } from '@/app/lib/sport';
 
 // 路线地图纯 SVG 客户端组件 (无 leaflet 依赖); 仅在客户端渲染避免 SSR window 引用。
 // 注: 本处动态 import 与 loading 回调在单测中因 next/dynamic 被 mock 且 ssr:false 而不可达
@@ -43,6 +44,10 @@ interface ActivityDetailClientProps {
 }
 
 export default function ActivityDetailClient({ activity, laps, records, track, profileSignal }: ActivityDetailClientProps) {
+  // 库里同时有篮球/游泳/力量训练: 配速/步频/步幅只在跑步内部可比
+  // (泳池 1670s/km、乒乓球 30826s/km、篮球步频 16 展示成「配速」「步频」纯属误导)。
+  const running = isRunningType(activity.activity_type);
+  const typeLabel = activityTypeLabel(activity.activity_type);
   const distanceKm = activity.distance ?? 0;
   const durationSec = activity.moving_time ?? activity.duration ?? 0;
   const durationMinutes = durationSec / 60;
@@ -78,15 +83,29 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
   });
 
   const overviewItems: { value: string; unit?: string; label: string }[] = [
-    { value: activity.vdot_value != null ? activity.vdot_value.toFixed(1) : '--', label: '即时跑力' },
+    // 跑步专属: VDOT / 配速 / 步频 / 步幅。非跑步活动这些列语义不同, 直接不渲染
+    // (而不是显示 '--', 那会让人以为数据缺失)。
+    ...(running
+      ? [{ value: activity.vdot_value != null ? activity.vdot_value.toFixed(1) : '--', label: '即时跑力' }]
+      : []),
     { value: distanceKm > 0 ? (distanceKm % 1 === 0 ? String(distanceKm) : distanceKm.toFixed(2)) : '--', unit: distanceKm > 0 ? 'km' : undefined, label: '距离' },
-    { value: activity.average_pace != null ? formatPace(activity.average_pace, false) : '--', unit: activity.average_pace != null ? '/km' : undefined, label: '平均配速' },
+    ...(running
+      ? [{
+          value: activity.average_pace != null ? formatPace(activity.average_pace, false) : '--',
+          unit: activity.average_pace != null ? '/km' : undefined,
+          label: '平均配速',
+        }]
+      : []),
     { value: durationMinutes > 0 ? (durationMinutes % 1 === 0 ? String(Math.round(durationMinutes)) : durationMinutes.toFixed(1)) : '--', unit: durationMinutes > 0 ? '分' : undefined, label: '时长' },
     { value: activity.average_heart_rate != null ? String(Math.round(activity.average_heart_rate)) : '--', unit: activity.average_heart_rate != null ? 'bpm' : undefined, label: '平均心率' },
     { value: activity.training_load != null ? activity.training_load.toFixed(1) : '--', label: '训练负荷' },
     { value: activity.total_ascent != null ? String(Math.round(activity.total_ascent)) : '--', unit: activity.total_ascent != null ? 'm' : undefined, label: '累计爬升' },
-    { value: activity.average_cadence != null ? String(Math.round(activity.average_cadence)) : '--', unit: activity.average_cadence != null ? 'spm' : undefined, label: '步频' },
-    { value: activity.average_stride_length != null ? activity.average_stride_length.toFixed(2) : '--', unit: activity.average_stride_length != null ? 'm' : undefined, label: '步幅' },
+    ...(running
+      ? [
+          { value: activity.average_cadence != null ? String(Math.round(activity.average_cadence)) : '--', unit: activity.average_cadence != null ? 'spm' : undefined, label: '步频' },
+          { value: activity.average_stride_length != null ? activity.average_stride_length.toFixed(2) : '--', unit: activity.average_stride_length != null ? 'm' : undefined, label: '步幅' },
+        ]
+      : []),
     { value: activity.average_power != null ? String(Math.round(activity.average_power)) : '--', unit: activity.average_power != null ? 'W' : undefined, label: '平均功率' },
   ];
 
@@ -95,11 +114,17 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
       {/* 标题 */}
       <div className="flex flex-col gap-1">
         <h1 className="text-lg font-semibold leading-tight text-fg sm:text-xl">
-          {activity.name || `跑步 ${formatDateTime(activity.start_time_local ?? activity.start_time)}`}
+          {activity.name || `${typeLabel} ${formatDateTime(activity.start_time_local ?? activity.start_time)}`}
           <span className="ml-1.5 text-xs font-normal text-fg-muted sm:text-sm">#{activity.activity_id}</span>
         </h1>
         <div className="flex flex-wrap items-center gap-2 text-xs text-fg-secondary">
           <span>{formatListDateTime(activity.start_time_local ?? activity.start_time)}</span>
+          {!running && (
+            <Badge variant="neutral">
+              <span aria-hidden className="mr-1">{activityTypeIcon(activity.activity_type)}</span>
+              {typeLabel}
+            </Badge>
+          )}
           {activity.sub_sport_type && <Badge variant="neutral">{activity.sub_sport_type}</Badge>}
           {activity.sport_type && activity.sport_type !== '跑步' && <Badge variant="neutral">{activity.sport_type}</Badge>}
         </div>
@@ -129,7 +154,7 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
 
       {/* 趋势图 */}
       {records.length > 0 && (
-        <SectionCard title="配速 / 心率 / 步频 / 海拔 趋势" accent>
+        <SectionCard title={running ? '配速 / 心率 / 步频 / 海拔 趋势' : '心率 / 海拔 趋势'} accent>
           <ActivityTrendCharts records={records} />
         </SectionCard>
       )}
@@ -159,7 +184,15 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
       )}
 
       {/* 分段表 */}
-      <SectionCard title="分段数据" accent action={bestLapIndex >= 0 ? <Badge variant="good">最快 K{bestLapIndex} {formatPace(bestPace, false)}</Badge> : undefined}>
+      <SectionCard
+        title="分段数据"
+        accent
+        action={
+          running && bestLapIndex >= 0 ? (
+            <Badge variant="good">最快 K{bestLapIndex} {formatPace(bestPace, false)}</Badge>
+          ) : undefined
+        }
+      >
         {laps.length === 0 ? (
           <div className="py-8 text-center text-sm text-fg-muted">暂无分段数据</div>
         ) : (
@@ -169,10 +202,15 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
               { key: 'i', label: '#', className: 'w-6' },
               { key: 'role', label: '角色' },
               { key: 'dist', label: '距离', unit: 'km' },
-              { key: 'pace', label: '配速', unit: 'min/km' },
+              // 配速/步频列只对跑步展示: 泳池游泳的 lap 「配速」是每公里游泳时间
+              ...(running
+                ? [
+                    { key: 'pace', label: '配速', unit: 'min/km' },
+                    { key: 'cad', label: '步频', unit: 'spm' },
+                  ]
+                : []),
               { key: 'dur', label: '时长', unit: 'min' },
               { key: 'hr', label: '心率', unit: 'bpm' },
-              { key: 'cad', label: '步频', unit: 'spm' },
               { key: 'asc', label: '爬升', unit: 'm' },
             ]}
             rows={laps.map((lap) => {

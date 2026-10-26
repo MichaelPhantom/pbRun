@@ -168,7 +168,7 @@ export default function InsightClient({
           <span className="tnum">
             {timeRangeDays === 0 ? '全部历史' : insight.range.startDate} – {insight.range.endDate}
           </span>
-          <span className="text-fg-muted">共 {insight.activityCount} 次活动</span>
+          <span className="text-fg-muted">共 {insight.activityCount} 次跑步</span>
         </div>
       </SectionCard>
 

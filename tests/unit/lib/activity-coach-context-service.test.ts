@@ -2,6 +2,7 @@
  * 活动 AI 可比上下文编排：DB 取数降级策略 + 分档同距离口径 + 环境可比性。
  */
 jest.mock('@/app/lib/db', () => ({
+  isRunningType: jest.fn(() => true),
   getActivityById: jest.fn(),
   getPeerActivities: jest.fn(),
   getActivityStartGeo: jest.fn(),
@@ -18,6 +19,7 @@ import type { Activity, ActivityInsightResponse } from '@/app/lib/types';
 import type { PeerActivity } from '@/app/lib/db';
 
 const dbMock = db as unknown as {
+  isRunningType: jest.Mock;
   getActivityById: jest.Mock;
   getPeerActivities: jest.Mock;
   getActivityStartGeo: jest.Mock;

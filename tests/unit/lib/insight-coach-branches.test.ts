@@ -35,7 +35,7 @@ describe('全空数据', () => {
   test('基础段仍输出, 可选段全部跳过 (不抛错, 不出现 undefined/NaN)', () => {
     const text = formatInsightForCoach(base());
     expect(text).toContain('【全局训练指标】');
-    expect(text).toContain('数据区间: 2026-06-01 ~ 2026-09-22（0 次活动）');
+    expect(text).toContain('数据区间: 2026-06-01 ~ 2026-09-22（0 次跑步）');
     expect(text).toContain('跑力(VDOT): 最新 --');
     expect(text).toContain('趋势 +0.00/月');
     // 可选段不应出现标题

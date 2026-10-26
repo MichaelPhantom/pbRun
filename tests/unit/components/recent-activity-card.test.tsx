@@ -6,7 +6,7 @@ function act(over: Partial<Activity> = {}): Activity {
   return {
     activity_id: 1,
     name: '晨跑',
-    activity_type: '跑步',
+    activity_type: 'running',
     start_time: '2026-09-12T11:08:31.000Z',
     start_time_local: '2026-09-12T19:08:31',
     distance: 10,
@@ -43,5 +43,33 @@ describe('RecentActivityCard', () => {
   test('训练负荷保留一位小数 (与其他视图一致)', () => {
     render(<RecentActivityCard activity={act({ training_load: 123.456 })} />);
     expect(screen.getByText('123.5')).toBeInTheDocument();
+  });
+
+  test('跑步卡片展示配速', () => {
+    const { container } = render(<RecentActivityCard activity={act({ average_pace: 300 })} />);
+    expect(container.textContent).toContain("5'00''");
+  });
+
+  test('非跑步卡片不展示配速 (游泳/篮球的 average_pace 不是跑步配速), 改展示类型徽标', () => {
+    const { container } = render(
+      <RecentActivityCard
+        activity={act({ activity_type: 'lap_swimming', name: '泳池', average_pace: 1670 })}
+      />,
+    );
+    expect(container.textContent).not.toContain("27'50''");
+    expect(screen.getByText('泳池游泳')).toBeInTheDocument();
+  });
+
+  test('非跑步且无名称时按运动类型兜底命名 (不再一律「跑步」)', () => {
+    render(<RecentActivityCard activity={act({ activity_type: 'basketball', name: '' })} />);
+    expect(screen.getByRole('heading', { name: /篮球 2026/ })).toBeInTheDocument();
+  });
+
+  test('旧库空 activity_type 按跑步处理: 展示配速, 不显示类型徽标', () => {
+    const { container } = render(
+      <RecentActivityCard activity={act({ activity_type: '', average_pace: 330 })} />,
+    );
+    expect(container.textContent).toContain("5'30''");
+    expect(screen.queryByText('跑步')).toBeNull();
   });
 });

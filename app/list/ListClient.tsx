@@ -11,8 +11,14 @@ import {
 import type { Activity } from '@/app/lib/types';
 import type { MonthSummary } from '@/app/lib/types';
 import { monthToRange } from '@/app/lib/date-utils';
+import { activityTypeLabel, activityTypeIcon, isRunningType } from '@/app/lib/sport';
 
 const MONTHS_PAGE_SIZE = 6;
+
+/** 活动类型键：空值/缺列归入 `running`（与 `isRunningType` 的旧库兼容口径一致）。 */
+function typeKeyOf(a: Activity): string {
+  return a.activity_type || 'running';
+}
 
 // basePath 前缀 (与 next.config.ts 同步): next/link 自动加, 手写 fetch 需手动拼
 const API_BASE = "/pbrun";
@@ -136,10 +142,16 @@ export default function ListClient({
     return () => observer.disconnect();
   }, [monthSummaries.length, totalMonths, loadMoreMonths]);
 
+  // 类型筛选项以**原始 activity_type 键**为值 (空值归入 running), 展示名走
+  // `activityTypeLabel` —— 否则下拉里会出现 `strength_training` 这种原始键,
+  // 而库里空 `activity_type` 的旧数据会被显示成中文「跑步」当键, 与真实
+  // `running` 分裂成两个看起来一样的选项。
   const typeOptions = useMemo(() => {
-    const set = new Set<string>();
-    Object.values(activitiesByMonth).flat().forEach((a) => set.add(a.activity_type || '跑步'));
-    return ['all', ...Array.from(set).sort()];
+    const keys = new Set<string>();
+    Object.values(activitiesByMonth).flat().forEach((a) => keys.add(typeKeyOf(a)));
+    return Array.from(keys).sort((x, y) =>
+      activityTypeLabel(x).localeCompare(activityTypeLabel(y), 'zh-Hans-CN'),
+    );
   }, [activitiesByMonth]);
 
   const filteredItemsForMonth = useMemo(() => {
@@ -147,7 +159,7 @@ export default function ListClient({
     const list = activitiesByMonth[expandedMonth] ?? [];
     let out = list;
     if (typeFilter !== 'all') {
-      out = out.filter((a) => (a.activity_type || '跑步') === typeFilter);
+      out = out.filter((a) => typeKeyOf(a) === typeFilter);
     }
     if (searchQuery.trim()) {
       const q = searchQuery.trim().toLowerCase();
@@ -174,9 +186,9 @@ export default function ListClient({
           className="tnum rounded-lg border border-border bg-surface px-3 py-2 text-sm text-fg-secondary"
         >
           <option value="all">所有类型</option>
-          {typeOptions.filter((t) => t !== 'all').map((t) => (
+          {typeOptions.map((t) => (
             <option key={t} value={t}>
-              {t}
+              {activityTypeLabel(t)}
             </option>
           ))}
         </select>
@@ -285,7 +297,9 @@ function ActivityCard({
   activity: Activity;
   onSelect: () => void;
 }) {
-  const name = a.name || `跑步 ${formatListDateTime(a.start_time_local ?? a.start_time)}`;
+  const running = isRunningType(a.activity_type);
+  // 无名称时按运动类型兜底 (而不是一律「跑步」—— 篮球/力量训练也被同步进库)
+  const name = a.name || `${activityTypeLabel(a.activity_type)} ${formatListDateTime(a.start_time_local ?? a.start_time)}`;
   const duration = a.moving_time ?? a.duration;
   return (
     <button
@@ -297,7 +311,7 @@ function ActivityCard({
         className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-6xl opacity-[0.07]"
         aria-hidden
       >
-        🏃
+        {activityTypeIcon(a.activity_type)}
       </div>
 
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -319,11 +333,18 @@ function ActivityCard({
           {a.distance != null ? `${Number(a.distance).toFixed(2)} 公里` : '--'}
         </span>
         <span className="text-sm text-fg-secondary">
-          {formatDuration(duration)} {formatPaceShort(a.average_pace)}
+          {formatDuration(duration)}
+          {/* 配速只对跑步有意义: 泳池 1670s/km、乒乓球 30826s/km 展示出来只会误导 */}
+          {running && ` ${formatPaceShort(a.average_pace)}`}
         </span>
       </div>
 
       <div className="tnum flex flex-wrap gap-4 text-sm">
+        {!running && (
+          <span className="rounded-md bg-[var(--surface-2)] border border-[var(--border)] px-1.5 py-0.5 text-[11px] text-fg-secondary">
+            {activityTypeLabel(a.activity_type)}
+          </span>
+        )}
         {a.training_load != null && (
           <span className="text-fg-secondary">
             <span className="font-medium text-fg-secondary">{a.training_load.toFixed(1)}</span> 训练负荷

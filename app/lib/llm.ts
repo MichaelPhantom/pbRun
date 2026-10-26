@@ -9,6 +9,7 @@
 import type { Activity, ActivityLap } from '@/app/lib/types';
 import { formatPace, formatDuration } from '@/app/lib/format';
 import { findPreset, resolvePresets } from '@/app/lib/model-curation';
+import { activityTypeLabel, isRunningType } from '@/app/lib/sport';
 
 export { DEFAULT_MODEL } from '@/app/lib/model-curation';
 
@@ -128,6 +129,92 @@ const SYSTEM_PROMPT = `你是一位世界顶级的精英跑步教练与运动科
 - **可执行性强**：建议必须具体到数字、区间、频率，而非模糊描述
 - **风险提示**：识别潜在伤病风险并给出预防措施
 - **语气风格**：鼓励为主、客观中立、专业严谨，像一位经验丰富的私人教练`;
+
+/**
+ * 非跑步活动（游泳/篮球/力量训练/爬升/HIIT…）的 system prompt。
+ *
+ * 为什么必须分开：跑步教练框架（VDOT / 配速区间 / 步频步幅 / 触地平衡 / 触地时间）
+ * 对泳池游泳、力量训练、篮球完全不适用。把游泳的 `average_pace`（1670s/km）
+ * 塞进「配速策略分析」会直接产出错误结论（「配速 27:50/km，节奏偏慢」）。
+ * 非跑步活动的价值在**负荷/心率区间/技术动作/恢复**，故换一套框架。
+ */
+const NON_RUNNING_SYSTEM_PROMPT = `你是一位世界顶级的综合体能教练与运动科学专家，擅长游泳、力量训练、球类、爬升、
+HIIT、跳绳等非跑步运动的训练诊断。
+
+【核心原则】
+1. **个性化解读优先**：始终以【跑者画像】为基准判断本次训练的负荷是否合理、恢复是否充足。
+2. **不套用跑步指标**：本活动**不是跑步**，跑步专属指标（跑步配速、步频、步幅、触地平衡、
+   跑力值）对本次没有意义，数据里也不会提供。若某项数据缺失，说明该运动不采集该指标 ——
+   绝不能凭空推断，也不要说「数据缺失，建议补齐」。
+3. **按运动专项解读**：游泳看每 100m 配速与划频、力量训练看组数/负荷/心率区间、球类看
+   间歇强度分布与心率区间占比、爬楼看爬升量与心率漂移。用该运动自己的评价体系。
+4. **交叉负荷视角**：这是**跑步者的交叉训练**。必须说明它对跑步的影响 —— 是主动恢复、
+   维持有氧、还是侵占了恢复资源（例如高强度篮球会显著增加下肢离心负荷，影响次日跑步质量）。
+5. **可执行性导向**：建议要具体（本次负荷在周总量中的占比、下次同类训练的强度/时长、
+   与跑步课表的间隔安排）。
+
+【分析框架（逐项覆盖，数据不支持的项直接跳过）】
+
+### 1. 训练性质与执行质量
+- 判定本次在该运动中的性质（有氧维持/力量刺激/技术练习/高强度间歇/主动恢复）
+- 用**时长 + 平均心率 + 心率区间分布 + 训练负荷**评估执行强度是否达到预期
+- 指出偏差原因（强度过高/过低、间歇恢复不足、动作代偿等）
+
+### 2. 强度与心率
+- **心率区间分布**：Z1–Z5 各区间时长占比，判断这次是「轻松有氧」还是「高强度」
+- **心率 - 时长关系**：同等心率下时长是否明显超出个人常态（过量信号）
+- **训练负荷（TL）**：与近期跑步负荷对比，说明它在周总量中的分量
+
+### 3. 该运动的关键指标
+- **游泳**：每 100m 配速、划频（如有）、分段一致性、SWOLF 类效率指标
+- **力量训练**：总时长、心率区间（力量训练常驻 Z1/Z2，若大量 Z3+ 说明组间休息过短）
+- **球类/间歇类**：心率区间在高强度段的停留时间、间歇密度
+- **爬楼/跳绳**：累计爬升或总次数、心率漂移（后程心率明显上升 = 有氧储备被消耗）
+- 没有对应数据时，只讲**时长 / 心率 / 负荷 / 热量**这四个所有运动都有的指标
+
+### 4. 对跑步的影响（交叉训练视角）
+- 本次是**帮助**还是**妨碍**跑步？依据：心率区间分布 + 负荷大小 + 与上次跑步的间隔
+- 若强度高（大量 Z3+ 或负荷 > 当日跑步均值）：提示下肢/中枢疲劳，建议次日跑步降级为 Z1–Z2 或休息
+- 若强度低（几乎全 Z1–Z2）：视为主动恢复，可正常安排跑步
+
+### 5. 负荷与恢复
+- 结合【跑者画像】的近 7/28 天跑量、CTL/ATL/TSB，判断本次是否让恢复不足
+- 给出恢复建议（时长、方式、与下次跑步的间隔）
+
+【输出格式规范】
+
+## 📊 一句话总评
+1-2 句话定性本次交叉训练的价值与风险（例："本次力量训练负荷适中且心率全在 Z2 以下，
+对明日节奏跑无影响，可视为有效的力量维持"）。
+
+## 🎯 训练性质与执行质量
+- **判定性质**：[有氧维持/力量刺激/技术练习/高强度间歇/主动恢复] + 理由
+- **执行评分**：[优秀/良好/合格/需改进] + 依据（时长/心率/负荷的具体数值）
+
+## 📈 数据解读
+- **强度分布**：[心率区间占比，如 Z1 12% / Z2 68% / Z3 20%]
+- **负荷定位**：[训练负荷数值 + 与近期跑步负荷的对比]
+- **该运动专项**：[游泳每 100m 配速 / 力量训练组间强度 / 球类间歇密度；无数据则跳过]
+
+## 💡 亮点与改进空间
+### ✅ 做得好的方面（1-2 条）
+### ⚠️ 可优化之处（1-2 条）
+
+## 🏃 对跑步训练的影响与安排
+- **本次影响**：[促进恢复 / 中性 / 增加疲劳] + 依据
+- **下次跑步建议**：[具体类型 + 距离 + 强度区间 + 建议间隔]
+- **本周安排**：[交叉训练在周总量中的合理占比]
+
+## 📅 长期视角
+- **交叉训练定位**：[伤病预防 / 有氧补充 / 力量短板 / 技术练习]
+- **3 个月建议**：[频率 + 强度 + 与跑步课表的搭配]
+
+【写作纪律】
+- **绝不套用跑步术语**：不写「配速区间」「步频 170-190」「触地平衡」「VDOT」
+- **数据说话**：结论必须有具体数值（时长分:秒、心率 bpm、区间占比 %、负荷值、热量 kcal）
+- **交叉视角**：每条建议都要回答「这对跑步有什么用/有什么代价」
+- **篇幅**：全文 800 字以内，宁可短而准，不要凑板块
+- **语气风格**：专业、务实，像一位懂跑步的体能教练`;
 
 /** freellmapi 网关配置 (从环境变量读取); 未配置返回 null。 */
 export function getFreellmConfig(): { baseUrl: string; key: string } | null {
@@ -322,6 +409,9 @@ export function buildAnalysisMessages(
   // activities.distance 在 DB 中即为公里 (详情页/列表页/MCP 均按公里使用); 仅 laps 距离为米。
   const dist = activity.distance ?? 0;
   const dur = activity.moving_time || activity.duration || 0;
+  // 非跑步活动（游泳/篮球/力量训练）走另一套 prompt: 跑步教练框架会把泳池的
+  // average_pace(1670s/km) 当「配速偏慢」、篮球步频 16 当「步频过低」来批评。
+  const running = isRunningType(activity.activity_type);
   const ordered = laps.slice().sort((a, b) => a.lap_index - b.lap_index);
 
   // 分段标签用累计距离区间而非序号：laps 含非整公里段（如 709m/472m），
@@ -332,9 +422,11 @@ export function buildAnalysisMessages(
       const segKm = (l.distance ?? 0) / 1000; // laps.distance 单位为米
       const seg = `${cumKm.toFixed(1)}-${(cumKm + segKm).toFixed(1)}km`;
       cumKm += segKm;
-      const parts = [seg, formatPace(l.average_pace, false)];
+      const parts = running
+        ? [seg, formatPace(l.average_pace, false)]
+        : [seg, formatDuration(l.duration)];
       if (l.average_heart_rate != null) parts.push(`${Math.round(l.average_heart_rate)}bpm`);
-      if (l.average_cadence != null) parts.push(`${Math.round(l.average_cadence)}spm`);
+      if (running && l.average_cadence != null) parts.push(`${Math.round(l.average_cadence)}spm`);
       if (l.total_ascent != null) parts.push(`${l.total_ascent >= 0 ? '+' : ''}${Math.round(l.total_ascent)}m`);
       return parts.join(' ');
     })
@@ -342,26 +434,38 @@ export function buildAnalysisMessages(
 
   const date = (activity.start_time_local || activity.start_time || '').slice(0, 10) || '--';
 
-  const user = `${profileBlock ? profileBlock + '\n\n' : ''}【活动】
-日期: ${date}
-名称: ${activity.name || '--'}  类型: ${activity.sub_sport_type || activity.sport_type || '跑步'}
-距离: ${dist.toFixed(2)} km  移动时长: ${formatDuration(dur)}  总时长: ${formatDuration(activity.duration)}
-平均配速: ${formatPace(activity.average_pace, false)}  最大速度: ${activity.max_speed != null ? (activity.max_speed * 3.6).toFixed(1) : '--'} km/h
-平均心率: ${fmtNum(activity.average_heart_rate, 0, 'bpm')}  最大心率: ${fmtNum(activity.max_heart_rate, 0, 'bpm')}
+  const typeName = activity.sub_sport_type || activity.sport_type || activityTypeLabel(activity.activity_type);
+
+  // 跑步专属行（配速/步频/步幅/触地/VDOT）对非跑步活动整行不输出:
+  // 宁可让模型看到「没有这一项」，也不要给它一个语义错误的值去解读。
+  const runningLines = running
+    ? `平均配速: ${formatPace(activity.average_pace, false)}  最大速度: ${activity.max_speed != null ? (activity.max_speed * 3.6).toFixed(1) : '--'} km/h
 平均步频: ${fmtNum(activity.average_cadence, 0, 'spm')}  步幅: ${fmtNum(activity.average_stride_length, 2, 'm')}
 触地平衡: ${fmtNum(activity.average_gct_balance, 1, '%')}  触地时间: ${fmtNum(activity.average_ground_contact_time, 0, 'ms')}  垂直摆动: ${fmtNum(activity.average_vertical_oscillation, 1, 'cm')}
+VDOT: ${fmtNum(activity.vdot_value, 1)}  有氧训练效果: ${fmtNum(activity.total_training_effect, 1)}  无氧: ${fmtNum(activity.total_anaerobic_training_effect, 1)}
+TSS: ${fmtNum(activity.training_stress_score, 0)}  IF: ${fmtNum(activity.intensity_factor, 2)}`
+    : `平均速度: ${activity.average_speed != null ? activity.average_speed.toFixed(2) : '--'} km/h  最大速度: ${activity.max_speed != null ? (activity.max_speed * 3.6).toFixed(1) : '--'} km/h
+训练效果: ${fmtNum(activity.total_training_effect, 1)}  无氧效果: ${fmtNum(activity.total_anaerobic_training_effect, 1)}`;
+
+  const lapTitle = running ? '【每公里分段】（区间为累计距离，非序号）' : '【分段明细】（区间为累计距离，非序号）';
+
+  const user = `${profileBlock ? profileBlock + '\n\n' : ''}【活动】
+日期: ${date}
+名称: ${activity.name || '--'}  类型: ${typeName}${running ? '' : '（非跑步）'}
+距离: ${dist.toFixed(2)} km  移动时长: ${formatDuration(dur)}  总时长: ${formatDuration(activity.duration)}
+${runningLines}
+平均心率: ${fmtNum(activity.average_heart_rate, 0, 'bpm')}  最大心率: ${fmtNum(activity.max_heart_rate, 0, 'bpm')}
 平均功率: ${fmtNum(activity.average_power, 0, 'W')}  标准化功率: ${fmtNum(activity.normalized_power, 0, 'W')}  功率体重比: ${fmtNum(activity.average_power_to_weight, 1, 'W/kg')}
 累计爬升: ${fmtNum(activity.total_ascent, 0, 'm')}  累计下降: ${fmtNum(activity.total_descent, 0, 'm')}  平均坡度: ${fmtNum(activity.avg_grade, 1, '%')}
-VDOT: ${fmtNum(activity.vdot_value, 1)}  训练负荷: ${fmtNum(activity.training_load, 0)}  有氧训练效果: ${fmtNum(activity.total_training_effect, 1)}  无氧: ${fmtNum(activity.total_anaerobic_training_effect, 1)}
-TSS: ${fmtNum(activity.training_stress_score, 0)}  IF: ${fmtNum(activity.intensity_factor, 2)}
+训练负荷: ${fmtNum(activity.training_load, 0)}
 平均海拔: ${fmtNum(activity.avg_altitude, 0, 'm')}  热量: ${fmtNum(activity.calories, 0, 'kcal')}  温度: ${fmtNum(activity.average_temperature, 1, '°C')}
 心率区间时间: ${fmtZoneTimes(activity.time_in_hr_zone)}
 
-【每公里分段】（区间为累计距离，非序号）
+${lapTitle}
 ${lapLines || '(无分段数据)'}${contextBlock ? `\n\n${contextBlock}` : ''}`;
 
   return [
-    { role: 'system', content: SYSTEM_PROMPT },
+    { role: 'system', content: running ? SYSTEM_PROMPT : NON_RUNNING_SYSTEM_PROMPT },
     { role: 'user', content: user },
   ];
 }

@@ -431,6 +431,67 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
     expect(within(overview).getByText('60')).toBeInTheDocument();
   });
 
+  test('非跑步活动 (泳池游泳): 隐藏配速/步频/步幅/跑力, 保留距离/时长/心率/负荷, 标题带类型徽标', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'lap_swimming',
+      sport_type: '游泳',
+      sub_sport_type: '泳池游泳',
+      name: '',
+      distance: 1.5,
+      average_pace: 1670, // 27:50/km —— 绝不是跑步配速
+      average_cadence: 32,
+      average_stride_length: null,
+      vdot_value: null,
+      average_heart_rate: 132,
+      training_load: 45,
+      average_power: null,
+      average_gct_balance: null,
+    });
+    render(await page('2001'));
+
+    const overview = screen.getByText('活动概览').closest('section')!;
+    // 跑步专属指标整列不渲染 (不是显示 '--')
+    for (const label of ['即时跑力', '平均配速', '步频', '步幅']) {
+      expect(within(overview).queryByText(label)).toBeNull();
+    }
+    // 通用指标照常
+    for (const label of ['距离', '时长', '平均心率', '训练负荷']) {
+      expect(within(overview).getByText(label)).toBeInTheDocument();
+    }
+    expect(within(overview).queryByText("27'50''")).toBeNull();
+
+    // 标题兜底用类型名而不是「跑步」; 类型徽标可见
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/泳池游泳/);
+    expect(screen.getByRole('heading', { level: 1 })).not.toHaveTextContent(/跑步/);
+    expect(screen.getAllByText('泳池游泳').length).toBeGreaterThanOrEqual(1);
+  });
+
+  test('非跑步活动的分段表不展示配速/步频列, 也不给「最快 K」徽章', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'basketball',
+      name: '篮球',
+      average_pace: 1616,
+      average_cadence: 16,
+    });
+    render(await page('2002'));
+
+    expect(screen.queryByText(/最快 K/)).toBeNull();
+    const table = screen.getByRole('table', { name: '每公里分段数据' });
+    expect(within(table).queryByText('配速')).toBeNull();
+    expect(within(table).queryByText('步频')).toBeNull();
+    expect(within(table).getByText('距离')).toBeInTheDocument();
+    expect(within(table).getByText('时长')).toBeInTheDocument();
+  });
+
+  test('非跑步活动的趋势图标题不宣称配速/步频', async () => {
+    db.getActivityById.mockReturnValue({ ...activity, activity_type: 'indoor_cardio', name: '室内有氧' });
+    render(await page('2003'));
+    expect(screen.getByText('心率 / 海拔 趋势')).toBeInTheDocument();
+    expect(screen.queryByText(/配速 \/ 心率 \/ 步频 \/ 海拔 趋势/)).toBeNull();
+  });
+
   test('无 GPS / 无逐秒记录 / 无分段 / 无跑步动态 → 对应区块不渲染', async () => {
     db.getActivityTrack.mockReturnValue(null);
     db.getActivityRecords.mockReturnValue([]);

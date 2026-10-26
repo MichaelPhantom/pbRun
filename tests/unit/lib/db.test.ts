@@ -13,10 +13,19 @@ import {
 // Mock better-sqlite3
 const mockGet = jest.fn();
 const mockAll = jest.fn();
-const mockPrepare = jest.fn(() => ({
-  get: mockGet,
-  all: mockAll,
-}));
+const ACTIVITY_COLUMNS = [
+  { name: 'activity_type' },
+  { name: 'track' },
+  { name: 'start_lat' },
+  { name: 'start_lng' },
+];
+/** PRAGMA table_info 由独立桩回答, 不占用业务查询的 mockReturnValueOnce 队列。 */
+const mockPrepare = jest.fn((sql?: unknown) => {
+  if (/^\s*PRAGMA\s+table_info/i.test(String(sql ?? ''))) {
+    return { all: () => ACTIVITY_COLUMNS, get: () => undefined };
+  }
+  return { get: mockGet, all: mockAll };
+});
 const mockClose = jest.fn();
 
 jest.mock('better-sqlite3', () => {

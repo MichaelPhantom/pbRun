@@ -10,7 +10,21 @@
  */
 const mockGet = jest.fn();
 const mockAll = jest.fn();
-const mockPrepare = jest.fn(() => ({ get: mockGet, all: mockAll }));
+/** PRAGMA table_info 由独立桩回答, 不占用业务查询的 mockReturnValueOnce 队列。 */
+const ACTIVITY_COLUMNS = [
+  { name: 'activity_type' },
+  { name: 'track' },
+  { name: 'start_lat' },
+  { name: 'start_lng' },
+  { name: 'route_cells' },
+  { name: 'route_km' },
+];
+const mockPrepare = jest.fn((sql?: unknown) => {
+  if (/^\s*PRAGMA\s+table_info/i.test(String(sql ?? ''))) {
+    return { all: () => ACTIVITY_COLUMNS, get: () => undefined };
+  }
+  return { get: mockGet, all: mockAll };
+});
 const mockClose = jest.fn();
 jest.mock('better-sqlite3', () =>
   jest.fn().mockImplementation(() => ({ prepare: mockPrepare, get: mockGet, all: mockAll, close: mockClose })),
@@ -38,9 +52,14 @@ beforeEach(() => {
 });
 
 describe('getStats 时间口径与兜底', () => {
+  /**
+   * getStats 的 SQL 参数。PRAGMA 探测也走 mockPrepare, 但不消费 mockGet 队列,
+   * 因此必须按「非 PRAGMA 调用」的相对序号去取, 不能直接用 mockPrepare 的下标。
+   */
   const capturedParams = () => {
-    const call = mockPrepare.mock.calls.find((c) => /FROM activities\s+WHERE start_time >= \?/s.test(String(c[0])));
-    return call ? mockGet.mock.calls[mockPrepare.mock.calls.indexOf(call)] : [];
+    const business = mockPrepare.mock.calls.filter((c) => !/PRAGMA/i.test(String(c[0])));
+    const idx = business.findIndex((c) => /FROM activities[\s\S]*start_time >= \?/s.test(String(c[0])));
+    return idx >= 0 ? (mockGet.mock.calls[idx] ?? []) : [];
   };
 
   test.each(['week', 'month', 'year'] as const)('period=%s → 带 start_time 过滤并传参', (period) => {
@@ -75,7 +94,12 @@ describe('getStats 时间口径与兜底', () => {
 
   test('未传 period → 无时间过滤 (default 分支)', () => {
     getStats(undefined);
-    expect(mockPrepare.mock.calls.some((c) => /WHERE start_time >= \?/.test(String(c[0])))).toBe(false);
+    // 无时间过滤: 业务 SQL 里不出现 start_time 条件 (PRAGMA 探测不含业务条件)
+    const businessSql = mockPrepare.mock.calls
+      .map((c) => String(c[0]))
+      .filter((sql) => !/PRAGMA/i.test(sql))
+      .join('\n');
+    expect(businessSql).not.toMatch(/start_time >= \?/);
     expect(mockGet).toHaveBeenCalledWith(); // 无参数
   });
 

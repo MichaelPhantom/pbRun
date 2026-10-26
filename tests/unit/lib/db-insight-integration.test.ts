@@ -69,6 +69,17 @@ beforeEach(() => {
       route_bounds: JSON.stringify({ minLat: 29.6, minLng: 106.6, maxLat: 29.7, maxLng: 106.7 }),
       route_km: 18.9,
     },
+    {
+      // 非跑步活动: 距离与活动 1 相近 (8km), 但配速语义完全不同 (游泳 1670s/km)。
+      // 必须被同距离/同路线/同位置查询排除, 否则会把跑步的配速排名拉歪。
+      activity_id: 4, name: '泳池游泳', activity_type: 'lap_swimming', sub_sport_type: '泳池',
+      start_time: '2026-09-12T12:00:00.000Z', start_time_local: '2026-09-12T20:00:00',
+      distance: 8.2, duration: 13700, moving_time: 13600, elapsed_time: 13700,
+      average_pace: 1670, average_heart_rate: 140,
+      track: JSON.stringify({ coords: [[29.5, 106.5], [29.51, 106.51]], n: 2 }),
+      start_lat: 29.5,
+      start_lng: 106.5,
+    },
   ];
   for (const r of rows) mgr.upsertActivity(r);
 
@@ -157,6 +168,9 @@ describe('db.ts 洞察查询 (真实 SQL)', () => {
 
   test('getActivityCountInRange 计数', async () => {
     const db = await loadDb();
+    // 库里 4 条活动 (含 1 条 8.2km 游泳), 但活动数按**跑步口径**统计 → 3。
+    // 洞察页的「共 N 次活动」必须与下方配速/心率/区间口径一致, 否则会出现
+    // 「共 4 次活动」但配速只来自 3 次的矛盾。
     expect(db.getActivityCountInRange('2026-09-01', '2026-09-30')).toBe(3);
     expect(db.getActivityCountInRange('2026-09-01', '2026-09-05')).toBe(1);
   });
@@ -169,7 +183,9 @@ describe('db.ts 洞察查询 (真实 SQL)', () => {
   test('getInsightActivityRows 返回统一行 (公里→保留, 温度)', async () => {
     const db = await loadDb();
     const rows = db.getInsightActivityRows('2026-09-01', '2026-09-30');
+    // 游泳被排除: 它的配速 1670s/km 会把类别/气温/路线对比整体拉歪
     expect(rows.length).toBe(3);
+    expect(rows.map((r) => r.activityId)).not.toContain(4);
     const r1 = rows.find((r) => r.activityId === 1)!;
     expect(r1.distanceKm).toBe(8);
     expect(r1.temperatureC).toBe(26);
@@ -275,6 +291,44 @@ describe('db.ts 洞察查询 (真实 SQL)', () => {
     // 8km(配速360) 与 18.6km(371) 满足 >=8km
     expect(samples.length).toBe(2);
     expect(samples.every((s) => s.paceSecPerKm > 0 && s.heartRate > 0)).toBe(true);
+  });
+
+  test('表现分析口径: 趋势/区间/纪录/负荷查询全部排除非跑步活动', async () => {
+    // 活动 4 是 8.2km 游泳 (配速 1670s/km, 步频 40, 时长 13700s)。若混入任何
+    // 表现分析查询, 都会显著拉歪结果 —— 这是真实生产库的污染源 (348 条活动里
+    // 107 条非跑步: /stats 平均配速 369 → 989s/km, Z1 时长 698 → 91221s)。
+    const db = await loadDb();
+    const range: [string, string] = ['2026-09-01', '2026-09-30'];
+
+    // 配速-心率回归 (VDOT 模型): 游泳 1670s/km 会直接摧毁回归
+    expect(db.getPaceHrSamples(...range, 8).length).toBe(2);
+    // 跑姿趋势: 游泳步频 40 会污染步频/步幅趋势
+    expect(db.getFormSamples(...range).length).toBe(3);
+    // VDOT 趋势/样本: 只有跑步才有 VDOT 语义
+    expect(db.getVdotSamples(...range).every((v) => v.vdot !== 0)).toBe(true);
+    expect(db.getVDOTTrend({ startDate: range[0], endDate: range[1], groupBy: 'month' })
+      .every((p) => p.activity_count <= 3)).toBe(true);
+    // 长跑 (解耦分析): 游泳 8.2km 不该被当成「长跑」
+    expect(db.getLongRuns(...range, 8).map((r) => r.activityId)).not.toContain(4);
+    // 个人纪录: 游泳「8.2km / 13700s」按比例会伪造 5K = 8353s 的「纪录」。
+    // 跑步口径下 5K 由活动 2 (7km / 2520s, 无 lap → 按比例 1800s) 保持;
+    // 活动 1 的分段只覆盖 2km, 无法插值出 5K (返回 null, 属既有语义)。
+    const pr = db.getPersonalRecords('total');
+    expect(pr.longestRunMeters).toBe(18600); // 活动 3, 而非 8.2km 游泳
+    const fiveK = pr.records.find((r) => r.distanceLabel.includes('5'))!;
+    expect(fiveK.durationSeconds).toBe(1800);
+    expect(fiveK.achievedAt).toBe('2026-09-10T12:00:00.000Z');
+  });
+
+  test('活动日志口径: 月度汇总与列表保留全类型（与展开后的活动卡片一致）', async () => {
+    // 这是**刻意**不过滤的接口: /list 页有运动类型筛选器, 用户要看到全部运动;
+    // 若月度汇总只算跑步, 会出现「2026-09 共 3 次」但展开后列出 4 张卡片。
+    const db = await loadDb();
+    const months = db.getMonthSummaries() as { monthKey: string; count: number }[];
+    const sep = months.find((m) => m.monthKey === '2026-09')!;
+    expect(sep.count).toBe(4); // 含 1 条游泳
+    const list = db.getActivities({ page: 1, limit: 50, startDate: '2026-09-01', endDate: '2026-09-30' });
+    expect(list.pagination.total).toBe(4);
   });
 
   test('getFormSamples 返回跑姿字段', async () => {

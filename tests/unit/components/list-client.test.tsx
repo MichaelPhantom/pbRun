@@ -146,17 +146,81 @@ describe('ListClient 活动列表 (交互/筛选/无限滚动)', () => {
     expect(screen.getByRole('button', { name: /两江新区/ })).toBeInTheDocument();
   });
 
-  test('类型筛选下拉仅列出出现过的类型', () => {
+  test('类型筛选下拉仅列出出现过的类型, 值仍是原始键, 展示为中文名', () => {
     renderList({
       initialActivitiesByMonth: {
-        '2026-09': [act(), act({ activity_id: 1003, activity_type: 'cycling' })],
+        '2026-09': [
+          act(),
+          act({ activity_id: 1003, activity_type: 'cycling' }),
+          act({ activity_id: 1004, activity_type: 'strength_training' }),
+        ],
       },
     });
     const select = screen.getByRole('combobox', { name: '活动类型筛选' });
-    const values = within(select)
-      .getAllByRole('option')
-      .map((o) => o.getAttribute('value'));
-    expect(values).toEqual(['all', 'cycling', 'running']);
+    const options = within(select).getAllByRole('option');
+    // 值 = 原始 activity_type 键 (供筛选比对), 文案 = 中文展示名 (供用户阅读)
+    // 排序按中文展示名的拼音 (力量训练 li < 跑步 pao), 未收录类型排在中文之后
+    expect(options.map((o) => o.getAttribute('value'))).toEqual([
+      'all',
+      'strength_training',
+      'running',
+      'cycling',
+    ]);
+    expect(options.map((o) => o.textContent)).toEqual(['所有类型', '力量训练', '跑步', 'cycling']);
+  });
+
+  test('类型下拉按中文展示名排序 (不是按原始键 ASCII 序)', () => {
+    renderList({
+      initialActivitiesByMonth: {
+        '2026-09': [
+          act({ activity_type: 'table_tennis' }),
+          act({ activity_id: 1003, activity_type: 'basketball' }),
+          act({ activity_id: 1004, activity_type: 'strength_training' }),
+        ],
+      },
+    });
+    const select = screen.getByRole('combobox', { name: '活动类型筛选' });
+    // 拼音序: 篮球(lan) < 力量训练(li) < 乒乓球(ping)
+    expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual([
+      '所有类型',
+      '篮球',
+      '力量训练',
+      '乒乓球',
+    ]);
+  });
+
+  test('非跑步卡片不展示配速, 改为类型徽标 (配速语义不同)', () => {
+    renderList({
+      initialActivitiesByMonth: {
+        '2026-09': [
+          act({
+            activity_type: 'lap_swimming',
+            name: '泳池',
+            distance: 1.5,
+            average_pace: 1670,
+            duration: 2505,
+            moving_time: 2505,
+          }),
+          act({ activity_id: 1003, activity_type: 'running', name: '跑步', average_pace: 300 }),
+        ],
+      },
+    });
+    const swim = screen.getByRole('button', { name: /泳池/ });
+    expect(swim).toHaveTextContent('41:45'); // 时长照常展示
+    expect(swim).not.toHaveTextContent("27'50''"); // 1670s/km 不应作为配速出现
+    expect(swim).toHaveTextContent('泳池游泳'); // 类型徽标
+
+    const run = screen.getByRole('button', { name: /^跑步/ });
+    expect(run).toHaveTextContent("5'00''");
+  });
+
+  test('非跑步活动无名称时按运动类型兜底命名 (不再一律「跑步」)', () => {
+    renderList({
+      initialActivitiesByMonth: {
+        '2026-09': [act({ activity_type: 'basketball', name: '' })],
+      },
+    });
+    expect(screen.getByRole('button', { name: /篮球 2026/ })).toBeInTheDocument();
   });
 
   test('活动缺 distance 时显示 --, 且缺负荷/跑力不渲染对应块', () => {
@@ -278,15 +342,31 @@ describe('ListClient 活动列表 (交互/筛选/无限滚动)', () => {
     renderList({
       initialActivitiesByMonth: { '2026-09': [act({ activity_type: '' } as Partial<Activity>)] },
     });
-    expect(screen.getByRole('option', { name: '跑步' })).toBeInTheDocument();
+    const opt = screen.getByRole('option', { name: '跑步' });
+    expect(opt).toHaveAttribute('value', 'running');
   });
 
-  test('类型筛选为「跑步」时, 无 activity_type 的活动被保留 (|| 右侧)', () => {
+  test('类型筛选为「跑步」时, 无 activity_type 的活动被保留 (旧库兼容)', () => {
     renderList({
       initialActivitiesByMonth: { '2026-09': [act({ activity_type: '' } as Partial<Activity>)] },
     });
-    fireEvent.change(screen.getByLabelText('活动类型筛选'), { target: { value: '跑步' } });
+    // 空 activity_type 归一成 'running' 键, 与真实 running 活动合并在同一选项里
+    fireEvent.change(screen.getByLabelText('活动类型筛选'), { target: { value: 'running' } });
     expect(screen.getByRole('button', { name: /两江新区/ })).toBeInTheDocument();
+  });
+
+  test('筛选「跑步」不会带出非跑步活动', () => {
+    renderList({
+      initialActivitiesByMonth: {
+        '2026-09': [
+          act({ activity_type: 'running', name: '真跑步' }),
+          act({ activity_id: 1003, activity_type: 'strength_training', name: '力量' }),
+        ],
+      },
+    });
+    fireEvent.change(screen.getByLabelText('活动类型筛选'), { target: { value: 'running' } });
+    expect(screen.getByRole('button', { name: /真跑步/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /力量/ })).not.toBeInTheDocument();
   });
 
   test('搜索 + 无 name 活动 → name 走空串兜底后不匹配 (|| 右侧)', () => {

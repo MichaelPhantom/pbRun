@@ -6,7 +6,7 @@ function fakeActivity(over: Partial<Activity> = {}): Activity {
   return {
     activity_id: 1,
     name: '测试跑',
-    activity_type: '跑步',
+    activity_type: 'running',
     start_time: '2026-09-12T11:08:31.000Z',
     start_time_local: '2026-09-12T19:08:31',
     distance: 16.18497, // 公里（DB 原单位）
@@ -113,6 +113,78 @@ describe('buildAnalysisMessages', () => {
     expect(system.content).toContain('横向');
     expect(system.content).toContain('同温档');
     expect(system.content).toContain('环境代价');
+  });
+
+  test('非跑步活动: 换用综合体能教练 prompt, 不出现跑步术语', () => {
+    const [system, user] = buildAnalysisMessages(
+      fakeActivity({ activity_type: 'lap_swimming', sport_type: '游泳', sub_sport_type: '泳池游泳' }),
+      [],
+    );
+    expect(system.content).toContain('综合体能教练');
+    expect(system.content).toContain('交叉训练');
+    // 跑步框架特有的分析章节不应出现 (非跑步 prompt 只是「禁止使用」这些词,
+    // 不会把它们当分析维度)
+    for (const section of [
+      '跑步经济性与动力学',
+      'Jack Daniels VDOT 训练体系',
+      '触地平衡**：左右对称性',
+      '配速策略分析',
+      'E/M/T/I/R/LSD/恢复',
+    ]) {
+      expect(system.content).not.toContain(section);
+    }
+    // 明确要求不套用跑步术语
+    expect(system.content).toContain('绝不套用跑步术语');
+    expect(user.content).toContain('（非跑步）');
+    expect(user.content).toContain('泳池游泳');
+  });
+
+  test('非跑步活动: 活动数据不含配速/步频/步幅/VDOT 行 (语义不同, 不给模型错值)', () => {
+    const [, user] = buildAnalysisMessages(
+      fakeActivity({
+        activity_type: 'lap_swimming',
+        sport_type: '游泳',
+        sub_sport_type: '泳池游泳',
+        average_pace: 1670,
+        average_cadence: 32,
+        vdot_value: null,
+      }),
+      [],
+    );
+    for (const label of ['平均配速', '平均步频', '步幅', '触地平衡', 'VDOT']) {
+      expect(user.content).not.toContain(label);
+    }
+    // 所有运动共有的指标照常输出
+    expect(user.content).toContain('平均心率: 137bpm');
+    expect(user.content).toContain('训练负荷: 143');
+    expect(user.content).toContain('平均速度:');
+  });
+
+  test('非跑步活动的分段用时长而非配速 (游泳每段「配速」不是跑步配速)', () => {
+    const laps = [
+      { activity_id: 1, lap_index: 0, distance: 500, duration: 620, average_pace: 1240, average_heart_rate: 130, average_cadence: 30 },
+    ] as ActivityLap[];
+    const [, user] = buildAnalysisMessages(
+      fakeActivity({ activity_type: 'lap_swimming', sport_type: '游泳', sub_sport_type: '泳池游泳' }),
+      laps,
+    );
+    expect(user.content).toContain('【分段明细】');
+    expect(user.content).toContain('0.0-0.5km 10:20');
+    expect(user.content).toContain('130bpm');
+    expect(user.content).not.toContain('30spm'); // 划频不是步频, 不按 spm 展示
+  });
+
+  test('跑步活动的分段仍用配速 + 步频 (口径未被非跑步分支破坏)', () => {
+    const [, user] = buildAnalysisMessages(fakeActivity(), fakeLaps());
+    expect(user.content).toContain('【每公里分段】');
+    expect(user.content).toContain('0.0-1.0km 12:39 131bpm 188spm');
+  });
+
+  test('空 activity_type 按跑步处理 (旧库兼容)', () => {
+    const [system, user] = buildAnalysisMessages(fakeActivity({ activity_type: '' }), []);
+    expect(system.content).toContain('精英跑步教练');
+    expect(user.content).toContain('平均配速');
+    expect(user.content).not.toContain('（非跑步）');
   });
 
   test('无分段时给出占位提示', () => {

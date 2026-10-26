@@ -1,10 +1,15 @@
 import Link from "next/link";
 import type { Activity } from "@/app/lib/types";
 import { formatDistance, formatDuration, formatPaceShort, formatListDateTime } from "@/app/lib/format";
+import { activityTypeLabel, isRunningType } from "@/app/lib/sport";
 
 /** 仪表盘「最近活动」紧凑卡 (server component)。 */
 export function RecentActivityCard({ activity }: { activity: Activity }) {
-  const name = activity.name || `跑步 ${formatListDateTime(activity.start_time_local ?? activity.start_time)}`;
+  const running = isRunningType(activity.activity_type);
+  // 无名称时按运动类型兜底 —— 库里同时有篮球/游泳/力量训练，一律写「跑步」是错的。
+  const name =
+    activity.name ||
+    `${activityTypeLabel(activity.activity_type)} ${formatListDateTime(activity.start_time_local ?? activity.start_time)}`;
   const duration = activity.moving_time ?? activity.duration;
   const km = activity.distance != null ? Number(activity.distance) : null;
 
@@ -25,8 +30,15 @@ export function RecentActivityCard({ activity }: { activity: Activity }) {
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
         <span className="tnum text-lg font-semibold text-fg">{formatDistance(km)}</span>
         <span className="tnum text-xs text-fg-secondary">
-          {formatDuration(duration)} · {formatPaceShort(activity.average_pace)}
+          {formatDuration(duration)}
+          {/* 配速只对跑步有意义: 游泳/篮球的 average_pace 不是跑步配速 */}
+          {running && ` · ${formatPaceShort(activity.average_pace)}`}
         </span>
+        {!running && (
+          <span className="rounded-md bg-[var(--surface-2)] border border-[var(--border)] px-1.5 py-0.5 text-[10px] text-fg-secondary">
+            {activityTypeLabel(activity.activity_type)}
+          </span>
+        )}
       </div>
       {(activity.vdot_value != null ||
         activity.training_load != null ||

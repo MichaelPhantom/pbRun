@@ -75,10 +75,12 @@ export async function POST(request: NextRequest) {
   try {
     const insight = getInsight({ startDate, endDate });
 
-    // 跑者画像: 取最近一次活动作为"排除基准", 以便画像覆盖全历史
+    // 跑者画像: 取最近一次**跑步**作为"排除基准", 以便画像覆盖全历史。
+    // 用跑步口径取基准: 画像本身只统计跑步, 若基准是力量训练则「本次」永远不会
+    // 被排除, 会让最近一次跑步同时出现在「近 7 天跑量」和「上次跑步」里。
     let profileBlock = '';
     try {
-      const recent = getActivities({ page: 1, limit: 1 });
+      const recent = getActivities({ page: 1, limit: 1, runningOnly: true });
       if (recent.data.length > 0) {
         profileBlock = formatRunnerProfile(buildRunnerProfile(recent.data[0]));
       }

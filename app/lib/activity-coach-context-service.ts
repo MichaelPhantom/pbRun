@@ -9,7 +9,7 @@
  *
  * 容错纪律：任何一步 DB 查询失败都只降级该段，绝不阻塞 AI 主流程。
  */
-import { getActivityStartGeo, getPeerActivities, type PeerActivity } from './db';
+import { getActivityStartGeo, getPeerActivities, isRunningType, type PeerActivity } from './db';
 import { computeComparison, type ComparisonPeerInput } from './activity-insight';
 import { getActivityInsight } from './activity-insight-service';
 import {
@@ -62,6 +62,10 @@ export function buildActivityContextBlock(
   };
   const distanceTolerance = distanceToleranceFor(distanceKm);
   const routeTolerance = routeDistanceToleranceFor(distanceKm);
+  // 非跑步活动（游泳/篮球/力量训练）不做配速横向对比：peer 查询已经只取跑步，
+  // 若把本次的游泳配速（1670s/km）放进跑步样本里排名，会得出「比所有跑步都慢」的
+  // 荒谬结论。分段/心率区间等纯个人指标仍由 insight 段照常输出。
+  const paceComparable = isRunningType(activity.activity_type);
 
   // 1) 当次深挖（分段角色/漂移/区间/解耦）。失败则仅丢失该段。
   let insight: ActivityInsightResponse | null = precomputedInsight ?? null;
@@ -86,7 +90,7 @@ export function buildActivityContextBlock(
     /* 降级：无 GPS 校验 */
   }
 
-  if (routeKey) {
+  if (paceComparable && routeKey) {
     try {
       const r = getPeerActivities(
         activityId,
@@ -113,7 +117,7 @@ export function buildActivityContextBlock(
     }
   }
 
-  if (distanceKm > 0) {
+  if (paceComparable && distanceKm > 0) {
     try {
       const r = getPeerActivities(
         activityId,
