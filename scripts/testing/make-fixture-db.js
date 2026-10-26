@@ -16,8 +16,45 @@ const DatabaseManager = require('../common/db-manager');
 
 const DEFAULT_OUT_PATH = path.join(__dirname, '..', '..', 'tests', 'fixtures', 'activities.db');
 
-// 样本 (5 条): 涵盖阈值/长距离/基础/恢复, 含同路线 (两江新区 x3) 以触发
-// 详情页「同路线对比」表, 并覆盖训练类别/周期化/占比等多张洞察表。
+/**
+ * 夹具时间**相对今天**生成, 不写死日期。
+ *
+ * 为什么必须相对: 洞察/统计页按「最近 7 / 30 / 180 天」取数, 写死 2026-09-xx 后
+ * 时间一过, 30 天窗口就再也圈不到任何夹具活动 —— 页面渲染出「所选区间数据不足」,
+ * e2e 里断言「关键洞察 / 训练类别对比」可见的用例随即失败, 而代码本身完全正确。
+ * 这类失败与业务无关、只在特定日期之后出现, 极难从红灯本身看出来。
+ *
+ * 天数偏移 (D_N = N 天前) 保持各活动的相对先后与间隔, 使「同路线对比」「周期化」
+ * 「训练类别占比」等表的分组与排序在任意日期都稳定。
+ */
+const DAY_MS = 24 * 60 * 60 * 1000;
+const daysAgo = (n) => new Date(Date.now() - n * DAY_MS);
+
+/** 本地时间 `YYYY-MM-DDTHH:mm:ss` (无时区后缀, 与库内 start_time_local 同格式)。 */
+const localStamp = (d, hhmm) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}T${hhmm}:00`;
+};
+
+/** 每次活动的「几天前」+ 本地时刻。顺序: 阈值 2d / 长距离 4d / 基础 7d / 恢复 12d / 基础 14d。 */
+const SAMPLE_OFFSETS = [
+  { days: 2, time: '20:00', utc: '12:00' },
+  { days: 4, time: '17:00', utc: '09:00' },
+  { days: 7, time: '20:00', utc: '12:00' },
+  { days: 12, time: '20:00', utc: '12:00' },
+  { days: 14, time: '20:00', utc: '12:00' },
+];
+
+/** UTC ISO 串（与 start_time 同格式, 带毫秒 + Z）。 */
+const isoUtc = (idx) => {
+  const o = SAMPLE_OFFSETS[idx];
+  const d = daysAgo(o.days);
+  const [hh, mm] = o.utc.split(':').map(Number);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), hh, mm, 0, 0).toISOString();
+};
+
 const samples = [
   {
     activity_id: 900000001,
@@ -25,8 +62,8 @@ const samples = [
     activity_type: 'running',
     sport_type: '跑步',
     sub_sport_type: '路跑',
-    start_time: '2026-09-20T12:00:00.000Z',
-    start_time_local: '2026-09-20T20:00:00',
+    start_time: isoUtc(0),
+    start_time_local: localStamp(daysAgo(SAMPLE_OFFSETS[0].days), SAMPLE_OFFSETS[0].time),
     distance: 8.0,
     duration: 2800,
     moving_time: 2750,
@@ -56,8 +93,8 @@ const samples = [
     activity_type: 'running',
     sport_type: '跑步',
     sub_sport_type: '路跑',
-    start_time: '2026-09-18T09:00:00.000Z',
-    start_time_local: '2026-09-18T17:00:00',
+    start_time: isoUtc(1),
+    start_time_local: localStamp(daysAgo(SAMPLE_OFFSETS[1].days), SAMPLE_OFFSETS[1].time),
     distance: 18.6,
     duration: 6900,
     moving_time: 6800,
@@ -84,8 +121,8 @@ const samples = [
     activity_type: 'running',
     sport_type: '跑步',
     sub_sport_type: '路跑',
-    start_time: '2026-09-15T12:00:00.000Z',
-    start_time_local: '2026-09-15T20:00:00',
+    start_time: isoUtc(2),
+    start_time_local: localStamp(daysAgo(SAMPLE_OFFSETS[2].days), SAMPLE_OFFSETS[2].time),
     distance: 7.2,
     duration: 2600,
     moving_time: 2580,
@@ -106,8 +143,8 @@ const samples = [
     activity_type: 'running',
     sport_type: '跑步',
     sub_sport_type: '路跑',
-    start_time: '2026-09-10T12:00:00.000Z',
-    start_time_local: '2026-09-10T20:00:00',
+    start_time: isoUtc(3),
+    start_time_local: localStamp(daysAgo(SAMPLE_OFFSETS[3].days), SAMPLE_OFFSETS[3].time),
     distance: 7.6,
     duration: 2700,
     moving_time: 2680,
@@ -129,8 +166,8 @@ const samples = [
     activity_type: 'running',
     sport_type: '跑步',
     sub_sport_type: '路跑',
-    start_time: '2026-09-08T12:00:00.000Z',
-    start_time_local: '2026-09-08T20:00:00',
+    start_time: isoUtc(4),
+    start_time_local: localStamp(daysAgo(SAMPLE_OFFSETS[4].days), SAMPLE_OFFSETS[4].time),
     distance: 5.5,
     duration: 2100,
     moving_time: 2080,

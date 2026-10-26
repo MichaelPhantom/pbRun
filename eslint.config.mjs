@@ -31,8 +31,12 @@ const eslintConfig = defineConfig([
     ".cache/**",
     "app/data/**",
     "node_modules/**",
-    // e2e 隔离产物目录 (playwright.config 使用 DIST_DIR=.next-e2e)
-    ".next-e2e/**",
+    // e2e 隔离产物目录 (playwright.config 使用 DIST_DIR=.next-e2e)。
+    // 用通配而非精确名: `e2e-build.sh` 允许 `DIST_DIR` 覆盖 (排障时会建
+    // `.next-e2e-<后缀>`), 只忽略 `.next-e2e/**` 会让这些目录被 lint 扫到 ——
+    // 2026-10-27 实测本地手动指定 DIST_DIR 后 `npm run lint` 爆 610 errors,
+    // 全是打包后的第三方代码, 与仓库源码无关。
+    ".next-e2e*/**",
     // e2e 夹具库 (二进制 SQLite)
     "tests/fixtures/*.db",
     // e2e 产物 (2026-09-27 补: 漏忽略会让本地跑完 e2e 后 `npm run lint` 爆 185 errors ——

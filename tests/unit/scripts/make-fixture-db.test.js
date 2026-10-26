@@ -67,6 +67,45 @@ describe('夹具样本契约', () => {
       expect(() => JSON.parse(s.time_in_hr_zone)).not.toThrow();
     }
   });
+
+  /**
+   * 夹具时间必须**相对今天**生成。
+   *
+   * 写死日期会让 e2e 随日历腐烂: 洞察/统计页按「最近 7 / 30 / 180 天」取数, 时间一过
+   * 30 天窗口就圈不到任何夹具活动, 页面渲染「所选区间数据不足」, 断言「关键洞察 /
+   * 训练类别对比」可见的用例随即失败 —— 而代码完全正确。2026-10-27 实测: 夹具写死
+   * 2026-09-xx 后 navigation/activity-list 两个 spec 必红。
+   */
+  test('活动时间落在最近 30 天内 (不写死日期, 否则 e2e 会随日历腐烂)', () => {
+    const now = Date.now();
+    const THIRTY_D = 30 * 24 * 60 * 60 * 1000;
+    for (const s of samples) {
+      const t = new Date(s.start_time).getTime();
+      expect(Number.isNaN(t)).toBe(false);
+      expect(t).toBeLessThanOrEqual(now + 60 * 1000); // 允许 1 分钟时钟偏差
+      expect(now - t).toBeLessThan(THIRTY_D);
+    }
+  });
+
+  test('活动保持相对先后顺序 (阈值最新 → 恢复最旧), 供分组/排序稳定', () => {
+    const times = samples.map((s) => new Date(s.start_time).getTime());
+    for (let i = 1; i < times.length; i++) {
+      expect(times[i]).toBeLessThan(times[i - 1]);
+    }
+  });
+
+  test('UTC 与本地时间指向同一天 (跨时区换算不会错位)', () => {
+    for (const s of samples) {
+      const utcDay = new Date(s.start_time).toISOString().slice(0, 10);
+      const localDay = s.start_time_local.slice(0, 10);
+      // start_time 是 UTC, start_time_local 是本地: 同日或相差 1 天都合理,
+      // 但绝不能相差 >1 天 (那说明日期生成逻辑串了)。
+      const diffDays = Math.abs(
+        (new Date(`${utcDay}T00:00:00Z`) - new Date(`${localDay}T00:00:00Z`)) / 86400000,
+      );
+      expect(diffDays).toBeLessThanOrEqual(1);
+    }
+  });
 });
 
 describe('makeFixtureDb', () => {

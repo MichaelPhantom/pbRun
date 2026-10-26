@@ -8,9 +8,13 @@ test.describe('活动列表页', () => {
   });
 
   test('应显示月份列表 (含月度汇总)', async ({ page }) => {
-    // 夹具: 2026年9月 / 46.90 公里 / 5 次
-    await expect(page.getByText(/2026年9月/)).toBeVisible();
-    await expect(page.getByText(/46\.90/)).toBeVisible();
+    // 夹具时间相对「今天」生成 (见 scripts/testing/make-fixture-db.js), 因此不能断言
+    // 具体年月 —— 那会让用例在跨月后必红。只断言「当前月份 + 月度里程汇总」的形态。
+    const now = new Date();
+    const monthLabel = `${now.getFullYear()}年${now.getMonth() + 1}月`;
+    await expect(page.getByText(new RegExp(monthLabel))).toBeVisible();
+    // 月度汇总形如「46.90 公里」/「46.90km」, 只校验数字与单位存在
+    await expect(page.getByText(/\d+\.\d{2}\s*(公里|km)/).first()).toBeVisible();
   });
 
   test('应展示活动条目 (夹具 5 条)', async ({ page }) => {
