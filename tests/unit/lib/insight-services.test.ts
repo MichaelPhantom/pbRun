@@ -51,9 +51,13 @@ jest.mock('@/app/lib/db', () => ({
     { activityId: 2, name: '两江新区 - 基础训练', date: '2026-09-10', distanceKm: 7, durationSeconds: 2520, avgPaceSecPerKm: 370, avgHeartRate: 150, avgCadence: 178, vdot: null, trainingLoad: 45, temperatureC: 22 },
   ]),
   // activity-insight-service
+  // 真实跑步类型: 配速对比的前提 (非跑步会跳过全部配速对比)
+  isRunningType: jest.fn((t: string | null | undefined) =>
+    !t || t === 'running' || t === 'track_running' || t === 'treadmill_running'),
   getActivityById: jest.fn(() => ({
     activity_id: 99,
     name: '两江新区 - 乳酸阈值',
+    activity_type: 'running',
     start_time_local: '2026-09-22T12:00:00',
     distance: 7.9,
     average_pace: 340,
@@ -273,5 +277,120 @@ describe('activity-insight-service 同起点校验', () => {
     expect(r.comparison!.basis).toBe('distance');
     expect(r.comparison!.label).toContain('±');
     expect(r.comparison!.peers.map((p) => p.activityId)).toEqual([3]);
+  });
+});
+
+/**
+ * `summarizeRouteQuality` 与同位置过滤的降级分支。
+ *
+ * 生产上轨迹是**稀疏存在**的：同位置候选里可能只有一部分有可解析的 track，
+ * 而 AI 上下文里的「路面重合」必须只统计**真正能比对**的那部分同伴 —— 否则
+ * `verifiedPeers` 会把「无法校验」的候选也算成「已对齐」。
+ */
+describe('activity-insight-service 几何质量的降级', () => {
+  const square = (lat: number, lng: number): [number, number][] => [
+    [lat, lng],
+    [lat + 0.0045, lng],
+    [lat + 0.0045, lng + 0.0045],
+    [lat, lng + 0.0045],
+    [lat, lng],
+  ];
+
+  test('同伴无轨迹（shapes 里缺失）→ 不计入 verifiedPeers', () => {
+    const db = jest.requireMock('@/app/lib/db');
+    (db.getActivityStartGeo as jest.Mock).mockReturnValueOnce({ lat: 29.5, lng: 106.5 });
+    (db.getLocationPeerActivities as jest.Mock).mockReturnValueOnce([
+      { activityId: 42, date: '2026-08-20', name: '其它 - 节奏跑', distanceKm: 7.8, paceSecPerKm: 335, heartRate: 168, startLat: 29.5005, startLng: 106.5005 },
+      { activityId: 43, date: '2026-08-21', name: '其它 - 节奏跑', distanceKm: 7.9, paceSecPerKm: 330, heartRate: 166, startLat: 29.5006, startLng: 106.5006 },
+    ]);
+    (db.getActivityTrack as jest.Mock).mockReturnValueOnce({ coords: square(29.5, 106.5), n: 5 });
+    // 只有 42 号有轨迹；43 号 track 解析失败 → shapes 里没有它
+    (db.getActivityTracks as jest.Mock).mockReturnValueOnce(
+      new Map([[42, { coords: square(29.5002, 106.5002), n: 5 }]]),
+    );
+    (db.getRouteShapePeerActivities as jest.Mock).mockReturnValueOnce([]);
+
+    const r = getActivityInsight(99)!;
+    const q = r.locationComparison!.routeQuality!;
+    // 关键: 只有能比对的那 1 位算「已对齐」, 不是 2 位
+    expect(q.verifiedPeers).toBe(1);
+    expect(q.maxRoadKm).toBeGreaterThanOrEqual(q.roadKm!);
+  });
+
+  test('所有同伴轨迹都无法比对 → 不做形状校验, 保留 GPS 标签且无 routeQuality', () => {
+    const db = jest.requireMock('@/app/lib/db');
+    (db.getActivityStartGeo as jest.Mock).mockReturnValueOnce({ lat: 29.5, lng: 106.5 });
+    (db.getLocationPeerActivities as jest.Mock).mockReturnValueOnce([
+      { activityId: 42, date: '2026-08-20', name: '其它 - 节奏跑', distanceKm: 7.8, paceSecPerKm: 335, heartRate: 168, startLat: 29.5005, startLng: 106.5005 },
+    ]);
+    // 当前活动也没有轨迹 → currentShape = null
+    (db.getActivityTrack as jest.Mock).mockReturnValueOnce(null);
+    (db.getActivityTracks as jest.Mock).mockReturnValueOnce(new Map());
+    (db.getRouteShapePeerActivities as jest.Mock).mockReturnValueOnce([]);
+
+    const r = getActivityInsight(99)!;
+    expect(r.locationComparison).not.toBeNull();
+    // 未校验 → 标签只说明 GPS 半径, 不能宣称「同路径」
+    expect(r.locationComparison!.label).toContain('GPS');
+    expect(r.locationComparison!.label).not.toContain('同路径');
+    expect(r.locationComparison!.routeQuality).toBeNull();
+    // 候选本身仍保留（无法校验 ≠ 剔除）
+    expect(r.locationComparison!.peers.map((p) => p.activityId)).toEqual([42]);
+  });
+
+  test('同伴缺 GPS 首点 → 不进入同位置样本（无法证明同地点）', () => {
+    const db = jest.requireMock('@/app/lib/db');
+    (db.getActivityStartGeo as jest.Mock).mockReturnValueOnce({ lat: 29.5, lng: 106.5 });
+    (db.getLocationPeerActivities as jest.Mock).mockReturnValueOnce([
+      { activityId: 42, date: '2026-08-20', name: '室内 - 跑步机', distanceKm: 7.8, paceSecPerKm: 335, heartRate: 168, startLat: null, startLng: null },
+      { activityId: 43, date: '2026-08-21', name: '其它 - 节奏跑', distanceKm: 7.9, paceSecPerKm: 330, heartRate: 166, startLat: 29.5005, startLng: 106.5005 },
+    ]);
+    (db.getActivityTrack as jest.Mock).mockReturnValueOnce(null);
+    (db.getActivityTracks as jest.Mock).mockReturnValueOnce(new Map());
+    (db.getRouteShapePeerActivities as jest.Mock).mockReturnValueOnce([]);
+
+    const r = getActivityInsight(99)!;
+    expect(r.locationComparison!.peers.map((p) => p.activityId)).toEqual([43]);
+  });
+});
+
+describe('activity-insight-service 多位同伴的中位数/最差', () => {
+  const square = (lat: number, lng: number): [number, number][] => [
+    [lat, lng],
+    [lat + 0.0045, lng],
+    [lat + 0.0045, lng + 0.0045],
+    [lat, lng + 0.0045],
+    [lat, lng],
+  ];
+
+  test('≥2 位同伴 → 中位数与最差值分别正确（排序真的发生）', () => {
+    const db = jest.requireMock('@/app/lib/db');
+    (db.getActivityStartGeo as jest.Mock).mockReturnValueOnce({ lat: 29.5, lng: 106.5 });
+    (db.getLocationPeerActivities as jest.Mock).mockReturnValueOnce([
+      { activityId: 41, date: '2026-08-19', name: '其它 - 节奏跑', distanceKm: 7.7, paceSecPerKm: 340, heartRate: 170, startLat: 29.5001, startLng: 106.5001 },
+      { activityId: 42, date: '2026-08-20', name: '其它 - 节奏跑', distanceKm: 7.8, paceSecPerKm: 335, heartRate: 168, startLat: 29.5001, startLng: 106.5001 },
+      { activityId: 43, date: '2026-08-21', name: '其它 - 节奏跑', distanceKm: 7.9, paceSecPerKm: 330, heartRate: 166, startLat: 29.5002, startLng: 106.5002 },
+    ]);
+    (db.getActivityTrack as jest.Mock).mockReturnValueOnce({ coords: square(29.5, 106.5), n: 5 });
+    (db.getActivityTracks as jest.Mock).mockReturnValueOnce(
+      new Map([
+        // 几乎完全重合（路面偏差 ~5m）
+        [41, { coords: square(29.50005, 106.50005), n: 5 }],
+        // 偏 ~20m（同一条路线, 正常 GPS 漂移）
+        [42, { coords: square(29.5002, 106.5002), n: 5 }],
+        // 偏 ~100m（同公园的另一条路线, 通过阈值但明显更差）
+        [43, { coords: square(29.501, 106.501), n: 5 }],
+      ]),
+    );
+    (db.getRouteShapePeerActivities as jest.Mock).mockReturnValueOnce([]);
+
+    const r = getActivityInsight(99)!;
+    const q = r.locationComparison!.routeQuality!;
+    expect(q.verifiedPeers).toBe(3);
+    // 中位数取排序后中间那位（20m 档）, 不是最小也不是最大
+    expect(q.roadKm!).toBeGreaterThan(0.01);
+    expect(q.roadKm!).toBeLessThan(0.05);
+    // 最差那位明显更远, 证明「最差」不是中位数的复制
+    expect(q.maxRoadKm!).toBeGreaterThan(q.roadKm! * 2);
   });
 });

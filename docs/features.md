@@ -16,17 +16,65 @@
 | 功能接口 | 用户入口 | 数据与计算 | AI 上下文 | 状态 |
 |---------|---------|-----------|----------|------|
 | 仪表盘 | `/` | `getLatestVdot` / `getTrainingLoads` / `getDailyDistances` | 整体 AI（全部历史） | ✅ |
-| 活动列表 | `/list` | `getMonthSummaries` / `getActivities`（月分页 + 筛选） | 每张卡片直达详情 AI 复盘 | ✅ |
+| 活动列表 | `/list` | `getMonthSummaries` / `getActivities`（月分页 + 筛选，全类型口径） | 每张卡片直达详情 AI 复盘 | ✅ |
 | 活动详情 | `/pages/[id]` | `getActivityById/Laps/Records/Track` | 单次活动 AI（见 §2） | ✅ |
 | 活动深挖 | `GET /api/activities/[id]/insight` | `activity-insight.ts`：分段角色 / 主课漂移 / 区间 / 解耦 / 同路线对比 / 环境可比性 | 作为活动 AI 的当次指标来源 | ✅ |
 | 活动 AI 对话 | `POST /api/activities/[id]/analysis` | `llm.ts` + `coach-stream.ts` + `runner-profile.ts` + `activity-coach-context.ts` | 当次 + 同路线/同名 + 同距离 ±10% + 同类 | ✅ |
 | 训练分析 | `/analysis?days=` | 心率区间 / 配速区间 / VDOT / CTL-ATL-TSB | 汇总 AI，跟随页面时间窗 | ✅ |
 | 训练洞察 | `/insight?days=` | `insight.ts` / `insight-compare.ts` 实时聚合 + `findings` | 汇总 AI，跟随页面时间窗 | ✅ |
-| 统计 | `/stats?period=` | `getStats` / `getPersonalRecords` | 汇总 AI，周/月/年/全部映射 | ✅ |
+| 统计 | `/stats?period=` | `getStats` / `getPersonalRecords`（跑步口径，见 §1.1） | 汇总 AI，周/月/年/全部映射 | ✅ |
 | 汇总 AI 对话 | `POST /api/insight/coach` | `insight-service.ts` → `formatInsightForCoach` | 区间指标 + 跑者画像 + 趋势 | ✅ |
 | 模型目录 | `GET /api/llm/models` | `model-curation.ts` 固定白名单 | — | ✅ |
 | MCP Server | `mcp-server/`（stdio） | 16 个 tools 复用 `app/lib/db.ts` 与活动深挖服务 | `get_activity_comparables` 直接返回当次可比 `contextText` | ✅ |
 | 数据同步 | `scripts/garmin` / `scripts/strava` | FIT/GPX → SQLite，VDOT 计算 | — | ✅ |
+
+---
+
+## 1.1 统计口径：两种口径必须显式区分
+
+pbRun 是跑步分析工具，但 Garmin 同步会把篮球/游泳/力量训练等一并写入同一张
+`activities` 表。生产库实测 348 条活动里只有 241 条是跑步，其余 107 条的距离、
+配速、步频、心率区间语义完全不同（泳池游泳 1670s/km、乒乓球 30826s/km、篮球步频 16）。
+
+因此所有读取都归入两种口径之一，**不允许隐式混用**：
+
+| 口径 | 语义 | 覆盖接口 |
+|------|------|---------|
+| **表现分析（只取跑步）** | 配速/心率/步频/VDOT/区间/纪录/负荷/对比只在跑步内部有意义 | `getStats`、`getPeriodStats`、`getPersonalRecords`、`getPaceZoneStats`、`getHrZoneStats`、`getHrZoneTotals`、`getVDOTHistory(+Total)`、`getVDOTTrend`、`getVdotSamples`、`getLatestVdot`、`getLatestThresholdHr`、`getFormSamples`、`getPaceHrSamples`、`getLongRuns`、`getTrainingLoads`、`getDailyDistances`、`getInsightActivityRows`、`getActivityCountInRange`、同路线/同距离/同位置对比 |
+| **活动日志（全类型）** | 用户明确要在列表里看到所有运动，且带 `activity_type` 筛选器 | `getActivities`、`getMonthSummaries` |
+
+跑步类型集合为 `running` / `track_running` / `treadmill_running`（`db.runningTypeClause`
+与 `db.isRunningType` 单点定义）；缺 `activity_type` 列或值为空时按跑步处理（旧库兼容）。
+
+**为什么必须隔离**（真实库 348 条活动实测）：
+
+| 指标 | 混类型 | 仅跑步 | 后果 |
+|------|--------|--------|------|
+| 平均配速 | 989 s/km | 369 s/km | 「16:29/km」把跑者说成快走 |
+| 心率 Z1 总时长 | 91221 s | 698 s | 轻松跑占比 66% vs 实际 4% |
+| 跑姿步频区间 | 8–190 | 100–190 | 跳绳/篮球拉低步频趋势 |
+| 训练负荷里程 | 2152 km | 2140 km | 12km 非跑步混入 CTL/ATL |
+| 个人纪录 5K | 8353 s（游泳按比例） | 1229 s | 8.2km 游泳伪造「纪录」 |
+| 配速区间 activity_count | +5 条非跑步 lap | — | 篮球/乒乓污染配速区间 |
+| 跑者画像近 28 天 Z1 占比 | 7.6% | 0.6% | 7 条力量训练占满 Z1 |
+
+`/insight` 的「共 N 次活动」与 `/stats` 的「共计跑步 N 次」均按跑步口径计数，与下方
+配速/心率/区间完全一致；`/list` 的月度「N 公里 / N 次」保留全类型，与展开后的卡片
+严格一致（含 1 条游泳的月份显示 4 次，展开也是 4 张卡片）。
+
+**展示与 AI 也必须分口径**（否则修复了统计却仍在误导用户）：
+
+| 位置 | 非跑步活动的处理 |
+|------|-----------------|
+| `/list` 类型下拉 | 值仍是原始 `activity_type`，文案走 `activityTypeLabel` 中文名（按拼音排序）；空 `activity_type` 归一成 `running` 键，不再与真实 `running` 分裂成两个同名选项 |
+| 活动卡片 / 仪表盘「最近活动」 | 隐藏配速（泳池 1670s/km、乒乓 30826s/km 不是跑步配速），改显示类型徽标；无名称时按类型兜底命名 |
+| 活动详情页概览 | 隐藏「即时跑力 / 平均配速 / 步频 / 步幅」整列（不是显示 `--`，那会让人以为数据缺失） |
+| 活动详情页分段表 | 隐藏配速与步频列，不给「最快 K」徽章；趋势图标题去掉「配速 / 步频」 |
+| 活动 AI prompt | 换用 `NON_RUNNING_SYSTEM_PROMPT`（综合体能教练 + 交叉训练视角）；活动数据段不输出配速/步频/步幅/触地/跑力行，分段改用时长 |
+
+跑步类型判定单点定义在纯模块 `app/lib/sport.ts`（`RUNNING_ACTIVITY_TYPES` /
+`isRunningType` / `activityTypeLabel` / `activityTypeIcon`）：`db.ts` 的 SQL 片段由该
+常量派生，客户端组件直接用同一份判定，因此不存在「SQL 与 UI 两套列表漂移」。
 
 ---
 
@@ -137,6 +185,15 @@
 | 区间环比（当前 vs 上一等长区间） | `period-comparison.ts` | `tests/unit/lib/period-comparison.test.ts` |
 | 汇总 AI 页面映射 | `InsightClient` / `AnalysisClient` / `StatsClient` | `tests/unit/components|pages` |
 | CI 门槛与文档漂移 | `.github/workflows/test.yml` | `tests/unit/ci/*` / `tests/unit/docs/*` |
+| **统计口径：表现分析只取跑步** | `db.runningTypeClause` / `db.isRunningType`（19 处查询） | `tests/unit/lib/db-insight-integration.test.ts`（真实 SQL：趋势/区间/纪录/负荷全部排除非跑步） |
+| **统计口径：活动日志保留全类型** | `getActivities` / `getMonthSummaries` | `tests/unit/lib/db-insight-integration.test.ts`（月度汇总 count 与列表 total 严格相等） |
+| **跑步类型判定单一来源** | `app/lib/sport.ts`（`RUNNING_ACTIVITY_TYPES` 派生 SQL + 客户端判定） | `tests/unit/lib/sport.test.ts`（类型集合/旧库空值/展示名/图标回落） |
+| **UI 不把非跑步指标当跑步指标** | `ListClient` / `ActivityDetailClient` / `RecentActivityCard` | `tests/unit/components/list-client.test.tsx` / `tests/unit/pages/activity-detail.test.tsx` / `tests/unit/components/recent-activity-card.test.tsx` |
+| **AI prompt 按运动类型分流** | `llm.ts` 的 `SYSTEM_PROMPT` / `NON_RUNNING_SYSTEM_PROMPT` | `tests/unit/lib/llm.test.ts`（非跑步不出现跑步术语与配速行） |
+| **同路径几何质量只统计可校验的同伴** | `activity-insight-service.ts` 的 `summarizeRouteQuality` | `tests/unit/lib/insight-services.test.ts`（无轨迹同伴不计入 `verifiedPeers`；未校验时 `routeQuality` 显式 `null`） |
+| **旧库 / 坏数据一律降级不崩页** | `db.ts` 的列探测与 `getActivityTracks` / `getActivityStartGeo` / 网格通道 | `tests/unit/lib/db-degradation.test.ts`（缺列、畸形 JSON、非法坐标、非法 id 全部返回空/`null`） |
+| **AI 出流回退契约头** | `coach-stream.ts`（`X-Model-Fallback` / `-Requested` / `-Used`） | `tests/unit/api/coach-stream-gaps.test.ts`（回退成功、两个断开时机、错误体读取失败） |
+| **覆盖率门槛留有余量** | `jest.config.js` + `threshold-margin.test.ts` | `tests/unit/ci/threshold-margin.test.ts`（每组每项 ≥1.5pt，且不可用降门槛来满足） |
 
 ---
 
@@ -146,10 +203,10 @@
 
 ### 4.1 活动横向对比
 
-- **位置/形状聚类已具备网格+DTW，仍有少量边界**：
-  - 已实现：geohash-7 网格签名（25m 里程等距采样，最多 1200 点）、起点对齐 DTW
-    （Sakoe–Chiba 带宽 + 反向对齐 + 环线循环平移对齐）、p2–p98 抗尖峰包围盒、
-    尺度自适应尖峰清洗（p25 段长为基准）、弱轨迹（<250m）保留不判定。
+- **位置/形状聚类已具备网格 + 路面重叠，仍有少量边界**：
+  - 已实现：geohash-7 网格签名（25m 里程等距采样，最多 1200 点）、**路面重叠**主信号
+    （见下）、p2–p98 抗尖峰包围盒、尺度自适应尖峰清洗（p25 段长为基准）、
+    弱轨迹（<250m）保留不判定。DTW 仅作诊断量（`includeDtw` 默认关闭）。
   - **清洗顺序：先去重再判尖峰**。GPS 冻结/信号丢失会产出连续重复点；若直接在
     原始序列上判尖峰，冻结点的直接邻居就是它自己的副本（段长 0），永远不满足
     「前后两段都很长」，冻结段完全逃过清洗并把轨迹长度虚增数倍。去重后冻结段

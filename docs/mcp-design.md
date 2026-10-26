@@ -48,21 +48,26 @@ pbRun/
 
 ### 3.1 基础数据 (复用 db.ts, 13 个)
 
+> **口径**：除 `list_activities` / `get_month_summaries`（活动日志，全类型）外，
+> 其余统计类工具均为**跑步口径**（只含 `running` / `track_running` / `treadmill_running`），
+> 见 `docs/features.md` §1.1。MCP 直接复用 `app/lib/db.ts`，与 Web 端完全同源，
+> 不存在「MCP 数据比页面多」的口径漂移。
+
 | Tool | db.ts 函数 | 参数 | 输出 | 说明 |
 |------|-----------|------|------|------|
-| `list_activities` | `getActivities` | `limit`(1-100), `offset`, `type?`, `startDate?`, `endDate?` | `{data: Activity[], total: number}` | 活动列表, 支持 limit 上限 100 (防 token 爆炸) |
+| `list_activities` | `getActivities` | `limit`(1-100), `offset`, `type?`, `startDate?`, `endDate?` | `{data: Activity[], total: number}` | 活动列表 (**全类型口径**), 支持 limit 上限 100 (防 token 爆炸) |
 | `get_activity` | `getActivityById` | `activityId` | `Activity \| null` | 单条活动完整指标 |
 | `get_activity_laps` | `getActivityLaps` | `activityId` | `{laps: ActivityLap[]}` | 分段数据 |
 | `get_activity_records` | `getActivityRecords` + 采样 | `activityId`, `samplingInterval?`(默认1), `maxPoints?`(默认500) | `{records: ActivityRecord[], total_original, sampled}` | 逐秒记录, 支持降采样 |
-| `get_stats` | `getStats` | `period`(week/month/year/total) | `StatsResponse` | 汇总统计 |
-| `get_personal_records` | `getPersonalRecords` | `period` | `PersonalRecordsResponse` | PB (1.6K~全马) |
-| `get_vdot_history` | `getVDOTHistory` | `limit`(1-100) | `VDOTDataPoint[]` | 跑力历史 |
+| `get_stats` | `getStats` | `period`(week/month/year/total) | `StatsResponse` | 汇总统计 (跑步口径) |
+| `get_personal_records` | `getPersonalRecords` | `period` | `PersonalRecordsResponse` | PB (1.6K~全马, 跑步口径) |
+| `get_vdot_history` | `getVDOTHistory` | `limit`(1-100) | `VDOTDataPoint[]` | 跑力历史 (跑步口径) |
 | `get_vdot_trend` | `getVDOTTrend` | `startDate?`, `endDate?`, `groupBy` | `VDOTTrendPoint[]` | 跑力趋势 (周/月聚合) |
-| `get_hr_zone_analysis` | `getHrZoneStats` | `startDate?`, `endDate?`, `groupBy` | `{data, zoneRanges, summary}` | 心率区间分析 |
-| `get_pace_zone_analysis` | `getPaceZoneStats` | `startDate`, `endDate`, `vdot?`(auto=取最新) | `PaceZoneStat[]` | 配速区间分析 |
-| `get_month_summaries` | `getMonthSummaries` | `limit?`, `offset?` | `MonthSummary[]` | 月度汇总 |
+| `get_hr_zone_analysis` | `getHrZoneStats` | `startDate?`, `endDate?`, `groupBy` | `{data, zoneRanges, summary}` | 心率区间分析 (跑步口径) |
+| `get_pace_zone_analysis` | `getPaceZoneStats` | `startDate`, `endDate`, `vdot?`(auto=取最新) | `PaceZoneStat[]` | 配速区间分析 (跑步口径) |
+| `get_month_summaries` | `getMonthSummaries` | `limit?`, `offset?` | `MonthSummary[]` | 月度汇总 (**全类型口径**) |
 | `get_activity_track` | `getActivityTrack` | `activityId` | `{track: ActivityTrack \| null}` | 路线轨迹 (降采样 GPS+海拔+包围盒); 室内为 null |
-| `get_daily_distances` | `getDailyDistances` | `year?`(默认当前年) | `{date, km}[]` | 年度每日里程 (热力图/连续性) |
+| `get_daily_distances` | `getDailyDistances` | `year?`(默认当前年) | `{date, km}[]` | 年度每日里程 (热力图/连续性, 跑步口径) |
 
 ### 3.2 AI 专用 (新增, 3 个)
 

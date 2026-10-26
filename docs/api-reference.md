@@ -21,11 +21,28 @@
 
 ---
 
+## 统计口径：跑步 vs 全类型
+
+API 分两类口径，**不可混用**（背景与实测数据见 [功能总览 §1.1](features.md#11-统计口径两种口径必须显式区分)）：
+
+| 口径 | 接口 | 说明 |
+|------|------|------|
+| **表现分析（只取跑步）** | `/api/stats`、`/api/stats/personal-records`、`/api/analysis/hr-zones`、`/api/analysis/pace-zones`、`/api/analysis/vdot-trend`、`/api/vdot`、`/api/insight`、`/api/insight/coach`、活动详情的可比样本 | 只统计 `running` / `track_running` / `treadmill_running`；配速、步频、心率区间、VDOT、个人纪录、训练负荷、同路线对比只在跑步内部可比 |
+| **活动日志（全类型）** | `/api/activities`、`/api/activities/months` | 返回库里所有运动类型；列表带 `activity_type` 筛选器，月度「N 公里 / N 次」与展开后的卡片严格一致 |
+
+跑步类型集合由 `db.runningTypeClause` / `db.isRunningType` 单点定义；缺
+`activity_type` 列或值为空时按跑步处理（旧库兼容）。非跑步活动仍保留自己的分段与
+心率区间数据（如泳池游泳的分段、区间分布），只是不参与配速排名与跑力统计。
+
+> 若某接口返回的次数小于数据库活动总数，通常是该接口属于**跑步口径** —— 这不是漏数据。
+
+---
+
 ## 活动相关 API
 
 ### 1. 获取活动列表
 
-获取所有跑步活动的列表，支持分页和按月份筛选。
+获取活动列表（**全类型口径**），支持分页、按月份筛选与按运动类型筛选。
 
 **请求**
 
@@ -37,52 +54,55 @@ GET /api/activities
 
 | 参数 | 类型 | 必填 | 说明 | 示例 |
 |------|------|------|------|------|
-| `month` | string | 否 | 按月份筛选 (格式: YYYY-MM) | `2026-02` |
-| `limit` | number | 否 | 每页数量，默认 50 | `20` |
-| `offset` | number | 否 | 偏移量，默认 0 | `0` |
+| `page` | number | 否 | 页码，默认 1（最大 1000000） | `2` |
+| `limit` | number | 否 | 每页数量，默认 20（最大 500） | `50` |
+| `type` | string | 否 | 按运动类型精确筛选（`running` / `strength_training` / `lap_swimming`…）。`/list` 页下拉的**值就是这些原始键**，展示文案由 `activityTypeLabel` 转成中文 | `running` |
+| `startDate` | string | 否 | 起始本地日期 (YYYY-MM-DD，含当日) | `2026-09-01` |
+| `endDate` | string | 否 | 结束本地日期 (YYYY-MM-DD，含当日) | `2026-09-30` |
+
+> `startDate > endDate` 返回 400。列表响应**不含** `track`（单条约 40KB），路线由活动详情接口单独提供。
 
 **响应示例**
 
 ```json
 {
-  "activities": [
+  "data": [
     {
       "activity_id": 14234567890,
-      "activity_name": "晨跑 10K",
-      "start_time": "2026-02-13T06:30:00",
-      "sport": "跑步",
-      "sub_sport": "路跑",
-      "total_distance": 10000,
-      "total_timer_time": 3000,
-      "avg_speed": 3.33,
-      "avg_heart_rate": 150,
-      "avg_cadence": 170,
-      "total_calories": 500,
-      "vdot": 52.3
+      "name": "晨跑 10K",
+      "activity_type": "running",
+      "start_time": "2026-02-13T06:30:00.000Z",
+      "start_time_local": "2026-02-13T14:30:00",
+      "distance": 10.0,
+      "duration": 3000,
+      "average_pace": 300,
+      "average_heart_rate": 150,
+      "average_cadence": 170,
+      "vdot_value": 52.3
     }
   ],
-  "total": 150,
-  "limit": 50,
-  "offset": 0
+  "pagination": { "page": 1, "limit": 50, "total": 150 }
 }
 ```
 
-**字段说明**
+**字段说明**（DB 列名直出，未做别名映射）
 
 | 字段 | 类型 | 说明 | 单位 |
 |------|------|------|------|
 | `activity_id` | number | 活动唯一 ID | - |
-| `activity_name` | string | 活动名称 | - |
-| `start_time` | string | 开始时间 (ISO 8601) | - |
-| `sport` | string | 运动类型 | - |
-| `sub_sport` | string | 子类型 (路跑/跑步机/越野等) | - |
-| `total_distance` | number | 总距离 | 米 |
-| `total_timer_time` | number | 总用时 | 秒 |
-| `avg_speed` | number | 平均速度 | m/s |
-| `avg_heart_rate` | number | 平均心率 | bpm |
-| `avg_cadence` | number | 平均步频 | spm |
-| `total_calories` | number | 总卡路里 | kcal |
-| `vdot` | number \| null | VDOT 跑力值（Daniels；仅 Z3+ 代表性强度段，取最快 Z3+ lap，否则全程 Z3+ 才计；日常轻松/恢复跑为 null） | - |
+| `name` | string | 活动名称 | - |
+| `activity_type` | string | 运动类型 (`running` / `strength_training` / `lap_swimming`…) | - |
+| `sport_type` | string \| null | FIT sport 中文展示 (跑步/健身器械…) | - |
+| `sub_sport_type` | string \| null | FIT sub_sport 中文展示 (路跑/跑步机/越野…) | - |
+| `start_time` | string | 开始时间（UTC 绝对时刻） | - |
+| `start_time_local` | string | 开始时间（本地墙钟，无时区标记） | - |
+| `distance` | number | 总距离（**公里**，注意不是米） | km |
+| `duration` | number | 总用时 | 秒 |
+| `moving_time` | number | 移动时间 | 秒 |
+| `average_pace` | number \| null | 平均配速（**非跑步类型不可作为跑步配速解读**） | 秒/公里 |
+| `average_heart_rate` | number \| null | 平均心率 | bpm |
+| `average_cadence` | number \| null | 平均步频（非跑步类型语义不同，如篮球 16） | spm |
+| `vdot_value` | number \| null | VDOT 跑力值（仅跑步类型，Z3+ 代表性强度段才计） | - |
 | `training_load` | number \| null | 训练负荷（优先 FIT 官方，缺省按时长×心率档回退） | - |
 | `garmin_vo2max` | number \| null | Garmin 官方 VO2max | ml/kg/min |
 | `recovery_time` | number \| null | 恢复时间 | 分钟 |
@@ -101,31 +121,42 @@ GET /api/activities
 
 ### 2. 获取可用月份列表
 
-获取有数据的所有月份，用于月份选择器。
+按月汇总总距离与活动次数（**全类型口径**），用于 `/list` 页的月份折叠卡片。
+`totalDistance` 为**公里**（与 `activities.distance` 一致）；「N 公里 / N 次」与展开后的
+活动卡片严格一致（含非跑步活动）。
 
 **请求**
 
 ```http
-GET /api/activities/months
+GET /api/activities/months?limit=6&offset=0
 ```
+
+**查询参数**
+
+| 参数 | 类型 | 必填 | 说明 | 示例 |
+|------|------|------|------|------|
+| `limit` | number | 否 | 返回月份数（1–100）。**不传则返回全部** | `6` |
+| `offset` | number | 否 | 偏移量，默认 0 | `6` |
 
 **响应示例**
 
 ```json
 {
-  "months": [
-    { "month": "2026-02", "count": 18 },
-    { "month": "2026-01", "count": 22 },
-    { "month": "2025-12", "count": 20 }
-  ]
+  "data": [
+    { "monthKey": "2026-10", "totalDistance": 140.7707, "count": 17 },
+    { "monthKey": "2026-09", "totalDistance": 200.84222, "count": 25 }
+  ],
+  "total": 26
 }
 ```
+
+> 未传 `limit`/`offset` 时返回 `{ "data": [...] }`（无 `total` 字段）。
 
 ---
 
 ### 3. 获取活动详情
 
-获取单个活动的详细信息。
+获取单个活动的完整信息（DB 列名直出，未做别名映射）。
 
 **请求**
 
@@ -139,44 +170,75 @@ GET /api/activities/{id}
 |------|------|------|------|
 | `id` | number | 是 | 活动 ID |
 
-**响应示例**
+**响应示例**（真实生产库，字段已裁剪）
 
 ```json
 {
-  "activity_id": 14234567890,
-  "activity_name": "晨跑 10K",
-  "start_time": "2026-02-13T06:30:00",
-  "sport": "跑步",
-  "sub_sport": "路跑",
-  "total_distance": 10000,
-  "total_timer_time": 3000,
-  "total_elapsed_time": 3010,
-  "avg_speed": 3.33,
-  "max_speed": 4.5,
-  "avg_heart_rate": 150,
-  "max_heart_rate": 175,
-  "total_calories": 500,
-  "avg_cadence": 170,
-  "max_cadence": 185,
-  "total_ascent": 120,
-  "total_descent": 110,
-  "avg_stride_length": 1.18,
-  "training_effect": 3.5,
-  "vdot": 52.3,
-  "garmin_vo2max": 50.2,
-  "recovery_time": 24,
-  "primary_benefit": "有氧基础",
-  "hr_zone_boundaries": "[97,117,136,155,175,194]",
-  "power_zone_boundaries": null,
-  "devices": "[{\"device_type\":\"GPS\",\"manufacturer\":\"garmin\",\"product\":\"FR265\",\"firmware\":\"18.22\"}]",
-  "user_weight": 70,
-  "user_height": 1.75,
-  "resting_heart_rate_fit": 55,
-  "workout_name": "基础训练",
-  "workout_steps": null,
-  "hrv_rmssd": 42.5
+  "activity_id": 567565549,
+  "name": "九龙坡区 - 长距离跑",
+  "activity_type": "running",
+  "sport_type": "跑步",
+  "sub_sport_type": "通用",
+  "start_time": "2026-02-22T08:59:41.000Z",
+  "start_time_local": "2026-02-22T16:59:41.000",
+  "start_tz_offset_min": 480,
+  "distance": 21.74561,
+  "duration": 7123,
+  "moving_time": 6881,
+  "elapsed_time": 7123,
+  "average_pace": 327.56,
+  "average_speed": 10.99,
+  "average_heart_rate": 158,
+  "max_heart_rate": 183,
+  "average_cadence": 180,
+  "max_cadence": 200,
+  "average_stride_length": 1.0377,
+  "average_vertical_oscillation": 7.87,
+  "average_vertical_ratio": 7.66,
+  "average_ground_contact_time": 241.8,
+  "average_power": 293,
+  "max_power": 392,
+  "normalized_power": 302,
+  "total_ascent": 15,
+  "total_descent": 7,
+  "total_training_effect": 5,
+  "total_anaerobic_training_effect": 0.2,
+  "avg_altitude": 291.3,
+  "max_altitude": 296.2,
+  "min_altitude": 282.2,
+  "calories": 1487,
+  "average_temperature": 24,
+  "vdot_value": 37.4,
+  "training_load": 198,
+  "garmin_vo2max": 55,
+  "recovery_time": 4432,
+  "primary_benefit": "有氧高负荷",
+  "hr_zone_boundaries": "[94,113,132,150,169,188]",
+  "power_zone_boundaries": "[231,284,323,357,411,4000,null,null]",
+  "devices": "[{\"device_index\":0,\"device_type\":\"运动手表\",\"manufacturer\":\"garmin\",\"product\":3992,\"firmware\":\"27.09\"}]",
+  "user_weight": 67,
+  "user_height": 1.76,
+  "resting_heart_rate_fit": 47,
+  "workout_name": "长距离跑",
+  "workout_steps": "[{\"index\":0,\"name\":\"\",\"duration_type\":\"time\",\"duration_sec\":6840000,\"target_type\":\"speed\",\"target_low\":2888,\"target_high\":3250,\"intensity\":\"interval\"}]",
+  "start_lat": 29.52873,
+  "start_lng": 106.50725,
+  "route_cells": "[\"wm5xzx2\",\"wm5xzx3\",\"wm5xzx6\"]",
+  "route_bounds": "{\"minLat\":29.5277,\"maxLat\":29.5296,\"minLng\":106.5016,\"maxLng\":106.5035}",
+  "route_km": 21.856
 }
 ```
+
+**字段要点**
+
+- `distance` 为**公里**（`21.74561` = 21.7 公里），不是米。
+- `average_speed` 为 **km/h**；`max_speed` 为 m/s（Garmin 原始口径）。
+- `vdot_value` 仅在 Z3+ 代表性强度段计算，日常轻松/恢复跑为 `null`。
+- `training_load` 优先 FIT 官方值，缺省按时长 × 心率档回退。
+- `hr_zone_boundaries` / `power_zone_boundaries` / `devices` / `workout_steps` /
+  `route_cells` / `route_bounds` 均为 **JSON 字符串**，需自行 `JSON.parse`。
+- `track`（约 40KB 的降采样多段线）**不在此接口返回**，见下文说明。
+- 不存在的活动返回 404，`id` 非法返回 400。
 
 ---
 
@@ -200,38 +262,35 @@ GET /api/activities/{id}/laps
 
 ```json
 {
+  "activity_id": 14234567890,
   "laps": [
     {
+      "id": 1,
+      "activity_id": 14234567890,
       "lap_index": 1,
-      "start_time": "2026-02-13T06:30:00",
-      "total_distance": 1000,
-      "total_timer_time": 300,
-      "avg_speed": 3.33,
-      "avg_heart_rate": 145,
-      "avg_cadence": 168,
+      "duration": 300,
+      "cumulative_time": 300,
+      "distance": 1000,
+      "average_pace": 300,
+      "average_speed": 12.0,
+      "average_heart_rate": 145,
+      "max_heart_rate": 152,
+      "average_cadence": 168,
       "total_ascent": 15,
       "total_descent": 10
-    },
-    {
-      "lap_index": 2,
-      "start_time": "2026-02-13T06:35:00",
-      "total_distance": 1000,
-      "total_timer_time": 295,
-      "avg_speed": 3.39,
-      "avg_heart_rate": 150,
-      "avg_cadence": 172,
-      "total_ascent": 12,
-      "total_descent": 8
     }
   ]
 }
 ```
 
+> `distance` 为**米**。活动不存在返回 404；`id` 非法返回 400。分段也可能为空数组
+> （非跑步活动或数据源未提供 laps）。
+
 ---
 
 ### 5. 获取活动记录点数据
 
-获取活动的每秒记录点（Records）数据，包含 GPS、心率、配速等详细信息。
+获取活动的逐秒记录（Records），包含心率、步频、步幅、配速、海拔、温度等。
 
 **请求**
 
@@ -245,36 +304,36 @@ GET /api/activities/{id}/records
 |------|------|------|------|
 | `id` | number | 是 | 活动 ID |
 
-**查询参数**
-
-| 参数 | 类型 | 必填 | 说明 | 示例 |
-|------|------|------|------|------|
-| `limit` | number | 否 | 每页数量，默认 1000 | `500` |
-| `offset` | number | 否 | 偏移量，默认 0 | `0` |
+> **无分页参数**：一次返回该活动的全部记录（长距离活动可达上万条）。数据量较大时
+> 建议前端按需渲染；若只要轨迹轮廓，用 MCP `get_activity_track`（已降采样）。
 
 **响应示例**
 
 ```json
 {
+  "activity_id": 14234567890,
   "records": [
     {
-      "timestamp": "2026-02-13T06:30:00",
-      "distance": 10.5,
-      "speed": 3.5,
+      "activity_id": 14234567890,
+      "record_index": 0,
+      "elapsed_sec": 0,
       "heart_rate": 140,
       "cadence": 165,
+      "step_length": 0.95,
+      "pace": 330,
+      "power": 250,
       "altitude": 50.2,
-      "position_lat": 39.9042,
-      "position_long": 116.4074
+      "temperature": 24.5,
+      "speed": 10.9,
+      "distance": 0.0
     }
-  ],
-  "total": 3000,
-  "limit": 1000,
-  "offset": 0
+  ]
 }
 ```
 
-**注意**: 记录点数据量较大，建议使用分页获取或前端按需加载。
+**单位**（易错）：`distance` 为**公里**（累计距离），`speed` 为 **km/h**，
+`altitude` 米、`temperature` °C、`pace` 秒/公里、`elapsed_sec` 秒。
+无记录的活动返回 `records: []`；真正的 DB 读取失败返回 500（不再伪装成 200 空数组）。
 
 > **路线轨迹 (track) 不经此 REST 接口返回**: track 是降采样的 GPS 多段线 + 海拔剖面 + 包围盒
 > (~40KB/条 JSON), 仅活动详情页经 SSR (`getActivityTrack`) 渲染离线路线图, 室内/跑步机为
@@ -287,142 +346,131 @@ GET /api/activities/{id}/records
 
 ### 6. 获取统计数据
 
-获取跑步统计数据，包括总里程、跑量、个人记录等。
+获取**跑步口径**的汇总统计（只统计 `running` / `track_running` / `treadmill_running`，
+见 [统计口径](#统计口径跑步-vs-全类型)）。
 
 **请求**
 
 ```http
-GET /api/stats
+GET /api/stats?period=week
 ```
 
 **查询参数**
 
 | 参数 | 类型 | 必填 | 说明 | 示例 |
 |------|------|------|------|------|
-| `year` | number | 否 | 按年份筛选 | `2026` |
-| `month` | string | 否 | 按月份筛选 (格式: YYYY-MM) | `2026-02` |
+| `period` | string | 否 | `week` / `month` / `year` / `total`；不传等价于 `total` | `month` |
 
-**响应示例**
+`week` 为 ISO 周（周一起）；`month`/`year` 按本地日历。非法值返回 400。
+
+**响应示例**（真实生产库 `total`）
 
 ```json
 {
-  "summary": {
-    "total_runs": 150,
-    "total_distance": 1500000,
-    "total_time": 450000,
-    "total_calories": 75000,
-    "avg_distance": 10000,
-    "avg_pace": 300
-  },
-  "monthly": [
-    {
-      "month": "2026-02",
-      "runs": 18,
-      "distance": 180000,
-      "time": 54000,
-      "calories": 9000
-    }
-  ],
-  "weekly": [
-    {
-      "week": "2026-W07",
-      "runs": 4,
-      "distance": 42000,
-      "time": 12600
-    }
-  ]
+  "totalActivities": 241,
+  "totalDistance": 2140439.11,
+  "totalDuration": 775004,
+  "averagePace": 368.63,
+  "averageHeartRate": 146.57,
+  "totalAscent": 7660,
+  "averageVDOT": 39.35,
+  "averageCadence": 177.68,
+  "averageStrideLength": 0.946,
+  "totalTrainingLoad": 17600
 }
 ```
+
+**字段说明**
+
+| 字段 | 类型 | 说明 | 单位 |
+|------|------|------|------|
+| `totalActivities` | number | 跑步次数 | 次 |
+| `totalDistance` | number | 总距离（**米**；DB 存公里，接口 ×1000） | m |
+| `totalDuration` | number | 总时长 | 秒 |
+| `averagePace` | number? | 平均配速（逐活动 `AVG`，非时长加权） | 秒/公里 |
+| `averageHeartRate` | number? | 平均心率 | bpm |
+| `totalAscent` | number? | 总爬升 | m |
+| `averageVDOT` | number? | 平均 VDOT（仅 Z3+ 代表性强度段有值的活动参与） | - |
+| `averageCadence` | number? | 平均步频 | spm |
+| `averageStrideLength` | number? | 平均步幅 | m |
+| `totalTrainingLoad` | number? | 训练负荷总和 | - |
 
 ---
 
 ### 7. 获取个人记录
 
-获取不同距离的个人最佳成绩 (PB)。
+获取不同距离的个人最佳成绩（PB），**跑步口径**。
 
 **请求**
 
 ```http
-GET /api/stats/personal-records
-```
-
-**响应示例**
-
-```json
-{
-  "records": [
-    {
-      "distance": 5000,
-      "time": 1200,
-      "pace": 240,
-      "date": "2026-01-15",
-      "activity_id": 14200000000,
-      "activity_name": "5K PB"
-    },
-    {
-      "distance": 10000,
-      "time": 2580,
-      "pace": 258,
-      "date": "2026-02-10",
-      "activity_id": 14230000000,
-      "activity_name": "10K 突破"
-    },
-    {
-      "distance": 21097,
-      "time": 5700,
-      "pace": 270,
-      "date": "2025-12-05",
-      "activity_id": 14100000000,
-      "activity_name": "半马 PB"
-    }
-  ]
-}
-```
-
----
-
-### 8. 获取 VDOT 趋势
-
-获取 VDOT 跑力值的历史趋势数据。
-
-**请求**
-
-```http
-GET /api/vdot
+GET /api/stats/personal-records?period=total
 ```
 
 **查询参数**
 
 | 参数 | 类型 | 必填 | 说明 | 示例 |
 |------|------|------|------|------|
-| `days` | number | 否 | 最近 N 天，默认 30 | `90` |
+| `period` | string | 否 | `week` / `month` / `year` / `total` / `6months`，默认 `total` | `6months` |
 
-**响应示例**
+> `6months` 用「6 个月前同一天（超出取该月最后一天）」定位，避免 7/31 → 3/2 的月末溢出。
+
+**响应示例**（真实生产库 `total`）
 
 ```json
 {
-  "trend": [
-    {
-      "date": "2026-02-13",
-      "vdot": 52.3,
-      "activity_id": 14234567890,
-      "distance": 10000,
-      "time": 3000
-    },
-    {
-      "date": "2026-02-11",
-      "vdot": 51.8,
-      "activity_id": 14230000000,
-      "distance": 8000,
-      "time": 2520
-    }
+  "period": "total",
+  "startDate": "1970-01-01",
+  "endDate": "2026-10-27",
+  "records": [
+    { "distanceLabel": "1.6公里最佳成绩", "durationSeconds": 389, "achievedAt": "2025-11-15T11:17:59.000Z" },
+    { "distanceLabel": "3公里最佳成绩", "durationSeconds": 736, "achievedAt": "2025-11-15T11:17:59.000Z" },
+    { "distanceLabel": "5公里最佳成绩", "durationSeconds": 1229, "achievedAt": "2025-11-15T11:17:59.000Z" },
+    { "distanceLabel": "10公里最佳成绩", "durationSeconds": 2751, "achievedAt": "2026-10-18T00:01:20.000Z" },
+    { "distanceLabel": "半程马拉松最佳成绩", "durationSeconds": 6189, "achievedAt": "2026-03-15T00:01:05.000Z" },
+    { "distanceLabel": "全程马拉松最佳成绩", "durationSeconds": null, "achievedAt": null }
   ],
-  "current": 52.3,
-  "avg": 51.5,
-  "max": 53.2,
-  "min": 49.8
+  "longestRunMeters": 21745.61,
+  "longestRunDate": "2026-02-22T08:59:41.000Z"
 }
 ```
+
+**计算规则**：单条活动距离 ≥ 目标距离时，优先用 `activity_laps` 跨段插值出目标距离用时
+（更精确）；无分段则按距离比例换算。`durationSeconds = null` 表示区间内没有足够长的跑步。
+
+---
+
+### 8. 获取 VDOT 历史
+
+获取有 VDOT 值的跑步活动历史（**跑步口径**，倒序）。
+
+**请求**
+
+```http
+GET /api/vdot?limit=50
+```
+
+**查询参数**
+
+| 参数 | 类型 | 必填 | 说明 | 示例 |
+|------|------|------|------|------|
+| `limit` | number | 否 | 返回条数，默认 50（1–500） | `24` |
+
+**响应示例**（真实生产库）
+
+```json
+{
+  "data": [
+    { "activity_id": 653862644, "start_time": "2026-10-22T11:07:11.000Z", "vdot_value": 39.4, "distance": 15060.87, "duration": 5063 },
+    { "activity_id": 652123224, "start_time": "2026-10-18T00:01:20.000Z", "vdot_value": 44, "distance": 10111.17, "duration": 2780 },
+    { "activity_id": 650375691, "start_time": "2026-10-13T10:25:04.000Z", "vdot_value": 42, "distance": 8306.73, "duration": 3018 }
+  ],
+  "count": 3
+}
+```
+
+> `distance` 为**米**（DB 存公里，接口 ×1000）。只有 Z3+ 代表性强度段能算出 VDOT 的
+> 活动才出现，日常轻松/恢复跑为 `null` 故不在此列表。
 
 ---
 
@@ -430,187 +478,147 @@ GET /api/vdot
 
 ### 9. 心率区间分析
 
-获取心率区间分布数据，用于分析训练强度。
+按周/月聚合各心率区间（Z1–Z5）的**跑步**活动次数、时长、距离与平均配速/步频/步幅。
+聚合粒度为 `activity_laps`（每个分段按平均心率归入一个区间），**跑步口径**。
 
 **请求**
 
 ```http
-GET /api/analysis/hr-zones
+GET /api/analysis/hr-zones?startDate=2026-09-01&endDate=2026-10-31&groupBy=month
 ```
 
 **查询参数**
 
 | 参数 | 类型 | 必填 | 说明 | 示例 |
 |------|------|------|------|------|
-| `month` | string | 否 | 按月份筛选 (格式: YYYY-MM) | `2026-02` |
-| `activity_id` | number | 否 | 单个活动的心率区间 | `14234567890` |
+| `startDate` | string | 否 | 起始本地日期 (YYYY-MM-DD) | `2026-09-01` |
+| `endDate` | string | 否 | 结束本地日期 (YYYY-MM-DD) | `2026-10-31` |
+| `groupBy` | string | 否 | `week` / `month`，默认 `month` | `week` |
 
-**响应示例**
+`startDate > endDate` 或 `groupBy` 非法返回 400。
+
+**响应示例**（真实生产库，节选）
 
 ```json
 {
-  "zones": [
-    {
-      "zone": 1,
-      "name": "有氧基础",
-      "range": "120-140 bpm",
-      "time": 3600,
-      "percentage": 25.0
-    },
-    {
-      "zone": 2,
-      "name": "有氧耐力",
-      "range": "140-160 bpm",
-      "time": 7200,
-      "percentage": 50.0
-    },
-    {
-      "zone": 3,
-      "name": "乳酸阈值",
-      "range": "160-170 bpm",
-      "time": 2880,
-      "percentage": 20.0
-    },
-    {
-      "zone": 4,
-      "name": "无氧",
-      "range": "170-180 bpm",
-      "time": 720,
-      "percentage": 5.0
-    },
-    {
-      "zone": 5,
-      "name": "最大",
-      "range": "180+ bpm",
-      "time": 0,
-      "percentage": 0.0
-    }
+  "data": [
+    { "period": "2026-09", "period_type": "month", "hr_zone": 1, "activity_count": 15,
+      "total_duration": 15492, "total_distance": 32526.62, "avg_pace": 509.11,
+      "avg_cadence": 156.86, "avg_stride_length": 0.886, "avg_heart_rate": 124.79 },
+    { "period": "2026-09", "period_type": "month", "hr_zone": 2, "activity_count": 20,
+      "total_duration": 42164, "total_distance": 111277.42, "avg_pace": 369.74,
+      "avg_cadence": 181.67, "avg_stride_length": 0.893, "avg_heart_rate": 140.92 },
+    { "period": "2026-09", "period_type": "month", "hr_zone": 3, "activity_count": 9,
+      "total_duration": 9934, "total_distance": 28279, "avg_pace": 341.06,
+      "avg_cadence": 172.62, "avg_stride_length": 0.963, "avg_heart_rate": 159.06 }
   ],
-  "total_time": 14400
+  "zoneRanges": {
+    "1": { "min": 0, "max": 132 }, "2": { "min": 133, "max": 151 },
+    "3": { "min": 152, "max": 164 }, "4": { "min": 165, "max": 176 },
+    "5": { "min": 177, "max": 190 }
+  },
+  "summary": {
+    "total_activities": 34,
+    "total_periods": 1,
+    "date_range": { "start": "2026-09-01", "end": "2026-10-31" }
+  },
+  "groupBy": "month"
 }
 ```
 
-**心率区间定义** (基于最大心率和静息心率)
+> `activity_count` 是**该区间内的分段数**去重后的活动数，逐区间相加会重复计数
+> （同一活动可能横跨多个心率区间），`summary.total_activities` 也是这个相加值 ——
+> 只适合做「样本量」参考，不能当成独立活动总数。
+> `avg_pace` / `avg_cadence` 按 lap 时长加权。
 
-| 区间 | 心率储备百分比 | 训练目的 |
-|------|----------------|----------|
-| Zone 1 | 50-60% | 有氧基础，恢复跑 |
-| Zone 2 | 60-70% | 有氧耐力，MAF 训练 |
-| Zone 3 | 70-80% | 乳酸阈值，节奏跑 |
-| Zone 4 | 80-90% | 无氧耐力，间歇跑 |
-| Zone 5 | 90-100% | 最大摄氧量，冲刺 |
+**心率区间定义**（`app/lib/hr-zones.ts`，基于最大心率百分比，`MAX_HR` 环境变量或默认 190）
 
-计算公式：
-
-```
-心率储备 (HRR) = MAX_HR - RESTING_HR
-目标心率 = (HRR × 百分比) + RESTING_HR
-```
+| 区间 | 心率范围 | 训练目的 |
+|------|----------|----------|
+| Zone 1 | ≤ 70% MaxHR | 有氧基础，恢复跑 |
+| Zone 2 | 70–80% | 有氧耐力 |
+| Zone 3 | 80–87% | 乳酸阈值，节奏跑 |
+| Zone 4 | 87–93% | 无氧耐力，间歇跑 |
+| Zone 5 | > 93% | 最大摄氧量，冲刺 |
 
 ---
 
 ### 10. 配速区间分析
 
-获取配速分布数据，识别舒适配速区间。
+按当前跑力 VDOT 把 `activity_laps` 归入 Z1–Z5 配速区间并聚合（**跑步口径**）。
 
 **请求**
 
 ```http
-GET /api/analysis/pace-zones
+GET /api/analysis/pace-zones?startDate=2026-09-01&endDate=2026-10-31&vdot=39.35
 ```
 
 **查询参数**
 
 | 参数 | 类型 | 必填 | 说明 | 示例 |
 |------|------|------|------|------|
-| `month` | string | 否 | 按月份筛选 (格式: YYYY-MM) | `2026-02` |
+| `startDate` | string | **是** | 起始本地日期 (YYYY-MM-DD) | `2026-09-01` |
+| `endDate` | string | **是** | 结束本地日期 (YYYY-MM-DD) | `2026-10-31` |
+| `vdot` | number | 否 | 跑力值（1–100）；不传则用最新一次跑步的 VDOT | `39.35` |
 
-**响应示例**
+**响应示例**（真实生产库，节选）
 
 ```json
 {
-  "zones": [
-    {
-      "zone": "4:00-4:30",
-      "count": 25,
-      "percentage": 16.7,
-      "avg_heart_rate": 155
-    },
-    {
-      "zone": "4:30-5:00",
-      "count": 60,
-      "percentage": 40.0,
-      "avg_heart_rate": 150
-    },
-    {
-      "zone": "5:00-5:30",
-      "count": 45,
-      "percentage": 30.0,
-      "avg_heart_rate": 145
-    },
-    {
-      "zone": "5:30-6:00",
-      "count": 20,
-      "percentage": 13.3,
-      "avg_heart_rate": 140
-    }
-  ],
-  "total_activities": 150,
-  "avg_pace": 285
+  "data": [
+    { "zone": 1, "target_pace_sec_per_km": 393.87, "pace_min_sec_per_km": 378.61,
+      "pace_max_sec_per_km": 9999, "activity_count": 35, "total_duration": 49255,
+      "total_distance": 107360.57, "avg_pace": 520.43, "avg_cadence": 171.64,
+      "avg_stride_length": 0.782, "avg_heart_rate": 136.09 },
+    { "zone": 2, "target_pace_sec_per_km": 363.35, "pace_min_sec_per_km": 348.75,
+      "pace_max_sec_per_km": 378.61, "activity_count": 30, "total_duration": 47294,
+      "total_distance": 130580.72, "avg_pace": 362.35, "avg_cadence": 187.83,
+      "avg_stride_length": 0.873, "avg_heart_rate": 139.16 }
+  ]
 }
 ```
+
+> Z1 的 `pace_max_sec_per_km` 为 9999 表示「比下限更慢都算 Z1」（含热身/恢复慢段）。
+> 区间边界由 `app/lib/vdot-pace.ts` 的 `getPaceZoneBoundsFromVdot` 从 VDOT 推导。
 
 ---
 
 ### 11. VDOT 趋势分析
 
-获取 VDOT 随时间的变化趋势，用于可视化训练效果。
+按周/月聚合 VDOT（**跑步口径**）。
 
 **请求**
 
 ```http
-GET /api/analysis/vdot-trend
+GET /api/analysis/vdot-trend?startDate=2026-06-01&endDate=2026-10-31&groupBy=month
 ```
 
 **查询参数**
 
 | 参数 | 类型 | 必填 | 说明 | 示例 |
 |------|------|------|------|------|
-| `days` | number | 否 | 最近 N 天，默认 90 | `180` |
+| `startDate` | string | 否 | 起始本地日期 | `2026-06-01` |
+| `endDate` | string | 否 | 结束本地日期 | `2026-10-31` |
+| `groupBy` | string | 否 | `week` / `month`，默认 `month` | `week` |
 
-**响应示例**
+**响应示例**（真实生产库）
 
 ```json
 {
-  "trend": [
-    {
-      "date": "2026-02-13",
-      "vdot": 52.3,
-      "ma7": 51.8,
-      "ma30": 51.2
-    },
-    {
-      "date": "2026-02-11",
-      "vdot": 51.8,
-      "ma7": 51.5,
-      "ma30": 51.0
-    }
+  "data": [
+    { "period": "2026-06", "period_type": "month", "avg_vdot": 39.84, "max_vdot": 44.3, "min_vdot": 33.1, "activity_count": 11, "total_distance": 96176.87, "total_duration": 34218 },
+    { "period": "2026-07", "period_type": "month", "avg_vdot": 39.41, "max_vdot": 42.6, "min_vdot": 35, "activity_count": 7, "total_distance": 61357.1, "total_duration": 21829 },
+    { "period": "2026-08", "period_type": "month", "avg_vdot": 39.19, "max_vdot": 41.6, "min_vdot": 35.7, "activity_count": 14, "total_distance": 132460.94, "total_duration": 47876 },
+    { "period": "2026-09", "period_type": "month", "avg_vdot": 39.77, "max_vdot": 48, "min_vdot": 27.9, "activity_count": 10, "total_distance": 99186.17, "total_duration": 36658 },
+    { "period": "2026-10", "period_type": "month", "avg_vdot": 41.4, "max_vdot": 44, "min_vdot": 39.4, "activity_count": 5, "total_distance": 65792.72, "total_duration": 22472 }
   ],
-  "statistics": {
-    "current": 52.3,
-    "avg": 51.5,
-    "max": 53.2,
-    "min": 49.8,
-    "trend": "up"
-  }
+  "groupBy": "month",
+  "count": 5
 }
 ```
 
-**字段说明**
-
-- `ma7`: 7 天移动平均值
-- `ma30`: 30 天移动平均值
-- `trend`: 趋势方向 (`up` / `down` / `stable`)
+> `activity_count` 只统计**有 VDOT 值**的活动（Z3+ 代表性强度段），因此小于该期间总跑步次数。
+> 移动平均 / 斜率 / 平台期判断不在接口内，由洞察层（`app/lib/insight.ts` 的 `computeVdotTrend`）计算。
 
 ---
 
@@ -641,7 +649,7 @@ GET /api/insight?startDate=2026-06-01&endDate=2026-09-22
 | 字段 | 说明 |
 |------|------|
 | `range` | 实际计算区间 `{startDate, endDate}` |
-| `activityCount` | 区间内活动数 |
+| `activityCount` | 区间内**跑步**次数（非跑步活动不计，见 [统计口径](#统计口径跑步-vs-全类型)） |
 | `vdot` | VDOT 趋势：`raw` 散点、`perMonth` 月聚合、`slopePer30d` 斜率、`plateau` 平台期 |
 | `load` | 训练负荷：`weekly` 周聚合、`acute`/`chronic`/`acwr`/`acwrTone`、`zDistribution` 强度分布 |
 | `decoupling` | 有氧解耦：`points` 明细、`meanPct`、`trendPer30d` |
@@ -719,10 +727,11 @@ GET /api/activities/{id}/insight
 | `hrZoneBreakdown` | 心率区间占比 `{zone, seconds, pct}[]` |
 | `environment` | 环境可比性：本次/样本均温、爬升、同温档排名与配速/心率差（无数据时为 `null`） |
 | `locationComparison` | 跨名称同位置对比：GPS 首点 ≤1.5km + 距离分档 + 轨迹形状校验；无 GPS/未迁移时为 `null` |
-| `locationComparison.routeQuality` | 同路径几何质量：`verifiedPeers`（参与校验的同伴数）、`roadKm`（路面偏差中位数）、`maxRoadKm`（最差同伴）、`gridJaccard`（网格重合中位数）；未做形状校验时为 `null` |
+| `locationComparison.routeQuality` | 同路径几何质量：`verifiedPeers`（**有轨迹、真正参与校验**的同伴数，无轨迹的候选不计入）、`roadKm`（路面偏差中位数）、`maxRoadKm`（最差同伴）、`gridJaccard`（网格重合中位数）。未做形状校验时**显式返回 `null`**（不是缺键），客户端可直接按 `null` 分支渲染 |
 | `gradeAdjusted` | 等价平路配速（Minetti 2002）：实际/等价配速、差值、爬升/公里（记录不足为 `null`） |
 | `temperatureDrift` | 逐秒温度漂移：起止温度、差值、最小/最大（无逐秒温度为 `null`） |
 | `comparison.label` | 路线对比含 `· 同起点` 表示已通过 GPS 首点校验；距离回退为 `±x% · a–bkm` |
+| `comparison`（非跑步） | 恒为 `null`：非跑步不做配速横向对比（泳池 1670s/km 与跑步 270s/km 不可比）；`lapAnalysis` / `hrZoneBreakdown` / `decouplingPct` 等个人指标照常返回 |
 
 ---
 
@@ -749,6 +758,13 @@ GET /api/activities/{id}/insight
 - 海拔修正：Minetti 2002 等价平路配速；温度漂移：逐秒温度起止差；
 - 任一查询失败只降级对应段落，不阻塞 AI 主流程。
   实现：`app/lib/activity-coach-context.ts` + `activity-coach-context-service.ts`。
+
+**非跑步活动走另一套 prompt**（`NON_RUNNING_SYSTEM_PROMPT`）：游泳/篮球/力量训练
+不套用跑步教练框架（VDOT / 配速区间 / 步频步幅 / 触地平衡），改为综合体能教练 +
+交叉训练视角，重点回答「本次负荷如何、对跑步是促进还是妨碍、下次跑步怎么安排」。
+活动数据段对非跑步**整行不输出**配速/步频/步幅/触地/跑力行（分段改用时长），
+避免模型把泳池的 1670 s/km 解读成「配速偏慢」。同时非跑步活动不做配速横向对比
+（`paceComparable` 守卫），分段/心率区间等个人指标照常提供。
 
 **请求**
 
@@ -897,15 +913,21 @@ GET /api/llm/models
 
 ### 单位约定
 
-| 字段类型 | 单位 | 说明 |
-|----------|------|------|
-| 距离 | 米 (m) | 例如 10000 = 10 公里 |
-| 时间 | 秒 (s) | 例如 3000 = 50 分钟 |
-| 速度 | 米/秒 (m/s) | 例如 3.33 = 5:00 配速 |
-| 配速 | 秒/公里 (s/km) | 例如 300 = 5:00 /km |
-| 心率 | 次/分 (bpm) | 例如 150 bpm |
-| 步频 | 步/分 (spm) | 例如 170 spm |
-| 卡路里 | 千卡 (kcal) | 例如 500 kcal |
+⚠️ 距离单位**因接口而异**，这是最容易踩的坑：
+
+| 场景 | 单位 | 示例 |
+|------|------|------|
+| `/api/activities`、`/api/activities/months` 的 `distance` / `totalDistance` | **公里 (km)**（DB 列原样） | `10.0` = 10 公里 |
+| `/api/stats` 的 `totalDistance`、`/api/stats/personal-records` 的 `longestRunMeters` | **米 (m)** | `2140439` = 2140 公里 |
+| `/api/vdot`、`/api/analysis/hr-zones`、`/api/analysis/pace-zones`、`/api/analysis/vdot-trend` 的 `distance` / `total_distance` | **米 (m)** | `10000` = 10 公里 |
+| `/api/activities/{id}/laps` 的 `distance` | **米 (m)** | `1000` = 1 公里 |
+| `activity_records.distance`（逐秒记录） | **公里 (km)** | `0.005` |
+| `activity_records.speed` | **km/h** | `12.0` |
+| 时长 / 配速 | 秒 (s) / 秒每公里 (s/km) | `3000` / `300` = 5:00/km |
+| 心率 / 步频 / 卡路里 | bpm / spm / kcal | `150` / `170` / `500` |
+
+换算速记：DB 的 `activities.distance` 是公里，`activity_laps.distance` 是米，
+`activity_records.distance` 又是公里。聚合前务必按上表换算。
 
 ### 速度转配速
 

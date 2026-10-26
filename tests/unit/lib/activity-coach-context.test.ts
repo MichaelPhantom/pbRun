@@ -189,6 +189,80 @@ describe('formatActivityContext', () => {
     expect(text).not.toContain('同距离样本');
   });
 
+  test('同位置样本优先输出，且样本集与同路线相同时不重复', () => {
+    const c = comparison();
+    const text = formatActivityContext({
+      insight: null,
+      routeComparison: c,
+      distanceComparison: null,
+      locationComparison: { ...c, basis: 'location', label: '同一公园' },
+    });
+    expect(text).toContain('同位置样本');
+    expect(text.match(/同路线\/同名样本/g)).toBeNull();
+  });
+
+  test('非有限差值（NaN/Infinity）→ 省略差值文案，不输出 NaN', () => {
+    const text = formatActivityContext({
+      insight: null,
+      routeComparison: comparison({
+        paceDeltaSecPerKm: Number.NaN,
+        hrDeltaBpm: Number.POSITIVE_INFINITY,
+        groupAvgPaceSecPerKm: 300,
+      }),
+      distanceComparison: null,
+    });
+    expect(text).toContain('组均 5:00/km');
+    // 差值文案整段省略：既无「（快/慢 …s/km）」也无心率差
+    expect(text).not.toMatch(/组均 5:00\/km（/);
+    expect(text).not.toContain('NaN');
+    expect(text).not.toContain('Infinity');
+    // 心率差同样省略（peerLine 里的样本心率不算）
+    expect(text).not.toContain('心率高');
+    expect(text).not.toContain('心率低');
+    // 不得出现空括号
+    expect(text).not.toContain('（）');
+  });
+
+  test('同类/同温档的差值也走同一层括号（NaN 不产生空括号）', () => {
+    const text = formatActivityContext({
+      insight: null,
+      routeComparison: comparison({
+        paceDeltaSecPerKm: Number.NaN,
+        sameCategory: {
+          category: 'tempo',
+          count: 5,
+          rank: null,
+          avgPaceSecPerKm: 303,
+          deltaSecPerKm: Number.NaN,
+        },
+      }),
+      distanceComparison: null,
+      environment: {
+        peerCount: 3,
+        currentTempC: 25,
+        peerAvgTempC: 25,
+        tempDeltaC: 0,
+        currentAscentM: null,
+        peerAvgAscentM: null,
+        ascentDeltaM: null,
+        tempBand: {
+          label: '24–26°C',
+          count: 4,
+          rank: null,
+          avgPaceSecPerKm: 300,
+          paceDeltaSecPerKm: Number.NaN,
+          avgHeartRate: 155,
+          hrDeltaBpm: Number.NaN,
+        },
+      },
+    });
+    expect(text).toContain('同类均 5:03/km');
+    expect(text).toContain('档内均 5:00/km');
+    expect(text).toContain('均心率 155bpm');
+    expect(text).not.toContain('（）');
+    expect(text).not.toContain('NaN');
+  });
+
   test('只有距离样本 → 输出同距离段与同类；无路线段', () => {
     const text = formatActivityContext({
       insight: null,
@@ -229,6 +303,35 @@ describe('formatActivityContext', () => {
     });
     // peers 为空 → 整段不输出
     expect(text).toBe('');
+  });
+
+  test('组均/心率持平 → 文案明确说「持平」而不是「快 0s/km」', () => {
+    const text = formatActivityContext({
+      insight: null,
+      routeComparison: comparison({
+        // 0.4s 差值取整后为 0 → 不应出现「快 0s/km」
+        paceDeltaSecPerKm: 0.4,
+        hrDeltaBpm: 0,
+        groupAvgPaceSecPerKm: 300,
+      }),
+      distanceComparison: null,
+    });
+    expect(text).toContain('持平组均');
+    expect(text).toContain('心率持平组均');
+    expect(text).not.toContain('快 0s/km');
+    expect(text).not.toContain('心率高 0bpm');
+  });
+
+  test('组均稍快/稍慢的取整边界（0.5s 进位后仍是「持平」）', () => {
+    const text = formatActivityContext({
+      insight: null,
+      routeComparison: comparison({
+        paceDeltaSecPerKm: -0.5, // round(-0.5) = -0 → |v| < 1 → 持平
+        groupAvgPaceSecPerKm: 300,
+      }),
+      distanceComparison: null,
+    });
+    expect(text).toContain('持平组均');
   });
 
   test('空输入 → 空串（调用方直接拼接）', () => {
@@ -396,5 +499,60 @@ describe('环境可比段', () => {
       distanceComparison: null,
     });
     expect(text).toBe('');
+  });
+});
+
+/**
+ * 路线几何质量段（`routeQuality`）—— AI 需要知道「同路径」有多贴合，
+ * 而不只是「通过了 0.55 阈值」。这里锁定三种输出形态与三种省略条件。
+ */
+describe('routeQuality 路面重合段', () => {
+  const base = comparison();
+
+  test('中位数/最差/网格重合全部输出（米与百分比换算正确）', () => {
+    const text = formatActivityContext({
+      insight: null,
+      routeComparison: comparison({
+        routeQuality: { verifiedPeers: 8, roadKm: 0.018, maxRoadKm: 0.143, gridJaccard: 0.72 },
+      }),
+      distanceComparison: null,
+    });
+    expect(text).toContain('路面重合: 8 位同伴路径对齐 | 平均垂直偏差 18m | 最差 143m | 网格重合 72%');
+  });
+
+  test('最差与中位数相同时省略「最差」（不输出无信息量的重复值）', () => {
+    const text = formatActivityContext({
+      insight: null,
+      routeComparison: comparison({
+        routeQuality: { verifiedPeers: 3, roadKm: 0.02, maxRoadKm: 0.02, gridJaccard: 0.9 },
+      }),
+      distanceComparison: null,
+    });
+    expect(text).toContain('平均垂直偏差 20m');
+    expect(text).not.toContain('最差');
+  });
+
+  test('gridJaccard 缺失 → 只输出路面偏差（不写「网格重合 null%」）', () => {
+    const text = formatActivityContext({
+      insight: null,
+      routeComparison: comparison({
+        routeQuality: { verifiedPeers: 2, roadKm: 0.05, maxRoadKm: null, gridJaccard: null },
+      }),
+      distanceComparison: null,
+    });
+    expect(text).toContain('平均垂直偏差 50m');
+    expect(text).not.toContain('网格重合');
+    expect(text).not.toContain('最差');
+  });
+
+  test('routeQuality 为 null / roadKm 为 null → 整段不输出', () => {
+    for (const q of [null, { verifiedPeers: 0, roadKm: null, maxRoadKm: null, gridJaccard: null }]) {
+      const text = formatActivityContext({
+        insight: null,
+        routeComparison: { ...base, routeQuality: q },
+        distanceComparison: null,
+      });
+      expect(text).not.toContain('路面重合');
+    }
   });
 });

@@ -101,3 +101,109 @@ describe('文档片段一致性 (防手抄漂移)', () => {
     expect(currentSnippet('<!-- BEGIN:CI-STEPS -->\n没有结束标记')).toBeNull();
   });
 });
+
+/**
+ * main() 的三条分支 —— 此前只能通过 CLI 触发，故整段 0 覆盖。
+ * 用临时文件注入 workflow/文档，避免真的去改仓库里的 workflow。
+ */
+describe('main (注入路径)', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const { main } = require('../../../scripts/testing/ci-docs-snippet');
+
+  let dir;
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ci-snippet-'));
+  });
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  const write = (name, content) => {
+    const p = path.join(dir, name);
+    fs.writeFileSync(p, content);
+    return p;
+  };
+  const sink = () => {
+    const chunks = [];
+    return { write: (s) => chunks.push(s), text: () => chunks.join('') };
+  };
+
+  test('--check 且片段一致 → 0 + 成功提示', () => {
+    const out = sink();
+    const err = sink();
+    const code = main({
+      check: true,
+      workflowPath: path.join(ROOT, '.github/workflows/test.yml'),
+      docPath: path.join(ROOT, 'docs/testing-strategy.md'),
+      out,
+      err,
+    });
+    expect(code).toBe(0);
+    expect(out.text()).toMatch(/与 workflow 一致/);
+    expect(err.text()).toBe('');
+  });
+
+  test('--check 且文档缺标记 → 1 + 明确提示（不抛错）', () => {
+    const docPath = write('doc.md', '# 无标记的文档\n');
+    const out = sink();
+    const err = sink();
+    const code = main({
+      check: true,
+      workflowPath: path.join(ROOT, '.github/workflows/test.yml'),
+      docPath,
+      out,
+      err,
+    });
+    expect(code).toBe(1);
+    expect(err.text()).toMatch(/缺少 CI-STEPS 标记片段/);
+    expect(out.text()).toBe('');
+  });
+
+  test('--check 且片段漂移 → 1 且同时打印文档与生成两侧（便于定位差异）', () => {
+    const docPath = write(
+      'doc.md',
+      '前文\n<!-- BEGIN:CI-STEPS -->\n- 旧的步骤名\n<!-- END:CI-STEPS -->\n',
+    );
+    const out = sink();
+    const err = sink();
+    const code = main({
+      check: true,
+      workflowPath: path.join(ROOT, '.github/workflows/test.yml'),
+      docPath,
+      out,
+      err,
+    });
+    expect(code).toBe(1);
+    const text = err.text();
+    expect(text).toMatch(/与 workflow 不一致/);
+    expect(text).toContain('--- 文档 ---');
+    expect(text).toContain('旧的步骤名');
+    expect(text).toContain('--- 生成 ---');
+    expect(text).toContain('类型检查(tsc)');
+  });
+
+  test('不带 --check → 只打印生成片段, 不读文档', () => {
+    const out = sink();
+    const err = sink();
+    const code = main({
+      check: false,
+      workflowPath: path.join(ROOT, '.github/workflows/test.yml'),
+      docPath: path.join(dir, '不存在.md'), // 若被读取会 ENOENT
+      out,
+      err,
+    });
+    expect(code).toBe(0);
+    expect(out.text()).toContain('`quality` 作业');
+    expect(err.text()).toBe('');
+  });
+
+  test('generate 支持注入 workflow 路径（不再硬编码仓库文件）', () => {
+    const wf = write(
+      'wf.yml',
+      'jobs:\n  solo:\n    steps:\n      - name: 唯一步骤\n',
+    );
+    expect(generate(wf)).toContain('`solo` 作业');
+    expect(generate(wf)).toContain('- 唯一步骤');
+  });
+});

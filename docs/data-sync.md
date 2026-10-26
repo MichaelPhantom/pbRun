@@ -516,17 +516,43 @@ sqlite3 app/data/activities.db "SELECT json_group_array(json_object('id', activi
 
 ### Q6: 支持其他运动类型吗？
 
-目前主要针对跑步进行优化，但理论上支持所有 Garmin 记录的运动类型。
+**支持，且写入与读取是两套口径**（见 `docs/features.md` §1.1）。
 
-可以在 `scripts/sync-garmin.js` 中修改过滤条件：
+**写入（同步）**：默认 `node scripts/sync-garmin.js` 只拉跑步类活动
+（`onlyRunning`，过滤 `running` / `treadmill_running` / `track_running`；
+列表元数据缺 `typeKey` 时不预过滤，入库时以 FIT 的 sport 为准）。
+加 `--all-types` 拉取**全部**运动类型：
 
-```javascript
-// 当前仅同步跑步
-const SPORT_FILTER = ['running'];
+```bash
+# 只同步跑步 (默认)
+node scripts/sync-garmin.js
 
-// 修改为支持多种运动
-const SPORT_FILTER = ['running', 'cycling', 'swimming'];
+# 同步全部运动类型 (篮球/游泳/力量训练/爬楼…)
+node scripts/sync-garmin.js --all-types
 ```
+
+`scripts/garmin/sync-cn.sh` 的两种模式（CDP 直连 / 本地 FIT 导入）**都带 `--all-types`**，
+因此国区自部署的生产库里是全类型活动（实测 348 条：跑步 241、力量训练 51、爬楼 30、
+室内有氧 9、游泳 4、篮球 3、跳绳 3、HIIT 3、乒乓 2、羽毛球 1、室内骑行 1）。
+
+> 无心率的活动会被跳过（`no_heart_rate`）：VDOT / 训练负荷 / 心率区间都依赖心率，
+> 缺心率的行会让统计口径不一致。
+
+**读取（应用层）**：全类型入库不代表全类型参与统计。所有读取归入两种口径之一：
+
+| 口径 | 覆盖接口 | 说明 |
+|------|---------|------|
+| **表现分析（只取跑步）** | 统计、心率/配速区间、VDOT、个人纪录、跑姿、长跑、训练负荷、每日里程、洞察对比、同路线/同距离/同位置对比 | 配速/步频/心率区间只在跑步内部可比 |
+| **活动日志（全类型）** | `/api/activities`、`/api/activities/months`（`/list` 页） | 列表带 `activity_type` 筛选器，月度「N 公里 / N 次」与展开卡片严格一致 |
+
+跑步类型集合由 `db.runningTypeClause(alias)` / `db.isRunningType(type)` 单点定义。
+非跑步活动**仍保留**自己的分段/心率区间/个人指标（例如泳池游泳有 28 个 lap、
+3 个心率区间），只是不参与配速排名与跑力统计。
+
+**为什么必须分开**（真实库实测）：若把全类型混进表现分析，`/stats` 平均配速会从
+369 s/km 变成 989 s/km（16:29/km），心率 Z1 总时长从 698 s 变成 91221 s
+（AI 会被告知「轻松跑占比 66%」，实际 4%），跑姿步频下限从 100 掉到 8。
+明细与修复范围见 `CHANGELOG.md` 的「跨运动类型污染」条目。
 
 ---
 

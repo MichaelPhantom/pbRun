@@ -137,6 +137,123 @@
   避免同一条路线的 5K 与 30K 直接对比。详情 UI 的 ±25% fallback 不变。
 
 ### Fixed
+- **`routeQuality` 未做形状校验时是 `undefined` 而非 `null`（契约漂移）**。
+  文档与 MCP schema 都约定「未做形状校验时为 `null`」，但代码只在
+  `routeQuality` 有值时才赋值 —— `JSON.stringify` 会把 `undefined` 整个键丢掉，
+  客户端无法区分「该版本没有此字段」与「本次没有可校验的同伴」。现改为显式写
+  `null`，并补契约用例。
+- **`activity-coach-context` 在差值为非有限值时输出空括号 `组均 5:00/km（）`**。
+  所有 `delta*` 助手在 NaN/Infinity 时返回空串，但调用方只判断 `!= null`
+  （NaN 满足该判断）。现统一经 `paren()` 包装：空串即整段省略。组均/同类/同温档
+  四处调用点全部收敛到同一层，补 3 条用例（含「不得出现 `（）`」）。
+- **`coach-stream` 的首字节超时标志被重复判定（`firstByteTimedOut` 死变量）**。
+  首字节超时本来就由 `winner.t === 'timeout'` 正常返回，catch 里再判一次永远不成立，
+  且 lint 报 unused。删除该变量后 catch 只剩「响应头超时」一种可能，语义更明确。
+  `errorResponse` 的参数类型收窄为 `Exclude<Outcome, { kind: 'stream' }>`，删掉一个
+  永远走不到的兜底分支。
+- **`route-shape.ts` / `route-signature.js` 中 8 处不可达的防御分支**。这些分支
+  永远执行不到（上游已保证前置条件），却让「分位数返回 NaN」「空轨迹返回空数组」
+  之类的隐患藏在死代码里，也让覆盖率门禁长期贴线：
+  - `cleanTrackCoords` 的 `deduped.length === 0` / `kept.length === 0`：首点必入栈，
+    首末点不参与尖峰判定，只要 `raw.length > 0` 就不可能为空；
+  - `cumulativeKm` / `resample` / `resampleByDistance` 的「未传 segments 时用
+    Haversine 重算」兜底：两个调用方都从 `cleanTrackCoords` 拿到 segments，那条
+    分支只会让「清洗用平面距离、累计用球面距离」两套口径同时存在；
+  - `resampleByDistance` 的 `seg <= 0` 跳过：去重阈值 1m 保证段长恒 > 0；
+  - `pointToPolylineKm` 的空折线 / 单点分支、`directedPerpKm` 的空守卫、
+    `roadOverlapKm` 的非有限值分支：`RouteShape.points` 恒为 48 点；
+  - `percentile` 的 0/1 元素兜底：两个调用方分别保证 ≥2 与 ≥10 个样本。
+  改为把契约写进注释（说明「为什么不可能为空」），而不是留一段永不执行的兜底。
+- **`finitePoint` 的 `!p` 分支不可达**：参数来自 `coords` 迭代，恒为真值；签名
+  改为非可选后该分支自然消失。
+- **跨运动类型污染全部表现分析接口（生产库实测：平均配速 989 → 369 s/km）**。
+  Garmin 同步会把篮球/游泳/力量训练等一并写入同一张 `activities` 表（生产库 348 条
+  活动里 107 条非跑步），而这些行的 `average_pace` / `average_cadence` /
+  `time_in_hr_zone` 语义与跑步完全不同（泳池游泳 1134–2994 s/km、乒乓球 30826 s/km、
+  篮球步频 16、跳绳 8）。此前只有「同路线/同距离/同位置对比」做了类型过滤，
+  **统计/洞察/区间/纪录/负荷全部被污染**：
+  - `/stats` 平均配速 `AVG(average_pace)` 全类型 → **989 s/km（16:29/km）**，跑步口径 369 s/km；
+  - 心率区间 Z1 总时长 **91221 s → 698 s**（力量训练/爬楼/游泳占满 Z1，
+    导致 AI 被告知「轻松跑占比 66%」，跑步口径实际 4%）；
+  - 跑姿趋势步频区间 **8–190 → 100–190**（篮球 16、跳绳 8 拉低趋势）；
+  - 训练负荷里程 **2152.34 km → 2140.44 km**（12 km 非跑步混入 CTL/ATL）；
+  - 配速区间多出 5 条非跑步 lap 样本；`getPersonalRecords` 的 8.2 km 游泳
+    会按比例伪造 5K「纪录」并顶掉最长距离。
+  修复：新增 `db.runningTypeClause(alias)` / `db.isRunningType(type)` 作为
+  **跑步类型集合的唯一来源**（`running` / `track_running` / `treadmill_running`，
+  缺列或空值按跑步处理以兼容旧库），并应用到 **19 处查询**：
+  `getStats`、`getPeriodStats`、`getPersonalRecords`、`getPaceZoneStats`、
+  `getHrZoneStats`、`getHrZoneTotals`、`getVDOTHistory(+Total)`、`getVDOTTrend`、
+  `getVdotSamples`、`getLatestVdot`、`getLatestThresholdHr`、`getFormSamples`、
+  `getPaceHrSamples`、`getLongRuns`、`getTrainingLoads`、`getDailyDistances`、
+  `getInsightActivityRows`、`getActivityCountInRange`。
+  - **两种口径显式化**：`getActivities` / `getMonthSummaries` **默认不过滤**
+    （活动日志口径 —— `/list` 有 `activity_type` 筛选器，月度「N 公里 / N 次」必须
+    与展开后的卡片严格一致）；`getActivities` 新增 `runningOnly?: boolean`
+    供表现分析侧的调用方显式选择跑步口径。口径表见 `docs/features.md` §1.1。
+  - **非跑步活动仍保留个人指标**：`paceComparable` 守卫让非跑步跳过配速对比，
+    但分段/漂移/心率区间等纯个人指标照常计算（泳池游泳实测保留 28 个 lap + 3 个心率区间）。
+  - **跑者画像（AI 上下文）同样被污染，一并修复**：`buildRunnerProfile` 的三处
+    `getActivities`（最早跑步年份、近 60 天跑量、近 28 天强度分布）此前都是全类型。
+    实测近 28 天窗口 49 条活动里混了 7 条 `strength_training`，心率区间占比
+    `[7, 7.1, 48.3, 22.4, 15.1]`（全类型）→ `[0.6, 5.2, 52.8, 24.7, 16.7]`（跑步）：
+    AI 此前被告知「Z1 占 7.6%」，真实是 0.6%。`app/api/insight/coach/route.ts`
+    取画像基准活动时也改为 `runningOnly: true`（否则基准若是力量训练，最近一次跑步
+    会同时出现在「近 7 天跑量」与「上次跑步」里）。
+  - **跑步类型判定抽成纯模块** `app/lib/sport.ts`：`RUNNING_ACTIVITY_TYPES` /
+    `isRunningType` / `ACTIVITY_TYPE_LABELS` / `activityTypeIcon`。`db.ts` 的 SQL 片段
+    从 `RUNNING_ACTIVITY_TYPES` 派生（不再手写字符串），并转出 `isRunningType`
+    保持调用方不变；客户端组件因此可以判断类型而不必引入 `better-sqlite3`。
+  - **UI 不再把非跑步指标当跑步指标展示**：
+    - `/list` 类型下拉此前显示原始键（`strength_training`），且空 `activity_type`
+      被归一成中文「跑步」当键，与真实 `running` 分裂成两个同名选项。现下拉
+      **值仍为原始键、文案走中文名**（按拼音排序），筛选比对统一走 `typeKeyOf`。
+    - 活动卡片与仪表盘「最近活动」：非跑步隐藏配速（泳池 1670s/km、乒乓 30826s/km
+      展示成配速纯属误导），改显示类型徽标；无名称时按类型兜底命名（不再一律「跑步」）。
+    - 活动详情页：非跑步隐藏「即时跑力 / 平均配速 / 步频 / 步幅」整列（不是显示 `--`）、
+      分段表隐藏配速与步频列且不给「最快 K」徽章、趋势图标题去掉「配速 / 步频」。
+  - **AI prompt 按运动类型分流**：非跑步活动此前套用跑步教练框架，会把泳池的
+    `average_pace` 当「配速偏慢」、篮球步频 16 当「步频过低」来批评。新增
+    `NON_RUNNING_SYSTEM_PROMPT`（综合体能教练 + 交叉训练视角），活动数据段对非跑步
+    整行不输出配速/步频/步幅/触地/VDOT，分段改用时长而非配速。
+  - UI/AI 文案改为「N 次跑步」（`InsightClient`、`insight-coach`），与 `/stats` 的
+    「共计跑步 N 次」一致，避免用户以为漏掉了活动。
+  - 真实库验证：跑步活动被非跑步污染 **0/241**，非跑步出现配速样本 **0/107**；
+    MCP 16 个工具全部复用这些函数，自动继承修复（`get_stats` 241 次 / 2140 km /
+    369 s/km，`get_hr_zone_analysis` 区间计数 714，`get_pace_zone_analysis` 828）。
+  - 测试：`db-insight-integration.test.ts` 新增「表现分析口径排除非跑步」与
+    「活动日志口径保留全类型」两条契约用例（19 项）；`sport.test.ts` 新增 30 项
+    （类型集合/旧库空值/展示名/图标回落）；列表/详情/仪表盘卡片/AI prompt 各补
+    非跑步用例；mock 测试补 `PRAGMA table_info` 独立桩，避免列探测消费业务查询的
+    `mockReturnValueOnce` 队列。
+- **覆盖率「余量规则」守护由贴线转为有真实余量**。`tests/unit/ci/threshold-margin.test.ts`
+  要求每个门槛分组至少留 1.5pt（防止「贴着实测设门槛」导致本地绿、CI 红）。
+  跨运动类型修复后 `app/lib/` 语句余量只剩 0.94pt、函数 1.38pt，`scripts/` 语句
+  1.01pt、函数 0.31pt —— 不是门槛过高，而是**有真实代码没被测到**。本轮不降门槛，
+  改为补测并把不可达分支删掉：
+  - 新增 `tests/unit/lib/db-degradation.test.ts`（22 例）：旧库缺列 / 坏 JSON /
+    非法 id 的全部降级路径（`getDatabase` 缺文件抛 `DatabaseUnavailableError`、
+    `hasActivityColumn` 探测失败返回 false、`getActivityTracks` 跳过畸形轨迹、
+    `getActivityStartGeo` 拒非有限坐标、网格通道跳过坏 JSON 并按时间倒序、
+    `getPaceZoneStats` 跳过缺配速 lap）。
+  - `route-shape.test.ts` 补 6 例：`euclidKm` 导出后直接验证（DTW 快路径只把它当
+    哨兵身份比较，内联后不会真的调用）、东西向直线的 1 维包围盒分支、
+    `dtwMean` 默认 Haversine 与显式注入等值、`deriveRouteSignature` 的 50m 长度门槛。
+  - `route-signature-parity.test.ts` 补 8 例：CJS 侧 `haversineKm`（同点/1°/高纬收缩/
+    非有限值）、`gridJaccard`（空集/null/重复元素按集合语义）、`cleanTrackCoords`
+    输入清洗（非数组/长度不足/字符串/越界/NaN）。
+  - `ci-docs-snippet.test.js` 补 5 例：`main()` 的「一致 / 缺标记 / 片段漂移 / 不检查」
+    四条分支（此前只能经 CLI 触发，整段 0 覆盖），`generate(workflowPath)` 支持注入。
+  - `coach-stream-gaps.test.ts` 补 8 例：**回退成功**（此前只测两次都失败，因此
+    `X-Model-Fallback` 契约头从未被验证）、客户端在「响应头后 / 首块后」两个时机
+    断开都返回 499、错误体读取失败仍按 HTTP 语义报错、超长 detail 截断 300 字。
+  - `insight-services.test.ts` 补 4 例：`routeQuality` 只统计**能比对**的同伴、
+    全部无法比对时保留 GPS 标签且 `routeQuality` 为 `null`、同伴缺 GPS 不进入样本、
+    3 位同伴的中位数与最差值确实分别取值。
+  - 删除死文件 `app/lib/route-signature.ts`（4 语句/3 函数 shim，零引用 ——
+    写入侧走 `scripts/common/route-signature.js`，查询侧走 `route-shape.ts`）。
+  结果：`app/lib/` 语句 98.57%（余量 2.57pt）、函数 98.69%（2.69pt）；
+  `scripts/` 语句 97.72%（2.72pt）、函数 94.90%（1.90pt），全部门槛有余量。
 - **部署脚本构建被 cgroup memcg OOM kill（生产事故 2026-10-26：全站样式丢失）**。
   在受限 cgroup（`opencode.service`，memcg 硬上限 1.5G）里跑 `deploy-prod.sh`，
   `next build` 中途被 memcg OOM kill（exit 137），磁盘留下半成品 `.next`

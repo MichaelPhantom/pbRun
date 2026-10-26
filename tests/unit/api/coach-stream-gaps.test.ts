@@ -228,3 +228,163 @@ describe('流式细节', () => {
     expect((await body(res)).error).toMatch(/网关不可达|AI 服务异常/);
   });
 });
+
+/**
+ * 客户端断开的两个时机 + HTTP 错误体透传。
+ *
+ * 生产上浏览器点「停止」可能发生在**任意时刻**：建连中、拿到响应头之后、
+ * 首块到达之后。每个时机都必须立刻停止烧 token 并返回 499，而不是继续
+ * 把上游流接给已经断开的客户端。
+ */
+describe('客户端断开时机', () => {
+  test('响应头到达时客户端已断开 → 499（不再读首块）', async () => {
+    const ac = new AbortController();
+    fetchMock.mockImplementationOnce(async () => {
+      ac.abort(); // 响应头刚回来, 此刻用户点了停止
+      return sseResponse('迟到的首块');
+    });
+    const res = await runCoachStream({ ...base, clientSignal: ac.signal });
+    expect(res.status).toBe(499);
+    expect((await body(res)).error).toBe('aborted');
+  });
+
+  test('首块到达时客户端已断开 → 499（流不再交出）', async () => {
+    const ac = new AbortController();
+    let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(sseChunk('首块'));
+      },
+    });
+    fetchMock.mockImplementationOnce(async () => {
+      const res = new Response(stream, {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      });
+      // 首块在 read() 时才会被消费; 我们在读取前一刻断开
+      queueMicrotask(() => ac.abort());
+      return res;
+    });
+    const res = await runCoachStream({ ...base, clientSignal: ac.signal });
+    expect(res.status).toBe(499);
+    reader = null; // 仅用于说明: 上游 reader 未交给下游
+    expect(reader).toBeNull();
+  });
+
+  test('上游 4xx 错误体超长 → detail 截断到 300 字（不把整页 HTML 塞进 JSON）', async () => {
+    const huge = 'x'.repeat(5000);
+    fetchMock.mockResolvedValueOnce(errorResponse(400, huge));
+    const res = await runCoachStream({ ...base, model: 'auto' });
+    expect(res.status).toBe(400);
+    expect((await body(res)).detail!.length).toBe(300);
+  });
+});
+
+/**
+ * 回退**成功**路径 —— 此前只有「两次都失败」的用例，因此
+ * `X-Model-Fallback` 契约头与 auto 直出流从未被验证过。
+ * 前端 `AiAnalysis.tsx` 依赖该头显示「已自动切换模型」提示。
+ */
+describe('回退成功', () => {
+  test('主模型 5xx → auto 成功: 200 流 + 三个 X-Model-* 契约头', async () => {
+    fetchMock
+      .mockResolvedValueOnce(errorResponse(503, 'overloaded'))
+      .mockResolvedValueOnce(sseResponse('auto 回复'));
+
+    const res = await runCoachStream({ ...base, model: 'kimi-k3' });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('X-Model-Fallback')).toBe('1');
+    expect(res.headers.get('X-Model-Requested')).toBe('kimi-k3');
+    expect(res.headers.get('X-Model-Used')).toBe('auto');
+    // 回退后下游拿到的是 auto 的流, 不是错误 JSON
+    const text = await res.text();
+    expect(text).toContain('auto 回复');
+    // 第二次请求确实打的是 auto
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1].body)).model).toBe('auto');
+  });
+
+  test('主模型首字节超时 → auto 成功 (看门狗后回退, 不报 504)', async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(new ReadableStream<Uint8Array>({ start() {} }), {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        }),
+      )
+      .mockResolvedValueOnce(sseResponse('auto 接住'));
+
+    const res = await runCoachStream({ ...base, firstByteTimeoutMs: 20 });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('X-Model-Fallback')).toBe('1');
+    expect(await res.text()).toContain('auto 接住');
+  });
+
+  test('模型本身就是 auto → 不再回退 (避免 auto→auto 死循环)', async () => {
+    fetchMock.mockResolvedValueOnce(errorResponse(503));
+    const res = await runCoachStream({ ...base, model: 'auto' });
+    expect(res.status).toBe(502);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(res.headers.get('X-Model-Fallback')).toBeNull();
+  });
+
+  test('主模型 400 (不可重试) → 只打一次, 原样透传状态码', async () => {
+    fetchMock.mockResolvedValueOnce(errorResponse(400, 'bad model name'));
+    const res = await runCoachStream({ ...base, model: 'kimi-k3' });
+    expect(res.status).toBe(400);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect((await body(res)).detail).toBe('bad model name');
+  });
+
+  test('网络异常（catch 分支）时客户端已断开 → 499 而非 502', async () => {
+    const ac = new AbortController();
+    fetchMock.mockImplementationOnce(async () => {
+      ac.abort();
+      // 模拟 abort 后 fetch 抛错
+      throw new DOMException('aborted', 'AbortError');
+    });
+    const res = await runCoachStream({ ...base, clientSignal: ac.signal });
+    expect(res.status).toBe(499);
+    expect((await body(res)).error).toBe('aborted');
+  });
+});
+
+describe('错误体读取失败与首块竞态', () => {
+  test('上游错误体的读取本身失败 → detail 为空串, 仍按 HTTP 语义报错', async () => {
+    const broken = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.error(new Error('body stream broke'));
+      },
+    });
+    fetchMock.mockResolvedValueOnce(new Response(broken, { status: 500 }));
+    const res = await runCoachStream({ ...base, model: 'auto' });
+    expect(res.status).toBe(502);
+    const json = await body(res);
+    expect(json.error).toMatch(/上游错误 500/);
+    // 读不出 detail 也不能把整条错误变成异常
+    expect(json.detail ?? '').toBe('');
+  });
+
+  test('首块在客户端断开之后才到 → 判为 client(499), 不把流交出去', async () => {
+    const ac = new AbortController();
+    fetchMock.mockImplementationOnce(async () => {
+      // 断开发生在「拿到响应头之后、首块到达之前」——真实用户点停止的常见时机
+      setTimeout(() => ac.abort(), 0);
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          setTimeout(() => {
+            controller.enqueue(sseChunk('迟到的首块'));
+            controller.close();
+          }, 5);
+        },
+      });
+      return new Response(stream, {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      });
+    });
+
+    const res = await runCoachStream({ ...base, clientSignal: ac.signal });
+    expect(res.status).toBe(499);
+    expect((await body(res)).error).toBe('aborted');
+  });
+});

@@ -35,17 +35,18 @@ function summarizeRouteQuality(
   current: RouteShape,
   peers: PeerActivity[],
   shapes: Map<number, RouteShape | null>,
-): RouteQuality | null {
+): RouteQuality {
   const roads: number[] = [];
   const grids: number[] = [];
   for (const p of peers) {
     const shape = shapes.get(p.activityId);
-    if (!shape) continue;
+    if (!shape) continue; // 无轨迹的同伴无法校验, 不计入 verifiedPeers
     const sim = routeShapeSimilarity(current, shape);
-    if (Number.isFinite(sim.roadKm) && sim.roadKm < 999) roads.push(sim.roadKm);
-    if (Number.isFinite(sim.gridJaccard)) grids.push(sim.gridJaccard);
+    roads.push(sim.roadKm);
+    grids.push(sim.gridJaccard);
   }
-  if (roads.length === 0) return null;
+  // 只在 `filterByRouteShape` 判定 verified > 0 后调用 —— verified 的候选必然
+  // 有 shape, 因此 roads 至少有一个元素, 不需要空集合兜底。
   roads.sort((a, b) => a - b);
   grids.sort((a, b) => a - b);
   const median = (xs: number[]) => xs[Math.floor(xs.length / 2)];
@@ -82,13 +83,19 @@ export function getActivityInsight(activityId: number): ActivityInsightResponse 
   const routeKey = routeKeyOf(activity.name);
   const distanceKm = activity.distance ?? 0;
   const distanceTolerance = distanceToleranceFor(distanceKm);
-  const initial = db.getPeerActivities(
-    activityId,
-    routeKey,
-    distanceKm,
-    distanceTolerance,
-    routeDistanceToleranceFor(distanceKm),
-  );
+  // 非跑步活动（游泳/篮球/力量训练等）不做配速横向对比：配速语义不同
+  // （泳池 1670s/km vs 跑步 270s/km），排名毫无意义。分段/漂移/区间等
+  // 纯个人指标仍然照常输出。
+  const paceComparable = db.isRunningType(activity.activity_type);
+  const initial = paceComparable
+    ? db.getPeerActivities(
+        activityId,
+        routeKey,
+        distanceKm,
+        distanceTolerance,
+        routeDistanceToleranceFor(distanceKm),
+      )
+    : { activities: [], basis: 'distance' as const };
   let peers = initial.activities;
   let basis = initial.basis;
   let label =
@@ -136,7 +143,7 @@ export function getActivityInsight(activityId: number): ActivityInsightResponse 
   // 跨名称「同位置」：GPS 首点 ≤1.5km + 同距离分档。即使路线名不同，也能找到
   // 同一公园/田径场/起点附近的可比活动。
   let locationComparison: ActivityComparison | null = null;
-  if (startGeo && distanceKm > 0) {
+  if (paceComparable && startGeo && distanceKm > 0) {
     try {
       const candidates = db.getLocationPeerActivities(
         activityId,
@@ -198,7 +205,10 @@ export function getActivityInsight(activityId: number): ActivityInsightResponse 
         current,
         toPeerInputs(shapeFiltered),
       );
-      if (locationComparison && routeQuality) {
+      if (locationComparison) {
+        // 显式写 null（而非留 undefined）：文档与 MCP schema 都约定「未做形状
+        // 校验时为 null」，undefined 会在 JSON 序列化时被整个键丢掉，客户端
+        // 无法区分「这个版本没有该字段」与「本次没有可校验的同伴」。
         locationComparison.routeQuality = routeQuality;
       }
     } catch {

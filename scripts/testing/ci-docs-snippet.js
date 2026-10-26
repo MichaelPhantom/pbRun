@@ -65,9 +65,10 @@ function parseJobs(yaml) {
   return jobs;
 }
 
-/** 生成 Markdown 片段 (确定性输出: 只依赖 workflow 内容) */
-function generate() {
-  const yaml = fs.readFileSync(WORKFLOW, 'utf8');
+/** 生成 Markdown 片段 (确定性输出: 只依赖 workflow 内容)
+ *  @param {string} [workflowPath] 默认仓库 workflow, 单测可注入临时文件 */
+function generate(workflowPath = WORKFLOW) {
+  const yaml = fs.readFileSync(workflowPath, 'utf8');
   const jobs = parseJobs(yaml);
   const out = [];
   out.push('<!-- 由 scripts/testing/ci-docs-snippet.js 生成, 请勿手改 (改 workflow 后跑 `npm run docs:ci-snippet`) -->');
@@ -92,30 +93,51 @@ function currentSnippet(doc) {
   return doc.slice(bodyStart + 3, end);
 }
 
-function main() {
-  const check = process.argv.includes('--check');
-  const generated = generate();
+/**
+ * 校验/打印 CI 步骤片段。
+ *
+ * `opts` 可注入 workflow / 文档路径与输出流 —— CLI 用仓库默认路径，单测可以
+ * 用临时文件覆盖「片段缺失」「片段漂移」「正常一致」三条分支，而不必真的
+ * 去改仓库里的 workflow。
+ *
+ * @param {{
+ *   check?: boolean,
+ *   workflowPath?: string,
+ *   docPath?: string,
+ *   out?: { write: (s: string) => unknown },
+ *   err?: { write: (s: string) => unknown },
+ * }} [opts]
+ * @returns {number} 0 = 通过 / 1 = 不一致或缺标记
+ */
+function main(opts = {}) {
+  const check = opts.check ?? process.argv.includes('--check');
+  const workflowPath = opts.workflowPath ?? WORKFLOW;
+  const docPath = opts.docPath ?? DOC;
+  const out = opts.out ?? process.stdout;
+  const err = opts.err ?? process.stderr;
+
+  const generated = generate(workflowPath);
   if (!check) {
-    process.stdout.write(generated);
+    out.write(generated);
     return 0;
   }
-  const doc = fs.readFileSync(DOC, 'utf8');
+  const doc = fs.readFileSync(docPath, 'utf8');
   const existing = currentSnippet(doc);
   if (existing == null) {
-    console.error('docs/testing-strategy.md 缺少 CI-STEPS 标记片段');
+    err.write('docs/testing-strategy.md 缺少 CI-STEPS 标记片段\n');
     return 1;
   }
   const normalize = (s) => s.replace(/\r\n/g, '\n').trim();
   if (normalize(existing) !== normalize(generated)) {
-    console.error('文档 7.1 的 CI 步骤片段与 workflow 不一致 (跑 `npm run docs:ci-snippet` 更新)');
-    console.error('--- 文档 ---\n' + normalize(existing));
-    console.error('--- 生成 ---\n' + normalize(generated));
+    err.write('文档 7.1 的 CI 步骤片段与 workflow 不一致 (跑 `npm run docs:ci-snippet` 更新)\n');
+    err.write('--- 文档 ---\n' + normalize(existing) + '\n');
+    err.write('--- 生成 ---\n' + normalize(generated) + '\n');
     return 1;
   }
-  console.log('文档 7.1 CI 步骤片段与 workflow 一致');
+  out.write('文档 7.1 CI 步骤片段与 workflow 一致\n');
   return 0;
 }
 
 if (require.main === module) process.exit(main());
 
-module.exports = { generate, parseJobs, currentSnippet };
+module.exports = { generate, parseJobs, currentSnippet, main };

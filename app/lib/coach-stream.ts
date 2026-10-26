@@ -97,7 +97,6 @@ async function openAttempt(
   const headersMs = p.headersTimeoutMs ?? HEADERS_TIMEOUT_MS;
   const firstByteMs = p.firstByteTimeoutMs ?? FIRST_BYTE_TIMEOUT_MS;
   let headersTimedOut = false;
-  let firstByteTimedOut = false;
   const timers: ReturnType<typeof setTimeout>[] = [];
   const clientSignal = p.clientSignal ?? null;
 
@@ -146,7 +145,6 @@ async function openAttempt(
       (resolve) => {
         timers.push(
           setTimeout(() => {
-            firstByteTimedOut = true;
             resolve({ t: 'timeout' });
             ac.abort();
           }, firstByteMs),
@@ -158,13 +156,14 @@ async function openAttempt(
     const winner = await Promise.race([readP.then((r) => ({ t: 'read' as const, r })), race]);
     stopTimers();
     if (winner.t === 'timeout') return { kind: 'first-byte-timeout' };
+    // 首块已到但客户端在此期间断开: 不再把流交出去 (下游会立即被丢弃)。
     if (clientSignal?.aborted) return { kind: 'client' };
-    if (firstByteTimedOut || headersTimedOut) return { kind: 'first-byte-timeout' };
     return { kind: 'stream', first: winner.r.value, reader };
   } catch (err) {
     stopTimers();
     if (clientSignal?.aborted) return { kind: 'client' };
-    if (firstByteTimedOut) return { kind: 'first-byte-timeout' };
+    // 看门狗超时都会先 abort 上游, 因此走到 catch 时只可能是响应头超时:
+    // 首字节超时由上面 `winner.t === 'timeout'` 正常返回, 不会抛到这里。
     if (headersTimedOut) return { kind: 'headers-timeout' };
     return { kind: 'network', detail: err instanceof Error ? err.message : String(err) };
   }
@@ -172,8 +171,11 @@ async function openAttempt(
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+/** 失败结果（`stream` 是成功态, 类型上排除, 免掉一个永远走不到的兜底分支）。 */
+type Failure = Exclude<Outcome, { kind: 'stream' }>;
+
 /** 失败 → 统一错误 JSON (与历史契约一致: 429 透传, 4xx 透传, 其余 502/504)。 */
-function errorResponse(o: Outcome): Response {
+function errorResponse(o: Failure): Response {
   if (o.kind === 'first-byte-timeout' || o.kind === 'headers-timeout') {
     return NextResponse.json(
       { error: '上游长时间未返回数据，请稍后重试或切换模型', detail: '' },
@@ -189,9 +191,6 @@ function errorResponse(o: Outcome): Response {
   if (o.kind === 'client') {
     // 客户端已断开, 不必再写响应体 (Next 会丢弃)
     return NextResponse.json({ error: 'aborted' }, { status: 499 });
-  }
-  if (o.kind !== 'http') {
-    return NextResponse.json({ error: 'AI 服务异常', detail: '' }, { status: 502 });
   }
   const status = o.status;
   const error =

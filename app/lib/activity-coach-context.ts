@@ -96,6 +96,17 @@ function fmtHrDelta(delta: number | null | undefined): string {
   return v > 0 ? `心率高 ${v}bpm` : `心率低 ${Math.abs(v)}bpm`;
 }
 
+/**
+ * 把差值文案包进括号。
+ *
+ * 为什么需要单独一层：所有 `delta*` 函数在**非有限值**（NaN/Infinity）时返回
+ * 空串，而调用方原先只判断 `!= null` —— NaN 满足该判断，于是输出
+ * `组均 5:00/km（）` 这种空括号。统一走这里，空串即整段省略。
+ */
+function paren(text: string): string {
+  return text ? `（${text}）` : '';
+}
+
 function peerLine(p: ComparisonPeer): string {
   const bits = [
     p.date.slice(5, 10) || '--',
@@ -116,8 +127,7 @@ function categoryLine(c: ActivityComparison | null): string | null {
   if (same.rank) bits.push(`排名 ${same.rank.byPace}/${same.rank.total}`);
   if (same.avgPaceSecPerKm != null) {
     bits.push(
-      `同类均 ${fmtPace(same.avgPaceSecPerKm)}/km` +
-        (same.deltaSecPerKm != null ? `（${deltaVsGroup(same.deltaSecPerKm)}）` : ''),
+      `同类均 ${fmtPace(same.avgPaceSecPerKm)}/km` + paren(deltaVsGroup(same.deltaSecPerKm)),
     );
   }
   return bits.join(' | ');
@@ -170,16 +180,12 @@ function environmentLines(env: ActivityEnvironmentSummary | null | undefined): s
     if (band.rank) bits.push(`本次排名 ${band.rank.byPace}/${band.rank.total}`);
     if (band.avgPaceSecPerKm != null) {
       bits.push(
-        `档内均 ${fmtPace(band.avgPaceSecPerKm)}/km` +
-          (band.paceDeltaSecPerKm != null
-            ? `（${deltaVsGroup(band.paceDeltaSecPerKm)}）`
-            : ''),
+        `档内均 ${fmtPace(band.avgPaceSecPerKm)}/km` + paren(deltaVsGroup(band.paceDeltaSecPerKm)),
       );
     }
     if (band.avgHeartRate != null) {
       bits.push(
-        `均心率 ${Math.round(band.avgHeartRate)}bpm` +
-          (band.hrDeltaBpm != null ? `（${fmtHrDelta(band.hrDeltaBpm)}）` : ''),
+        `均心率 ${Math.round(band.avgHeartRate)}bpm` + paren(fmtHrDelta(band.hrDeltaBpm)),
       );
     }
     lines.push(`同温档 ${band.label}: ${bits.join(' | ')}`);
@@ -197,8 +203,7 @@ function comparisonSection(c: ActivityComparison | null, fallbackTitle: string):
   if (c.rank) bits.push(`本次排名 ${c.rank.byPace}/${c.rank.total}`);
   if (c.groupAvgPaceSecPerKm != null) {
     bits.push(
-      `组均 ${fmtPace(c.groupAvgPaceSecPerKm)}/km` +
-        (c.paceDeltaSecPerKm != null ? `（${deltaVsGroup(c.paceDeltaSecPerKm)}）` : ''),
+      `组均 ${fmtPace(c.groupAvgPaceSecPerKm)}/km` + paren(deltaVsGroup(c.paceDeltaSecPerKm)),
     );
   }
   if (c.groupBestPaceSecPerKm != null) bits.push(`组最佳 ${fmtPace(c.groupBestPaceSecPerKm)}/km`);
