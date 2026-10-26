@@ -138,3 +138,102 @@ describe('deriveRouteSignature 一致性', () => {
     expect(roundTrip.km).toBe(sig.km);
   });
 });
+
+/**
+ * CJS 侧独立契约：`haversineKm` / `gridJaccard` / 输入清洗。
+ *
+ * 这些函数在 TS 侧要么不导出（`cleanTrackCoords` 由 `deriveRouteSignature`
+ * 间接覆盖），要么被 `geo.ts` 复用；CJS 侧是 fit-parser/回填脚本的唯一实现，
+ * 必须有自己的用例 —— 否则「签名能落库」这件事只在 happy path 上被验证过。
+ */
+describe('CJS haversineKm', () => {
+  const h = (cjs as unknown as { haversineKm: (a: unknown, b: unknown) => number | null })
+    .haversineKm;
+
+  test('同点 → 0；纬度 1° ≈ 111km（球面 R=6371.0088）', () => {
+    expect(h({ lat: 29.5, lng: 106.5 }, { lat: 29.5, lng: 106.5 })).toBeCloseTo(0, 9);
+    expect(h({ lat: 29, lng: 106 }, { lat: 30, lng: 106 })).toBeCloseTo(111.19, 1);
+  });
+
+  test('经度 1° 在高纬度收缩（cos 纬度因子生效）', () => {
+    const equator = h({ lat: 0, lng: 0 }, { lat: 0, lng: 1 })!;
+    const at60 = h({ lat: 60, lng: 0 }, { lat: 60, lng: 1 })!;
+    expect(equator).toBeCloseTo(111.19, 1);
+    expect(at60).toBeCloseTo(equator * Math.cos((60 * Math.PI) / 180), 1);
+  });
+
+  test('缺失/非法坐标 → null（不返回 NaN 污染下游比较）', () => {
+    expect(h(null, { lat: 1, lng: 1 })).toBeNull();
+    expect(h({ lat: 1, lng: 1 }, undefined)).toBeNull();
+    expect(h({ lat: Number.NaN, lng: 1 }, { lat: 1, lng: 1 })).toBeNull();
+    expect(h({ lat: 1, lng: 1 }, { lat: 1, lng: Infinity })).toBeNull();
+  });
+});
+
+describe('CJS gridJaccard', () => {
+  const j = (cjs as unknown as { gridJaccard: (a: unknown, b: unknown) => number }).gridJaccard;
+
+  test('相同 → 1；无交集 → 0；部分重叠 → |∩|/|∪|', () => {
+    expect(j(['a', 'b'], ['a', 'b'])).toBe(1);
+    expect(j(['a', 'b'], ['c', 'd'])).toBe(0);
+    expect(j(['a', 'b'], ['b', 'c'])).toBeCloseTo(1 / 3, 9);
+  });
+
+  test('空集 / null / undefined → 0（不除零）', () => {
+    expect(j([], ['a'])).toBe(0);
+    expect(j(['a'], [])).toBe(0);
+    expect(j(null, ['a'])).toBe(0);
+    expect(j(['a'], undefined)).toBe(0);
+  });
+
+  test('重复元素不放大分母（按集合语义去重）', () => {
+    expect(j(['a', 'a', 'a'], ['a'])).toBe(1);
+  });
+});
+
+describe('CJS cleanTrackCoords 输入清洗', () => {
+  const clean = (cjs as unknown as {
+    cleanTrackCoords: (coords: unknown) => { points: { lat: number; lng: number }[]; segments: number[] };
+  }).cleanTrackCoords;
+
+  test('非数组 / 长度不足 / 非数字 / 越界 / (0,0) 一律剔除', () => {
+    const r = clean([
+      [29.5, 106.5],
+      null,                       // 非数组
+      [29.51],                    // 长度不足
+      [29.52, 106.5, 123],        // 多余元素可接受
+      ['29.53', 106.5],           // 字符串
+      [95, 106.5],                // 纬度越界
+      [29.54, 200],               // 经度越界
+      [0, 0],                     // (0,0) 坏点
+      [29.55, 106.5],
+    ]);
+    expect(r.points).toEqual([
+      { lat: 29.5, lng: 106.5 },
+      { lat: 29.52, lng: 106.5 },
+      { lat: 29.55, lng: 106.5 },
+    ]);
+    expect(r.segments).toHaveLength(2);
+  });
+
+  test('NaN/Infinity 被剔除；经纬度越界各自独立判定', () => {
+    const r = clean([
+      [29.5, 106.5],
+      [Number.NaN, 106.5],
+      [29.5, Number.POSITIVE_INFINITY],
+      [-91, 106.5],
+      [29.5, -181],
+      [29.5001, 106.5],
+    ]);
+    expect(r.points).toEqual([
+      { lat: 29.5, lng: 106.5 },
+      { lat: 29.5001, lng: 106.5 },
+    ]);
+  });
+
+  test('全部非法 → 空结果（不抛错）', () => {
+    expect(clean([[95, 200], [0, 0], null])).toEqual({ points: [], segments: [] });
+    expect(clean(null)).toEqual({ points: [], segments: [] });
+    expect(clean(undefined)).toEqual({ points: [], segments: [] });
+  });
+});

@@ -1,13 +1,13 @@
 /**
  * 路线签名 —— 由 track 派生可入库、可 SQL 预筛的轻量特征。
  *
- * 为什么需要：形状相似度（DTW/网格 Jaccard）需要完整轨迹，逐条读 JSON 太贵。
+ * 为什么需要：形状精判需要完整轨迹，逐条读 JSON 太贵。
  * 先把「geohash-7 网格签名 + 抗尖峰包围盒 + 清洗后长度」落成列，就能：
  *   1. 用 `route_km` 索引按长度比粗筛（同路线不同距离不混组）；
  *   2. 用网格 Jaccard 在 JS 层二次筛选（同路线不同入口/不同起点仍能命中）；
- *   3. 只对少量候选加载完整轨迹做 DTW。
+ *   3. 只对少量候选加载完整轨迹做路面重叠精判（`roadOverlapKm`）。
  *
- * 与 `app/lib/route-shape.ts` 的口径必须完全一致（网格精度 7、24 点等距采样、
+ * 与 `app/lib/route-shape.ts` 的口径必须完全一致（网格精度 7、25m 等距插值采样、
  * p2–p98 包围盒、尖峰清洗规则、长度），由
  * `tests/unit/lib/route-signature-parity.test.ts` 守护，避免两套实现漂移。
  *
@@ -105,9 +105,13 @@ function geohashEncode(lat, lng, precision = GRID_PRECISION) {
   return out;
 }
 
+/**
+ * 线性插值分位数（输入需已升序）。
+ *
+ * 唯一调用方 `deriveRouteSignature` 只在 coords.length >= 2 时调用，
+ * 故不做 0/1 元素兜底 —— 与 `app/lib/route-shape.ts` 的 `percentile` 同口径。
+ */
 function percentile(sorted, p) {
-  if (sorted.length === 0) return Number.NaN;
-  if (sorted.length === 1) return sorted[0];
   const idx = Math.min(1, Math.max(0, p)) * (sorted.length - 1);
   const lo = Math.floor(idx);
   const hi = Math.ceil(idx);
@@ -117,18 +121,11 @@ function percentile(sorted, p) {
 
 /**
  * 累计距离（公里）—— 与 `app/lib/route-shape.ts` 的 `cumulativeKm` 同口径。
- * `segmentsIn` 为 cleanTrackCoords 已算好的相邻距离，传入时零额外计算。
+ * `segments` 必填且与 `points` 严格同步（来自 cleanTrackCoords 第四步）。
  */
-function cumulativeKm(points, segmentsIn) {
+function cumulativeKm(points, segments) {
   const cum = [0];
-  if (segmentsIn && segmentsIn.length === points.length - 1) {
-    for (let i = 1; i < points.length; i++) cum.push(cum[i - 1] + segmentsIn[i - 1]);
-    return { cum, total: cum[cum.length - 1] || 0 };
-  }
-  const cosLat = originCos(points);
-  for (let i = 1; i < points.length; i++) {
-    cum.push(cum[i - 1] + planarKm(points[i - 1], points[i], cosLat));
-  }
+  for (let i = 1; i < points.length; i++) cum.push(cum[i - 1] + segments[i - 1]);
   return { cum, total: cum[cum.length - 1] || 0 };
 }
 
@@ -165,7 +162,6 @@ function cleanTrackCoords(coords) {
     }
     deduped.push(p);
   }
-  if (deduped.length === 0) return { points: [], segments: [] };
 
   // 第二步：段长尺度基准（p25），供尺度自适应尖峰阈值
   const segs = [];
@@ -189,7 +185,6 @@ function cleanTrackCoords(coords) {
     }
     kept.push(p);
   }
-  if (kept.length === 0) return { points: [], segments: [] };
 
   // 第四步：产出与保留点同步的相邻距离
   const outSegs = [];
@@ -204,10 +199,8 @@ function cleanTrackCoords(coords) {
  * 25m 且**沿线段插值**，使稀疏/密集轨迹、不同入口起跑的环线得到一致的
  * 网格覆盖密度。直接在顶点上步进会让稀疏轨迹只覆盖折线顶点。
  */
-function resampleByDistance(points, stepM, maxPoints, cumIn) {
-  if (points.length === 0) return [];
+function resampleByDistance(points, stepM, maxPoints, cum) {
   const stepKm = Math.max(0.001, stepM / 1000);
-  const cum = cumIn || cumulativeKm(points).cum;
   const out = [points[0]];
   let nextAt = stepKm;
   let walked = 0;
@@ -215,7 +208,6 @@ function resampleByDistance(points, stepM, maxPoints, cumIn) {
     const a = points[i - 1];
     const b = points[i];
     const seg = cum[i] - cum[i - 1];
-    if (seg <= 0) continue;
     while (walked + seg >= nextAt && out.length < maxPoints) {
       const t = (nextAt - walked) / seg;
       out.push({

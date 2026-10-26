@@ -5,17 +5,24 @@
  * 「同起点不同方向的大折返」判成同一路线。这里先把轨迹清洗（非法点/重复点/
  * 孤立 GPS 尖峰），再按累计距离等距降采样为固定点数，综合五种信号：
  *
- *  - **起点对齐 DTW**（主信号）：把两条轨迹都平移到各自起点为原点，做
- *    动态时间规整（Sakoe–Chiba 带宽 + 反向对齐）。因为先对齐起点，
- *    1.5km 内的起点偏移不会误伤；而「同起点反向折返」会明显低分。
- *    反向对齐保证「反着跑同一路线」仍判为相似。
- *  - **geohash-7 网格签名 Jaccard**（≈153m 网格）：位置敏感，对采样密度不敏感；
- *  - **抗尖峰包围盒 IoU**（p2–p98 裁剪；直线路线退化为 1 维重叠）；
- *  - **质心距离**；
- *  - **总长度比**（避免 5K 环线与 10K 环线直接对比）。
+ *  - **路面重叠**（主信号，0.45）：双向平均垂直距离（点到折线最近距离），
+ *    归零尺度 300m。只回答「这两条线是不是同一片路面」—— 与配速/进度错位/
+ *    采样密度无关，且天然位置敏感。
+ *  - **geohash-7 网格签名 Jaccard**（0.20，≈153m 网格）：位置敏感，对采样密度不敏感；
+ *  - **抗尖峰包围盒 IoU**（0.12，p2–p98 裁剪；直线路线退化为 1 维重叠）；
+ *  - **质心距离**（0.08）；
+ *  - **总长度比**（0.10，避免 5K 环线与 10K 环线直接对比）；
+ *  - **环线一致性**（0.05）。
+ *
+ * 两条硬门禁：起点 >2.5km（环线入口变体 / 反向同路线除外）与长度比 >1.8。
+ *
+ * 起点对齐 DTW **不再是主信号**，只作为诊断量（`dtwKm`，需显式 `includeDtw`）：
+ * 它把「沿路线的进度错位」记成形状差异（同一条 10km 环线配速 5:00 与 6:30
+ * 可差数百米），且对平移不变（相隔 700m 的两条同形环线各自平移到起点后完全
+ * 重合）。详见 `roadOverlapKm` 的注释与 `docs/features.md` §2.1。
  *
  * 极短轨迹（<250m）不参与判定：样本太少，任何分数都不可靠，按「无法校验」
- * 保留而不是误删。起点相距 >2.5km 直接判为不同路线（生产查询已限制 ≤1.5km）。
+ * 保留而不是误删。
  *
  * 纯函数，无 DB 依赖；调用方负责提供 ActivityTrack。
  */
@@ -176,8 +183,7 @@ export function gridJaccard(a: string[], b: string[]): number {
 // 轨迹清洗
 // ---------------------------------------------------------------------------
 
-function finitePoint(p: [number, number] | undefined): GeoPoint | null {
-  if (!p) return null;
+function finitePoint(p: [number, number]): GeoPoint | null {
   const [lat, lng] = p;
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
   if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
@@ -236,7 +242,6 @@ export function cleanTrackCoords(
     }
     deduped.push(p);
   }
-  if (deduped.length === 0) return { points: [], segments: [], removed };
 
   // 第二步：段长尺度基准（p25），用于尺度自适应的尖峰阈值。
   const segs: number[] = [];
@@ -267,7 +272,6 @@ export function cleanTrackCoords(
     }
     kept.push(p);
   }
-  if (kept.length === 0) return { points: [], segments: [], removed };
 
   // 第四步：产出与保留点同步的相邻距离（供调用方复用，避免二次计算）。
   const outSegs: number[] = [];
@@ -277,10 +281,14 @@ export function cleanTrackCoords(
   return { points: kept, segments: outSegs, removed };
 }
 
-/** 线性插值分位数（输入需已升序）。接受 Float64Array 以避免额外装箱。 */
+/**
+ * 线性插值分位数（输入需已升序）。接受 Float64Array 以避免额外装箱。
+ *
+ * 两个调用方都保证至少 2 个样本（`robustBounds` 的 coords ≥2；尖峰尺度基准
+ * 只在 segs ≥ `SPIKE_SCALE_MIN_SEGMENTS` 时调用），故不做 0/1 元素的兜底 ——
+ * 那种分支永远执行不到，只会让「分位数返回 NaN」的隐患藏在死代码里。
+ */
 function percentile(sorted: ArrayLike<number>, p: number): number {
-  if (sorted.length === 0) return Number.NaN;
-  if (sorted.length === 1) return sorted[0];
   const idx = Math.min(1, Math.max(0, p)) * (sorted.length - 1);
   const lo = Math.floor(idx);
   const hi = Math.ceil(idx);
@@ -312,27 +320,21 @@ function robustBounds(points: GeoPoint[]): RouteBounds {
 
 /**
  * 累计距离（公里）。buildRouteShape 内只算一次，供采样复用。
- * `segmentsIn` 为已算好的相邻距离（来自 `cleanTrackCoords`），传入时零 Haversine。
+ *
+ * `segments` 必填且与 `points` 严格同步 —— 来自 `cleanTrackCoords` 的第四步
+ * 产出。曾经这里有一个「未传 segments 时用 Haversine 重算」的兜底分支，但两个
+ * 调用方（`buildRouteShape` / `deriveRouteSignature`）都拿得到 segments，那条
+ * 分支永远不会执行，只会让「清洗时用的平面距离」与「累计时用的球面距离」有
+ * 两套口径同时存在于代码里。
  */
-function cumulativeKm(
-  points: GeoPoint[],
-  segmentsIn?: number[],
-): { cum: number[]; total: number } {
+function cumulativeKm(points: GeoPoint[], segments: number[]): { cum: number[]; total: number } {
   const cum: number[] = [0];
-  if (segmentsIn && segmentsIn.length === points.length - 1) {
-    for (let i = 1; i < points.length; i++) cum.push(cum[i - 1] + segmentsIn[i - 1]);
-    return { cum, total: cum[cum.length - 1] ?? 0 };
-  }
-  const cosLat = originCos(points);
-  for (let i = 1; i < points.length; i++) {
-    cum.push(cum[i - 1] + planarKm(points[i - 1], points[i], cosLat));
-  }
+  for (let i = 1; i < points.length; i++) cum.push(cum[i - 1] + segments[i - 1]);
   return { cum, total: cum[cum.length - 1] ?? 0 };
 }
 
 /** 按累计距离等距采样（含首末点）。cum 可复用调用方的预计算结果。 */
-function resample(points: GeoPoint[], total: number, cumIn?: number[]): GeoPoint[] {
-  const cum = cumIn ?? cumulativeKm(points).cum;
+function resample(points: GeoPoint[], total: number, cum: number[]): GeoPoint[] {
   const out: GeoPoint[] = [];
   let j = 0;
   for (let k = 0; k < SHAPE_SAMPLE_POINTS; k++) {
@@ -362,11 +364,9 @@ function resampleByDistance(
   points: GeoPoint[],
   stepM: number,
   maxPoints: number,
-  cumIn?: number[],
+  cum: number[],
 ): GeoPoint[] {
-  if (points.length === 0) return [];
   const stepKm = Math.max(0.001, stepM / 1000);
-  const cum = cumIn ?? cumulativeKm(points).cum;
   const out: GeoPoint[] = [points[0]];
   let nextAt = stepKm;
   let walked = 0;
@@ -374,7 +374,7 @@ function resampleByDistance(
     const a = points[i - 1];
     const b = points[i];
     const seg = cum[i] - cum[i - 1];
-    if (seg <= 0) continue;
+    // 段长恒 >0: `cleanTrackCoords` 已把相邻 <1m 的点折叠, 产出的是严格递增的累计距离
     while (walked + seg >= nextAt && out.length < maxPoints) {
       const t = (nextAt - walked) / seg;
       out.push({
@@ -492,10 +492,17 @@ function originCos(points: GeoPoint[]): number {
   return Math.cos(((points[0]?.lat ?? 0) * Math.PI) / 180);
 }
 
-/** 欧氏距离（同一局部平面坐标系内，单位公里）。
- *  用 sqrt(dx²+dy²) 而非 Math.hypot：后者在 V8 里慢 3–5 倍，
- *  而 DTW 内循环每对候选要调用上千次。 */
-function euclid(a: GeoPoint, b: GeoPoint): number {
+/**
+ * 欧氏距离（同一局部平面坐标系内，单位公里）。
+ *
+ * 用 sqrt(dx²+dy²) 而非 Math.hypot：后者在 V8 里慢 3–5 倍，而 DTW 内循环
+ * 每对候选要调用上千次。
+ *
+ * 导出是为了两件事：① 单测能直接验证这个度量（`dtwMean` 的「快路径」只把
+ * 它当**哨兵身份**比较，内联后并不会真的调用它，不导出就永远零覆盖）；
+ * ② 与 `scripts/common/route-signature.js` 的 `planarKm` 做口径核对。
+ */
+export function euclidKm(a: GeoPoint, b: GeoPoint): number {
   const dx = a.lat - b.lat;
   const dy = a.lng - b.lng;
   return Math.sqrt(dx * dx + dy * dy);
@@ -526,8 +533,6 @@ function pointsToXy(points: GeoPoint[], origin: GeoPoint): Xy[] {
 
 /** 点到折线的最近距离（公里，平方比较后再开方一次）。 */
 function pointToPolylineKm(p: Xy, poly: Xy[]): number {
-  if (poly.length === 0) return Infinity;
-  if (poly.length === 1) return Math.sqrt((p.x - poly[0].x) ** 2 + (p.y - poly[0].y) ** 2);
   let best = Infinity;
   for (let i = 1; i < poly.length; i++) {
     const ax = poly[i - 1].x;
@@ -548,13 +553,8 @@ function pointToPolylineKm(p: Xy, poly: Xy[]): number {
 
 /** 单向平均垂直距离：src 每个点到 tgt 折线的最短距离均值。 */
 function directedPerpKm(src: Xy[], tgt: Xy[]): number {
-  if (src.length === 0 || tgt.length === 0) return Infinity;
   let sum = 0;
-  for (let i = 0; i < src.length; i++) {
-    const d = pointToPolylineKm(src[i], tgt);
-    if (!Number.isFinite(d)) return Infinity;
-    sum += d;
-  }
+  for (let i = 0; i < src.length; i++) sum += pointToPolylineKm(src[i], tgt);
   return sum / src.length;
 }
 
@@ -584,7 +584,6 @@ export function roadOverlapKm(a: RouteShape, b: RouteShape): number {
   // bxy 的偏移已经由「同一原点」自然带上，无需额外平移
   const ab = directedPerpKm(axy, bxy);
   const ba = directedPerpKm(bxy, axy);
-  if (!Number.isFinite(ab) || !Number.isFinite(ba)) return Infinity;
   return Math.max(ab, ba);
 }
 
@@ -595,7 +594,7 @@ export function roadOverlapKm(a: RouteShape, b: RouteShape): number {
  * 除以 max(n, m) 得到「平均每个点的对齐偏差」，与序列长度无关。
  * `dist` 可注入，便于在球面距离与局部平面距离之间切换。
  *
- * 当 `dist` 是内置 `euclid` 时走内联快路径（省掉每格一次函数调用 +
+ * 当 `dist` 是内置 `euclidKm` 时走内联快路径（省掉每格一次函数调用 +
  * 属性访问），实测单对相似度再降约 20%。
  */
 export function dtwMean(
@@ -608,7 +607,7 @@ export function dtwMean(
   if (n === 0 || m === 0) return Infinity;
   const band = Math.max(3, Math.ceil(Math.max(n, m) * DTW_BAND_RATIO));
   const INF = Number.POSITIVE_INFINITY;
-  const fast = dist === euclid;
+  const fast = dist === euclidKm;
   let prev = new Float64Array(m).fill(INF);
   let cur = new Float64Array(m).fill(INF);
 
@@ -665,7 +664,6 @@ function canReverseAlign(a: RouteShape, b: RouteShape): boolean {
  */
 function cyclicAlignedDtwKm(a: RouteShape, b: RouteShape, allowReverse: boolean): number {
   const n = b.points.length;
-  if (n === 0) return Infinity;
   let best = Infinity;
   const sequences = allowReverse ? [b.points, [...b.points].reverse()] : [b.points];
   for (const seq of sequences) {
@@ -680,7 +678,7 @@ function cyclicAlignedDtwKm(a: RouteShape, b: RouteShape, allowReverse: boolean)
     for (const k of candidates) {
       const rotated = [...seq.slice(k), ...seq.slice(0, k)];
       const local = toLocalKm(rotated, rotated[0]);
-      const d = dtwMean(a.local, local, euclid);
+      const d = dtwMean(a.local, local, euclidKm);
       if (d < best) best = d;
     }
   }
@@ -698,11 +696,11 @@ function cyclicAlignedDtwKm(a: RouteShape, b: RouteShape, allowReverse: boolean)
  * 序列首点变成 B 的终点、坐标却仍相对 B 的起点，整条轨迹平移后误判为 0 分。
  */
 function startAlignedDtwKm(a: RouteShape, b: RouteShape, startKm: number): number {
-  const forward = dtwMean(a.local, b.local, euclid);
+  const forward = dtwMean(a.local, b.local, euclidKm);
   const reverse = canReverseAlign(a, b)
     ? (() => {
         const reversedPoints = [...b.points].reverse();
-        return dtwMean(a.local, toLocalKm(reversedPoints, b.end), euclid);
+        return dtwMean(a.local, toLocalKm(reversedPoints, b.end), euclidKm);
       })()
     : Infinity;
   const cyclic =
@@ -801,9 +799,8 @@ export function routeShapeSimilarity(
 /**
  * 路线签名 —— 可入库、可 SQL 预筛的轻量特征。
  *
- * 形状相似度（DTW/网格 Jaccard）需要完整轨迹；逐条读 JSON 太贵。签名把
- * 「网格签名 + 抗尖峰包围盒 + 清洗后长度」抽出，先按长度比与网格重叠粗筛，
- * 再对少量候选做 DTW 精判。
+ * 形状精判需要完整轨迹；逐条读 JSON 太贵。签名把「网格签名 + 抗尖峰包围盒 +
+ * 清洗后长度」抽出，先按长度比与网格重叠粗筛，再对少量候选做路面重叠精判。
  *
  * `scripts/common/route-signature.js` 是同口径的 CJS 实现（供 fit-parser 写入
  * 与回填脚本使用），由 `tests/unit/lib/route-signature-parity.test.ts` 守护两者一致。

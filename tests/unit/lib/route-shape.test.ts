@@ -3,6 +3,7 @@ import {
   cleanTrackCoords,
   deriveRouteSignature,
   dtwMean,
+  euclidKm,
   filterByRouteShape,
   geohashEncode,
   gridJaccard,
@@ -130,6 +131,28 @@ describe('cleanTrackCoords', () => {
     expect(r.points).toHaveLength(2);
     // 2 个非法坐标 + 1 个重复点
     expect(r.removed).toBe(3);
+  });
+
+  test('NaN/Infinity 坐标被剔除（与越界值是两条独立校验）', () => {
+    const r = cleanTrackCoords([
+      [29.5, 106.5],
+      [Number.NaN, 106.5],
+      [29.5, Number.POSITIVE_INFINITY],
+      [29.5001, 106.5],
+    ]);
+    expect(r.points.map((p) => p.lat)).toEqual([29.5, 29.5001]);
+    expect(r.removed).toBe(2);
+  });
+
+  test('纬度/经度各自独立越界判定', () => {
+    const r = cleanTrackCoords([
+      [29.5, 106.5],
+      [-91, 106.5],   // 纬度越界
+      [29.5, -181],   // 经度越界
+      [29.5001, 106.5],
+    ]);
+    expect(r.points).toHaveLength(2);
+    expect(r.removed).toBe(2);
   });
 
   test('剔除孤立 GPS 尖峰（尺度自适应）', () => {
@@ -271,6 +294,18 @@ describe('buildRouteShape', () => {
   });
 });
 
+describe('euclidKm', () => {
+  test('局部平面上的欧氏距离（与 sqrt(dx²+dy²) 同值）', () => {
+    expect(euclidKm({ lat: 0, lng: 0 }, { lat: 0, lng: 0 })).toBe(0);
+    expect(euclidKm({ lat: 3, lng: 4 }, { lat: 0, lng: 0 })).toBe(5);
+    // 对称
+    expect(euclidKm({ lat: 1, lng: 2 }, { lat: -3, lng: 0.5 })).toBeCloseTo(
+      euclidKm({ lat: -3, lng: 0.5 }, { lat: 1, lng: 2 }),
+      12,
+    );
+  });
+});
+
 describe('dtwMean', () => {
   const d = (p: { lat: number; lng: number }, q: { lat: number; lng: number }) =>
     Math.hypot(p.lat - q.lat, p.lng - q.lng);
@@ -298,6 +333,30 @@ describe('dtwMean', () => {
 
   test('反向序列未做反向对齐时距离明显 >0（由调用方负责反向对齐）', () => {
     expect(dtwMean(a, [...a].reverse(), d)).toBeGreaterThan(0.5);
+  });
+
+  test('不传 dist → 默认用球面 Haversine（单位仍是公里）', () => {
+    const p = [
+      { lat: 29.5, lng: 106.5 },
+      { lat: 29.51, lng: 106.5 },
+      { lat: 29.52, lng: 106.5 },
+    ];
+    // 同序列 → 0
+    expect(dtwMean(p, p)).toBe(0);
+    // 整体东移 0.01° ≈ 0.97km（29.5° 处经度 1° ≈ 96.9km）
+    const shifted = p.map((q) => ({ lat: q.lat, lng: q.lng + 0.01 }));
+    const d = dtwMean(p, shifted);
+    expect(d).toBeGreaterThan(0.9);
+    expect(d).toBeLessThan(1.05);
+    // 与显式 Haversine 注入结果一致（默认分支不是另一套口径）
+    expect(d).toBeCloseTo(dtwMean(p, shifted, (a, b) => {
+      const dLat = ((b.lat - a.lat) * Math.PI) / 180;
+      const dLng = ((b.lng - a.lng) * Math.PI) / 180;
+      const h =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos((a.lat * Math.PI) / 180) * Math.cos((b.lat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+      return 2 * 6371.0088 * Math.asin(Math.min(1, Math.sqrt(h)));
+    }), 6);
   });
 
   test('长度不同仍能对齐（DTW 的核心价值）', () => {
@@ -428,6 +487,22 @@ describe('routeShapeSimilarity', () => {
     expect(sim(roadNorth, roadNorth).bboxIoU).toBeCloseTo(1, 6);
   });
 
+  test('东西向直线（经度跨度更大）也走 1 维重叠分支', () => {
+    // 纯经度方向的直线: 包围盒高度为 0、宽度非 0 → 走 spanLng >= spanLat 分支
+    const eastWest: [number, number][] = [
+      [29.5, 106.5],
+      [29.5, 106.515],
+      [29.5, 106.53],
+    ];
+    const shifted: [number, number][] = eastWest.map(([lat, lng]) => [lat, lng + 0.0075]);
+    // 自身 → 完全重叠
+    expect(sim(eastWest, eastWest).bboxIoU).toBeCloseTo(1, 6);
+    // 平移半个身位 → 重叠率约 0.5（1 维投影而非面积）
+    const s = sim(eastWest, shifted);
+    expect(s.bboxIoU).toBeGreaterThan(0.4);
+    expect(s.bboxIoU).toBeLessThan(0.6);
+  });
+
   test('同一环线从不同入口起跑（起点 >2.5km）→ 仍判为同一路线', () => {
     // 3km × 3km 环线，从北边中点起跑，起点相距 ~3.4km
     const bigLoop: [number, number][] = [
@@ -470,6 +545,29 @@ describe('routeShapeSimilarity', () => {
     ];
     const s = sim(bigLoop, midNorthReversed);
     expect(s.score).toBeGreaterThanOrEqual(SHAPE_SIMILARITY_THRESHOLD);
+  });
+});
+
+describe('deriveRouteSignature 长度门槛', () => {
+  test('2 个点但总长 <50m → null（与 buildRouteShape 同一门槛）', () => {
+    // 0.0003° 纬度 ≈ 33m: 点数足够, 但长度不足
+    const tooShort = track([
+      [29.5, 106.5],
+      [29.5003, 106.5],
+    ]);
+    expect(deriveRouteSignature(tooShort)).toBeNull();
+    expect(buildRouteShape(tooShort)).toBeNull();
+  });
+
+  test('刚过 50m → 非 null 且 weak=true（弱轨迹保留不判定）', () => {
+    const justOver = track([
+      [29.5, 106.5],
+      [29.5006, 106.5], // ≈ 67m
+    ]);
+    const sig = deriveRouteSignature(justOver)!;
+    expect(sig).not.toBeNull();
+    expect(sig.weak).toBe(true);
+    expect(sig.cells.length).toBeGreaterThan(0);
   });
 });
 
