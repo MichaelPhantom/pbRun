@@ -22,6 +22,17 @@
     不可靠）；起点 >2.5km 直接判为不同路线。
   - 实测（348 条真实活动）：同名同起点同环线的 376 对中 372 对（98.9%）通过；跨名称
     同路线（如「基础训练」↔「冲刺训练」）稳定 0.95 分。
+- **路线形状热路径性能优化**（洞察接口中位延迟 **2351ms → 199ms**）：
+  - 移除不参与打分且无调用方的 `pathKm` 诊断字段（每对 2304 次 Haversine，约占单对一半开销）；
+  - DTW 内循环改 `Float64Array` + 内联欧氏快路径 + 手写三路最小值，`Math.hypot` → `sqrt(dx²+dy²)`；
+  - 轨迹内部距离改用等距圆柱平面近似（整条轨迹共用一个基准纬度 `cos`），
+    200k 次距离计算 446ms → 30ms，真实 40 条轨迹复测相对偏差 p95 **0.0036%**；
+  - `cleanTrackCoords` 同步产出相邻距离 `segments`，`buildRouteShape` / `deriveRouteSignature`
+    复用，不再对清洗结果重算 Haversine；累计里程同一条轨迹只算一次；
+  - 新增 `routeSignatureOf(shape)`：洞察服务复用已构建形状派生签名，不再二次清洗；
+  - CJS 镜像 `scripts/common/route-signature.js` 同步同口径，一致性测试守护。
+  - 实测：`buildRouteShape` 76.3ms → 3.6ms、单对相似度 52.3ms → 2.3ms、
+    洞察 cold 3272ms → 352ms；召回质量不变（同名同起点同环线 381 对通过 378 对 = 99.2%）。
 - **路线签名持久化 + 网格通道召回**（`route_cells` / `route_bounds` / `route_km`）：
   `fit-parser` 解析 FIT 时同步写入签名；`db.getRouteShapePeerActivities` 用 `route_km`
   索引按长度比（≤1.35）+ 距离档预筛，JS 层算网格 Jaccard（≥0.2）后并入候选，补齐

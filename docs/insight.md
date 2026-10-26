@@ -152,6 +152,7 @@ activities / activity_laps / activity_records (SQLite)
 | 逐秒温度漂移 | `tests/unit/lib/activity-temperature.test.ts` |
 | GPS 同起点校验 | `tests/unit/lib/geo.test.ts` |
 | 路线形状相似度（DTW/网格/清洗/环线入口） | `tests/unit/lib/route-shape.test.ts` |
+| 签名复用（`routeSignatureOf` 与 `deriveRouteSignature` 等值） | `tests/unit/lib/route-shape.test.ts` |
 | 路线签名 TS↔CJS 一致性 | `tests/unit/lib/route-signature-parity.test.ts` |
 | 路线签名回填脚本 | `tests/unit/scripts/backfill-route-signatures.test.js` |
 | 洞察→教练上下文 + 全局消息 | `tests/unit/lib/insight-coach.test.ts` |
