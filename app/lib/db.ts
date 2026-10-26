@@ -1422,6 +1422,83 @@ export function getLocationPeerActivities(
 }
 
 /**
+ * 跨名称「同路线」候选：按 geohash 网格签名重叠 + 路线长度比筛选。
+ *
+ * 与 `getLocationPeerActivities`（起点半径）互补：同一条路线从不同入口起跑、
+ * 或起终点互换，起点可能相差 >1.5km，但轨迹网格高度重叠。这里用
+ * `route_km` 索引做长度比粗筛，再在 JS 层算网格 Jaccard，最后交给调用方
+ * 做 DTW 精判。未回填 `route_cells` 的旧行不参与（回退到起点半径口径）。
+ *
+ * @param activityId 当前活动
+ * @param cells      当前活动的网格签名（geohash-7）
+ * @param lengthKm   当前活动清洗后轨迹长度
+ * @param distanceKm 当前活动距离（公里，用于距离分档）
+ * @param opts.minGridJaccard 网格重叠下限（默认 0.2：同路线通常 >0.5）
+ * @param opts.maxLengthRatio 长度比上限（默认 1.35：同路线不同距离不混组）
+ */
+export function getRouteShapePeerActivities(
+  activityId: number,
+  cells: string[],
+  lengthKm: number,
+  distanceKm: number,
+  distanceTolerance = 0.1,
+  opts: { minGridJaccard?: number; maxLengthRatio?: number; limit?: number } = {},
+): PeerActivity[] {
+  if (cells.length === 0 || !Number.isFinite(lengthKm) || lengthKm <= 0 || distanceKm <= 0) {
+    return [];
+  }
+  if (!hasActivityColumn('route_cells') || !hasActivityColumn('route_km')) return [];
+
+  const minGrid = opts.minGridJaccard ?? 0.2;
+  const maxRatio = opts.maxLengthRatio ?? 1.35;
+  const limit = opts.limit ?? 200;
+  const loLen = lengthKm / maxRatio;
+  const hiLen = lengthKm * maxRatio;
+  const loKm = distanceKm * (1 - distanceTolerance);
+  const hiKm = distanceKm * (1 + distanceTolerance);
+
+  const db = getDatabase();
+  const rows = db.prepare(
+    `SELECT activity_id, name, start_time_local, distance, average_pace,
+            average_heart_rate, average_temperature, total_ascent,
+            start_lat, start_lng, route_cells, route_km
+     FROM activities
+     WHERE activity_id != ?
+       AND route_cells IS NOT NULL
+       AND route_km BETWEEN ? AND ?
+       AND distance BETWEEN ? AND ?
+     ORDER BY start_time_local ASC
+     LIMIT ?`
+  ).all(activityId, loLen, hiLen, loKm, hiKm, limit) as (PeerActivityRow & {
+    route_cells: string | null;
+    route_km: number | null;
+  })[];
+
+  const target = new Set(cells);
+  const scored: { row: PeerActivityRow; jaccard: number }[] = [];
+  for (const row of rows) {
+    let peerCells: string[] = [];
+    try {
+      const parsed = JSON.parse(row.route_cells ?? '[]');
+      if (Array.isArray(parsed)) peerCells = parsed.filter((c): c is string => typeof c === 'string');
+    } catch {
+      continue;
+    }
+    if (peerCells.length === 0) continue;
+    const peerSet = new Set(peerCells);
+    let inter = 0;
+    for (const c of target) if (peerSet.has(c)) inter += 1;
+    const union = target.size + peerSet.size - inter;
+    const jaccard = union > 0 ? inter / union : 0;
+    if (jaccard >= minGrid) scored.push({ row, jaccard });
+  }
+
+  // 网格重叠高的优先; 同分按时间倒序（最近的样本更有参考价值）
+  scored.sort((a, b) => b.jaccard - a.jaccard || (a.row.start_time_local < b.row.start_time_local ? 1 : -1));
+  return scored.map((s) => mapPeerRow(s.row));
+}
+
+/**
  * Close database connection.
  */
 export function closeDatabase(): void {

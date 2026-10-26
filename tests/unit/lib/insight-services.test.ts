@@ -79,6 +79,7 @@ jest.mock('@/app/lib/db', () => ({
   getLocationPeerActivities: jest.fn(() => []),
   getActivityTrack: jest.fn(() => null),
   getActivityTracks: jest.fn(() => new Map()),
+  getRouteShapePeerActivities: jest.fn(() => []),
 }));
 
 import { getInsight } from '@/app/lib/insight-service';
@@ -188,9 +189,44 @@ test('路线查询回退 distance 时 label 使用距离带 (不误用路线名)
         [43, shape(30.5, 107.5)],
       ]),
     );
+    (db.getRouteShapePeerActivities as jest.Mock).mockReturnValueOnce([]);
     const r = getActivityInsight(99)!;
     expect(r.locationComparison!.label).toContain('同路径');
     expect(r.locationComparison!.peers.map((p) => p.activityId)).toEqual([42]);
+  });
+
+  test('网格签名扩召回：起点 >1.5km 但同一条大环线被补入', () => {
+    const db = jest.requireMock('@/app/lib/db');
+    // 3km × 3km 的大环线（周长 ~12km），从不同入口起跑
+    const bigLoop = (lat: number, lng: number): [number, number][] => [
+      [lat, lng],
+      [lat + 0.027, lng],
+      [lat + 0.027, lng + 0.0315],
+      [lat, lng + 0.0315],
+      [lat, lng],
+    ];
+    // 同一条环线，从北边中点起跑（沿边界绕一圈回起点）。
+    // 起点相距 ~3.4km，超过 1.5km 起点半径；靠环线入口变体（包围盒重叠）识别。
+    const midNorth: [number, number][] = [
+      [29.527, 106.51575],
+      [29.527, 106.5315],
+      [29.5, 106.5315],
+      [29.5, 106.5],
+      [29.527, 106.5],
+      [29.527, 106.51575],
+    ];
+    (db.getActivityStartGeo as jest.Mock).mockReturnValueOnce({ lat: 29.5, lng: 106.5 });
+    // 起点半径内无候选
+    (db.getLocationPeerActivities as jest.Mock).mockReturnValueOnce([]);
+    (db.getActivityTrack as jest.Mock).mockReturnValueOnce({ coords: bigLoop(29.5, 106.5), n: 5 });
+    // 网格重叠召回：同一条环线、不同入口
+    (db.getRouteShapePeerActivities as jest.Mock).mockReturnValueOnce([
+      { activityId: 77, date: '2026-07-01', name: '另一入口 - 长距离', distanceKm: 7.8, paceSecPerKm: 340, heartRate: 165, startLat: 29.5135, startLng: 106.5157 },
+    ]);
+    (db.getActivityTracks as jest.Mock).mockReturnValueOnce(new Map([[77, { coords: midNorth, n: 5 }]]));
+    const r = getActivityInsight(99)!;
+    expect(r.locationComparison!.peers.map((p) => p.activityId)).toEqual([77]);
+    expect(r.locationComparison!.label).toContain('同路径');
   });
 
 describe('activity-insight-service 同起点校验', () => {

@@ -4,6 +4,7 @@
 
 const FitParser = require('fit-file-parser').default;
 const fs = require('fs').promises;
+const { deriveRouteSignature } = require('../common/route-signature');
 
 /** FIT sub_sport 枚举 -> 中文展示（跑步机、户外等） */
 const SUB_SPORT_LABELS = {
@@ -205,6 +206,13 @@ class GarminFITParser {
       // 首点坐标落列 (索引化), 供「同起点」对比快速查询; 无 GPS 为 null。
       activityData.start_lat = trackData?.coords?.[0]?.[0] ?? null;
       activityData.start_lng = trackData?.coords?.[0]?.[1] ?? null;
+
+      // 路线签名落列: 网格签名/抗尖峰包围盒/清洗后长度。
+      // 供跨名称「同路线」聚类做 SQL 预筛, 避免每次请求都反序列化整条轨迹。
+      const routeSig = trackData ? deriveRouteSignature(trackData) : null;
+      activityData.route_cells = routeSig ? JSON.stringify(routeSig.cells) : null;
+      activityData.route_bounds = routeSig ? JSON.stringify(routeSig.bounds) : null;
+      activityData.route_km = routeSig ? routeSig.km : null;
 
       return { activity: activityData, laps: lapsData, records: recordsData };
     } catch (error) {

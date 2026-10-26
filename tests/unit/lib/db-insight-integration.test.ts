@@ -36,6 +36,10 @@ beforeEach(() => {
       // 预计算首点优先于 JSON1 解析 (回填后的正常形态)
       start_lat: 30.123,
       start_lng: 107.456,
+      // 路线签名 (形状聚类用): 3km 环线的网格/包围盒/长度
+      route_cells: JSON.stringify(['wm5xz6q', 'wm5xz7n', 'wm5xzd6']),
+      route_bounds: JSON.stringify({ minLat: 29.5, minLng: 106.5, maxLat: 29.53, maxLng: 106.53 }),
+      route_km: 3.02,
     },
     {
       activity_id: 2, name: '两江新区 - 基础训练', activity_type: 'running', sub_sport_type: '路跑',
@@ -47,6 +51,10 @@ beforeEach(() => {
       track: JSON.stringify({ coords: [[29.501, 106.501], [29.61, 106.61]], n: 2 }),
       start_lat: 29.501,
       start_lng: 106.501,
+      // 与活动 1 网格高度重叠 (2/3 交集), 长度接近 → 应被召回
+      route_cells: JSON.stringify(['wm5xz6q', 'wm5xz7n', 'wm5xzf6']),
+      route_bounds: JSON.stringify({ minLat: 29.5, minLng: 106.5, maxLat: 29.53, maxLng: 106.53 }),
+      route_km: 2.95,
     },
     {
       activity_id: 3, name: '渝中区 - 长距离跑', activity_type: 'running', sub_sport_type: '路跑',
@@ -56,6 +64,10 @@ beforeEach(() => {
       average_temperature: 24, vdot_value: 40, training_load: 150,
       time_in_hr_zone: JSON.stringify([0, 0, 2400, 2600, 1200, 0, 0]),
       track: '{bad-json', // 回归: 畸形轨迹不应让同行/首点查询整体抛错
+      // 距离 18.6km 超出距离带; 网格也完全不同
+      route_cells: JSON.stringify(['wm6abc1', 'wm6abc2']),
+      route_bounds: JSON.stringify({ minLat: 29.6, minLng: 106.6, maxLat: 29.7, maxLng: 106.7 }),
+      route_km: 18.9,
     },
   ];
   for (const r of rows) mgr.upsertActivity(r);
@@ -182,6 +194,47 @@ describe('db.ts 洞察查询 (真实 SQL)', () => {
     expect([...tracks.keys()].sort()).toEqual([1, 2]);
     expect(tracks.get(1)?.coords).toHaveLength(2);
     expect(db.getActivityTracks([]).size).toBe(0);
+  });
+
+  test('getRouteShapePeerActivities 按网格重叠 + 长度比 + 距离带筛选', async () => {
+    const db = await loadDb();
+    // 活动 1 的签名: 3 个网格, 3.02km, 8km 距离
+    // 用 ±20% 距离带 (8km → 6.4–9.6km), 覆盖活动 2 的 7km
+    const peers = db.getRouteShapePeerActivities(
+      1,
+      ['wm5xz6q', 'wm5xz7n', 'wm5xzd6'],
+      3.02,
+      8,
+      0.2,
+    );
+    // 活动 2: 2/4 网格重叠 (Jaccard 0.5), 长度 2.95 (ratio 1.02), 距离 7km → 命中
+    expect(peers.map((p) => p.activityId)).toEqual([2]);
+    // 活动 3: 距离 18.6km 远超距离带 → 排除
+    // ±10% 带 (7.2–8.8km) 下 7km 也被排除（分档更严时的正常行为）
+    expect(
+      db.getRouteShapePeerActivities(1, ['wm5xz6q', 'wm5xz7n', 'wm5xzd6'], 3.02, 8, 0.1),
+    ).toEqual([]);
+    // 空签名 → 空
+    expect(db.getRouteShapePeerActivities(1, [], 3.02, 8, 0.1)).toEqual([]);
+    // 非法长度/距离 → 空
+    expect(db.getRouteShapePeerActivities(1, ['a'], 0, 8)).toEqual([]);
+    expect(db.getRouteShapePeerActivities(1, ['a'], 3, 0)).toEqual([]);
+    // 网格重叠过低 (Jaccard 0.25 < 0.5) → 空
+    expect(
+      db.getRouteShapePeerActivities(1, ['wm5xz6q', 'zzz1', 'zzz2'], 3.02, 8, 0.2, {
+        minGridJaccard: 0.6,
+      }),
+    ).toEqual([]);
+    // 长度比过宽 → 排除 (3.02 vs 2.95 之外再收紧)
+    expect(
+      db.getRouteShapePeerActivities(1, ['wm5xz6q', 'wm5xz7n', 'wm5xzd6'], 3.02, 8, 0.2, {
+        maxLengthRatio: 1.001,
+      }),
+    ).toEqual([]);
+    // 结果按网格重叠降序, 且返回环境字段
+    const [only] = peers;
+    expect(only.distanceKm).toBe(7);
+    expect(only.startLat).toBeCloseTo(29.501);
   });
 
   test('getActivityStartGeo 只经 JSON1 提取首点; 无轨迹返回 null', async () => {

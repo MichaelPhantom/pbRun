@@ -470,6 +470,15 @@ describe('parseFitFile (文件级入口)', () => {
     expect(res.activity.start_lat).toBeCloseTo(29.56);
     expect(res.activity.start_lng).toBeCloseTo(106.55);
     expect(JSON.parse(res.activity.track).coords.length).toBe(2);
+    // 路线签名落列: 网格签名 JSON 数组 / 包围盒 JSON / 清洗后长度
+    expect(Array.isArray(JSON.parse(res.activity.route_cells))).toBe(true);
+    expect(JSON.parse(res.activity.route_cells).length).toBeGreaterThan(0);
+    expect(JSON.parse(res.activity.route_cells)[0]).toMatch(/^[0-9bcdefghjkmnpqrstuvwxyz]{7}$/);
+    const bounds = JSON.parse(res.activity.route_bounds);
+    expect(bounds.minLat).toBeCloseTo(29.56);
+    expect(bounds.maxLat).toBeCloseTo(29.57);
+    expect(res.activity.route_km).toBeGreaterThan(1);
+    expect(res.activity.route_km).toBeLessThan(2);
     expect(res.activity.user_weight).toBe(65);
     expect(res.activity.workout_name).toBe('基础训练');
     expect(res.records[0].temperature).toBeCloseTo(27.5);
@@ -481,6 +490,10 @@ describe('parseFitFile (文件级入口)', () => {
     expect(res.activity.track).toBeNull();
     expect(res.activity.start_lat).toBeNull();
     expect(res.activity.start_lng).toBeNull();
+    // 无轨迹 → 签名为 null (不写空数组, 让 SQL 的 IS NOT NULL 过滤生效)
+    expect(res.activity.route_cells).toBeNull();
+    expect(res.activity.route_bounds).toBeNull();
+    expect(res.activity.route_km).toBeNull();
   });
 
   test('解析抛 Error → 记录 message 并返回空结果', async () => {

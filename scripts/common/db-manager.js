@@ -107,6 +107,10 @@ class DatabaseManager {
         track TEXT,                                   -- 降采样 GPS 轨迹 JSON (coords/bounds/elev)
         start_lat REAL,                               -- 轨迹首点纬度 (无 GPS 为 NULL)
         start_lng REAL,                               -- 轨迹首点经度 (无 GPS 为 NULL)
+        -- 路线签名 (由 track 派生, 供跨名称形状聚类走 SQL 预筛; 见 scripts/common/route-signature.js)
+        route_cells TEXT,                             -- geohash-7 网格签名 JSON 数组
+        route_bounds TEXT,                            -- 抗尖峰包围盒 JSON {minLat,minLng,maxLat,maxLng}
+        route_km REAL,                                -- 清洗后轨迹长度 (公里)
 
         -- 元数据
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,    -- 创建时间
@@ -167,7 +171,11 @@ class DatabaseManager {
       // 路线与地理（新库直接建表；旧库经 ALTER 补齐）
       ['track', 'TEXT'],                             // 降采样 GPS 轨迹 JSON
       ['start_lat', 'REAL'],                         // 轨迹首点纬度
-      ['start_lng', 'REAL']                          // 轨迹首点经度
+      ['start_lng', 'REAL'],                         // 轨迹首点经度
+      // 路线签名（由 track 派生；同步/回填时写入）
+      ['route_cells', 'TEXT'],                       // geohash-7 网格签名 JSON 数组
+      ['route_bounds', 'TEXT'],                      // 抗尖峰包围盒 JSON
+      ['route_km', 'REAL']                           // 清洗后轨迹长度 (公里)
     ];
     for (const [name, type] of newActivityColumns) {
       try {
@@ -180,6 +188,11 @@ class DatabaseManager {
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_activities_start_geo
       ON activities(start_lat, start_lng)
+    `);
+    // 路线长度索引: 形状聚类先按长度比粗筛（同路线不同距离不混组）
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_activities_route_km
+      ON activities(route_km)
     `);
     // 旧库首点回填: 只补 start_lat 仍为空的轨迹行; 幂等且无需 FIT 缓存。
     this.db.exec(`

@@ -67,6 +67,21 @@ describe('构造与列迁移', () => {
     ).toBe(true);
   });
 
+  test('建路线签名列与长度索引 (route_cells/route_bounds/route_km)', () => {
+    new DatabaseManager('/tmp/x.db');
+    const sqls = mockExec.mock.calls.map((c) => String(c[0]));
+    // 新库直接建表含三列
+    const create = sqls.find((q) => /CREATE TABLE IF NOT EXISTS activities/i.test(q));
+    expect(create).toContain('route_cells');
+    expect(create).toContain('route_bounds');
+    expect(create).toContain('route_km');
+    // 旧库 ALTER 补齐
+    expect(sqls.some((q) => /ALTER TABLE activities ADD COLUMN route_cells TEXT/i.test(q))).toBe(true);
+    expect(sqls.some((q) => /ALTER TABLE activities ADD COLUMN route_km REAL/i.test(q))).toBe(true);
+    // 长度索引 (形状聚类先按长度比粗筛)
+    expect(sqls.some((q) => /CREATE INDEX IF NOT EXISTS idx_activities_route_km/.test(q))).toBe(true);
+  });
+
   test('列已存在 (duplicate column) → 静默跳过全部 ALTER', () => {
     mockExec.mockImplementation((sql) => {
       if (/ALTER TABLE/i.test(sql)) throw new Error('duplicate column name: sport_type');

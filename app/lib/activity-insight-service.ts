@@ -14,6 +14,7 @@ import { computeTemperatureDrift } from './activity-temperature';
 import { gradeAdjustedPace } from './grade-adjust';
 import { filterSameStart, haversineKm, SAME_LOCATION_RADIUS_KM, type GeoPoint } from './geo';
 import { buildRouteShape, filterByRouteShape } from './route-shape';
+import { deriveRouteSignature } from './route-signature';
 import { routeKeyOf } from './insight-compare';
 import type { PeerActivity } from './db';
 import type { ActivityComparison, ActivityInsightResponse } from './types';
@@ -112,11 +113,34 @@ export function getActivityInsight(activityId: number): ActivityInsightResponse 
         const km = haversineKm(startGeo, { lat: p.startLat, lng: p.startLng });
         return km != null && km <= SAME_LOCATION_RADIUS_KM;
       });
-      // 路径形状校验：同起点但不同环线/折返方向不混为一组。
+      // 形状校验：同起点但不同环线/折返方向不混为一组。
+      // 同时用网格签名补上「同一条路线但从不同入口起跑」的候选 —— 这类活动
+      // 起点可能相距 >1.5km，仅靠起点半径会漏掉，但轨迹网格高度重叠。
       let shapeFiltered = sameLocation;
       let shapeLabel = `GPS ≤${SAME_LOCATION_RADIUS_KM}km`;
       try {
-        const currentShape = buildRouteShape(db.getActivityTrack(activityId));
+        const currentTrack = db.getActivityTrack(activityId);
+        const currentShape = buildRouteShape(currentTrack);
+        // 网格签名扩召回：按轨迹重叠补充候选（与起点半径候选合并去重）。
+        const signature = currentShape
+          ? deriveRouteSignature(currentTrack)
+          : null;
+        if (signature && !signature.weak) {
+          const shapeCandidates = db.getRouteShapePeerActivities(
+            activityId,
+            signature.cells,
+            signature.km,
+            distanceKm,
+            distanceTolerance,
+          );
+          const seen = new Set(sameLocation.map((p) => p.activityId));
+          for (const p of shapeCandidates) {
+            if (!seen.has(p.activityId)) {
+              sameLocation.push(p);
+              seen.add(p.activityId);
+            }
+          }
+        }
         const tracks = db.getActivityTracks(sameLocation.map((p) => p.activityId));
         const shapes = new Map(
           [...tracks.entries()].map(([id, track]) => [id, buildRouteShape(track)] as const),
