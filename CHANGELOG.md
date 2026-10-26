@@ -78,6 +78,14 @@
   避免同一条路线的 5K 与 30K 直接对比。详情 UI 的 ±25% fallback 不变。
 
 ### Fixed
+- **部署脚本构建被 cgroup memcg OOM kill（生产事故 2026-10-26：全站样式丢失）**。
+  在受限 cgroup（`opencode.service`，memcg 硬上限 1.5G）里跑 `deploy-prod.sh`，
+  `next build` 中途被 memcg OOM kill（exit 137），磁盘留下半成品 `.next`
+  （无 `BUILD_ID` / `static` / `server`），而旧服务进程仍持内存里的旧产物继续
+  返回 HTML——引用的静态 chunk 已不存在 → 全站 CSS/JS 500，只剩无样式的文字。
+  修复：`scripts/deploy-prod.sh` 构建步骤默认经 `systemd-run --user --scope`
+  （`MemoryMax` 默认 8G，`PB_BUILD_SCOPE_MEM` 可覆盖）挪入无上限的 `user.slice`，
+  用户 systemd 不可用时回退直接构建并告警（见 `docs/ops.md` §2）。
 - **时区缺陷: `start_time_local` 实际存成 UTC（全库 230/230 条受影响）**。
   根因在 `scripts/garmin/fit-parser.js`：`start_time_local` 误用 FIT 的 `session.timestamp`，
   而它与 `session.start_time` 同值（均为 UTC），导致本地时间列全库等于 UTC。后果：

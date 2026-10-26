@@ -37,6 +37,25 @@ restore_data_link() {
   fi
 }
 
+# ── cgroup 内存防护 ─────────────────────────────────────────────────────
+# 受限 cgroup (如 opencode.service, memcg 硬上限 1.5G) 里直接 next build 会被
+# memcg OOM kill (exit 137)，留下半成品 .next → 服务静态资源 500 (生产事故
+# 2026-10-26，诊断与判别见 docs/ops.md §2)。故构建默认经 systemd-run --user
+# --scope 挪入 user.slice (无 memcg 上限)；用户 systemd 不可用时回退直接构建
+# 并告警。上限可用 PB_BUILD_SCOPE_MEM 覆盖。
+SCOPE_MEM="${PB_BUILD_SCOPE_MEM:-8G}"
+run_build_in_scope() {
+  export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+  if command -v systemd-run >/dev/null 2>&1 && systemd-run --user --quiet --scope true 2>/dev/null; then
+    echo "      经 systemd-run --user --scope 构建 (MemoryMax=${SCOPE_MEM}, 规避父 cgroup memcg 限额)"
+    systemd-run --user --scope --quiet -p "MemoryMax=${SCOPE_MEM}" \
+      env -u NODE_ENV "$ROOT/node_modules/.bin/next" build
+  else
+    echo "      ⚠ 用户 systemd 不可用, 直接构建 (受限 cgroup 内可能被 memcg OOM kill, 见 docs/ops.md §2)"
+    env -u NODE_ENV "$ROOT/node_modules/.bin/next" build
+  fi
+}
+
 verify() {
   echo "[verify] 健康检查: $BASE_URL"
   local css status
@@ -85,7 +104,7 @@ systemctl --user stop "$SERVICE"
 echo "[4/5] 构建 (unset NODE_ENV: 防止 Next 16 误判环境)"
 stash_data_link
 trap restore_data_link EXIT
-env -u NODE_ENV "$ROOT/node_modules/.bin/next" build
+run_build_in_scope
 restore_data_link
 trap - EXIT
 

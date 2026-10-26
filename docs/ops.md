@@ -79,6 +79,11 @@ setsid nohup systemd-run --user --scope -- bash scripts/deploy-prod.sh \
   > /tmp/deploy.log 2>&1 < /dev/null &
 ```
 
+> `scripts/deploy-prod.sh` 已内置此防护：构建步骤自动经
+> `systemd-run --user --scope`（`MemoryMax` 默认 8G，可用 `PB_BUILD_SCOPE_MEM`
+> 覆盖）落到 `user.slice`，仅在用户 systemd 不可用时才回退直接构建并告警。
+> 手动跑其他重活（如 `oci` 大对象上传下载）时仍需自行套 scope。
+
 > 判别要点：日志里出现 `oom_memcg=<某个单元>` 就是 cgroup 限额问题——
 > 跟整机 OOM（`dmesg` 里无 `oom_memcg` 或指向 `/`）是两回事，加内存条/清缓存都救不了，
 > 必须换 cgroup 跑。
