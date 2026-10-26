@@ -132,7 +132,16 @@ function cumulativeKm(points, segmentsIn) {
   return { cum, total: cum[cum.length - 1] || 0 };
 }
 
-/** 清洗轨迹（与 app/lib/route-shape.ts 同口径）。 */
+/**
+ * 清洗轨迹（与 app/lib/route-shape.ts 的 cleanTrackCoords 同口径）。
+ *
+ * 顺序很关键：**先去重，再做尖峰判定**。GPS 冻结/信号丢失会产出连续重复点，
+ * 若直接在原始序列上判定，被冻结点的直接邻居就是它自己的副本（dn=0），
+ * 永远不满足「前后两段都很长」，冻结段完全逃过清洗并把长度虚增数倍。
+ * 去重后冻结段坍缩成一个点，前后邻居变成真正的正常点，尖峰规则才能识别。
+ *
+ * @returns {{points: Array<{lat:number,lng:number}>, segments: number[]}}
+ */
 function cleanTrackCoords(coords) {
   const raw = [];
   for (const c of coords || []) {
@@ -146,8 +155,21 @@ function cleanTrackCoords(coords) {
   if (raw.length === 0) return { points: [], segments: [] };
 
   const cosLat = originCos(raw);
+
+  // 第一步：去重（相邻 <1m 视为同一点）
+  const deduped = [];
+  for (const p of raw) {
+    if (deduped.length > 0) {
+      const d = planarKm(deduped[deduped.length - 1], p, cosLat);
+      if (d < DEDUPE_KM) continue;
+    }
+    deduped.push(p);
+  }
+  if (deduped.length === 0) return { points: [], segments: [] };
+
+  // 第二步：段长尺度基准（p25），供尺度自适应尖峰阈值
   const segs = [];
-  for (let i = 1; i < raw.length; i++) segs.push(planarKm(raw[i - 1], raw[i], cosLat));
+  for (let i = 1; i < deduped.length; i++) segs.push(planarKm(deduped[i - 1], deduped[i], cosLat));
   const scale =
     segs.length >= SPIKE_SCALE_MIN_SEGMENTS
       ? percentile([...segs].sort((a, b) => a - b), 0.25)
@@ -155,29 +177,24 @@ function cleanTrackCoords(coords) {
   const jump = Math.max(SPIKE_MIN_JUMP_KM, scale * SPIKE_SEGMENT_RATIO);
   const neighbor = Math.max(SPIKE_NEIGHBOR_MIN_KM, scale * SPIKE_NEIGHBOR_RATIO);
 
-  const out = [];
-  const outSegs = [];
-  for (let i = 0; i < raw.length; i++) {
-    const p = raw[i];
-    let d = 0;
-    if (out.length > 0) {
-      // out 末点与 raw[i-1] 相同时复用已算段长; 否则(前一点被删)重算
-      const lastOut = out[out.length - 1];
-      d = lastOut === raw[i - 1] ? segs[i - 1] : planarKm(lastOut, p, cosLat);
-      if (d < DEDUPE_KM) continue;
-    }
-    if (i > 0 && i < raw.length - 1) {
-      const prev = raw[i - 1];
-      const next = raw[i + 1];
+  // 第三步：剔除孤立尖峰 / 冻结段
+  const kept = [];
+  for (let i = 0; i < deduped.length; i++) {
+    const p = deduped[i];
+    if (i > 0 && i < deduped.length - 1) {
       const dp = segs[i - 1];
       const dn = segs[i];
-      const db = planarKm(prev, next, cosLat);
+      const db = planarKm(deduped[i - 1], deduped[i + 1], cosLat);
       if (dp > jump && dn > jump && db < neighbor && db > DEDUPE_KM) continue;
     }
-    out.push(p);
-    if (out.length > 1) outSegs.push(d);
+    kept.push(p);
   }
-  return { points: out, segments: outSegs };
+  if (kept.length === 0) return { points: [], segments: [] };
+
+  // 第四步：产出与保留点同步的相邻距离
+  const outSegs = [];
+  for (let i = 1; i < kept.length; i++) outSegs.push(planarKm(kept[i - 1], kept[i], cosLat));
+  return { points: kept, segments: outSegs };
 }
 
 /**

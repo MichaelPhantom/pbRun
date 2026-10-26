@@ -214,41 +214,48 @@ export function cleanTrackCoords(
   }
   if (raw.length === 0) return { points: [], segments: [], removed };
 
-  // 段长尺度基准：取 p25 而非中位数 —— 尖峰会把少数段拉得极长，
-  // 中位数在稀疏轨迹上会被污染；p25 更接近「正常步长」。
-  // 段长同时用于去重与尖峰判定（原始相邻点），只算一次。
-  // 距离用平面近似（整条轨迹共用基准纬度 cos），比 Haversine 快一个数量级。
   const cosLat = originCos(raw);
-  const segs: number[] = [];
-  for (let i = 1; i < raw.length; i++) {
-    segs.push(planarKm(raw[i - 1], raw[i], cosLat));
-  }
-  const scale = segs.length >= SPIKE_SCALE_MIN_SEGMENTS ? percentile([...segs].sort((a, b) => a - b), 0.25) : 0;
-  const jump = Math.max(SPIKE_MIN_JUMP_KM, scale * SPIKE_SEGMENT_RATIO);
-  const neighbor = Math.max(SPIKE_NEIGHBOR_MIN_KM, scale * SPIKE_NEIGHBOR_RATIO);
 
-  const out: GeoPoint[] = [];
-  // 与 out 同步累积的相邻距离, 供调用方复用（避免二次 Haversine）
-  const outSegs: number[] = [];
-  for (let i = 0; i < raw.length; i++) {
-    const p = raw[i];
-    let d = 0;
-    if (out.length > 0) {
-      // out 末点与 raw[i-1] 相同时复用已算段长; 否则(前一点被删)重算
-      const lastOut = out[out.length - 1];
-      d = lastOut === raw[i - 1] ? segs[i - 1] : planarKm(lastOut, p, cosLat);
+  // 第一步：去重（相邻 <1m 视为同一点）。
+  //
+  // 必须先去重再做尖峰检测：GPS 冻结/信号丢失会产出**连续重复点**，
+  // 若直接在原始序列上判定，被冻结点的直接邻居就是它自己的副本（dn=0），
+  // 永远不满足「前后两段都很长」，冻结段因此完全逃过清洗，还会把轨迹长度
+  // 虚增数倍。去重后冻结段坍缩成一个点，它的前后邻居变成真正的正常点，
+  // 尖峰规则才能识别出「瞬移出去又瞬移回来」。
+  const deduped: GeoPoint[] = [];
+  for (const p of raw) {
+    if (deduped.length > 0) {
+      const d = planarKm(deduped[deduped.length - 1], p, cosLat);
       if (d < DEDUPE_KM) {
         removed += 1;
         continue;
       }
     }
-    if (i > 0 && i < raw.length - 1) {
-      const prev = raw[i - 1];
-      const next = raw[i + 1];
-      // 相邻两段复用 segs; 前后邻点距离需单独算（跳过一个点）
+    deduped.push(p);
+  }
+  if (deduped.length === 0) return { points: [], segments: [], removed };
+
+  // 第二步：段长尺度基准（p25），用于尺度自适应的尖峰阈值。
+  const segs: number[] = [];
+  for (let i = 1; i < deduped.length; i++) {
+    segs.push(planarKm(deduped[i - 1], deduped[i], cosLat));
+  }
+  const scale =
+    segs.length >= SPIKE_SCALE_MIN_SEGMENTS
+      ? percentile([...segs].sort((a, b) => a - b), 0.25)
+      : 0;
+  const jump = Math.max(SPIKE_MIN_JUMP_KM, scale * SPIKE_SEGMENT_RATIO);
+  const neighbor = Math.max(SPIKE_NEIGHBOR_MIN_KM, scale * SPIKE_NEIGHBOR_RATIO);
+
+  // 第三步：剔除孤立尖峰 / 冻结段（在去重后的序列上判定）。
+  const kept: GeoPoint[] = [];
+  for (let i = 0; i < deduped.length; i++) {
+    const p = deduped[i];
+    if (i > 0 && i < deduped.length - 1) {
       const dp = segs[i - 1];
       const dn = segs[i];
-      const db = planarKm(prev, next, cosLat);
+      const db = planarKm(deduped[i - 1], deduped[i + 1], cosLat);
       // db ≈ 0（前后邻点几乎重合）无法区分「折返掉头」与「飞出去又回原点」，
       // 保守起见不删；真实 GPS 尖峰的前后邻点通常仍有几米间距。
       if (dp > jump && dn > jump && db < neighbor && db > DEDUPE_KM) {
@@ -256,10 +263,16 @@ export function cleanTrackCoords(
         continue;
       }
     }
-    out.push(p);
-    if (out.length > 1) outSegs.push(d);
+    kept.push(p);
   }
-  return { points: out, segments: outSegs, removed };
+  if (kept.length === 0) return { points: [], segments: [], removed };
+
+  // 第四步：产出与保留点同步的相邻距离（供调用方复用，避免二次计算）。
+  const outSegs: number[] = [];
+  for (let i = 1; i < kept.length; i++) {
+    outSegs.push(planarKm(kept[i - 1], kept[i], cosLat));
+  }
+  return { points: kept, segments: outSegs, removed };
 }
 
 /** 线性插值分位数（输入需已升序）。接受 Float64Array 以避免额外装箱。 */

@@ -160,6 +160,41 @@ describe('cleanTrackCoords', () => {
     expect(r.segments[0]).toBeCloseTo(1.11, 1);
   });
 
+  test('GPS 冻结段（连续重复点）被折叠, 长度不被虚增', () => {
+    // 1Hz 轨迹沿直线向北, 中途信号劣化: 连续 100 个采样点被钉在同一处（偏离路线 30m）
+    const path: [number, number][] = [];
+    for (let i = 0; i <= 40; i++) path.push([29.5 + i * 0.00009, 106.5]);
+    const frozen: [number, number] = [path[20][0], path[20][1] + 30 / 111194];
+    const withFreeze = [
+      ...path.slice(0, 20),
+      ...Array.from({ length: 100 }, () => frozen),
+      ...path.slice(20),
+    ];
+    const r = cleanTrackCoords(withFreeze);
+    // 100 个冻结采样点 → 99 个副本折叠（冻结点本身只有 30m 偏移,
+    // 低于 150m 尖峰阈值, 按保守策略保留）
+    expect(r.removed).toBeGreaterThanOrEqual(99);
+    // 关键回归: 长度不再因 100 个重复点被虚增 ~3km,
+    // 只保留进出冻结点各一次 ~31m 的绕行
+    const total = r.segments.reduce((a, b) => a + b, 0);
+    const real = cleanTrackCoords(path).segments.reduce((a, b) => a + b, 0);
+    expect(total).toBeLessThan(real + 0.1);
+  });
+
+  test('短冻结段（2% 的点被钉在 300m 外）→ 清洗后仍与原轨迹高分', () => {
+    const base = dense(loopA);
+    const n = base.length;
+    const s0 = Math.floor(n * 0.4);
+    const s1 = s0 + Math.floor(n * 0.02);
+    const wrong: [number, number] = [base[s0][0] + 300 / 111194, base[s0][1] + 300 / 111194];
+    const drifted = base.map((p, i) => (i >= s0 && i < s1 ? wrong : p));
+    const shape = buildRouteShape(track(drifted))!;
+    const s = sim(base, drifted);
+    // 2% × 400 点 = 8 个冻结采样点: 7 个副本折叠 + 冻结点按尖峰剔除
+    expect(shape.spikesRemoved).toBeGreaterThanOrEqual(7);
+    expect(s.score).toBeGreaterThan(0.9);
+  });
+
   test('空/null → 空结果', () => {
     expect(cleanTrackCoords(null)).toEqual({ points: [], segments: [], removed: 0 });
     expect(cleanTrackCoords([])).toEqual({ points: [], segments: [], removed: 0 });
