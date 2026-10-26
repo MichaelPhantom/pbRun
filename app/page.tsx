@@ -228,7 +228,8 @@ export default async function DashboardPage() {
             <div className="py-8 text-center text-sm text-fg-muted">数据不足</div>
           )}
           <div className="mt-2 flex items-baseline justify-between text-xs text-fg-secondary">
-            <span>近 {vdotSpark.length} 次活动</span>
+            {/* 数据源 getVDOTHistory 是跑步口径(vdot_value 只对跑步计算), 故称「次跑步」 */}
+            <span>近 {vdotSpark.length} 次跑步</span>
             {vdotSpark.length > 1 && (
               <span className="tnum">
                 {vdotSpark[0].toFixed(1)} → {vdotSpark[vdotSpark.length - 1].toFixed(1)}

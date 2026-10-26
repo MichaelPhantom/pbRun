@@ -188,4 +188,10 @@ describe('DashboardPage (首页) 数据编排', () => {
     expect(screen.getByText('跑步天数')).toBeInTheDocument();
     expect(screen.queryByText('活动天数')).toBeNull();
   });
+
+  test('VDOT 趋势下方计数称「次跑步」(数据源 getVDOTHistory 只含跑步)', async () => {
+    render(await DashboardPage());
+    expect(screen.getByText(/近 \d+ 次跑步/)).toBeInTheDocument();
+    expect(screen.queryByText(/次活动/)).toBeNull();
+  });
 });
