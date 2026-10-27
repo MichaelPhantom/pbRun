@@ -26,6 +26,37 @@ test.describe('活动详情页 · 分段数据表', () => {
     expect(await rowCount(table)).toBe(4);
   });
 
+  /**
+   * 「主要区间」列 —— lap 级心率区间秒数的唯一消费方。
+   *
+   * 这一列存在的意义: `activity_laps.time_in_hr_zone` 生产库里原本 **0/3082 全 NULL**
+   * （设备不写 lap 级数组），2026-10-27 改由逐秒记录按 `cumulative_time` 时间窗推导
+   * 后才有值。若哪天推导链路断了，这一列会静默全变 `--` —— 数据层看不出异常，
+   * 只有在这里断言「至少两种不同区间」才能发现。
+   *
+   * 夹具 4 段心率分别 120/138/168/175（边界 133/152/165/177）→ 主区间 Z1/Z2/Z4/Z4。
+   * 断言「≥2 种不同值」而不是写死 Z1/Z2/Z4 —— 写死的话，MAX_HR 缺省值一改就误报，
+   * 而我们要守的是「区间确实按段不同」这个性质。
+   */
+  test('分段表「主要区间」列由 lap 级心率区间推导, 且各段不同', async ({ page }) => {
+    const table = tableByColumn(page, '角色');
+    const headers = (await table.locator('thead th').allInnerTexts()).join('|').replace(/\s+/g, '');
+    expect(headers).toContain('主要区间');
+
+    // 列序号由表头**动态定位**（跑步/非跑步的列数不同: 非跑步没有配速/步频/功率
+    // 三列），写死 nth-child 会在运动类型切换时静默选错列。
+    const headers0 = await table.locator('thead th').allInnerTexts();
+    const zoneCol = headers0.findIndex((h) => h.replace(/\s+/g, '').includes('主要区间')) + 1;
+    expect(zoneCol).toBeGreaterThan(0);
+    const zoneCells = table.locator(`tbody tr td:nth-child(${zoneCol})`);
+    const texts = (await zoneCells.allInnerTexts()).map((t) => t.trim());
+    expect(texts).toHaveLength(4);
+    // 每段都必须有区间（不是 '--'）—— 记录覆盖了全部 lap 的时间窗
+    for (const t of texts) expect(t).toMatch(/^Z[1-5]$/);
+    // 至少两种不同区间 → 推导确实按时间窗切分，而不是整条活动一个值
+    expect(new Set(texts).size).toBeGreaterThan(1);
+  });
+
   test('角色列渲染徽章 (热身/主课等)', async ({ page }) => {
     const table = tableByColumn(page, '角色');
     const roleCells = table.locator('tbody tr td:nth-child(2)');

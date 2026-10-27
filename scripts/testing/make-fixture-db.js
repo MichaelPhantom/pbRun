@@ -13,6 +13,9 @@
 const path = require('path');
 const fs = require('fs');
 const DatabaseManager = require('../common/db-manager');
+const { DEFAULT_MAX_HR, hrZoneSecondsFromRecords } = require('../common/hr-zones');
+const { powerZoneSecondsFromRecords } = require('../common/power-zones');
+const { deriveLapZoneSeconds } = require('../common/lap-zones');
 
 const DEFAULT_OUT_PATH = path.join(__dirname, '..', '..', 'tests', 'fixtures', 'activities.db');
 
@@ -108,10 +111,10 @@ const samples = [
     vdot_value: 42.0,
     training_load: 65,
     total_training_effect: 3.8,
-    // 心率区间: 本地 5 区口径 (长度恒为 5), 与 scripts/common/hr-zones.js 一致。
+    // 心率区间 (`time_in_hr_zone`) **不在这里写死** —— 它必须由逐秒心率推导
+    // （`hrZoneSecondsFromRecords`，见函数末尾），否则会与 lap 级区间自相矛盾。
     // 旧夹具写 7 槽设备原始数组, 与生产库回填后的真实分布相反 —— 会让
     // 「Z6/Z7 永不为零」的缺陷在 e2e 里无法暴露。
-    time_in_hr_zone: JSON.stringify([10, 30, 1200, 250, 800]),
     hr_zone_boundaries: JSON.stringify([101, 121, 141, 160, 180, 196]),
     threshold_heart_rate: 178,
     max_heart_rate_fit: 196,
@@ -235,28 +238,44 @@ function makeFixtureDb(outPath = process.argv[2] || DEFAULT_OUT_PATH) {
     { average_pace: 275, average_heart_rate: 178, average_cadence: 188, average_power: 305, duration: 275 },
     { average_pace: 436, average_heart_rate: 141, average_cadence: 184, average_power: 240, duration: 436 },
   ];
-  // 注: insertLaps 从首条 lap 的键推导列, 故每条须含 activity_id
-  db.insertLaps(
-    900000001,
-    lapDefs.map((l, i) => {
-      cum += l.duration;
-      return { activity_id: 900000001, lap_index: i, distance: 1000, cumulative_time: cum, ...l };
-    }),
-  );
+  // 注: insertLaps 取**所有** lap 的键并集推导列（旧实现只看首条，
+  // 会静默丢弃后续 lap 独有的字段，见 tests/unit/common/db-manager-lap-columns.test.js）
+  // lap 行在记录生成之后再写入 —— 因为 lap 级区间秒数要按时间窗从记录推导。
 
-  // 少量逐秒记录 (供 record 趋势图 / 解耦 / 功率区间)
+  // 逐秒记录 (供 record 趋势图 / 解耦 / 功率区间 / lap 级区间)
   //
-  // 功率必须**跨区间变化**: 若 200 个点全写同一个瓦数, 功率区间图只会有一根
+  // 功率必须**跨区间变化**: 若所有点全写同一个瓦数, 功率区间图只会有一根
   // 柱子, 「标题由实际非零区间派生」「五区色 token」这些缺陷在 e2e 里测不到。
   // FTP = 371（来自 power_zone_boundaries[3]）→ 五区边界 241/297/334/371W。
+  //
+  // **采样必须覆盖全部 lap**: 记录只到 200 秒的话，4 段 lap（累计 1448 秒）里
+  // 只有 lap 0 的时间窗内有样本，分段表「主要区间」列就会 3/4 显示 `--`，
+  // 「按 lap 时间窗推导」这条链路在 e2e 里等于没测。故逐秒覆盖到最后一段结束。
+  //
+  // 每段的**心率**故意不同，让 4 段的「主要区间」互不相同（见 LAP_HEART_RATE）：
+  // 若各段心率相同，`dominantZone` 即使写成「永远返回 Z3」也照样通过 e2e。
   const POWER_BY_ZONE = [200, 270, 320, 350, 400]; // Z1 / Z2 / Z3 / Z4 / Z5
+  const totalLapSeconds = lapDefs.reduce((a, l) => a + l.duration, 0);
+
+  // 心率边界 (MAX_HR 缺省 190) = 133/152/165/177，故:
+  //   120 → Z1 / 138 → Z2 / 168 → Z4 / 175 → Z4
+  const LAP_HEART_RATE = [120, 138, 168, 175];
+  const heartRateAt = (sec) => {
+    let cumSec = 0;
+    for (let i = 0; i < lapDefs.length; i++) {
+      cumSec += lapDefs[i].duration;
+      if (sec < cumSec) return LAP_HEART_RATE[i];
+    }
+    return LAP_HEART_RATE[LAP_HEART_RATE.length - 1];
+  };
+
   const records = [];
-  for (let i = 0; i < 200; i++) {
+  for (let i = 0; i < totalLapSeconds; i++) {
     records.push({
       activity_id: 900000001,
       record_index: i,
       elapsed_sec: i,
-      heart_rate: 150 + Math.round(i / 20),
+      heart_rate: heartRateAt(i),
       cadence: 182,
       step_length: 0.95,
       pace: 350,
@@ -267,6 +286,35 @@ function makeFixtureDb(outPath = process.argv[2] || DEFAULT_OUT_PATH) {
     });
   }
   db.insertActivityRecords(900000001, records);
+
+  // lap 级区间秒数: **必须由真实实现推导**，不能在夹具里写死。
+  // 若夹具直接给 `time_in_hr_zone`，分段表「主要区间」列的断言就绕过了
+  // `scripts/common/lap-zones.js` 的时间窗切分 —— 那正是最需要被测的链路
+  // （窗口错位不报错，只会让每段的区间分布失真）。故这里走与生产同一条路径。
+  const lapRows = lapDefs.map((l, i) => {
+    cum += l.duration;
+    return { activity_id: 900000001, lap_index: i, distance: 1000, cumulative_time: cum, ...l };
+  });
+  const derived = deriveLapZoneSeconds(lapRows, records, { maxHr: DEFAULT_MAX_HR, ftpWatts: 371 });
+  lapRows.forEach((lap, i) => {
+    const d = derived[i];
+    if (!d) return;
+    if (d.hrZoneJson) lap.time_in_hr_zone = d.hrZoneJson;
+    if (d.powerZoneJson) lap.time_in_power_zone = d.powerZoneJson;
+  });
+  db.insertLaps(900000001, lapRows);
+
+  // 活动级心率/功率区间秒数: 同样**由逐秒记录推导**，不写死。
+  // 生产库里 `activities.time_in_hr_zone` 就是 `hrZoneSecondsFromRecords` 的输出，
+  // 而 lap 级是同一批记录按时间窗切分 —— 两者求和必然接近。夹具若写死活动级值，
+  // 就会出现「活动级 Z3 最多、lap 级 Z4 最多」这种生产不可能出现的自相矛盾，
+  // 让「分段与活动级口径可加总」这条契约在 e2e 里无法验证。
+  const activityHrZones = hrZoneSecondsFromRecords(records, DEFAULT_MAX_HR);
+  const activityPowerZones = powerZoneSecondsFromRecords(records, 371);
+  db.updateActivityFields(900000001, {
+    time_in_hr_zone: JSON.stringify(activityHrZones),
+    time_in_power_zone: JSON.stringify(activityPowerZones),
+  });
 
   db.close();
   console.log(`✓ fixture DB 生成: ${outPath}`);

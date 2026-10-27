@@ -344,6 +344,10 @@ describe('CLI 脚本导入契约', () => {
 |------|---------|-------------------|
 | `tests/unit/garmin/fit-parser-sdk-fields.test.ts` | 解析器读了 `fit-file-parser` SDK profile 里**不存在**的字段名（2026-10-27 审计发现 19 个死读站点、12 个假名字） | `_safeGet*` 对不存在的键返回 `null` 且不报错，**所有分支都走到了**、覆盖率 100%，只是值永远是 null。它从 `FIT.messages` 运行时取字段名集合逐站点校验，并反向断言 allowlist 不含真实存在/已不再读取的条目 |
 | `tests/unit/components/insight-field-consumption.test.ts` | 类型里声明、数据层算好，但 UI/AI **从未读取**的字段 | 字段存在即「有值」，没人读不产生任何未覆盖分支 |
+| `tests/unit/common/db-manager-lap-columns.test.js` | 写入侧按「首条记录」推导列集合，静默丢弃后续记录独有的字段（真实丢失 `599287904`/`614598589` 各 14/12 个 lap 的配速/速度/步频） | `Object.keys(x[0])` 与「取并集」在**单条记录**时行为完全相同，覆盖率看不出来；只有多记录且首条缺键才暴露 |
+| `tests/unit/common/lap-zones.test.js` | lap 时间窗切分用闭区间（边界那一秒被相邻两段重复计入）、按 `start_time` 而非 `cumulative_time` 对齐、`Number(null)===0` 让「时间未知」的记录落进第一段 | 闭区间与半开区间在**单段**活动里结果完全相同；时间错位在总和上互相抵消（各段各自偏大/偏小但合计正常），只有逐段对账才暴露 |
+| `tests/unit/scripts/backfill-lap-zones.test.js` | 回填脚本先重算再补 `device_*` 列（旧设备数组被推导值覆盖，原始数据永久丢失） | 顺序缺陷只在「旧库里已有设备数组」时显现；新建库/已回填库都不会触发 |
+| `tests/unit/common/db-manager-units.test.js` | schema 注释把 `activity_records.speed` 写成「米/秒」（实际 km/h，差 3.6×）、`distance` 写成「米」（实际公里，差 1000×） | 注释不是可执行代码，覆盖率与运行时断言完全看不见；只有按注释写过滤条件时才炸（解耦已因此把 0.5 km/h 当 0.5 m/s） |
 | `tests/unit/mcp/tool-scope-contract.test.ts` | MCP tool description 不声明统计口径/单位 | 文案是字符串常量，没有分支 |
 | `tests/unit/docs/api-route-coverage.test.ts` | 新增 API 路由未写进 README/API 文档 | 文档与代码是两棵树 |
 
@@ -713,6 +717,16 @@ node scripts/testing/make-fixture-db.js /tmp/other.db   # 指定输出
   `average_gct_balance` 348/348 全为 NULL、触地时间与垂直摆动 241/241 都有值 ——
   夹具若只写 `gct_balance`，就会造出「测试全绿但功能从未渲染」的假绿灯。
   同理，标题/文案由实际非零数据派生时（如心率区间标题），夹具要覆盖到非零区间。
+- **派生值必须由真实实现算，不能在夹具里写死**。2026-10-27 修：夹具此前把
+  `activities.time_in_hr_zone` 写死成 `[10,30,1200,250,800]`，同时逐秒记录只到
+  200 秒（4 段 lap 累计 1448 秒）。于是
+  ① 活动级区间与 lap 级区间**自相矛盾**（生产里两者由同一批记录推导、必然可加总）；
+  ② 只有 lap 0 的时间窗内有样本，分段表「主要区间」列 3/4 是 `--`，
+  「按 lap 时间窗推导」这条链路在 e2e 里等于没测。
+  现夹具改为：逐秒记录覆盖到最后一段结束（1448 点）、各段心率不同（120/138/168/175
+  → 主区间 Z1/Z2/Z4/Z4）、lap 级与活动级区间**都由 `hrZoneSecondsFromRecords` /
+  `deriveLapZoneSeconds` 现场推导**。`tests/unit/scripts/make-fixture-db.test.js`
+  断言「记录覆盖全部 lap 时间窗」「各段主区间不全相同」「样本里不含写死的区间」。
 - `tests/fixtures/*.db` 被 `.gitignore` 忽略（第 76 行），CI 每次现生成。
 - `tests/fixtures/activity.zip` / `activity-nofit.zip` 是 FIT 解析测试用的真实文件样本。
 

@@ -460,8 +460,9 @@ FTP 缺失不猜 / 海拔比值 / 尖峰过滤）、`tests/unit/pages/activity-d
 真实库 0/348 从不产出（`average_step_rate_loss*` / `max_power_to_weight` /
 `avg_pos_grade` 等 4 项 / `time_in_speed_zone` / `time_in_cadence_zone`）、
 以及仅追溯用的设备原始区间数组（`device_time_in_hr_zone` / `device_time_in_power_zone`
-—— 统一口径列 `time_in_hr_zone` / `time_in_power_zone` 已分别被
-`hrZoneBreakdown` / `powerZoneBreakdown` 消费，见 §1.2）。
+/ `device_time_in_speed_zone` / `device_time_in_cadence_zone` —— 统一口径列
+`time_in_hr_zone` / `time_in_power_zone` 已分别被 `hrZoneBreakdown` /
+`powerZoneBreakdown` 消费，见 §1.2）。
 
 ---
 
@@ -576,6 +577,17 @@ GPS 漂移、起终点的静止采样都被判为「有效移动」，混进前�
 （静止样本 1.0 km/h 不计入 → 返回 null；1.79 km/h 排除、1.81 km/h 收下；
 两个常量 3.6 同步）。这条与 `max_speed` 同一纪律：**数字必须带单位名**，
 否则「0.5」在两个文件里可以指两种量。
+
+**schema 注释也是契约的一部分**（2026-10-27 修）。`scripts/common/db-manager.js`
+的建表注释曾写 `speed REAL -- 速度（米/秒）` / `distance REAL -- 累计距离（米）`，
+而 `fit-parser` 用 `lengthUnit='km'` / `speedUnit='km/h'` **原样**写入 —— 注释与
+真实数据差 **3.6× / 1000×**。这不是无害笔误：注释是下一位读者唯一的单位来源，
+解耦 `computeDecouplingPct` 就曾按注释写 `speed > 0.5`（以为 m/s），实际生效的是
+**0.5 km/h ≈ 0.14 m/s**，把等红灯的样本当成「在跑」。现注释改为
+「速度（公里/小时）」/「累计距离（公里）」，并注明单位由 `fit-parser` 的
+`lengthUnit`/`speedUnit` 决定。守护：`tests/unit/common/db-manager-units.test.js`
+（三向对账：解析器配置 = 注释表述、旧错位表述不得回归、模块可加载 —— 注释写在
+模板字符串里，写进反引号会直接语法错误、整张表都建不出来）。
 
 **`pace` 与 `speed` 是两个独立派生量，不是同一数据的两种写法**（2026-10-27 审计确认）：
 
@@ -725,6 +737,12 @@ GPS 漂移、起终点的静止采样都被判为「有效移动」，混进前�
 | **参照 FTP 是参照值，不是区间定义域** | `PowerZoneReference.ftp_median_watts` + UI 列名「参照瓦数」+ 表下说明 | `tests/unit/components/zone-tables-a11y.test.tsx`（`distinct_ftp_count > 1` 时必须出现「共 N 个不同 FTP」；单套 FTP 时不出现该噪音；无参照 FTP 时不编造 `0W+`）；`tests/unit/pages/analysis-page.test.tsx`（`228-279W` 与「共 14 个不同 FTP」同时出现） |
 | **`pace` 与 `speed` 不得互相校验（两条独立推导链）** | `app/lib/insight.ts` 的 `computeDecouplingPct` / `grade-adjust.ts` 用 `speed`（实际移动）；`ActivityTrendCharts` / 分段表用 `pace`（跑姿效率） | `tests/unit/lib/insight.test.ts`（解耦只用 `speed`）；`tests/unit/components/activity-trend-charts.test.tsx`（趋势图配速轴用 `pace`，缺失时按 `cadence×step_length` 派生） |
 | **FIT 解析器读的字段名必须在 SDK profile 里存在** | `scripts/garmin/fit-parser.js` 的全部 `_safeGet*(msg, 'field')` 站点（2026-10-27 清掉 19 个死读站点、12 个不存在的名字） | `tests/unit/garmin/fit-parser-sdk-fields.test.ts`（运行时 introspect `FIT.messages` 逐站点校验，失败信息给出行号；三条反向断言：映射覆盖、allowlist 不含真实存在字段、不含僵尸条目）；`tests/unit/garmin/fit-parser-branches.test.js`（`training_load` 不由解析器提供，连 `training_load_peak` 也不得当作 TL） |
+| **schema 单位注释必须与解析器一致** | `scripts/common/db-manager.js` 的 `activity_records.speed`/`distance` 注释（公里/小时、公里），真值来源是 `fit-parser` 的 `lengthUnit='km'` / `speedUnit='km/h'` | `tests/unit/common/db-manager-units.test.js`（注释表述 = 解析器配置、旧「米/秒」表述不得回归、模块可加载防模板字符串语法错误） |
+| **lap 窗口切分只能有一份实现** | `scripts/common/lap-zones.js`（`lapWindowSamples` / `deriveLapZoneSeconds` / `applyLapZoneSeconds`）；`fit-parser._assignLapZoneSeconds` 与 `backfill-lap-zones.js` 都 require 它 | `tests/unit/common/lap-zones.test.js`（半开区间不重不漏、按 `cumulative_time` 而非 `start_time`、长度恒 5、无 FTP/无心率不造全 0、`cumulative_time` 缺失/倒退/零长跳过、`Number(null)===0` 陷阱） |
+| **回填必须先补列再迁移, 最后才重算** | `scripts/garmin/backfill-lap-zones.js`（4 个 `device_*` 列幂等补上 → 旧设备数组迁 `device_*` → 全量重算；无时间窗的 lap 写 NULL 而非保留陈旧值） | `tests/unit/scripts/backfill-lap-zones.test.js`（15 例：顺序缺陷注入转红、幂等不二次覆盖、损坏 JSON 不迁移、无 FTP/无记录/无时间窗不猜、dry-run 不改 schema、求和偏离告警） |
+| **lap 级区间秒数只由 app 5 区模型推导** | `scripts/garmin/fit-parser.js` 的 `_assignLapZoneSeconds`（按 `cumulative_time` 半开窗口切分逐秒样本，长度恒 5）；设备原始数组一律进 `device_time_in_*_zone` | `tests/unit/garmin/lap-zone-scope.test.js`（设备 7/8 槽数组不得进统一列；推导长度恒 5；各 lap 求和 ≈ 活动级；无 FTP/无心率时不写列；`cumulative_time` 缺失/倒退时跳过） |
+| **`insertLaps` 的列集合必须取所有 lap 的键并集** | `scripts/common/db-manager.js`（旧实现只看 `lapsData[0]`，真实丢弃 `599287904`/`614598589` 各 14/12 个 lap 的配速/速度/步频） | `tests/unit/common/db-manager-lap-columns.test.js`（首段缺键时后续 lap 的值必须进库；反向缺键绑 NULL；三 lap 各有独有字段；整体替换语义不变） |
+| **lap 级区间必须有消费方** | `ActivityDetailClient` 分段表「主要区间」列（`dominantZone`）；`activity-coach-context` 的「分段主区间 K0=Z2…」（功率区间另受 `running` 门控） | `tests/unit/pages/activity-detail.test.tsx`（列头恒在、有数据展示 Z 徽章、无数据 `--`、非跑步同样展示）；`tests/unit/lib/activity-coach-context.test.ts`（单段不输出、全空不输出、非跑步不出功率区间） |
 | **`training_load` 不是 FIT 官方字段** | `scripts/garmin/sync.js` 的 `calculateTrainingLoad` 派生（时长 × 心率区间因子）；`app/lib/types.ts` / `app/lib/llm.ts` 注释同步勘误 | `tests/unit/garmin/fit-parser-branches.test.js`（四个历史字段名 + `training_load_peak` 均不得产出 `training_load`） |
 | **字段必须被消费（算出来 ≠ 展示）** | `InsightClient.tsx` / `insight-coach.ts` / `ActivityInsightPanel.tsx` / `llm.ts` | `tests/unit/components/insight-field-consumption.test.ts`（递归展开 `InsightResponse` / `ActivityInsightResponse` / `Activity` 全部叶子字段, 剥离注释后逐个断言被消费; 消费方 = 展示入口的 import 传递闭包, 死代码模块不算; allowlist 反查腐化） |
 | **可推算字段必须真的推算** | `app/lib/power.ts`（FTP 回退 / IF / TSS / W·kg⁻¹ / 峰值过滤）/ `app/lib/elevation.ts`（净高差 / 爬升比） | `tests/unit/lib/power.test.ts`（28 例: 33→241 FTP 回退、TSS 用 moving_time、尖峰过滤、显式值优先）+ `tests/unit/lib/elevation.test.ts`（12 例: 净高差 ≠ 累计爬升、越界拒绝） |
@@ -806,21 +824,44 @@ GPS 漂移、起终点的静止采样都被判为「有效移动」，混进前�
   是一次跨层改动，不在单点修补范围内。
 - **设备原始数组只做追溯**。`device_time_in_power_zone`（33 条）保留在库里但不被任何
   统计/展示读取 —— 它是「设备当时怎么算的」的取证材料，不是指标。
-- **分段级「区间秒数」列仍为空**，但**分段级区间统计已实现**。`activity_laps.time_in_power_zone`
-  真实库 **0/3082 全为 NULL**（`time_in_hr_zone` 同样全 NULL），所以不能靠设备数组做 lap
-  级区间。但 `activity_laps.average_power` **2943/2962** 条跑步 lap 有值 ——
-  `getPowerZoneStats` 用它按「该活动自己的 FTP」归区，得到「Z3 跑了多少公里/多久」的
-  训练量统计（`/analysis` 功率区间表 + MCP `get_power_zone_analysis`）。
-  真正缺的是**逐 lap 的区间秒数分解**（一个 lap 横跨两个区间时如何切分），那需要从逐秒
-  记录按 lap 时间窗切分，属新增能力。
+- **分段级区间秒数已实现**（2026-10-27 补齐，含生产回填）。`activity_laps.time_in_hr_zone` /
+  `time_in_power_zone` 历来 **0/3082 全为 NULL** —— 但原因不是「设备不写就没法算」：
+  设备确实不写 lap 级区间数组（实测 3082/3082 lap、348/348 session 全空），可是
+  **逐秒记录 + lap 的 `cumulative_time`（3082/3082 有值）就足够推导**。
+  实现放在 `scripts/common/lap-zones.js`（纯函数），被**两条生产路径**共用：
+  - 同步：`fit-parser._assignLapZoneSeconds`
+  - 回填：`scripts/garmin/backfill-lap-zones.js`（`npm run backfill:lap-zones`）
+
+  窗口 = `[前一段累计, 本段累计)` 半开区间，按**逐秒样本的 `elapsed_sec`** 对齐（不用
+  lap 的 `start_time`：实测与记录时长最大错位 19 秒，是 lap 边界与采样时刻的固有
+  错位，不是数据损坏）。口径与活动级**同一套** 5 区模型，长度恒为 5。
+  生产回填实测：**3081/3082** lap 有心率区间、**2955** lap 有功率区间，各 lap 求和
+  与活动级总数中位偏差 **0.17%**（p90 0.27%，最大 5.06%）—— 口径可加总。
+  唯一没值的那 1 个 lap 是 `550530240` 的 `duration: 0` 零长段（无时间窗，不猜）。
+  消费方：分段表「主要区间」列（`dominantZone` 取占比最高区间）+ AI 上下文
+  「分段主区间 K0=Z2 K1=Z3」（`running` 门控下另给「分段主功率区间」）。
+- **窗口逻辑只能有一份实现**。若解析器与回填脚本各写一份，同步写入的 lap 行与
+  回填写入的 lap 行就会不可加总 —— 而且**不报错**，只是「Z4 那几段配速掉了没」
+  这类判断悄悄失真。故 `scripts/common/lap-zones.js` 是唯一实现，两侧都 require 它
+  （与 `route-signature.js` / `fit-workout.js` 同一模式）。
+- **lap 级设备数组必须走 `device_` 前缀**。`_extractLapsData` 此前把设备原始
+  `time_in_hr_zone` / `time_in_power_zone` 直接写进统一列 —— 潜伏缺陷：设备数组长度是
+  7/8 槽（不是 5），一旦有固件写入就会让「长度恒为 5」的契约失效、且按索引跨 lap
+  聚合失去意义。现改为与活动级同样的分流（`device_time_in_hr_zone` /
+  `device_time_in_power_zone`）。速度/步频区间 app 无对应 5 区模型，设备值一律进
+  `device_time_in_speed_zone` / `device_time_in_cadence_zone`（活动级同此处理）。
 - **非跑步活动不产出**。逐秒功率在 107 条非跑步活动里 0/107 —— 不是缺陷，而是设备
   不记录；UI 与 AI 都按 `running` 门控整项不渲染，而不是给出「全是 Z1」的假分布。
 
 ### 4.3.1 全 NULL 的列：区分「设备不写」与「我们读错了名字」
 
-`activity_laps` 有 **16 列 100% NULL**、`activities` 有 14 列零覆盖。这些列长期被
-统一归因为「设备不写」，但 2026-10-27 审计发现其中一部分其实是**解析器读了 SDK
-profile 里不存在的字段名**（见 §2.1「FIT 字段名必须存在于 SDK profile」）：
+`activity_laps` 曾有 **16 列 100% NULL**；回填 lap 区间后 `time_in_hr_zone` /
+`time_in_power_zone` 两列已有值（3081 / 2955 条），同时新增 4 个 `device_*` 列
+（设备从不写 lap 级数组，故这 4 列恒 NULL）—— 现为 **18 列 100% NULL**。
+`activities` 另有 14 列零覆盖。这些列长期被
+统一归因为「设备不写」，但 2026-10-27 审计发现原因有三类（不是两类）：
+**读错字段名**、**设备真的不写**、以及**写入侧把数据丢了**（见 §4.3.2）。
+第一类见 §2.1「FIT 字段名必须存在于 SDK profile」：
 
 | 列 | 真实原因 | 归属 |
 |----|---------|------|
@@ -830,13 +871,31 @@ profile 里不存在的字段名**（见 §2.1「FIT 字段名必须存在于 SD
 | `average_power_to_weight` / `max_power_to_weight` | 读同名字段，profile 无此字段 | **读错名字**（已删除；改由 `app/lib/power.ts` 派生） |
 | `average_gct_balance` | 正确名 `avg_stance_time_balance` 已读取，但设备确实不写 | **设备不写**（348/348 实测） |
 | `avg_grade` / `avg_pos_grade` / `avg_neg_grade` / `max_pos_grade` / `max_neg_grade` | profile 有这些字段，但真实设备 348/348 不写 | **设备不写** |
-| `time_in_speed_zone` / `time_in_cadence_zone`（活动+lap） | profile 有字段，设备不写 | **设备不写** |
-| `time_in_hr_zone` / `time_in_power_zone`（lap） | profile 有字段，设备不写 lap 级数组 | **设备不写**（活动级已有统一口径列） |
+| `time_in_speed_zone` / `time_in_cadence_zone`（活动+lap） | profile 有字段，设备不写；app 亦无对应 5 区模型 → 一律进 `device_time_in_speed_zone` / `device_time_in_cadence_zone` | **设备不写**（列已带 device_ 前缀） |
+| `time_in_hr_zone` / `time_in_power_zone`（lap） | profile 有字段，但设备**从不写 lap 级**区间数组（3082/3082 空） | **已改为推导**（不再依赖设备）：逐秒记录按 `cumulative_time` 时间窗切分。回填后 **3081/3082** / **2955/3082** 有值（见 §4.3） |
 
 纪律：**遇到全 NULL 列必须先分辨这两类**。若归因为「设备不写」却其实是读错名字，
 那列会永远为空且没人再查 —— 这正是本次 19 个死读站点能潜伏这么久的机制。
 `tests/unit/garmin/fit-parser-sdk-fields.test.ts` 让这类缺陷在**写入任何数据之前**
 （CI 阶段）就转红。
+
+还有第三类，比前两类更隐蔽：**列能算，但写入侧把数据丢了**。
+
+#### 4.3.2 写入侧的列集合必须取并集（真实数据丢失）
+
+`DatabaseManager.insertLaps` 旧实现用 `Object.keys(lapsData[0])` 拼 INSERT 列名。
+但解析器对每个 lap 只写「该 lap 有值的字段」——首个 lap 常常缺键：
+
+| 活动 | lap 0 形态 | 被静默丢弃的字段 |
+|------|-----------|-----------------|
+| `599287904`（28 段） | 26.6 秒起步碎片，`avg_cadence: 0`、`total_distance: 0` | 后续 **14 个 lap** 的 `average_cadence` / `average_speed` / `average_pace` / `average_moving_pace` |
+| `614598589`（26 段） | 0.6 秒碎片 | 后续 **12 个 lap** 的同样四列 |
+
+这两条活动在库里这些列 100% NULL，而解析器其实算出了值（如 `599287904` 的 lap 1
+`cadence 50 / pace 1940 秒/公里`）。**缺陷不报错、不影响覆盖率，只是数据悄悄消失**。
+现改为取所有 lap 的键并集；反向（lap 0 有、后续 lap 缺）在 bind 时得到 `undefined`
+→ better-sqlite3 绑成 NULL，语义正确（实测 69 条活动存在这种情形）。
+守护：`tests/unit/common/db-manager-lap-columns.test.js`（注入旧实现 → 2 条转红）。
 
 ### 4.4 文档与工程
 

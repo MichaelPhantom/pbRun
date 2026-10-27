@@ -12,6 +12,7 @@ const mockDb = {
   upsertActivity: jest.fn(),
   insertLaps: jest.fn(),
   insertActivityRecords: jest.fn(),
+  updateActivityFields: jest.fn(),
   close: jest.fn(),
 };
 jest.mock('../../../scripts/common/db-manager', () =>
@@ -64,8 +65,15 @@ describe('夹具样本契约', () => {
       expect(typeof s.duration).toBe('number');
       expect(typeof s.moving_time).toBe('number');
       expect(s.start_time_local).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-      expect(() => JSON.parse(s.time_in_hr_zone)).not.toThrow();
     }
+  });
+
+  test('心率区间秒数由逐秒记录推导, 不在样本里写死 (否则与 lap 级自相矛盾)', () => {
+    // 写死的活动级区间会与「按时间窗切分逐秒记录」得到的 lap 级区间不一致 ——
+    // 生产里两者必然可加总, 夹具必须照这个事实来。
+    const withRecords = samples.find((s) => s.activity_id === 900000001);
+    expect(withRecords.time_in_hr_zone).toBeUndefined();
+    expect(withRecords.time_in_power_zone).toBeUndefined();
   });
 
   /**
@@ -134,17 +142,49 @@ describe('makeFixtureDb', () => {
     expect(cums).toEqual([...cums].sort((a, b) => a - b));
     expect(cums[0]).toBe(laps[0].duration);
 
-    // records: 200 点, 关键字段齐备
+    // records: 关键字段齐备
     const [recActivityId, records] = mockDb.insertActivityRecords.mock.calls[0];
     expect(recActivityId).toBe(900000001);
-    expect(records).toHaveLength(200);
     expect(records[0]).toMatchObject({ record_index: 0, elapsed_sec: 0 });
     expect(records.every((r) => r.activity_id === 900000001)).toBe(true);
     expect(records.every((r) => typeof r.heart_rate === 'number')).toBe(true);
 
+    // **记录必须覆盖全部 lap 的时间窗**。只到 200 秒的话，4 段 lap（累计
+    // 1448 秒）里只有 lap 0 有样本，分段表「主要区间」列 3/4 是 `--`，
+    // 「按 lap 时间窗推导」这条链路在 e2e 里等于没测。
+    const totalLapSeconds = laps.reduce((a, l) => a + l.duration, 0);
+    expect(records.length).toBe(totalLapSeconds);
+    expect(Math.max(...records.map((r) => r.elapsed_sec))).toBe(totalLapSeconds - 1);
+    for (const lap of laps) {
+      const prev = lap.lap_index === 0 ? 0 : laps[lap.lap_index - 1].cumulative_time;
+      const inWindow = records.filter((r) => r.elapsed_sec >= prev && r.elapsed_sec < lap.cumulative_time);
+      expect(inWindow.length).toBeGreaterThan(0);
+    }
+
     expect(mockDb.close).toHaveBeenCalledTimes(1);
     expect(out).toBe('/tmp/x/activities.db');
     expect(logSpy.mock.calls.map((c) => c[0]).join('\n')).toContain('fixture DB 生成');
+  });
+
+  test('lap 级区间秒数由真实实现按时间窗推导, 且各段主区间不同', () => {
+    makeFixtureDb('/tmp/x/activities.db');
+    const [, laps] = mockDb.insertLaps.mock.calls[0];
+
+    // 每段都有长度恒为 5 的区间数组（不是夹具写死的字符串, 是 lap-zones.js 算出来的）
+    for (const lap of laps) {
+      expect(JSON.parse(lap.time_in_hr_zone)).toHaveLength(5);
+      expect(JSON.parse(lap.time_in_power_zone)).toHaveLength(5);
+    }
+
+    // 各段主区间必须**不全相同** —— 否则 `dominantZone` 写成「永远返回 Z3」
+    // 也能通过 e2e 断言。
+    const dominant = laps.map((lap) => {
+      const z = JSON.parse(lap.time_in_hr_zone);
+      const max = Math.max(...z);
+      return max === 0 ? null : z.indexOf(max) + 1;
+    });
+    expect(dominant.every((d) => d != null)).toBe(true);
+    expect(new Set(dominant).size).toBeGreaterThan(1);
   });
 
   test('未传参 → 用默认夹具路径', () => {
