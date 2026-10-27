@@ -169,6 +169,63 @@ Z1 19.5% / Z2 53.0% / Z3 16.1% / Z4 9.2% / Z5 2.2%（低 72.5% / 高 11.4%）。
 
 ---
 
+### 1.3 课表（`workout_steps`）的三层解析缺陷
+
+`workout_steps` 存 FIT `workout_step` 消息，是「这堂课本来该怎么跑」的唯一来源：
+真实库 **285/348** 条活动有课表，其中 **225 条跑步活动全部**带
+`target_type='speed'` 的目标配速区间。`SYSTEM_PROMPT` §2 要求「评估实际执行与
+预期目标的匹配度」，而数据块与详情页此前**从未提供任何目标** —— 模型只能凭
+「配速看着像节奏跑」猜计划意图。
+
+| 层 | 缺陷 | 证据 | 后果 |
+|----|------|------|------|
+| ① 数据丢失 | `fit-file-parser@2.3.3` 对 `workout_step` 走 `default:` 分支（`fitObj[type] = message` 每次覆盖，不像 lap/record 那样 push） | **120/285** 条是多步课表（3/5/6/7/13/15/17/21 步），全部只剩最后一步；其中 **60 条**最后一步恰是 `cooldown` | 「节奏」课表只剩冷身步：热身与主课目标配速全丢。拿冷身目标（5:46-5:08）去比整体均速，结论必然是「区间内」，而主课 4:44-4:23 根本没跑出来 |
+| ② 时间单位 | `duration_value` 在 `duration_type='time'` 时是 **毫秒**（FIT scale 1000） | 活动 536624700 落库 `duration_sec = 2400000`（≈ 27.8 天），该活动实际只有 2404 秒；**1083/1083** 个 `time` 步骤全部错 1000 倍 | 课表显示「间歇 666:40:00」 |
+| ③ 速度单位 | `custom_target_value_*` 在 `target_type='speed'` 时是 **mm/s** | 落库 2944/3361 被读成「每秒 2.9 公里」，按秒/公里解释则是 **49 分钟/公里** | 目标区间完全不可读，与 `average_pace`（秒/公里）不可比 |
+
+**修复**：
+
+- `scripts/garmin/fit-workout.js`（新模块）用 `fit-file-parser` 内部的
+  `binary.readRecord` **逐条重扫原始字节流**，拿回全部 `workout_step`。内部路径不在
+  `exports` 白名单里，故 `require.resolve` 定位包入口再取同目录 `binary.js`；任何
+  一步失败返回 `null`，调用方回退旧路径 —— **课表解析失败绝不影响活动主数据**。
+- 单位按 FIT SDK 定义归一：时间 `÷1000` → 秒、距离 `÷100` → 米、速度 `÷1000` →
+  m/s 再 `1000/v` → 秒/公里（**速度越低配速数值越大**，故 `fast` 取 `min`）。
+- `fit-parser._extractWorkout(fitData, rawBuffer)` 接原始 buffer；`fit-parser` 的
+  回退路径同样修正单位（旧库/坏文件也不会再落毫秒）。
+- 历史行用 `npm run backfill:workout` 刷新（只 UPDATE 两列，不重写逐秒记录）。
+  回填后：**285 行 / 1210 步 / 120 条多步 / 384 步带目标配速**，
+  无一条 `duration_sec > 36000`（毫秒残留会立刻暴露）。
+
+**读取端必须自己分辨代际**（`app/lib/workout.ts`）：旧格式没有
+`duration_type_label`、`duration_sec` 是毫秒、只有 `target_low/high`（mm/s）；
+新格式有标签与 `target_pace_sec_per_km`。判别依据是**字段存在性**而非数值猜测
+（`2400` 与 `2400000` 都是合法数字，靠大小猜会误判长课表）。
+
+**整体目标必须按步骤时长加权**（`workoutTargetRange`）：多步课表里热身/主课/冷身
+目标完全不同，用任何单步当整体目标都是口径错误。加权后与「整体均配速」同口径可比，
+且 `multiStep` 为真时文案显式提示「整体均速为混合强度，判定仅作参考」。
+
+**呈现口径**：
+
+| 位置 | 内容 |
+|------|------|
+| AI 数据块 | `课表: 节奏 — 热身 10:00 @ 5:46-5:08/km → 间歇 22:00 @ 4:44-4:23/km → 冷身 …` + `课表执行: 计划 5:14-4:44/km，实际 5:18 → 偏慢 4s/km` |
+| 详情页「训练课表」卡 | 课表名 + 执行判定徽标（区间内 / 偏快 Ns/km / 偏慢 Ns/km）+ 逐步计划 + 实际均配速 |
+| 渲染条件 | 「有**可执行步**」（有时长/距离/次数），不是「有 `workout_name`」—— 真实库 **63 条**有课表名但只有循环控制消息 |
+| 非跑步 | 课表照常展示（60 条非跑步课表），但**不做配速执行判定**：0/60 有 speed 目标，且 `average_pace` 语义不同（泳池 1670s/km、乒乓 30826s/km） |
+| 连续相同步 | 折叠为 `×N`（真实库大量「主课 1:00 ×5」），折叠依据是**连续且参数完全相同**，不是猜测 |
+
+守护：`tests/unit/lib/workout.test.ts`（旧/新格式单位、多步不丢失、加权区间不等于
+任何单步、三态判定、折叠、防御性）、`tests/unit/scripts/fit-workout.test.js`
+（重扫字节流、单位换算、占位步过滤、文案）、
+`tests/unit/garmin/fit-parser-branches.test.js`（`_extractWorkout` 有/无 raw buffer、
+**调用点确实传 buffer** 的完整 `parseFitFile` 链路）、
+`tests/unit/lib/llm.test.ts`（课表进数据块 / 非跑步不判定 / 空课表不输出空壳）、
+`tests/unit/pages/activity-detail.test.tsx`（卡片渲染条件、三态徽标、非跑步不判定）。
+
+---
+
 ## 2. AI 上下文口径（核心契约）
 
 ### 2.1 单次活动：横向可比优先
@@ -343,6 +400,7 @@ Z1 19.5% / Z2 53.0% / Z3 16.1% / Z4 9.2% / Z5 2.2%（低 72.5% / 高 11.4%）。
 | **AI prompt 按运动类型分流** | `llm.ts` 的 `SYSTEM_PROMPT` / `NON_RUNNING_SYSTEM_PROMPT` | `tests/unit/lib/llm.test.ts`（非跑步不出现跑步术语与配速行；prompt 不引用非跑步数据里不存在的指标） |
 | **活动数据块的两类缺失** | `llm.ts` 的 `fmtNumIf` / `statRow` | `tests/unit/lib/llm-gateway.test.ts`（「该运动不产出」整项不输出、「该活动没测到」保留 `--`、有值时照常输出、无只剩标签的空行） |
 | **`max_speed` 单位契约：全链路 km/h** | `fit-parser.js`（`speedUnit:'km/h'`，`enhanced_max_speed` 原样落库）/ `fetcher.py`（Strava m/s → km/h `*3.6`）/ `llm.ts`（直接 `toFixed(1)`）/ `validate-data.js`（阈值按 km/h） | `tests/unit/lib/llm.test.ts`（20.76 km/h 渲染为 `20.8 km/h`，且不含 74.7；非跑步分支同样不乘 3.6；缺值为 `--`）；`tests/python/test_fetcher_strava.py`（4.5 m/s → 16.2 km/h，与 `average_speed` 同单位）；`tests/unit/scripts/validate-data.test.js`（`distance` 按公里解释，干净数据零误报；103.5 = 28.8×3.6 被抓） |
+| **课表单位与步数完整性** | `scripts/garmin/fit-workout.js`（重扫原始字节 + 毫秒/mm-s 归一）/ `fit-parser._extractWorkout(fitData, rawBuffer)` / `app/lib/workout.ts`（读取端代际判别 + 加权区间） | `tests/unit/scripts/fit-workout.test.js`（多步重扫、单位换算、占位步过滤）+ `tests/unit/garmin/fit-parser-branches.test.js`（调用点确实传 buffer 的完整 `parseFitFile` 链路）+ `tests/unit/lib/workout.test.ts`（旧/新格式、加权区间、三态判定）+ `tests/unit/lib/llm.test.ts` + `tests/unit/pages/activity-detail.test.tsx` |
 | **AI 可比样本块按运动口径收敛** | `activity-coach-context.ts` 的 `performanceLines`（按 `insight.running` 二次把关） | `tests/unit/lib/activity-coach-context.test.ts`（非跑步不出现配速/等价平路行，口径说明改非跑步语义） |
 | **同路径几何质量只统计可校验的同伴** | `activity-insight-service.ts` 的 `summarizeRouteQuality` | `tests/unit/lib/insight-services.test.ts`（无轨迹同伴不计入 `verifiedPeers`；未校验时 `routeQuality` 显式 `null`） |
 | **旧库 / 坏数据一律降级不崩页** | `db.ts` 的列探测与 `getActivityTracks` / `getActivityStartGeo` / 网格通道 | `tests/unit/lib/db-degradation.test.ts`（缺列、畸形 JSON、非法坐标、非法 id 全部返回空/`null`） |

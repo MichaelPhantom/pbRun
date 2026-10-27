@@ -101,7 +101,17 @@ export interface Activity {
 
   // 课表（FIT workout / workout_step 消息）
   workout_name?: string | null;                  // 课表名称（如 基础训练、乳酸阈值）
-  workout_steps?: string | null;                 // 课表步骤 JSON 数组
+  /**
+   * 课表步骤 JSON 数组（`scripts/garmin/fit-workout.js` 规范化后）。
+   *
+   * 每条含 `index / name / duration_type / duration_sec(秒) / distance_m(米) /
+   * reps / target_type / target_low / target_high（设备原始值）/ intensity /
+   * intensity_label / target_pace_sec_per_km{fast,slow}`。
+   *
+   * 注意：`duration_sec` 是**秒**（FIT 源是毫秒），`target_pace_sec_per_km`
+   * 由 `target_type='speed'` 的 mm/s 换算而来 —— 两者都不能直接读设备原始值。
+   */
+  workout_steps?: string | null;
 
   // 心率变异性（FIT hrv 消息，仅部分活动有）
   hrv_rmssd?: number | null;                     // RMSSD（毫秒，由 RR 间期计算）

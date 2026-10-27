@@ -399,6 +399,7 @@ describe('user_profile / workout / hrv 边界', () => {
     const named = p._extractWorkout({ workout: { wkt_name: '基础训练' } });
     expect(named.workout_name).toBe('基础训练');
 
+    // 无原始 buffer → 无法重扫, 回退到 fitData.workout_step (只会有最后一步)
     const single = p._extractWorkout({ workout_step: { wkt_step_name: 'warmup' } });
     expect(JSON.parse(single.workout_steps)).toHaveLength(1);
 
@@ -406,6 +407,70 @@ describe('user_profile / workout / hrv 边界', () => {
       workout_step: [{ message_index: { value: 7 }, wkt_step_name: 'x' }],
     });
     expect(JSON.parse(withIndexObj.workout_steps)[0].index).toBe(7);
+  });
+
+  /**
+   * 回退路径也必须修正单位: FIT 定义 `duration_type='time'` 时 `duration_value`
+   * 是**毫秒**（旧实现直接当秒存, 真实库 536624700 落库 2400000 而活动只有 2404 秒）,
+   * `target_type='speed'` 时 `custom_target_value_*` 是 **mm/s**。
+   */
+  test('回退路径单位修正: 毫秒→秒, mm/s→秒/公里', () => {
+    const legacy = p._extractWorkout({
+      workout_step: {
+        message_index: { value: 0 },
+        duration_type: 'time',
+        duration_value: 2400000,
+        target_type: 'speed',
+        custom_target_value_low: 2944,
+        custom_target_value_high: 3361,
+        intensity: 'interval',
+      },
+    });
+    const [step] = JSON.parse(legacy.workout_steps);
+    expect(step.duration_sec).toBe(2400);
+    expect(step.target_pace_sec_per_km).toEqual({ fast: 298, slow: 340 });
+    expect(step.intensity_label).toBe('间歇');
+  });
+
+  /**
+   * 有原始 buffer 时走重扫路径。这里 buffer 是 mock 的 'FIT' 三字节（非法），
+   * 重扫必然失败 → 必须**静默回退**而不是抛错, 否则整个活动解析会崩。
+   */
+  test('原始 buffer 非法 → 静默回退, 不影响活动主数据', () => {
+    const out = p._extractWorkout(
+      { workout: { wkt_name: '节奏' }, workout_step: { duration_type: 'time', duration_value: 600000 } },
+      Buffer.from('FIT'),
+    );
+    expect(out.workout_name).toBe('节奏');
+    expect(JSON.parse(out.workout_steps)[0].duration_sec).toBe(600);
+  });
+
+  /**
+   * 调用点必须**真的把原始 buffer 传进去** —— 否则重扫能力形同虚设（旧实现只传
+   * fitData，多步课表永远只剩最后一步）。这里用合法的最小 FIT 字节流验证整条链路。
+   */
+  test('传入合法 FIT buffer → 重扫拿到全部 3 步 (调用点确实接了 buffer)', () => {
+    const buffer = buildMinimalWorkoutFit([
+      { index: 0, durationMs: 600000, intensity: 2 },
+      { index: 1, durationMs: 1320000, intensity: 5 },
+      { index: 2, durationMs: 600000, intensity: 3 },
+    ]);
+    const out = p._extractWorkout(
+      // fitData 里只有最后一步（模拟 fit-file-parser 的覆盖行为）
+      { workout: { wkt_name: '节奏' }, workout_step: { duration_type: 'time', duration_value: 600000, intensity: 'cooldown' } },
+      buffer,
+    );
+    expect(out.workout_name).toBe('节奏');
+    const steps = JSON.parse(out.workout_steps);
+    expect(steps).toHaveLength(3);
+    expect(steps.map((s) => s.intensity)).toEqual(['warmup', 'interval', 'cooldown']);
+    expect(steps[1].duration_sec).toBe(1320);
+  });
+
+  test('无 workout_step 且重扫失败 → 不写 workout_steps 键', () => {
+    expect(p._extractWorkout({ workout: { wkt_name: 'x' } }, Buffer.from('FIT'))).toEqual({
+      workout_name: 'x',
+    });
   });
 
   test('hrv: 无数据/单点 → 空; 正常 RR 序列 → RMSSD', () => {
@@ -486,6 +551,33 @@ describe('parseFitFile (文件级入口)', () => {
     expect(res.activity.user_weight).toBe(65);
     expect(res.activity.workout_name).toBe('基础训练');
     expect(res.records[0].temperature).toBeCloseTo(27.5);
+  });
+
+  /**
+   * **调用点**必须把原始 buffer 传给 `_extractWorkout` —— 否则重扫能力形同虚设。
+   * 这条走完整 `parseFitFile` 链路（fs mock 返回合法 FIT 字节流），是最贴近生产的
+   * 验证：`fitData.workout_step` 只有最后一步，但重扫应拿回全部 3 步。
+   */
+  test('parseFitFile: 多步课表 3 步全部落库 (调用点确实传了原始 buffer)', async () => {
+    const fsMock = require('fs');
+    const buffer = buildMinimalWorkoutFit([
+      { index: 0, durationMs: 600000, intensity: 2 },
+      { index: 1, durationMs: 1320000, intensity: 5 },
+      { index: 2, durationMs: 600000, intensity: 3 },
+    ]);
+    fsMock.promises.readFile.mockResolvedValueOnce(buffer);
+    mockParseAsync.mockResolvedValueOnce(
+      minimalFit({
+        workout: { wkt_name: '节奏' },
+        // 模拟 fit-file-parser 的覆盖行为: 只剩最后一步
+        workout_step: { duration_type: 'time', duration_value: 600000, intensity: 'cooldown' },
+      }),
+    );
+    const res = await p.parseFitFile('/tmp/a.fit');
+    const steps = JSON.parse(res.activity.workout_steps);
+    expect(steps).toHaveLength(3);
+    expect(steps.map((s) => s.intensity)).toEqual(['warmup', 'interval', 'cooldown']);
+    expect(res.activity.workout_name).toBe('节奏');
   });
 
   test('无 GPS → track 为 null (室内/跑步机)', async () => {
@@ -643,3 +735,50 @@ describe('fit-parser: 时间域解析 (start_time / start_time_local)', () => {
     expect(out.start_tz_offset_min).toBe(480);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 最小 FIT 字节流构造器（仅 workout_step 消息，用于验证重扫链路）
+// ---------------------------------------------------------------------------
+
+function buildMinimalWorkoutFit(records) {
+  const fieldDefs = [
+    { num: 254, size: 2, baseType: 0x84 }, // message_index, uint16
+    { num: 1, size: 1, baseType: 0x00 }, // duration_type, enum
+    { num: 2, size: 4, baseType: 0x86 }, // duration_value, uint32
+    { num: 3, size: 1, baseType: 0x00 }, // target_type, enum
+    { num: 7, size: 1, baseType: 0x00 }, // intensity, enum
+  ];
+  const def = Buffer.alloc(6 + fieldDefs.length * 3);
+  def.writeUInt8(0x40, 0);
+  def.writeUInt8(0, 1);
+  def.writeUInt8(0, 2);
+  def.writeUInt16LE(27, 3); // global message number: workout_step
+  def.writeUInt8(fieldDefs.length, 5);
+  fieldDefs.forEach((f, i) => {
+    const o = 6 + i * 3;
+    def.writeUInt8(f.num, o);
+    def.writeUInt8(f.size, o + 1);
+    def.writeUInt8(f.baseType, o + 2);
+  });
+
+  const chunks = [def];
+  for (const r of records) {
+    const d = Buffer.alloc(10);
+    d.writeUInt8(0x00, 0);
+    d.writeUInt16LE(r.index, 1);
+    d.writeUInt8(0, 3); // duration_type = time
+    d.writeUInt32LE(r.durationMs, 4);
+    d.writeUInt8(2, 8); // target_type = open
+    d.writeUInt8(r.intensity, 9);
+    chunks.push(d);
+  }
+  const dataBuf = Buffer.concat(chunks);
+  const header = Buffer.alloc(14);
+  header.writeUInt8(14, 0);
+  header.writeUInt8(0x10, 1);
+  header.writeUInt16LE(2132, 2);
+  header.writeUInt32LE(dataBuf.length, 4);
+  header.write('.FIT', 8, 'ascii');
+  header.writeUInt16LE(0, 12);
+  return Buffer.concat([header, dataBuf]);
+}

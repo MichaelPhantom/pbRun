@@ -105,7 +105,9 @@ export async function registerTools(server: McpServer): Promise<void> {
         'time_in_hr_zone(心率区间秒数, 本地 5 区口径, 长度恒为 5, 可直接按索引跨活动聚合)、' +
         'device_time_in_hr_zone(设备原始区间秒数, 边界方案随固件而变, 仅追溯用, 不要跨活动相加)、' +
         'devices(设备列表 JSON, 已脱敏)、user_weight/user_height/resting_heart_rate_fit(用户档案)、' +
-        'workout_name/workout_steps(课表)、hrv_rmssd(HRV 毫秒, 仅部分活动有)。' +
+        'workout_name/workout_steps(课表; 多步课表完整, duration_sec 单位秒、' +
+        'target_pace_sec_per_km 单位秒/公里, 均可直接使用; target_low/high 是设备原始 mm/s 仅供追溯)、' +
+        'hrv_rmssd(HRV 毫秒, 仅部分活动有)。' +
         'vdot_value 仅在 Z3+ 代表性强度段计算（取最快 Z3+ lap，否则全程 Z3+），日常轻松/恢复跑为 null；' +
         'training_load 优先 FIT 官方，缺省回退时长×心率档；' +
         'JSON 字段需自行 parse; 字段缺失表示该活动无对应数据。',

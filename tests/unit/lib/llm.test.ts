@@ -334,6 +334,97 @@ describe('buildAnalysisMessages', () => {
     expect(swim.content).toContain('类型: 泳池游泳（非跑步）');
   });
 
+  /**
+   * 课表目标配速（FIT workout_step）。
+   *
+   * SYSTEM_PROMPT §2 要求「评估实际执行与预期目标的匹配度（如：计划节奏跑但实际
+   * 心率过高）」，但数据块此前**从未提供任何目标**：真实库 285 条带课表活动里
+   * 225 条跑步活动全部有 `target_type='speed'` 的目标配速区间，模型只能凭
+   * 「配速看着像节奏跑」猜计划意图。
+   *
+   * 三层坑（都在 `app/lib/workout.ts` 里处理，这里断言最终呈现）：
+   *  1. 多步课表曾被解析器压成最后一步（120/120 受影响，60 条最后一步是冷身）；
+   *  2. `duration_sec` 旧格式是 FIT 原始毫秒（2400000 vs 实际 2404 秒）；
+   *  3. 目标配速旧格式是 mm/s（2944/3361），不是秒/公里。
+   */
+  test('课表 + 执行判定进入数据块 (旧格式毫秒/mm-s 都要换算)', () => {
+    // 真实库 536624700 的旧格式落库值
+    const steps = JSON.stringify([
+      {
+        index: 0,
+        name: '',
+        duration_type: 'time',
+        duration_sec: 2400000,
+        target_type: 'speed',
+        target_low: 2944,
+        target_high: 3361,
+        intensity: 'interval',
+      },
+    ]);
+    const [, user] = buildAnalysisMessages(
+      fakeActivity({ workout_name: '基础训练', workout_steps: steps, average_pace: 314 }),
+      [],
+    );
+    expect(user.content).toContain('课表: 基础训练 — 间歇 40:00 @ 5:40-4:58/km');
+    expect(user.content).toContain('课表执行: 计划 5:40-4:58/km，实际 5:14 → 区间内');
+    // 绝不能把毫秒当秒（27.8 天）或把 mm/s 当秒/公里（49 分钟/公里）
+    expect(user.content).not.toContain('666:40:00');
+    expect(user.content).not.toContain('2944');
+  });
+
+  test('多步课表不只剩冷身一步 (真实库 540880879「节奏」3 步)', () => {
+    const steps = JSON.stringify([
+      { index: 0, duration_type: 'time', duration_type_label: '时长', duration_sec: 600, target_type: 'speed', target_pace_sec_per_km: { fast: 308, slow: 346 }, intensity: 'warmup', intensity_label: '热身' },
+      { index: 1, duration_type: 'time', duration_type_label: '时长', duration_sec: 1320, target_type: 'speed', target_pace_sec_per_km: { fast: 263, slow: 284 }, intensity: 'interval', intensity_label: '间歇' },
+      { index: 2, duration_type: 'time', duration_type_label: '时长', duration_sec: 600, target_type: 'speed', target_pace_sec_per_km: { fast: 308, slow: 346 }, intensity: 'cooldown', intensity_label: '冷身' },
+    ]);
+    const [, user] = buildAnalysisMessages(
+      fakeActivity({ workout_name: '节奏', workout_steps: steps, average_pace: 318 }),
+      [],
+    );
+    const planLine = user.content.split('\n').find((l) => l.startsWith('课表: '))!;
+    expect(planLine).toContain('热身');
+    expect(planLine).toContain('间歇');
+    expect(planLine).toContain('冷身');
+    // 加权区间 284-314，不是冷身的 308-346 —— 否则「整体均速 vs 冷身目标」口径错
+    const execLine = user.content.split('\n').find((l) => l.startsWith('课表执行: '))!;
+    expect(execLine).toContain('计划 5:14-4:44/km');
+    expect(execLine).toContain('多步课表');
+  });
+
+  test('无课表 / 课表无目标配速 → 不输出课表行 (不是空壳)', () => {
+    const noWorkout = buildAnalysisMessages(fakeActivity(), [])[1];
+    expect(noWorkout.content).not.toContain('课表');
+
+    // 只有循环控制步（无时长/距离/次数）→ 无可执行计划
+    const controlOnly = buildAnalysisMessages(
+      fakeActivity({ workout_steps: JSON.stringify([{ index: 0, duration_type: 'repeat_until_steps_cmplt', intensity: 'active' }]) }),
+      [],
+    )[1];
+    expect(controlOnly.content).not.toContain('课表');
+  });
+
+  test('非跑步活动: 课表照常输出, 但不做配速执行判定', () => {
+    // 真实库 60 条非跑步课表 0 条有 speed 目标；average_pace 语义也不同
+    const steps = JSON.stringify([
+      { index: 0, duration_type: 'time', duration_type_label: '时长', duration_sec: 60, target_type: 'open', intensity: 'active', intensity_label: '主课' },
+    ]);
+    const [, user] = buildAnalysisMessages(
+      fakeActivity({
+        activity_type: 'indoor_cardio',
+        sub_sport_type: '有氧',
+        sport_type: '训练',
+        workout_name: '5 分钟平板支撑挑战',
+        workout_steps: steps,
+        average_pace: 1200,
+        training_load: null,
+      }),
+      [],
+    );
+    expect(user.content).toContain('课表: 5 分钟平板支撑挑战 — 主课 1:00');
+    expect(user.content).not.toContain('课表执行');
+  });
+
   test('空 activity_type 按跑步处理 (旧库兼容)', () => {
     const [system, user] = buildAnalysisMessages(fakeActivity({ activity_type: '' }), []);
     expect(system.content).toContain('精英跑步教练');

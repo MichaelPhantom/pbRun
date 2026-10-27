@@ -371,6 +371,93 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
     expect(screen.queryByText('跑步')).toBeNull();
   });
 
+  /**
+   * 训练课表卡片。真实库 285/348 条活动有 `workout_steps`，225 条跑步活动全部带
+   * speed 目标配速区间 —— 这是「执行质量」唯一客观基准，此前 UI 与 AI 都没呈现。
+   * 解析层三层缺陷见 app/lib/workout.ts（多步压成最后一步 / 毫秒当秒 / mm/s）。
+   */
+  test('训练课表: 多步课表完整展示 + 执行判定徽标', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      workout_name: '节奏',
+      average_pace: 318,
+      workout_steps: JSON.stringify([
+        { index: 0, duration_type: 'time', duration_type_label: '时长', duration_sec: 600, target_type: 'speed', target_pace_sec_per_km: { fast: 308, slow: 346 }, intensity: 'warmup', intensity_label: '热身' },
+        { index: 1, duration_type: 'time', duration_type_label: '时长', duration_sec: 1320, target_type: 'speed', target_pace_sec_per_km: { fast: 263, slow: 284 }, intensity: 'interval', intensity_label: '间歇' },
+        { index: 2, duration_type: 'time', duration_type_label: '时长', duration_sec: 600, target_type: 'speed', target_pace_sec_per_km: { fast: 308, slow: 346 }, intensity: 'cooldown', intensity_label: '冷身' },
+      ]),
+    });
+    render(await page('2100'));
+
+    const card = screen.getByText('训练课表').closest('section')!;
+    expect(within(card).getByText('节奏')).toBeInTheDocument();
+    // 三步都在 —— 旧实现只会有「冷身 10:00」
+    const plan = within(card).getByText(/热身/);
+    expect(plan.textContent).toContain('热身');
+    expect(plan.textContent).toContain('间歇');
+    expect(plan.textContent).toContain('冷身');
+    // 执行判定: 加权区间 5:14-4:44, 实际 5:18 → 偏慢 4s/km
+    expect(within(card).getByText(/计划 5:14-4:44/)).toBeInTheDocument();
+    expect(within(card).getByText(/偏慢 4s\/km/)).toBeInTheDocument();
+    expect(within(card).getByText(/实际平均配速 5:18/)).toBeInTheDocument();
+    // 多步课表要提示「混合强度」, 否则用户会以为整体均速就是主课配速
+    expect(within(card).getByText(/多步课表/)).toBeInTheDocument();
+  });
+
+  test('训练课表: 区间内时显示「区间内」而不是偏离量', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      workout_name: '基础训练',
+      average_pace: 314,
+      workout_steps: JSON.stringify([
+        { index: 0, duration_type: 'time', duration_type_label: '时长', duration_sec: 2400, target_type: 'speed', target_pace_sec_per_km: { fast: 298, slow: 340 }, intensity: 'interval', intensity_label: '间歇' },
+      ]),
+    });
+    render(await page('2101'));
+    const card = screen.getByText('训练课表').closest('section')!;
+    expect(within(card).getByText(/区间内/)).toBeInTheDocument();
+    expect(within(card).queryByText(/偏慢|偏快/)).toBeNull();
+    // 单步课表不出现「混合强度」提示
+    expect(within(card).queryByText(/多步课表/)).toBeNull();
+  });
+
+  test('无课表 / 课表只有循环控制步 → 整张卡片不渲染', async () => {
+    db.getActivityById.mockReturnValue({ ...activity, workout_name: null, workout_steps: null });
+    const { unmount } = render(await page('2102'));
+    expect(screen.queryByText('训练课表')).toBeNull();
+    unmount();
+
+    // 真实库 63 条有课表名但无可执行步（只有 repeat_until_steps_cmplt）
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      workout_name: '核心循环1',
+      workout_steps: JSON.stringify([
+        { index: 0, duration_type: 'repeat_until_steps_cmplt', intensity: 'active' },
+      ]),
+    });
+    render(await page('2103'));
+    expect(screen.queryByText('训练课表')).toBeNull();
+  });
+
+  test('非跑步活动: 课表照常展示, 但不做配速执行判定', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'indoor_cardio',
+      sport_type: '训练',
+      sub_sport_type: '有氧',
+      workout_name: '5 分钟平板支撑挑战',
+      average_pace: 1200,
+      workout_steps: JSON.stringify([
+        { index: 0, duration_type: 'time', duration_type_label: '时长', duration_sec: 60, target_type: 'open', intensity: 'active', intensity_label: '主课' },
+      ]),
+    });
+    render(await page('2104'));
+    const card = screen.getByText('训练课表').closest('section')!;
+    expect(within(card).getByText(/主课 1:00/)).toBeInTheDocument();
+    // 非跑步的 average_pace 语义不同（泳池 1670s/km），不能当跑步配速判定
+    expect(within(card).queryByText(/计划 |区间内|偏慢|偏快/)).toBeNull();
+  });
+
   test('轨迹点不足 (<2) → 不渲染路线地图', async () => {
     db.getActivityTrack.mockReturnValue({ coords: [[29.5, 106.5]], n: 1 });
     render(await page('1001'));

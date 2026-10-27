@@ -10,6 +10,11 @@ import type { Activity, ActivityLap } from '@/app/lib/types';
 import { formatPace, formatDuration, formatRecoveryTime } from '@/app/lib/format';
 import { findPreset, resolvePresets } from '@/app/lib/model-curation';
 import { activityTypeName, isRunningType } from '@/app/lib/sport';
+import {
+  evaluateWorkoutExecution,
+  formatWorkoutExecution,
+  formatWorkoutPlan,
+} from '@/app/lib/workout';
 
 export { DEFAULT_MODEL } from '@/app/lib/model-curation';
 
@@ -591,11 +596,38 @@ export function buildAnalysisMessages(
     .filter((line): line is string => line != null)
     .join('\n');
 
+  // 课表（FIT workout_step）。这是「执行质量」唯一的客观基准 —— SYSTEM_PROMPT §2
+  // 要求「评估实际执行与预期目标的匹配度（如：计划节奏跑但实际心率过高）」，
+  // 但旧数据块从未提供过任何目标：真实库 285 条带课表活动、225 条跑步活动全部
+  // 有 `target_type='speed'` 的目标配速区间，模型却只能凭「配速看着像节奏跑」猜。
+  //
+  // 三处坑（都已在本模块内处理，此处只负责呈现）：
+  //  1. 多步课表曾被解析器压成**最后一步**（120/120 多步课表受影响，60 条的最后一步
+  //     恰是冷身）—— 拿冷身目标去比整体均速必然判「偏慢」；
+  //  2. `duration_sec` 旧格式存的是 FIT 原始**毫秒**（536624700: 2400000 vs 实际 2404 秒）；
+  //  3. 目标配速存的是 **mm/s**（2944/3361），不是秒/公里。
+  // 故课表行只在**有可执行步骤**时输出，且目标配速由 `workoutTargetRange` 按步骤
+  // 时长加权 —— 与「整体均配速」同口径可比。
+  const workoutPlan = formatWorkoutPlan(activity.workout_steps);
+  // 执行判定只对跑步有意义：非跑步 60 条课表 0 条有 speed 目标，且其 average_pace
+  // 语义不同（泳池 1670s/km、乒乓 30826s/km 不是跑步配速）。
+  const workoutExec = running
+    ? evaluateWorkoutExecution(activity.workout_steps, activity.average_pace)
+    : null;
+  const workoutLines = [
+    workoutPlan
+      ? `课表: ${activity.workout_name ? `${activity.workout_name} — ` : ''}${workoutPlan}`
+      : null,
+    workoutExec ? `课表执行: ${formatWorkoutExecution(workoutExec)}` : null,
+  ]
+    .filter((line): line is string => line != null)
+    .join('\n');
+
   const user = `${profileBlock ? profileBlock + '\n\n' : ''}【活动】
 日期: ${date}
 名称: ${activity.name || '--'}  类型: ${typeName}${running ? '' : '（非跑步）'}
 距离: ${dist.toFixed(2)} km  移动时长: ${formatDuration(dur)}  总时长: ${formatDuration(activity.duration)}
-${runningLines}
+${workoutLines ? `${workoutLines}\n` : ''}${runningLines}
 ${commonLines}
 
 ${lapTitle}

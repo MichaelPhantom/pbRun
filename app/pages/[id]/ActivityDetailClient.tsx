@@ -11,6 +11,7 @@ import ActivityTrendCharts, { trendChartTitle } from '@/app/lib/components/chart
 import { ActivityInsightPanel, ROLE_LABEL, ROLE_TONE } from '@/app/lib/components/charts/ActivityInsightPanel';
 import { AiAnalysis } from '@/app/lib/components/ai/AiAnalysis';
 import { activityTypeIcon, activityTypeName, isInformativeTypeValue, isRunningType } from '@/app/lib/sport';
+import { evaluateWorkoutExecution, formatWorkoutPlan } from '@/app/lib/workout';
 
 // 路线地图纯 SVG 客户端组件 (无 leaflet 依赖); 仅在客户端渲染避免 SSR window 引用。
 // 注: 本处动态 import 与 loading 回调在单测中因 next/dynamic 被 mock 且 ssr:false 而不可达
@@ -57,6 +58,15 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
   const durationMinutes = durationSec / 60;
   // 恢复时间单位按量级切换 (分/小时/天), 见 formatRecoveryTime 的注释。
   const recovery = formatRecoveryTime(activity.recovery_time);
+  // 课表（FIT workout_step）: 唯一能回答「这堂课本来该怎么跑」的数据源。
+  // 解析层的三层缺陷（多步被压成最后一步 / 毫秒当秒 / mm/s 当秒每公里）都在
+  // app/lib/workout.ts 里统一处理; 这里只决定呈现。
+  const workoutPlan = formatWorkoutPlan(activity.workout_steps);
+  // 执行判定只对跑步有意义: 非跑步 60 条课表 0 条有 speed 目标, 且其 average_pace
+  // 语义不同（泳池 1670s/km、乒乓 30826s/km 不是跑步配速）。
+  const workoutExec = running
+    ? evaluateWorkoutExecution(activity.workout_steps, activity.average_pace)
+    : null;
 
   // 深挖数据 (分段角色/主课漂移/区间/解耦/同路线对比): 详情页统一拉取一次, 供
   // 「分段数据」表的角色列与「深度分析」面板共用, 避免重复请求。失败时静默降级。
@@ -226,6 +236,36 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
               </div>
             )}
           </div>
+        </SectionCard>
+      )}
+
+      {/* 训练课表。数据源 `workout_steps`（FIT workout_step），真实库 285/348 条有值、
+          其中 225 条跑步活动全部带 speed 目标配速区间 —— 这是「执行质量」唯一的客观
+          基准，此前从未在 UI 呈现过（AI 数据块也没有）。三层解析缺陷见 app/lib/workout.ts：
+          多步课表曾被压成最后一步（120 条受影响，60 条只剩冷身）、时长存的是毫秒、
+          目标配速存的是 mm/s。渲染条件是「有可执行步骤」而不是「有 workout_name」：
+          真实库 63 条活动有课表名但无可执行步（只有循环控制消息）。 */}
+      {workoutPlan && (
+        <SectionCard title="训练课表" accent>
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <span className="text-sm font-medium text-fg">{activity.workout_name || '课表'}</span>
+            {workoutExec && (
+              <Badge variant={workoutExec.verdict === 'in-range' ? 'good' : 'neutral'}>
+                计划 {formatPace(workoutExec.targetSlow, false)}-{formatPace(workoutExec.targetFast, false)}
+                {' · '}
+                {workoutExec.verdict === 'in-range'
+                  ? '区间内'
+                  : `${workoutExec.verdict === 'slower' ? '偏慢' : '偏快'} ${Math.abs(workoutExec.deltaSecPerKm)}s/km`}
+              </Badge>
+            )}
+          </div>
+          <p className="mt-2 text-xs leading-relaxed text-fg-secondary">{workoutPlan}</p>
+          {workoutExec && (
+            <p className="mt-1 text-[11px] text-fg-muted">
+              实际平均配速 {formatPace(workoutExec.actual, false)}
+              {workoutExec.multiStep && '（多步课表，整体均速为混合强度，判定仅作参考）'}
+            </p>
+          )}
         </SectionCard>
       )}
 

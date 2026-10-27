@@ -6,6 +6,11 @@ const FitParser = require('fit-file-parser').default;
 const fs = require('fs').promises;
 const { deriveRouteSignature } = require('../common/route-signature');
 const { hrZoneSecondsFromRecords, resolveMaxHr } = require('../common/hr-zones');
+const {
+  normalizeWorkoutStep,
+  normalizeWorkoutSteps,
+  readRawWorkoutSteps,
+} = require('./fit-workout');
 
 /** FIT sub_sport 枚举 -> 中文展示（跑步机、户外等） */
 const SUB_SPORT_LABELS = {
@@ -194,7 +199,9 @@ class GarminFITParser {
       const userProfile = this._extractUserProfile(fitData);
 
       // Extract 课表（workout / workout_step 消息）
-      const workoutData = this._extractWorkout(fitData);
+      // 传入原始 buffer: fit-file-parser 会把多步 workout_step 覆盖成最后一步，
+      // 必须重扫字节流才能拿到完整课表（见 fit-workout.js 的注释）。
+      const workoutData = this._extractWorkout(fitData, buffer);
 
       // Extract 心率变异性（hrv 消息）
       const hrvData = this._extractHrv(fitData);
@@ -987,37 +994,47 @@ class GarminFITParser {
   }
 
   /**
-   * 提取课表（FIT workout / workout_step 消息）
-   * workout_name: 课表名称
-   * workout_steps: 课表步骤 JSON 数组
+   * 提取课表（FIT workout / workout_step 消息）。
+   *
+   * **不能用 `fitData.workout_step`**：`fit-file-parser@2.3.3` 对它走 `default:` 分支
+   * （`fitObj[messageType] = message` 每次覆盖，而不是 push 进数组），多步课表只剩
+   * 最后一步。真实库 285 条带课表的活动里 **120 条是多步**（3/5/6/7/13/15/17/21 步），
+   * 全部被压成最后一步 —— 「节奏」课表只剩冷身步，热身与主课的目标配速区间全丢。
+   *
+   * 两层单位错也在这里修掉（FIT SDK 定义）：
+   * - `duration_value` 在 `duration_type='time'` 时是**毫秒**（旧实现直接存成秒，
+   *   真实库 `536624700` 的 `duration_sec=2400000`，该活动实际只有 2404 秒）；
+   * - `custom_target_value_*` 在 `target_type='speed'` 时是 **mm/s**（旧实现原样存
+   *   2944/3361，读起来像「每秒 3 公里」）。
+   *
+   * 实现走 `scripts/garmin/fit-workout.js`：用 `binary.readRecord` 逐条重扫字节流。
+   * 扫描失败时回退到旧路径（至少保留最后一步），绝不让课表解析影响活动主数据。
+   *
+   * @param {object} fitData `fit-file-parser` 的解析结果
+   * @param {Buffer} [rawBuffer] 原始 FIT 字节（重扫用）；缺省时无法恢复多步
    */
-  _extractWorkout(fitData) {
+  _extractWorkout(fitData, rawBuffer) {
     const result = {};
     const workout = fitData.workout;
-    const steps = fitData.workout_step;
 
     if (workout) {
       if (workout.wkt_name) result.workout_name = workout.wkt_name;
     }
 
-    // fit-file-parser 在 both 模式下 workout_step 是单对象，需要聚合
-    // 如果有多个步骤，解析器会覆盖为最后一个；此处做防御性处理
+    // 优先: 重扫原始字节, 拿到全部步骤 + 正确单位
+    const rawSteps = rawBuffer ? readRawWorkoutSteps(rawBuffer) : null;
+    if (rawSteps) {
+      result.workout_steps = JSON.stringify(normalizeWorkoutSteps(rawSteps));
+      return result;
+    }
+
+    // 回退: 只有 fitData 时沿用旧结构（多步会缺, 单位仍按 FIT 定义修正）
+    const steps = fitData.workout_step;
     if (steps) {
       const stepArr = Array.isArray(steps) ? steps : [steps];
-      result.workout_steps = JSON.stringify(stepArr.map((s, i) => {
-        const idx = s.message_index;
-        const stepIndex = (idx && typeof idx === 'object' && 'value' in idx) ? idx.value : (idx ?? i);
-        return {
-          index: stepIndex,
-          name: s.wkt_step_name ?? null,
-          duration_type: s.duration_type ?? null,
-          duration_sec: s.duration_value ?? null,
-          target_type: s.target_type ?? null,
-          target_low: s.custom_target_value_low ?? null,
-          target_high: s.custom_target_value_high ?? null,
-          intensity: s.intensity ?? null,
-        };
-      }));
+      result.workout_steps = JSON.stringify(
+        stepArr.map((s, i) => normalizeWorkoutStep(s, i)),
+      );
     }
     return result;
   }

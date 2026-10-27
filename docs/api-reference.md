@@ -116,7 +116,7 @@ GET /api/activities
 | `user_height` | number \| null | 身高 | m |
 | `resting_heart_rate_fit` | number \| null | 静息心率 | bpm |
 | `workout_name` | string \| null | 课表名称 | - |
-| `workout_steps` | string \| null | 课表步骤 (JSON 数组) | - |
+| `workout_steps` | string \| null | 课表步骤 (JSON 数组)。`duration_sec` 是**秒**（FIT 源是毫秒）、`target_pace_sec_per_km` 是**秒/公里**（FIT 源是 mm/s）；两者都不能直接读设备原始值 | 秒 / 秒每公里 |
 | `hrv_rmssd` | number \| null | HRV RMSSD | ms |
 
 ---
@@ -222,7 +222,7 @@ GET /api/activities/{id}
   "user_height": 1.76,
   "resting_heart_rate_fit": 47,
   "workout_name": "长距离跑",
-  "workout_steps": "[{\"index\":0,\"name\":\"\",\"duration_type\":\"time\",\"duration_sec\":6840000,\"target_type\":\"speed\",\"target_low\":2888,\"target_high\":3250,\"intensity\":\"interval\"}]",
+  "workout_steps": "[{\"index\":0,\"name\":null,\"duration_type\":\"time\",\"duration_type_label\":\"时长\",\"duration_sec\":2400,\"distance_m\":null,\"reps\":null,\"target_type\":\"speed\",\"target_low\":2944,\"target_high\":3361,\"target_pace_sec_per_km\":{\"fast\":298,\"slow\":340},\"intensity\":\"interval\",\"intensity_label\":\"间歇\"}]",
   "start_lat": 29.52873,
   "start_lng": 106.50725,
   "route_cells": "[\"wm5xzx2\",\"wm5xzx3\",\"wm5xzx6\"]",
@@ -239,6 +239,13 @@ GET /api/activities/{id}
 - `training_load` 优先 FIT 官方值，缺省按时长 × 心率档回退。
 - `hr_zone_boundaries` / `power_zone_boundaries` / `devices` / `workout_steps` /
   `route_cells` / `route_bounds` 均为 **JSON 字符串**，需自行 `JSON.parse`。
+- `workout_steps` 是**多步**课表（真实库 120/285 条 > 1 步，最多 21 步）。
+  `duration_sec` 已从 FIT 原始**毫秒**换算为**秒**；`target_pace_sec_per_km`
+  已从 FIT 原始 **mm/s** 换算为**秒/公里**，且 `fast` 恒为更小的数值。
+  `target_low/high` 保留设备原始值，**仅用于追溯，不要直接当配速用**。
+  旧库（回填前）的 `duration_sec` 仍是毫秒、没有 `target_pace_sec_per_km` ——
+  读取端请走 `app/lib/workout.ts`（`parseWorkoutSteps` / `workoutTargetRange`），
+  它按「是否有 `duration_type_label`」判别代际并自行换算。
 - `time_in_hr_zone` 是**唯一可用于统计**的区间数组（5 元素，见 §9「区间时长的唯一口径」）；
   `device_time_in_hr_zone` 是设备原始数组，**不要跨活动相加**。
 - `track`（约 40KB 的降采样多段线）**不在此接口返回**，见下文说明。

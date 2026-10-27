@@ -62,6 +62,22 @@ describe('MCP tool description 必须声明统计口径', () => {
     expect(desc).toMatch(/averagePaceSecPerKm 恒为 null/);
   });
 
+  /**
+   * 课表字段单位契约。`workout_steps` 在旧库里 `duration_sec` 是 FIT 原始**毫秒**
+   * （536624700: 2400000 vs 实际 2404 秒）、目标配速是 **mm/s**（2944/3361）。
+   * 回填后是秒与秒/公里，但 `target_low/high` 仍保留设备原始 mm/s ——
+   * description 若不说明，模型会把 2944 当秒/公里（49 分钟/公里）读。
+   */
+  test('get_activity 声明课表单位 (duration_sec 秒 / target_pace 秒每公里)', () => {
+    const desc = configs.get('get_activity')!.description ?? '';
+    expect(desc).toMatch(/workout_steps/);
+    expect(desc).toMatch(/多步课表完整/);
+    expect(desc).toMatch(/duration_sec 单位秒/);
+    expect(desc).toMatch(/target_pace_sec_per_km 单位秒\/公里/);
+    // 原始值必须显式标为「仅供追溯」，否则模型会当配速用
+    expect(desc).toMatch(/target_low\/high 是设备原始 mm\/s 仅供追溯/);
+  });
+
   test('所有 tool 都有非空 description 与 title', () => {
     for (const [name, cfg] of configs) {
       expect({ name, hasDesc: !!cfg.description?.trim() }).toEqual({ name, hasDesc: true });

@@ -373,6 +373,16 @@ CREATE TABLE activities (
 > 回填（幂等，备份 DB）。写入侧口径由 `scripts/common/hr-zones.js`（TS 的 CJS 镜像，
 > parity 测试守护）与 `fit-parser.js` 共同保证。
 >
+> **课表列** (`workout_name` / `workout_steps`): `workout_steps` 是 FIT `workout_step`
+> 消息的 JSON 数组，**多步课表不会被截断**（真实库 120/285 条 > 1 步，最多 21 步）。
+> 单位按 FIT SDK 定义归一后落库：`duration_sec` 是**秒**（FIT 源 `duration_value` 是毫秒，
+> `duration_type='time'`）、`distance_m` 是**米**（源是厘米）、`target_pace_sec_per_km`
+> 是**秒/公里**（源 `custom_target_value_*` 是 mm/s，`target_type='speed'`）。
+> 落库前 `duration_sec = 2400000` 而活动只有 2404 秒这类 1000 倍错误已修复；
+> 历史行用 `npm run backfill:workout` 回填（只 UPDATE 两列，不重写逐秒记录，幂等）。
+> 写入侧由 `scripts/garmin/fit-workout.js`（重扫原始字节）保证，
+> 读取侧由 `app/lib/workout.ts` 判别新旧格式。
+>
 > **track 列** (路线轨迹): 存降采样后的 GPS 多段线 + 海拔剖面 + 包围盒 (JSON, ~≤40KB/条)。
 > 由 `scripts/garmin/fit-parser.js` 的 `_extractTrack` 在 FIT 解析时生成, 经 `upsertActivity` 动态列写入。
 > **start_lat/start_lng** 同步写入轨迹首点, 带 `(start_lat, start_lng)` 索引; 供活动 AI 的
