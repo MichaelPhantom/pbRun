@@ -37,6 +37,7 @@ const fs = require('fs');
 const path = require('path');
 const Database = require('better-sqlite3');
 const { hrZoneSecondsFromSamples, resolveMaxHr } = require('../common/hr-zones');
+const { effectiveTimeSec } = require('../common/pace');
 
 const DB_PATH = process.env.DB_PATH || path.join(process.cwd(), 'app', 'data', 'activities.db');
 
@@ -134,7 +135,7 @@ async function main() {
         noHr++;
         continue;
       }
-      const expected = a.moving_time || a.duration || 0;
+      const expected = effectiveTimeSec(a) ?? 0;
       const derived = secs.reduce((s, v) => s + v, 0);
       if (expected > 0) {
         const ratio = derived / expected;

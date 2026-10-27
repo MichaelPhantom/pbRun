@@ -500,7 +500,8 @@ class DataValidator {
       }
       // 推导秒数应贴近 moving_time（暂停空档按 5s 截断）。实测 348 条中仅
       // 1 条偏离 >10%（短活动 122s 期望 / 139s 推导），故只告警不判错。
-      const base = row.moving_time || row.duration || 0;
+      // 时间基数走唯一实现（`moving_time` 优先，缺失才回退 `duration`）。
+      const base = effectiveTimeSec(row) ?? 0;
       if (base > 60) {
         const sum = arr.reduce((a, b) => a + (Number(b) || 0), 0);
         if (Math.abs(sum - base) / base > 0.1) {

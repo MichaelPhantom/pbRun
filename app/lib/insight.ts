@@ -150,6 +150,7 @@ export interface DailyLoad {
   date: string; // YYYY-MM-DD (本地)
   load: number;
   distanceMeters: number;
+  /** 当日总时长（秒）。**时间基数 = 计时器时间**（与配速/TSS 同一口径，见 `app/lib/pace.ts`）。 */
   duration: number;
 }
 

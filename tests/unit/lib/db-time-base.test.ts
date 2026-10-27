@@ -246,6 +246,56 @@ describe('getVDOTTrend 的 total_duration 用计时器时间', () => {
   });
 });
 
+describe('getTrainingLoads 的每日时长用计时器时间', () => {
+  /**
+   * 这条有两个真实消费方，都会把 `duration` 当「跑了多久」：
+   *  - 首页「当月平均配速」= Σduration / Σdistance（用经过时间会系统性拖慢配速 ——
+   *    真实库 2026-08 偏差 3.78%、2026-05 3.07%，看起来像退步）；
+   *  - `computeLoadInsight` 的 `weekly[].seconds`（周训练时长）。
+   */
+  test('每日 duration = Σ moving_time, 不是 Σ duration', async () => {
+    const db = await loadDb();
+    const points = db.getTrainingLoads('2026-09-01', '2026-09-30');
+    const byDate = new Map(points.map((p) => [p.date, p.duration]));
+    // 活动 1（有 1200s 暂停）单独一天
+    expect(byDate.get('2026-09-01')).toBe(2400);
+    expect(byDate.get('2026-09-01')).not.toBe(3600);
+    // 活动 2（无暂停）不受影响
+    expect(byDate.get('2026-09-02')).toBe(1500);
+    // 总计
+    expect(points.reduce((a, p) => a + p.duration, 0)).toBe(3900);
+  });
+
+  test('首页「当月均配速」不再被暂停拖慢', async () => {
+    const db = await loadDb();
+    const points = db.getTrainingLoads('2026-09-01', '2026-09-30');
+    const dur = points.reduce((a, p) => a + p.duration, 0);
+    const meters = points.reduce((a, p) => a + p.distance, 0);
+    const pace = dur / (meters / 1000);
+    // 15 km 总距离：3900s / 15km = 260 s/km。
+    // 按经过时间会是 5100/15 = 340 s/km —— 差了 1 分 20 秒/公里。
+    expect(pace).toBeCloseTo(260, 6);
+    expect(pace).not.toBeCloseTo(340, 0);
+  });
+});
+
+describe('getInsightActivityRows 的 durationSeconds 用计时器时间', () => {
+  /**
+   * 该字段被 `computeCategoryComparison` 当作「时长加权」的权重。
+   * 用经过时间会让「暂停多的类别」（越野/含等待的团跑）在类别均配速里被过度加权。
+   */
+  test('durationSeconds = moving_time', async () => {
+    const db = await loadDb();
+    const rows = db.getInsightActivityRows('2026-09-01', '2026-09-30');
+    const r1 = rows.find((r) => r.activityId === 1)!;
+    expect(r1.durationSeconds).toBe(2400);
+    expect(r1.durationSeconds).not.toBe(3600);
+    // 无暂停的活动不变
+    const r2 = rows.find((r) => r.activityId === 2)!;
+    expect(r2.durationSeconds).toBe(1500);
+  });
+});
+
 describe('内部分析的自洽性: 区间秒数之和不应超过总时长', () => {
   /**
    * 这是本次缺陷最直接的**症状断言**：区间秒数由逐秒记录按 `moving_time` 推导，

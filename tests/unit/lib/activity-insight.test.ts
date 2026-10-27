@@ -726,4 +726,45 @@ describe('配速可信度门槛 (MIN_RELIABLE_LAP_SEC)', () => {
     expect(isReliableLapPace({ durationSec: null })).toBe(true);
     expect(isReliableLapPace({})).toBe(true);
   });
+
+  /**
+   * **`durationSec` 必须与配速同一时间基数**（计时器时间），不能取 `lap.duration`。
+   *
+   * 缺陷形态：一个碎片实际只跑了 4 秒，但停表后又记了 56 秒，`duration` = 60。
+   * 用 `duration` 判可信度 → 60 ≥ 10 门槛 → 碎片被判成可信，
+   * 而它的配速正是由那 4 秒算出来的 279 s/km。于是「最快段」徽章指向一个
+   * 6 秒都没跑满的碎片 —— 门槛形同虚设。
+   *
+   * 判别式：同一个 lap 行，`moving_time` 4s / `duration` 60s。
+   * 正确实现取 4（不可信），错误实现取 60（可信）。
+   */
+  test('durationSec 取计时器时间, 不取经过时间 (否则门槛被绕过)', () => {
+    const lap = {
+      id: 1,
+      activity_id: 1,
+      lap_index: 0,
+      distance: 14.32,
+      average_pace: 279,
+      average_heart_rate: 150,
+      cumulative_time: 60,
+      // 只跑了 4 秒（计时器时间），但停表后记 60 秒（经过时间）
+      moving_time: 4,
+      duration: 60,
+    };
+    const insight = buildActivityInsight({
+      activityId: 1,
+      laps: [lap],
+      records: [],
+      hrZoneJson: null,
+      activity: {},
+      current: { activityId: 1, date: '2026-10-01', distanceKm: 0.01432, paceSecPerKm: 279, heartRate: 150 },
+      comparison: null,
+      environment: null,
+    });
+    // 正确口径: 计时器时间 4 秒 → 不可信 → 无最快段、不判主课。
+    // 若误用 `duration`（60 秒 ≥ 门槛 10），这个 14 m 碎片会立刻成为「最快段」。
+    expect(insight.lapAnalysis.bestLapIndex).toBeNull();
+    expect(insight.lapAnalysis.bestPaceSecPerKm).toBeNull();
+    expect(insight.lapAnalysis.workLaps).toBe(0);
+  });
 });

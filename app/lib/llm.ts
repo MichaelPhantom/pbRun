@@ -461,7 +461,9 @@ export function buildAnalysisMessages(
 ): ChatMessage[] {
   // activities.distance 在 DB 中即为公里 (详情页/列表页/MCP 均按公里使用); 仅 laps 距离为米。
   const dist = activity.distance ?? 0;
-  const dur = activity.moving_time || activity.duration || 0;
+  // 时长一律走 `effectiveTimeSec`（计时器时间优先，见 `app/lib/pace.ts`）——
+  // 不要在这里写 `moving_time || duration` 的第二份实现。
+  const dur = effectiveTimeSec(activity) ?? 0;
   // 非跑步活动（游泳/篮球/力量训练）走另一套 prompt: 跑步教练框架会把泳池的
   // average_pace(1670s/km) 当「配速偏慢」、篮球步频 16 当「步频过低」来批评。
   const running = isRunningType(activity.activity_type);
@@ -477,7 +479,7 @@ export function buildAnalysisMessages(
       cumKm += segKm;
       const parts = running
         ? [seg, formatPace(l.average_pace, false)]
-        : [seg, formatDuration(effectiveTimeSec(l) ?? l.duration)];
+        : [seg, formatDuration(effectiveTimeSec(l) ?? 0)];
       if (l.average_heart_rate != null) parts.push(`${Math.round(l.average_heart_rate)}bpm`);
       if (running && l.average_cadence != null) parts.push(`${Math.round(l.average_cadence)}spm`);
       // 分段功率只对跑步输出: 真实库 2827/2827 条跑步 lap 有 `average_power`

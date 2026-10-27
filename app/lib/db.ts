@@ -1049,6 +1049,13 @@ export function getPeriodStats(startDate: string, endDate: string): PeriodStats 
 /**
  * 按本地日期聚合每日训练负荷（ACWR 训练负荷分析用）。
  * distance 以米返回。
+ *
+ * **时长的时间基数 = 计时器时间**（`moving_time`，与配速/区间/TSS 同一口径）。
+ * 这个 `duration` 有两个消费方会把它当「跑了多久」：
+ *  - 首页「当月平均配速」= Σduration / Σdistance（用经过时间会系统性地把配速
+ *    拖慢 —— 真实库 2026-08 偏差 **3.78%**、2026-05 3.07%，看起来像退步）；
+ *  - `computeLoadInsight` 的 `weekly[].seconds`（周训练时长）。
+ *
  * @throws 日期格式非法或 startDate > endDate 时抛出清晰错误
  */
 export function getTrainingLoads(startDate: string, endDate: string): TrainingLoadPoint[] {
@@ -1060,7 +1067,8 @@ export function getTrainingLoads(startDate: string, endDate: string): TrainingLo
        substr(start_time_local, 1, 10) AS date,
        SUM(COALESCE(training_load, 0)) AS load,
        SUM(distance) AS distance,
-       SUM(duration) AS duration
+       -- 与配速同一时间基数（见 app/lib/pace.ts）。
+       SUM(CASE WHEN moving_time > 0 THEN moving_time ELSE duration END) AS duration
      FROM activities
      WHERE start_time_local IS NOT NULL AND start_time_local >= ? AND start_time_local <= ?
        AND ${runningTypeClause('activities')}
@@ -1478,7 +1486,7 @@ export function getInsightActivityRows(startDate: string, endDate: string): Insi
   const start = toInclusiveStart(startDate, 'getInsightActivityRows');
   const end = toInclusiveEnd(endDate, 'getInsightActivityRows');
   const rows = db.prepare(
-    `SELECT activity_id, name, start_time_local, distance, duration,
+    `SELECT activity_id, name, start_time_local, distance, duration, moving_time,
             average_pace, average_heart_rate, average_cadence, vdot_value,
             training_load, average_temperature
      FROM activities
@@ -1491,6 +1499,7 @@ export function getInsightActivityRows(startDate: string, endDate: string): Insi
     start_time_local: string;
     distance: number | null;
     duration: number | null;
+    moving_time: number | null;
     average_pace: number | null;
     average_heart_rate: number | null;
     average_cadence: number | null;
@@ -1503,7 +1512,10 @@ export function getInsightActivityRows(startDate: string, endDate: string): Insi
     name: r.name,
     date: r.start_time_local,
     distanceKm: r.distance ?? 0,
-    durationSeconds: r.duration ?? 0,
+    // 时长的时间基数 = **计时器时间**（与配速同一口径，见 `app/lib/pace.ts`）。
+    // 该字段被 `computeCategoryComparison` 当作「时长加权」的权重 —— 用经过时间
+    // 会让「暂停多的类别」（如含大量等待的越野）在类别均配速里被过度加权。
+    durationSeconds: effectiveTimeSec(r) ?? r.duration ?? 0,
     avgPaceSecPerKm: r.average_pace,
     avgHeartRate: r.average_heart_rate,
     avgCadence: r.average_cadence,

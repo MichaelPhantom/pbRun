@@ -546,6 +546,9 @@ FTP 缺失不猜 / 海拔比值 / 尖峰过滤）、`tests/unit/pages/activity-d
 | `getPowerZoneStats().total_duration` + 加权权重 | 同上 | 同上 |
 | `getHrZoneStats().total_duration` | 同上 | 同上 |
 | `getVDOTTrend().total_duration` | `Σ activity.duration` | 同上 |
+| `getTrainingLoads().duration` | `SUM(duration)` | 首页「当月平均配速」= Σduration/Σdistance 被系统性拖慢（真实库 2026-08 偏差 **3.78%**、2026-05 3.07%），看起来像退步；周训练时长同样虚高 |
+| `getInsightActivityRows().durationSeconds` | `r.duration` | 它是 `computeCategoryComparison` 的**时长加权权重** —— 暂停多的类别（越野/含等待的团跑）在类别均配速里被过度加权 |
+| `activity-insight` 的 `lap.durationSec` | `l.duration` | 它是 `MIN_RELIABLE_LAP_SEC` 的判据。碎片实际只跑 4 秒、停表后记 60 秒 → 60 ≥ 10 判「可信」，于是 14 m 碎片的 279 s/km 成为「最快段」，门槛形同虚设 |
 | `getPersonalRecords` 的 5K/10K 插值 | `lap.duration` | 带暂停的跑会「跑出」假的慢成绩，**本该破纪录判成没破** |
 | VDOT 代表段 / `training_load` | `duration` | `582132079` 按经过时间得 TL 174、按计时器得 44（4 倍） |
 
@@ -900,9 +903,9 @@ GPS 漂移、起终点的静止采样都被判为「有效移动」，混进前�
 | **AI 出流回退契约头** | `coach-stream.ts`（`X-Model-Fallback` / `-Requested` / `-Used`） | `tests/unit/api/coach-stream-gaps.test.ts`（回退成功、两个断开时机、错误体读取失败） |
 | **覆盖率门槛留有余量** | `jest.config.js` + `threshold-margin.test.ts` | `tests/unit/ci/threshold-margin.test.ts`（每组每项 ≥1.5pt，且不可用降门槛来满足） |
 | **配速/速度的时间基数 = 计时器时间 `moving_time`** | `app/lib/pace.ts`（`effectiveTimeSec` / `paceSecPerKm` / `speedKmh`）+ CJS 镜像 `scripts/common/pace.js`；写入侧 `fit-parser.js`（活动级 + lap 级）、`backfill-vdot.js`、`sync.js`、`scripts/strava/sync.js`；读取侧 `db.ts`、`validate-data.js` | `tests/unit/scripts/pace-parity.test.ts`（14 种时间形态逐值比对 + 真实库锚点：`582132079` 6:35 而非 26:19、`598287817` lap 7 从 60792 降到 24500）+ `tests/unit/garmin/fit-parser-branches.test.js`（活动级与 lap 级都断言 `average_pace` 更接近计时器口径、`average_speed × average_pace = 3600`）+ `tests/unit/scripts/backfill-pace.test.js`（18 例：单位差、幂等、dry-run、极端段、退出码 1）+ `tests/e2e/activity-detail.spec.ts`（判别式：`distToTimer < distToElapsed`） |
-| **所有时长聚合与配速同基数** | `db.ts` 的 `getStats` / `getPeriodStats` 的 `totalDuration`、`getPaceZoneStats` / `getPowerZoneStats` / `getHrZoneStats` 的 `total_duration` 与加权权重、`getVDOTTrend().total_duration`、`getPersonalRecords` 插值 | `tests/unit/lib/db-time-base.test.ts`（11 例真实 SQL：每条聚合路径都断言具体数字 3900 而非 5100 / 2200 而非 2900；四条注入路径逐一验证转红）+ `tests/unit/lib/db-insight-integration.test.ts`（5K PR 1786 而非 1800） |
+| **所有时长聚合与配速同基数** | `db.ts` 的 `getStats` / `getPeriodStats` 的 `totalDuration`、`getPaceZoneStats` / `getPowerZoneStats` / `getHrZoneStats` 的 `total_duration` 与加权权重、`getVDOTTrend().total_duration`、`getPersonalRecords` 插值、`getTrainingLoads().duration`、`getInsightActivityRows().durationSeconds`、`activity-insight.ts` 的 `lap.durationSec`、`llm.ts` 的 `dur` 与非跑步分段时长 | `tests/unit/lib/db-time-base.test.ts`（14 例真实 SQL：每条聚合路径都断言具体数字 3900 而非 5100 / 260 而非 340 s/km；七条注入路径逐一验证转红）+ `tests/unit/lib/db-insight-integration.test.ts`（5K PR 1786 而非 1800）+ `tests/unit/lib/activity-insight.test.ts`（`moving_time` 4s vs `duration` 60s → 无最快段，注入后转红） |
 | **`ActivityLap` 的 44 个字段必须被消费或记账** | 账本 `LAP_FIELD_ALLOWLIST`（`tests/unit/components/lap-field-consumption.test.ts`）+ 两条推导链同基数断言 | 字段数精确 `toBe(44)`、正向未消费为空、反向账本无已消费项、账本键必须是真实列、schema 每列三头必须落一头；四个方向均做过缺陷注入 |
-| **校验器必须能失败（时间基数）** | `validate-data.js` 的活动级/lap 级配速断言改用 `effectiveTimeSec` / `speedKmh` / `paceSecPerKm` | `tests/unit/scripts/validate-data.test.js`（旧断言 `average_pace === duration/distance` 已删除 —— 它把错误口径锁死；问题数据用例必须命中） |
+| **校验器必须能失败（时间基数）** | `validate-data.js` 的活动级/lap 级配速断言、区间秒数基准、`backfill-hr-zones.js` / `backfill-power-zones.js` / `backfill-lap-zones.js` 的 `expected` 基准全部改用 `effectiveTimeSec` / `speedKmh` / `paceSecPerKm` | `tests/unit/scripts/validate-data.test.js`（旧断言 `average_pace === duration/distance` 已删除 —— 它把错误口径锁死；问题数据用例必须命中） |
 
 ---
 

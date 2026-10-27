@@ -14,9 +14,9 @@ export interface Activity {
 
   // 基础指标
   distance: number;                              // 距离（公里，DB 原单位；聚合接口返回米，见 db.ts 各函数）
-  duration: number;                              // 总时长（秒）
-  moving_time: number;                           // 移动时间（秒）
-  elapsed_time: number;                          // 经过时间（秒）
+  duration: number;                              // 经过时间 = FIT total_elapsed_time（含暂停）
+  moving_time: number;                           // 计时器时间 = FIT total_timer_time（配速/统计的时间基数；0 = 缺失）
+  elapsed_time: number;                          // 经过时间（与 duration 同值，348/348）
 
   // 配速和速度
   // **时间基数 = 计时器时间**（`moving_time` / FIT `total_timer_time`）。
@@ -164,9 +164,9 @@ export interface ActivityLap {
   lap_index: number;                             // 分段编号
 
   // 时间数据
-  duration: number;                              // 分段时长（秒）
+  duration: number;                              // 经过时间 = FIT total_elapsed_time（含暂停）
   cumulative_time: number;                       // 累积时间（秒）
-  moving_time?: number;                          // 移动时间（秒）
+  moving_time?: number;                          // 计时器时间 = FIT total_timer_time（配速的时间基数）
 
   // 距离和配速
   distance: number;                              // 分段距离（米）
@@ -368,7 +368,7 @@ export interface TrainingLoadPoint {
   date: string;                                  // YYYY-MM-DD（本地日期）
   load: number;                                  // 当日训练负荷合计
   distance: number;                              // 当日总距离（米）
-  duration: number;                              // 当日总时长（秒）
+  duration: number;                              // 当日总时长（秒，计时器时间口径）
 }
 
 /** 跑力配速区间：基于 VDOT 的 Z1-Z5 目标配速及该区间内 laps 的统计 */

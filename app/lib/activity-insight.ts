@@ -5,6 +5,7 @@
 import { computeDecouplingPct, decouplingTone, mean, type RecordSample } from './insight';
 import { powerZoneSecondsFromSamples } from './power-zones';
 import { resolveFtp } from './power';
+import { effectiveTimeSec } from './pace';
 import { classifyActivity } from './insight-compare';
 import type {
   ActivityComparison,
@@ -507,8 +508,10 @@ export function buildActivityInsight(params: {
       cadence: l.average_cadence ?? null,
       power: l.average_power ?? null,
       // 时长用于排除「短到配速不可信」的段（见 MIN_RELIABLE_LAP_SEC）。
-      // 真实库 duration 3082/3082 有值，缺失时 isReliableLapPace 按可信处理。
-      durationSec: l.duration ?? null,
+      // **必须与配速同一时间基数**（计时器时间）：若用 `duration`（含暂停），
+      // 一个「实际只跑了 4 秒、但停表后记 60 秒」的碎片会被判成可信，
+      // 而它的配速正是由那 4 秒算出来的 279 s/km。
+      durationSec: effectiveTimeSec(l) ?? null,
       // lap 级区间秒数：解析器已按时间窗推导并落库（`_assignLapZoneSeconds`）。
       // 这里只做 JSON 反序列化，长度校验交给 `normalizeZoneSeconds` ——
       // 设备原始数组（7/8 槽）若因历史脏数据出现在统一列，会被这条校验挡掉。
