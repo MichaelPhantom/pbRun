@@ -8,6 +8,8 @@ import {
   hrZoneRangeMap,
   hrZoneRangeBpmLabel,
   hrZoneBadgeStyle,
+  hrZoneColor,
+  zoneRangeLabel,
   resolveMaxHr,
   DEFAULT_MAX_HR,
   HR_ZONE_BOUNDS,
@@ -119,5 +121,28 @@ describe('hr-zones', () => {
 
   test('HR_ZONE_NAMES 覆盖 Z1-Z5', () => {
     expect(Object.keys(HR_ZONE_NAMES).map(Number).sort()).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  test('hrZoneColor: 有 token 的 Z1-Z5 原样, 越界 clamp 到 Z1/Z5', () => {
+    expect(hrZoneColor(1)).toBe('var(--z1)');
+    expect(hrZoneColor(5)).toBe('var(--z5)');
+    expect(hrZoneColor(0)).toBe('var(--z1)');
+    expect(hrZoneColor(6)).toBe('var(--z5)'); // 无 --z6 token, 落到 Z5
+  });
+
+  test('zoneRangeLabel: 连续区间折叠为范围, 单值/非连续各按实际列出', () => {
+    // 真实库 140 条活动的 time_in_hr_zone 索引 6/7 全为 0 → 标题必须是 Z1–Z5
+    expect(zoneRangeLabel([1, 2, 3, 4, 5])).toBe('Z1–Z5');
+    expect(zoneRangeLabel([5, 3, 1, 2, 4])).toBe('Z1–Z5'); // 乱序去重后仍折叠
+    expect(zoneRangeLabel([3])).toBe('Z3');
+    expect(zoneRangeLabel([1, 2, 4])).toBe('Z1, Z2, Z4');
+    expect(zoneRangeLabel([])).toBe('');
+    expect(zoneRangeLabel([0, -1, NaN])).toBe('');
+  });
+
+  test('zoneRangeLabel: 旧文案「Z1–Z6」不会被生成 (Z6 无配色 token 且真实库全零)', () => {
+    expect(zoneRangeLabel([1, 2, 3, 4, 5, 6])).toBe('Z1–Z6');
+    // 但只要 Z6 没有非零秒数, 就不会传入 → 标题自然退回 Z1–Z5
+    expect(zoneRangeLabel([1, 2, 3, 4, 5])).not.toBe('Z1–Z6');
   });
 });

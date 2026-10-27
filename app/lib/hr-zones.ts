@@ -80,3 +80,26 @@ export function hrZoneBadgeStyle(zone: number, bgPercent = 14): CSSProperties {
   // 对比度不足 (axe serious), 详见 app/globals.css 的 --zN-text 说明。
   return { backgroundColor: `color-mix(in srgb, ${v} ${bgPercent}%, transparent)`, color: `var(--z${z}-text)` };
 }
+
+/** 区间序号 → 图表色 token。Z6+ 没有配色 token, 统一落到 Z5。 */
+export function hrZoneColor(zone: number): string {
+  return `var(--z${Math.min(Math.max(zone, 1), 5)})`;
+}
+
+/**
+ * 一组实际存在的区间序号 → 标题文案, 如 [1,2,3,4,5] → "Z1–Z5"、[3] → "Z3"、
+ * 非连续如 [1,2,4] → "Z1, Z2, Z4"。
+ *
+ * 为什么必须派生: 旧文案写死「Z1–Z6」, 但真实库 140 条活动的 time_in_hr_zone
+ * 索引 6/7 (Z6/Z7) **0/140 全为 0**, 配色也只有 --z1..--z5 —— 标题承诺了永远
+ * 画不出来的区间。与趋势卡标题写死「海拔 趋势」是同一类空承诺。
+ */
+export function zoneRangeLabel(zones: number[]): string {
+  const sorted = [...new Set(zones.filter((z) => Number.isFinite(z) && z > 0))].sort((a, b) => a - b);
+  if (sorted.length === 0) return '';
+  const contiguous = sorted.every((z, i) => i === 0 || z === sorted[i - 1] + 1);
+  if (contiguous) {
+    return sorted.length === 1 ? `Z${sorted[0]}` : `Z${sorted[0]}–Z${sorted[sorted.length - 1]}`;
+  }
+  return sorted.map((z) => `Z${z}`).join(', ');
+}

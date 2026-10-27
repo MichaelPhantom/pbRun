@@ -143,6 +143,16 @@ describe('InsightClient', () => {
     expect(screen.queryByRole('img', { name: '训练类别活动数分布' })).toBeNull();
   });
 
+  test('强度分布标题由非零区间派生 (不写死 Z1–Z6)', () => {
+    // 夹具 zDistribution 只有 Z3/Z4 → 标题应为「强度分布（Z3–Z4）」
+    render(<InsightClient insight={insight} timeRangeDays={90} />);
+    expect(screen.getByText('强度分布（Z3–Z4）')).toBeInTheDocument();
+    // 旧文案「Z1–Z6」是空承诺: 真实库 140 条活动的 time_in_hr_zone 索引 6/7
+    // (Z6/Z7) 0/140 全为 0, 配色也只有 --z1..--z5。
+    expect(screen.queryByText('强度分布（Z1–Z6）')).toBeNull();
+    expect(screen.queryByText('强度分布（Z1–Z5）')).toBeNull();
+  });
+
   test('days=0 → 范围显示「全部历史」而不是 2000-01-01', () => {
     render(<InsightClient insight={insight} timeRangeDays={0} />);
     expect(screen.getByText(/全部历史/)).toBeInTheDocument();

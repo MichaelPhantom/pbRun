@@ -10,6 +10,7 @@ import { InsightTrendChart } from '@/app/lib/components/charts/InsightTrendChart
 import { InsightBarChart } from '@/app/lib/components/charts/InsightBarChart';
 import { GlobalCoach } from '@/app/lib/components/ai/GlobalCoach';
 import { TIME_RANGE_DAYS_OPTIONS, TIME_RANGE_LABELS, type TimeRangeDays } from '@/app/lib/date-utils';
+import { hrZoneColor, zoneRangeLabel } from '@/app/lib/hr-zones';
 import type { InsightFinding, InsightResponse } from '@/app/lib/types';
 
 const SEVERITY_TONE: Record<InsightFinding['severity'], 'good' | 'brand' | 'warn' | 'crit'> = {
@@ -94,8 +95,12 @@ export default function InsightClient({
     .map((z) => ({
       label: `Z${z.zone}`,
       value: Math.round(z.pct * 10) / 10,
-      color: `var(--z${Math.min(Math.max(z.zone, 1), 5)})`,
+      color: hrZoneColor(z.zone),
     }));
+  // 标题只承诺真的画出来的区间。旧文案写死「Z1–Z6」, 而真实库 140 条活动的
+  // time_in_hr_zone 索引 6/7(Z6/Z7) **0/140 全为 0** —— 与「趋势卡标题写死」
+  // 是同一类空承诺。
+  const zoneTitle = zoneRangeLabel(zoneBars.map((b) => Number(b.label.slice(1))));
 
   // 解耦趋势
   const decouplingTrend = useMemo(
@@ -270,7 +275,10 @@ export default function InsightClient({
         )}
 
         <div className="mt-4">
-          <p className="mb-2 text-xs font-medium text-fg-secondary">强度分布（Z1–Z6）</p>
+          {/* 标题由实际非零区间派生 (zoneRangeLabel): 配色只有 --z1..--z5, 且真实库
+              140 条活动的 time_in_hr_zone 索引 6(Z6)/7(Z7) 全为 0 ——
+              旧标题写死「Z1–Z6」是空承诺。 */}
+          <p className="mb-2 text-xs font-medium text-fg-secondary">强度分布（{zoneTitle}）</p>
           {zoneBars.length > 0 ? (
             <InsightBarChart data={zoneBars} valueSuffix="%" ariaLabel="强度分布柱状图" height={180} />
           ) : (
