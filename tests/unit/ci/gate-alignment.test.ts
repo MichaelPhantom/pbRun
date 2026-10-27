@@ -188,6 +188,24 @@ describe('test:ci ↔ CI quality 作业对齐', () => {
     expect(testCi).toContain('coverage-summary.js');
   });
 
+  /**
+   * Python 测试曾长期不在 CI 里 (只有 docs/testing-strategy.md 声称有 pytest)。
+   * 于是 `tests/python` 里的两个真实缺陷一直潜伏: `get_garmin_token` 的 getpass
+   * patch 目标错 (无 TTY 直接 UnsupportedOperation)、Strava `max_speed` 未转 km/h
+   * (同一个列混着 Garmin 的 km/h 与 Strava 的 m/s)。
+   * 「测试存在但没人跑」等于没有测试 —— 这里把「必须被 CI 执行」写成断言。
+   */
+  test('Python 脚本测试必须进 CI 且被 test:ci 覆盖 (存在≠被执行)', () => {
+    expect(pkg.scripts['test:python']).toMatch(/pytest/);
+    expect(pkg.scripts['test:python']).toContain('tests/python');
+    expect(testCi).toContain('npm run test:python');
+    expect(qualityRuns).toEqual(expect.arrayContaining(['npm run test:python']));
+  });
+
+  test('CI 的 pytest 步骤会安装 pytest (干净 runner 上无 pytest)', () => {
+    expect(qualitySection).toMatch(/pip install[^\n]*pytest|pytest[^\n]*pip install/);
+  });
+
   test('CONTRIBUTING 逐字描述同一套门禁 (文档不落后于实现)', () => {
     const contributing = read('CONTRIBUTING.md');
     for (const step of ['typecheck', 'build:mcp', 'lint', 'jest', 'next build']) {

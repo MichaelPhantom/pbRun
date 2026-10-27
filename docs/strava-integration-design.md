@@ -143,7 +143,7 @@ RESTING_HR=55
 | `elapsed_time` (s) | `elapsed_time` | 直接映射 |
 | `average_speed` (m/s) | `average_pace` | 转换为秒/公里 (1000/速度) |
 | `average_speed` (m/s) | `average_speed` | m/s → km/h (*3.6) |
-| `max_speed` (m/s) | `max_speed` | 直接保留 m/s |
+| `max_speed` (m/s) | `max_speed` | m/s → km/h (*3.6)，与 `average_speed` 统一单位 |
 | `average_heartrate` | `average_heart_rate` | 直接映射 |
 | `max_heartrate` | `max_heart_rate` | 直接映射 |
 | `average_cadence` | `average_cadence` | 直接映射 |
@@ -312,27 +312,26 @@ tests/
 │   ├── garmin/
 │   │   └── client.test.js
 │   └── strava/
-│       ├── data-transform.test.js
-│       └── sub-sport-infer.test.js
+│       ├── data-transformation.test.js
+│       ├── sub-sport-inference.test.js
+│       ├── error-handling.test.js
+│       ├── sync-flow.test.js
+│       └── utils.test.js
 ├── integration/                    # 集成测试
-│   ├── garmin-sync.test.js
 │   └── strava-sync.test.js
-├── mocks/                          # Mock 数据
-│   ├── strava/
-│   │   ├── activity.json           # 示例活动数据
-│   │   ├── streams.json            # 示例 streams 数据
-│   │   └── laps.json               # 示例 laps 数据
-│   └── garmin/
-│       └── ...
-└── e2e/                            # 端到端测试
-    └── sync-workflow.test.js
+└── python/                         # Python 脚本测试
+    ├── conftest.py
+    └── test_fetcher_strava.py
+
+# 无 tests/mocks/ 目录: mock 数据就近定义在测试文件内的工厂函数/常量里
+# （见 §8.7）。e2e 目录只覆盖 UI 页面，不含同步流程用例。
 ```
 
 ### 8.3 单元测试用例
 
 #### 8.3.1 Strava 数据转换测试
 
-**文件**: `tests/unit/strava/data-transform.test.js`
+**文件**: `tests/unit/strava/data-transformation.test.js`
 
 | 用例 ID | 用例名称 | 输入 | 预期输出 | 优先级 |
 |---------|----------|------|----------|--------|
@@ -347,7 +346,7 @@ tests/
 
 #### 8.3.2 子类型推断测试
 
-**文件**: `tests/unit/strava/sub-sport-infer.test.js`
+**文件**: `tests/unit/strava/sub-sport-inference.test.js`
 
 | 用例 ID | 用例名称 | 输入 | 预期输出 | 优先级 |
 |---------|----------|------|----------|--------|
@@ -381,7 +380,7 @@ tests/
 
 ### 8.5 Python 模块测试
 
-**文件**: `tests/python/test_fetcher.py` (使用 pytest)
+**文件**: `tests/python/test_fetcher_strava.py` (pytest，**已在 CI 的 quality 作业执行**)
 
 | 用例 ID | 用例名称 | 测试内容 | 优先级 |
 |---------|----------|----------|--------|
@@ -397,7 +396,8 @@ tests/
 
 ### 8.6 端到端测试
 
-**文件**: `tests/e2e/sync-workflow.test.js`
+**文件**: `tests/integration/strava-sync.test.js`（仓库无 e2e 同步用例；同步流程以
+Jest 集成测试 + mock API 覆盖，e2e 只覆盖 UI 页面）
 
 | 用例 ID | 用例名称 | 测试步骤 | 预期结果 | 优先级 |
 |---------|----------|----------|----------|--------|
@@ -406,7 +406,9 @@ tests/
 
 ### 8.7 Mock 数据设计
 
-**文件**: `tests/mocks/strava/activity.json`
+**Mock 就地定义**: `tests/unit/strava/data-transformation.test.js` 顶部的
+`mockStravaActivity` 常量（仓库无 `tests/mocks/` 目录）。原始 Strava API 单位（米 / m/s / rpm）→
+pbRun schema 单位（公里 / km/h / spm）的换算在 `transform_activity_data` 里完成。
 
 ```json
 {
@@ -435,22 +437,20 @@ tests/
 ### 8.8 测试执行计划
 
 ```bash
-# 安装测试依赖
-npm install --save-dev jest @types/jest
-pip3 install pytest pytest-mock
+# 依赖已在 package.json / devDependencies 里, 只需 npm ci
+npm ci
 
-# 运行所有测试
-npm test
+# 本地一键跑齐 CI 门禁 (含 pytest + 覆盖率门槛)
+npm run test:ci
 
-# 运行特定测试
-npm test -- tests/unit/strava
-npm test -- tests/integration/strava-sync.test.js
+# 只跑 Strava 相关
+npx jest tests/unit/strava tests/integration/strava-sync.test.js
 
-# Python 测试
-cd tests/python && pytest
+# Python 测试 (Strava fetcher 的单位换算与字段映射)
+npm run test:python
 
-# 覆盖率报告
-npm test -- --coverage
+# 覆盖率报告 (勿与其它写文件的测试并行, 见 testing-strategy §7)
+npm run test:coverage
 ```
 
 ---

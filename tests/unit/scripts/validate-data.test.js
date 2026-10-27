@@ -25,11 +25,13 @@ function wireDb(overrides = {}) {
     activityCount: 2,
     lapCount: 4,
     activityUnits: [
-      // distance(m)=10000, duration=3600 → speed 10 km/h, pace 360 s/km
-      { activity_id: 1, distance: 10000, duration: 3600, average_speed: 10, average_pace: 360 },
+      // **distance 为公里**(DB 契约): 10 km / 3600 s → 10 km/h, pace 360 s/km。
+      // 旧夹具按米写 10000, 与旧脚本的「米」假设一致 —— 于是脚本和夹具一起错,
+      // 真实库 100/100 条全被判「单位不一致」也测不出来。
+      { activity_id: 1, distance: 10, duration: 3600, average_speed: 10, average_pace: 360 },
     ],
-    maxSpeedStats: { min_val: 3, max_val: 12, avg_val: 5, count: 2 },
-    activityCalcs: [{ activity_id: 1, distance: 10000, duration: 3600, elapsed_time: 3700, moving_time: 3600, average_speed: 10, average_pace: 360 }],
+    maxSpeedStats: { min_val: 4.2, max_val: 28.8, avg_val: 14.3, count: 2 },
+    activityCalcs: [{ activity_id: 1, distance: 10, duration: 3600, elapsed_time: 3700, moving_time: 3600, average_speed: 10, average_pace: 360 }],
     laps: [{ lap_index: 0, distance: 1000, duration: 360, average_speed: 10, average_pace: 360 }],
     activitiesWithLaps: [{ activity_id: 1 }],
     lapsOfActivity: [{ lap_index: 0, distance: 1000, duration: 360, average_speed: 10, average_pace: 360, cumulative_time: 360 }],
@@ -109,11 +111,13 @@ describe('问题数据 → issue/warning 双通道', () => {
   test('单位/计算/时间/NULL/范围/外键/分段数 异常全部命中', async () => {
     wireDb({
       activityUnits: [
-        { activity_id: 1, distance: 10000, duration: 3600, average_speed: 99, average_pace: 1 },
+        // distance 10km / 3600s 应为 10 km/h, 实际 99 → 单位/计算异常
+        { activity_id: 1, distance: 10, duration: 3600, average_speed: 99, average_pace: 1 },
       ],
-      maxSpeedStats: { min_val: 3, max_val: 30, avg_val: 9, count: 2 },
+      // 103.5 = 把 28.8km/h 当 m/s 再 ×3.6 的结果, 正是要抓的单位错
+      maxSpeedStats: { min_val: 4.2, max_val: 103.5, avg_val: 14.3, count: 2 },
       activityCalcs: [
-        { activity_id: 1, distance: 10000, duration: 3600, elapsed_time: 100, moving_time: 3600, average_speed: 1, average_pace: 1 },
+        { activity_id: 1, distance: 10, duration: 3600, elapsed_time: 100, moving_time: 3600, average_speed: 1, average_pace: 1 },
       ],
       laps: [{ lap_index: 0, distance: 1000, duration: 360, average_speed: 0.2, average_pace: 55 }],
       lapsOfActivity: [

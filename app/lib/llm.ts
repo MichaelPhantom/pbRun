@@ -438,13 +438,19 @@ export function buildAnalysisMessages(
 
   // 跑步专属行（配速/步频/步幅/触地/VDOT）对非跑步活动整行不输出:
   // 宁可让模型看到「没有这一项」，也不要给它一个语义错误的值去解读。
+  //
+  // `max_speed` 库里存的已经是 **km/h**（与 average_speed 同单位）—— FIT 解析器
+  // 以 speedUnit:'km/h' 解析，enhanced_max_speed 原样落库（实测 16.49 → DB 16.49）。
+  // 旧代码按「Garmin 原始 m/s」乘了 3.6，把 16.5km/h 报成 59.4km/h（真实库最大
+  // 28.75 → 103.5km/h，等于 2:53/km 的世界纪录配速），模型据此判定「冲刺能力惊人」。
+  const maxSpeedKmh = activity.max_speed != null ? activity.max_speed.toFixed(1) : '--';
   const runningLines = running
-    ? `平均配速: ${formatPace(activity.average_pace, false)}  最大速度: ${activity.max_speed != null ? (activity.max_speed * 3.6).toFixed(1) : '--'} km/h
+    ? `平均配速: ${formatPace(activity.average_pace, false)}  最大速度: ${maxSpeedKmh} km/h
 平均步频: ${fmtNum(activity.average_cadence, 0, 'spm')}  步幅: ${fmtNum(activity.average_stride_length, 2, 'm')}
 触地平衡: ${fmtNum(activity.average_gct_balance, 1, '%')}  触地时间: ${fmtNum(activity.average_ground_contact_time, 0, 'ms')}  垂直摆动: ${fmtNum(activity.average_vertical_oscillation, 1, 'cm')}  垂直振幅比: ${fmtNum(activity.average_vertical_ratio, 1, '%')}
 VDOT: ${fmtNum(activity.vdot_value, 1)}  有氧训练效果: ${fmtNum(activity.total_training_effect, 1)}  无氧: ${fmtNum(activity.total_anaerobic_training_effect, 1)}
 TSS: ${fmtNum(activity.training_stress_score, 0)}  IF: ${fmtNum(activity.intensity_factor, 2)}`
-    : `平均速度: ${activity.average_speed != null ? activity.average_speed.toFixed(2) : '--'} km/h  最大速度: ${activity.max_speed != null ? (activity.max_speed * 3.6).toFixed(1) : '--'} km/h
+    : `平均速度: ${activity.average_speed != null ? activity.average_speed.toFixed(2) : '--'} km/h  最大速度: ${maxSpeedKmh} km/h
 训练效果: ${fmtNum(activity.total_training_effect, 1)}  无氧效果: ${fmtNum(activity.total_anaerobic_training_effect, 1)}`;
 
   const lapTitle = running ? '【每公里分段】（区间为累计距离，非序号）' : '【分段明细】（区间为累计距离，非序号）';

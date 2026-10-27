@@ -39,6 +39,15 @@ jobs:
       - name: Lint(eslint)
         run: npm run lint
 
+      # Python 脚本测试 (Strava fetcher 单位换算 / Garmin token .env 解析)。
+      # 此前从未进 CI —— 于是两个真实缺陷长期潜伏: `get_garmin_token` 的 getpass
+      # patch 目标错 (无 TTY 必崩) 和 Strava `max_speed` 未转 km/h。
+      # 不装 stravalib/gpxpy/garth: 测试自己 mock 了这些外部依赖。
+      - name: Python 脚本测试(pytest)
+        run: |
+          python3 -m pip install --upgrade pip pytest
+          npm run test:python
+
       # 带覆盖率运行: 门槛不达标即失败 (等同于 npm test 的门禁 + 报告产物)
       # 输出落 jest-output.txt 并随 artifact 上传 —— 失败时可离线定位 (CI 日志需 admin 才能下载)
       - name: 单元测试 + 覆盖率(jest)

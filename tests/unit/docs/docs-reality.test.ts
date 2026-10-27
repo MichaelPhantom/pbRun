@@ -89,6 +89,43 @@ describe('文档 ↔ 仓库现实一致性', () => {
     expect(ghosts).toEqual([]);
   });
 
+  /**
+   * 文档引用的**代码文件路径**必须真实存在。
+   *
+   * 2026-10-27 实测: `docs/testing-strategy.md` 声称有 `tests/fixtures/test-data.sql`、
+   * `scripts/setup-test-db.js`、`tests/mocks/strava/activities.json`、`tests/e2e/pages/*.spec.ts`
+   * 等 14 个文件，`docs/strava-integration-design.md` 又声称有 `tests/python/test_fetcher.py`、
+   * `tests/unit/strava/data-transform.test.js` 等 —— **全部不存在**。
+   * 原有守护只查 `npm run` 命令、`.yml` 文件名和 `docs/*.md` 交叉引用，代码路径是盲区，
+   * 所以「文档描述的测试」可以长期是虚构的。文档描述不存在的测试，比没有文档更糟:
+   * 读者会以为这块已被覆盖。
+   *
+   * 只查**看起来像路径**的 token（含 `/` 且以已知扩展名结尾），避免把正文里的
+   * 普通单词当路径。`.json` 需排除正则截断误报（`tsconfig.json` 曾被截成 `.js`）。
+   */
+  test('文档里引用的代码文件路径都真实存在 (防文档虚构文件)', () => {
+    // 允许出现的「尚不存在」引用: 设计稿里对**外部仓库/未来文件**的引用。
+    const ALLOW = [
+      'scripts/fetch_strava_run.py', // 来自外部仓库 strava-running, 仅作迁移来源说明
+    ];
+    const ghosts: string[] = [];
+    for (const file of currentDocs) {
+      const src = read(file);
+      for (const raw of src.matchAll(
+        /(?<![A-Za-z0-9_.\/-])((?:tests|scripts|app|mcp-server)\/[A-Za-z0-9_.\/[\]-]+\.(?:tsx|ts|jsx|js|py|sql|json))/g,
+      )) {
+        const p = raw[1];
+        if (ALLOW.includes(p)) continue;
+        // 正则可能截断 `.json`→`.js` / `.tsx`→`.ts`: 若更长扩展名的文件存在, 视为截断误报
+        if (fs.existsSync(path.join(root, p))) continue;
+        const longer = [`${p}on`, `${p}x`].filter((c) => fs.existsSync(path.join(root, c)));
+        if (longer.length > 0) continue;
+        ghosts.push(`${file}: ${p}`);
+      }
+    }
+    expect(ghosts).toEqual([]);
+  });
+
   test('docs/README.md 索引覆盖 docs/ 下全部 markdown', () => {
     const index = read('docs/README.md');
     const all = fs

@@ -491,7 +491,10 @@ class StravaFetcher:
             # Pace and speed
             'average_pace': avg_pace_sec,
             'average_speed': round(avg_speed * 3.6, 2) if avg_speed else None,  # km/h
-            'max_speed': round(parse_quantity(getattr(activity, 'max_speed', None)), 2) if getattr(activity, 'max_speed', None) else None,
+            # max_speed 也转 km/h: DB 契约要求它与 average_speed 同单位。Strava API
+            # 给的是 m/s, 旧实现原样落库 → 同一个 max_speed 列混着两种单位, 读取方
+            # 无论怎么换算都必错一半。
+            'max_speed': round(parse_quantity(getattr(activity, 'max_speed', None)) * 3.6, 2) if getattr(activity, 'max_speed', None) else None,
 
             # Heart rate
             'average_heart_rate': round(avg_hr) if avg_hr else None,

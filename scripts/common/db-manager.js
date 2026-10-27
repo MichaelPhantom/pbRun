@@ -43,7 +43,7 @@ class DatabaseManager {
         -- 配速和速度
         average_pace REAL,                            -- 平均配速（秒/公里）
         average_speed REAL,                           -- 平均速度（公里/小时）
-        max_speed REAL,                               -- 最大速度（米/秒）
+        max_speed REAL,                               -- 最大速度（公里/小时；与 average_speed 同单位）
 
         -- 心率数据
         average_heart_rate INTEGER,                   -- 平均心率（bpm）

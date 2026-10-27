@@ -21,7 +21,7 @@ export interface Activity {
   // 配速和速度
   average_pace?: number;                         // 平均配速（秒/公里）
   average_speed?: number;                        // 平均速度（公里/小时）
-  max_speed?: number;                            // 最大速度（米/秒）
+  max_speed?: number;                            // 最大速度（公里/小时；与 average_speed 同单位）
 
   // 心率数据
   average_heart_rate?: number;                   // 平均心率（bpm）

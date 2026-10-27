@@ -10,6 +10,11 @@ from io import StringIO
 # Add scripts/garmin to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'scripts', 'garmin'))
 
+# garth 是 Garmin 官方库, 只在真正登录时需要; 被测函数 _load_dotenv 是纯文本解析。
+# 不在测试环境 mock 它 → 未安装 garth 的机器上整个 pytest 收集阶段直接 ImportError,
+# 连一条测试都跑不起来 (CI 里从来没跑过 Python 测试, 所以一直没暴露)。
+sys.modules.setdefault('garth', MagicMock())
+
 from get_garmin_token import _load_dotenv
 
 
@@ -57,9 +62,13 @@ class TestLoadDotenv(unittest.TestCase):
 class TestMainFunction(unittest.TestCase):
     """测试主函数"""
 
+    # 注意 patch 的目标: get_garmin_token.py 用的是 `from getpass import getpass`,
+    # 模块里已绑定成 `get_garmin_token.getpass`。patch('getpass.getpass') 只改标准库
+    # 模块属性, 对已绑定的名字无效 —— 测试会真的去读终端密码, 在无 TTY 的 CI 里
+    # 直接抛 UnsupportedOperation。必须 patch 模块级名字本身。
     @patch('get_garmin_token._load_dotenv')
     @patch('builtins.input', return_value='test@example.com')
-    @patch('getpass.getpass', return_value='password123')
+    @patch('get_garmin_token.getpass', return_value='password123')
     @patch('garth.login')
     @patch('garth.client.dumps', return_value='mock_token_string')
     def test_successful_authentication(self, mock_dumps, mock_login, mock_getpass, mock_input, mock_load_env):
@@ -83,7 +92,7 @@ class TestMainFunction(unittest.TestCase):
 
     @patch('get_garmin_token._load_dotenv')
     @patch('builtins.input', return_value='')
-    @patch('getpass.getpass', return_value='')
+    @patch('get_garmin_token.getpass', return_value='')
     def test_missing_credentials(self, mock_getpass, mock_input, mock_load_env):
         """测试缺少凭据"""
         with patch.dict('os.environ', {}, clear=True):

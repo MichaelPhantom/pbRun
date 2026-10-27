@@ -42,6 +42,31 @@ describe('buildAnalysisMessages', () => {
     expect(user.content).toContain('距离: 10.00 km');
   });
 
+  // 回归: max_speed 在库里是 km/h（FIT 解析器 speedUnit:'km/h'，实测 16.49 落库 16.49）。
+  // 旧实现按「Garmin 原始 m/s」乘 3.6，把 20.76km/h 报成 74.7km/h —— 那是 0:48/km，
+  // 比人类极限快一倍，模型据此判定「冲刺能力惊人」。这里同时断言正确值出现、
+  // 错误值不出现，否则只改一处仍可能留下另一种写法。
+  test('max_speed 按 km/h 原样呈现（回归：曾误乘 3.6 显示 74.7 km/h）', () => {
+    const [, user] = buildAnalysisMessages(fakeActivity({ max_speed: 20.76 }), []);
+    expect(user.content).toContain('最大速度: 20.8 km/h');
+    expect(user.content).not.toContain('74.7');
+    expect(user.content).not.toContain('74.8');
+  });
+
+  test('非跑步分支的 max_speed 同样不乘 3.6', () => {
+    const [, user] = buildAnalysisMessages(
+      fakeActivity({ activity_type: 'lap_swimming', max_speed: 5.11 }),
+      [],
+    );
+    expect(user.content).toContain('最大速度: 5.1 km/h');
+    expect(user.content).not.toContain('18.4');
+  });
+
+  test('缺 max_speed 时为 -- 占位, 不乘出 0.0', () => {
+    const [, user] = buildAnalysisMessages(fakeActivity(), []);
+    expect(user.content).toContain('最大速度: -- km/h');
+  });
+
   test('缺失距离时显示0.00 km而非NaN', () => {
     const a = fakeActivity();
     delete (a as Partial<Activity>).distance;

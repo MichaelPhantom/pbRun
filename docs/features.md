@@ -217,6 +217,7 @@ pbRun 是跑步分析工具，但 Garmin 同步会把篮球/游泳/力量训练�
 | **UI 标签必须与实际统计口径一致** | `app/page.tsx` 的「跑步天数」（数据源 `getTrainingLoads` 为跑步口径） | `tests/unit/pages/home-page.test.tsx`（标签为「跑步天数」，不得写「活动天数」——真实库 2026-10 有 16 个活动日但仅 15 个跑步日） |
 | **深挖响应显式声明运动口径** | `ActivityInsightResponse.running` + `activity-insight.ts` 的 `analyzeLaps({running})` | `tests/unit/lib/activity-insight.test.ts`（非跑步不外传 `bestPaceSecPerKm`/`workAvgPaceSecPerKm`/`gradeAdjusted`；按相对心率识别强度段） |
 | **AI prompt 按运动类型分流** | `llm.ts` 的 `SYSTEM_PROMPT` / `NON_RUNNING_SYSTEM_PROMPT` | `tests/unit/lib/llm.test.ts`（非跑步不出现跑步术语与配速行） |
+| **`max_speed` 单位契约：全链路 km/h** | `fit-parser.js`（`speedUnit:'km/h'`，`enhanced_max_speed` 原样落库）/ `fetcher.py`（Strava m/s → km/h `*3.6`）/ `llm.ts`（直接 `toFixed(1)`）/ `validate-data.js`（阈值按 km/h） | `tests/unit/lib/llm.test.ts`（20.76 km/h 渲染为 `20.8 km/h`，且不含 74.7；非跑步分支同样不乘 3.6；缺值为 `--`）；`tests/python/test_fetcher_strava.py`（4.5 m/s → 16.2 km/h，与 `average_speed` 同单位）；`tests/unit/scripts/validate-data.test.js`（`distance` 按公里解释，干净数据零误报；103.5 = 28.8×3.6 被抓） |
 | **AI 可比样本块按运动口径收敛** | `activity-coach-context.ts` 的 `performanceLines`（按 `insight.running` 二次把关） | `tests/unit/lib/activity-coach-context.test.ts`（非跑步不出现配速/等价平路行，口径说明改非跑步语义） |
 | **同路径几何质量只统计可校验的同伴** | `activity-insight-service.ts` 的 `summarizeRouteQuality` | `tests/unit/lib/insight-services.test.ts`（无轨迹同伴不计入 `verifiedPeers`；未校验时 `routeQuality` 显式 `null`） |
 | **旧库 / 坏数据一律降级不崩页** | `db.ts` 的列探测与 `getActivityTracks` / `getActivityStartGeo` / 网格通道 | `tests/unit/lib/db-degradation.test.ts`（缺列、畸形 JSON、非法坐标、非法 id 全部返回空/`null`） |

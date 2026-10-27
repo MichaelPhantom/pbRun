@@ -232,7 +232,7 @@ GET /api/activities/{id}
 **字段要点**
 
 - `distance` 为**公里**（`21.74561` = 21.7 公里），不是米。
-- `average_speed` 为 **km/h**；`max_speed` 为 m/s（Garmin 原始口径）。
+- `average_speed` 与 `max_speed` 均为 **km/h**（FIT 解析器以 `speedUnit:'km/h'` 解析后原样落库；Strava 源同为 km/h）。不要按 m/s 再乘 3.6 —— 那会把 16.5 km/h 报成 59.4 km/h。
 - `vdot_value` 仅在 Z3+ 代表性强度段计算，日常轻松/恢复跑为 `null`。
 - `training_load` 优先 FIT 官方值，缺省按时长 × 心率档回退。
 - `hr_zone_boundaries` / `power_zone_boundaries` / `devices` / `workout_steps` /
@@ -932,6 +932,7 @@ GET /api/llm/models
 | `/api/activities/{id}/laps` 的 `distance` | **米 (m)** | `1000` = 1 公里 |
 | `activity_records.distance`（逐秒记录） | **公里 (km)** | `0.005` |
 | `activity_records.speed` | **km/h** | `12.0` |
+| `activities.average_speed` / `activities.max_speed` | **km/h**（同单位，别再乘 3.6） | `20.76` = 20.76 km/h |
 | 时长 / 配速 | 秒 (s) / 秒每公里 (s/km) | `3000` / `300` = 5:00/km |
 | 心率 / 步频 / 卡路里 | bpm / spm / kcal | `150` / `170` / `500` |
 
@@ -946,6 +947,9 @@ pace = 1000 / speed
 
 // 示例: 3.33 m/s
 pace = 1000 / 3.33 = 300 秒/公里 = 5:00 /km
+
+// 注意: DB 里的 average_speed / max_speed 已经是 km/h, 不要当 m/s 用。
+// 若要换算成配速: pace = 3600 / speedKmh
 ```
 
 ### 配速格式化

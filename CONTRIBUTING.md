@@ -22,17 +22,18 @@ cp .env.example .env
 | `npm run lint` | ESLint |
 | `npm run build:mcp` | `tsc -p mcp-server` MCP 构建（改 `mcp-server/` 或被其引用的 `app/lib/` 后必跑） |
 | `npm run test:unit` | Jest 单元测试 |
+| `npm run test:python` | pytest（`tests/python`，Strava/Garmin 脚本的纯函数与转换逻辑） |
 | `npm run test:coverage` | 带覆盖率（含门槛校验） |
 | `npm run test:e2e` | Playwright 端到端（自动构建夹具库 + 隔离产物目录） |
-| `npm run test:ci` | 本地一键跑齐 CI quality 作业门禁：`typecheck` → `build:mcp` → `lint` → 测试+覆盖率 → 覆盖率摘要（`scripts/testing/coverage-summary.js`） |
+| `npm run test:ci` | 本地一键跑齐 CI quality 作业门禁：`typecheck` → `build:mcp` → `lint` → **pytest** → 测试+覆盖率 → 覆盖率摘要（`scripts/testing/coverage-summary.js`） |
 | `npm run build` | 生产构建。CI/clean checkout 直接可用；u2 生产机因 `app/data` 指向块存储的软链会构建失败，须用 `scripts/deploy-prod.sh`（暂存软链 → 构建 → 恢复 → 重启 → 健康检查，见 `docs/ops.md`） |
 
 ## 质量门禁（CI）
 
 `.github/workflows/test.yml` 在 push/PR 到 `main` 时运行：
 
-- `quality` 作业：`typecheck` → `build:mcp` → `lint` → **测试+覆盖率** → **覆盖率摘要** →
-  上传 artifact → PR 覆盖率评论 → `next build`
+- `quality` 作业：`typecheck` → `build:mcp` → `lint` → **pytest** → **测试+覆盖率** →
+  **覆盖率摘要** → 上传 artifact → PR 覆盖率评论 → `next build`
 - `e2e` 作业：Playwright（chromium，生产构建 + 夹具库）
 
 **本地提交前请至少跑通 `npm run test:ci`**（= CI 的门禁步骤 + 覆盖率门槛 + 摘要生成；
@@ -45,6 +46,12 @@ artifact 上传并在 PR 上就地更新一条评论 —— 本地与 CI 看到�
 > 历史教训（2026-09-26）：`test:ci` 曾漏掉 `build:mcp`，本地绿灯而 CI 在 MCP 构建步红灯，
 > 原因是 `mcp-server/tsconfig.json` 的 `lib` 无 DOM、与根 tsconfig 口径不同。任何新增门禁
 > 步骤必须同步补进 `test:ci`，让「本地一键 = CI」这句话始终为真。
+>
+> 历史教训（2026-10-27）：`tests/python` 的 30 条 pytest **从未进 CI** —— 文档写着「有
+> Python 测试」，实际没人执行。于是两个真实缺陷长期潜伏：`get_garmin_token` 的
+> `patch('getpass.getpass')` 打错了目标（源码是 `from getpass import getpass`，已绑定成
+> 模块级名字），测试会真的去读终端密码，无 TTY 直接崩；Strava `max_speed` 未转 km/h，
+> 与 Garmin 的 km/h 混在同一列。**测试存在 ≠ 测试被执行**，新增测试目录必须同时接进 CI。
 
 ### 覆盖率门槛
 

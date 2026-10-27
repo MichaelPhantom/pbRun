@@ -6,7 +6,7 @@ Strava Fetcher 功能测试
 import sys
 import os
 import unittest
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock, patch, MagicMock
 
 # Add scripts/strava to path
@@ -155,22 +155,83 @@ class TestStravaFetcher(unittest.TestCase):
 
 
 class TestDataTransformation(unittest.TestCase):
-    """测试数据转换功能"""
+    """transform_activity_data: Strava API 字段 → pbRun schema（DB 契约单位）"""
+
+    def setUp(self):
+        with patch('fetcher.Client'):
+            self.fetcher = StravaFetcher('client_id', 'client_secret', 'refresh_token')
+
+    def _activity(self, **over):
+        """Strava API 原始活动（米 / m/s / rpm）。"""
+        base = Mock()
+        base.id = 123456789
+        base.name = 'Morning Run'
+        base.distance = 10000.0          # 米
+        base.moving_time = 3600          # 秒
+        base.elapsed_time = 3700
+        base.average_speed = 2.778       # m/s → 10 km/h
+        base.max_speed = 4.5             # m/s → 16.2 km/h
+        base.average_heartrate = 150.0
+        base.max_heartrate = 170.0
+        base.average_cadence = 85.0      # rpm → 170 spm
+        base.max_cadence = 90.0
+        base.calories = 500
+        base.total_elevation_gain = 50.0
+        base.average_watts = 250
+        base.max_watts = 400
+        base.start_date = datetime(2026, 4, 9, 8, 30, tzinfo=timezone.utc)
+        base.start_date_local = datetime(2026, 4, 9, 16, 30, tzinfo=timezone(timedelta(hours=8)))
+        base.map = Mock()
+        base.map.summary_polyline = 'encoded'
+        for k, v in over.items():
+            setattr(base, k, v)
+        return base
 
     def test_transform_basic_fields(self):
-        """测试基本字段转换"""
-        # 这里可以添加 transform_activity_data 的详细测试
-        pass
+        """距离米→公里, 时长取整, 心率/卡路里/爬升直传"""
+        data = self.fetcher.transform_activity_data(self._activity(), None, [])
+        self.assertEqual(data['distance'], 10.0)          # 10000m → 10km
+        self.assertEqual(data['duration'], 3600)
+        self.assertEqual(data['elapsed_time'], 3700)
+        self.assertEqual(data['average_heart_rate'], 150)
+        self.assertEqual(data['max_heart_rate'], 170)
+        self.assertEqual(data['calories'], 500)
+        self.assertEqual(data['total_ascent'], 50.0)
+        self.assertEqual(data['source'], 'strava')
 
     def test_transform_distance(self):
-        """测试距离转换"""
-        # 米转公里
-        pass
+        """distance 落库单位为公里（DB 契约: activities.distance 是 km）"""
+        data = self.fetcher.transform_activity_data(self._activity(distance=5000.0), None, [])
+        self.assertEqual(data['distance'], 5.0)
 
     def test_transform_pace(self):
-        """测试配速转换"""
-        # m/s 转秒/公里
-        pass
+        """配速 2.778 m/s → 360 s/km（秒/公里）"""
+        data = self.fetcher.transform_activity_data(self._activity(), None, [])
+        self.assertEqual(data['average_pace'], 360)
+
+    def test_transform_speeds_both_kmh(self):
+        """
+        average_speed 与 max_speed 必须同为 km/h（DB 契约）。
+
+        Strava API 给的是 m/s，旧实现只给 average_speed 乘 3.6，max_speed 原样
+        落库 m/s —— 同一个 max_speed 列混着 Garmin 的 km/h 与 Strava 的 m/s，
+        读取方无论怎么换算都必错一半（AI prompt 曾按 m/s 再乘 3.6，
+        真实 Garmin 行 20.76km/h 被报成 74.7km/h）。
+        """
+        data = self.fetcher.transform_activity_data(self._activity(), None, [])
+        self.assertEqual(data['average_speed'], 10.0)     # 2.778 m/s → 10 km/h
+        self.assertEqual(data['max_speed'], 16.2)         # 4.5 m/s → 16.2 km/h
+
+    def test_transform_cadence_rpm_to_spm(self):
+        """Strava 步频是单侧 rpm, ×2 才是步/分"""
+        data = self.fetcher.transform_activity_data(self._activity(), None, [])
+        self.assertEqual(data['average_cadence'], 170)
+        self.assertEqual(data['max_cadence'], 180)
+
+    def test_transform_missing_max_speed_is_none(self):
+        """无 max_speed 时落 None, 不是 0.0（0 会被当成「速度为零」的坏数据）"""
+        data = self.fetcher.transform_activity_data(self._activity(max_speed=None), None, [])
+        self.assertIsNone(data['max_speed'])
 
 
 if __name__ == '__main__':

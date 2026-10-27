@@ -85,7 +85,7 @@ FIT (Flexible and Interoperable Data Transfer) 是 Garmin 设备使用的二进�
 | `total_timer_time` | 总用时 (秒) | `3000` |
 | `total_elapsed_time` | 总经过时间 (秒) | `3010` |
 | `avg_speed` | 平均速度 (m/s) | `3.33` |
-| `max_speed` | 最大速度 (m/s) | `4.5` |
+| `max_speed` | 最大速度 (km/h，与 `average_speed` 同单位) | `16.5` |
 | `avg_heart_rate` | 平均心率 (bpm) | `150` |
 | `max_heart_rate` | 最大心率 (bpm) | `175` |
 | `total_calories` | 总卡路里 (kcal) | `500` |

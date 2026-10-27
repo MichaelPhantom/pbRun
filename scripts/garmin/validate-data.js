@@ -7,6 +7,12 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 
+/**
+ * 人类瞬时速度合理上限 (km/h)。跑步世界纪录约 44 km/h, 球类挥拍/击球峰值也在此量级;
+ * 超过它几乎必然是单位错 (m/s 当 km/h) 或解析异常。
+ */
+const MAX_SPEED_KMH_PLAUSIBLE = 60;
+
 // ANSI colors
 const colors = {
   reset: '\x1b[0m',
@@ -86,8 +92,10 @@ class DataValidator {
 
     let distanceUnitIssues = 0;
     activities.forEach(act => {
-      // average_speed 为 km/h，distance 为米时 expectedSpeed = (distance/duration)*3.6
-      const expectedSpeed = (act.distance / act.duration) * 3.6;
+      // average_speed 为 km/h, **distance 为公里**（DB 契约, 见 db-manager）。
+      // 旧写法把 distance 当米算出 (distance/duration)*3.6, 对真实库 100/100 条
+      // 全部误判为「单位不一致」—— 校验脚本自己就是错的, 每次运行都在报假警。
+      const expectedSpeed = (act.distance / (act.duration / 3600));
       const diff = Math.abs(expectedSpeed - act.average_speed);
 
       if (diff > 0.01) {
@@ -102,7 +110,9 @@ class DataValidator {
       this.addIssue('单位', `Activities.distance 单位不一致，${distanceUnitIssues} 条记录`);
     }
 
-    // Check max_speed range (should be m/s, reasonable range 0-20)
+    // max_speed 与 average_speed 同为 **km/h**（FIT 解析器 speedUnit:'km/h' 原样落库）。
+    // 旧注释/阈值按 m/s（>20 视为异常），而真实库最大值 28.75 是 28.75km/h = 8m/s，
+    // 完全正常 —— 阈值按 m/s 会让每条速度快的跑步都误报。
     const maxSpeedStats = this.db.prepare(`
       SELECT
         MIN(max_speed) as min_val,
@@ -114,10 +124,11 @@ class DataValidator {
     `).get();
 
     if (maxSpeedStats.count > 0) {
-      log(`  ✓ max_speed 范围: ${maxSpeedStats.min_val.toFixed(2)} - ${maxSpeedStats.max_val.toFixed(2)} m/s (平均: ${maxSpeedStats.avg_val.toFixed(2)})`, 'green');
+      log(`  ✓ max_speed 范围: ${maxSpeedStats.min_val.toFixed(2)} - ${maxSpeedStats.max_val.toFixed(2)} km/h (平均: ${maxSpeedStats.avg_val.toFixed(2)})`, 'green');
 
-      if (maxSpeedStats.max_val > 20) {
-        this.addWarning('单位', `max_speed 最大值 ${maxSpeedStats.max_val.toFixed(2)} m/s 超出合理范围`);
+      // 人类跑步/球类瞬时速度上限约 45 km/h；超过说明单位或解析有误。
+      if (maxSpeedStats.max_val > MAX_SPEED_KMH_PLAUSIBLE) {
+        this.addWarning('单位', `max_speed 最大值 ${maxSpeedStats.max_val.toFixed(2)} km/h 超出合理范围`);
       }
     }
   }
@@ -138,14 +149,16 @@ class DataValidator {
     let timeErrors = 0;
 
     activities.forEach(act => {
-      // average_speed 公里/小时 = (distance米 / duration秒) * 3.6
-      const expectedSpeed = (act.distance / act.duration) * 3.6;
+      // average_speed (km/h) = distance(km) / duration(h) = distance / (duration/3600)
+      // 旧写法按「distance 是米」算 (distance/duration)*3.6, 对真实库 100/100 全误判。
+      const expectedSpeed = act.distance / (act.duration / 3600);
       if (Math.abs(expectedSpeed - act.average_speed) > 0.01) {
         speedErrors++;
       }
 
-      // average_pace 秒/公里 = duration / (distance/1000)
-      const expectedPace = (act.duration * 1000) / act.distance;
+      // average_pace 秒/公里 = duration / distance(km)
+      // 旧写法再乘 1000 (当 distance 是米), 同样 100/100 全误判。
+      const expectedPace = act.duration / act.distance;
       if (Math.abs(expectedPace - act.average_pace) > 0.01) {
         paceErrors++;
       }

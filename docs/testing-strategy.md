@@ -2,35 +2,48 @@
 
 ## 1. 测试架构概览
 
+**本节的树就是仓库里的真实结构**（`tests/unit/docs/docs-reality.test.ts` 会核对文档
+引用的路径是否存在，虚构文件名会直接红灯）。
+
 ```
 tests/
-├── unit/                    # 单元测试 (Jest)
-│   ├── lib/                # 工具函数 + 数据访问(db*.test.ts) + 洞察计算测试
-│   ├── components/         # React组件测试 (含页面客户端组件 ListClient 等)
-│   ├── pages/              # 页面级编排测试 (server component 取数/聚合)
-│   ├── api/                # API路由测试
-│   ├── common/             # scripts/common 测试 (db-manager/utils/vdot 等)
-│   ├── garmin/             # Garmin同步测试
-│   ├── strava/             # Strava同步测试
-│   ├── scripts/            # CLI 脚本「require 不执行」契约测试
-│   ├── mcp/                # MCP Server 测试
+├── unit/                          # 单元测试 (Jest, jsdom)
+│   ├── lib/                       # 纯函数 + 数据访问 + 洞察计算 (48 个套件)
+│   ├── components/                # React 组件测试 (20 个套件, kebab-case)
+│   ├── pages/                     # 页面级编排 (server component 取数/聚合)
+│   ├── api/                       # API 路由测试
+│   ├── common/                    # scripts/common (db-manager / utils / vdot)
+│   ├── garmin/                    # FIT 解析与同步
+│   ├── strava/                    # Strava 同步
+│   ├── scripts/                   # CLI 脚本契约 (require 不执行 main)
+│   ├── mcp/                       # MCP Server 工具
+│   ├── ci/                        # 门禁守护 (runner 镜像 / 门禁对齐 / 阈值余量)
+│   ├── docs/                      # 文档 ↔ 现实一致性守护
 │   └── phase1-directory-structure.test.js
-├── integration/            # 集成测试 (Jest)
-│   ├── api-flows/          # API流程测试
-│   ├── sync-flows/         # 数据同步流程测试
-│   └── e2e-api/            # 端到端API测试
-├── e2e/                    # E2E UI测试 (Playwright)
-│   ├── pages/              # 页面级测试
-│   ├── flows/              # 用户流程测试
-│   └── fixtures/           # 测试数据
-├── python/                 # Python脚本测试 (pytest)
-│   ├── test_fetcher_garmin.py
-│   └── test_fetcher_strava.py
-└── mocks/                  # 测试模拟数据
-    ├── strava/
-    ├── garmin/
-    └── activities.json
+├── integration/                   # 集成测试 (Jest)
+│   └── strava-sync.test.js        # Strava 同步全流程 (mock API → DB 写入)
+├── e2e/                           # E2E UI 测试 (Playwright, 扁平文件)
+│   ├── navigation.spec.ts         # 各页可达 + 关键内容
+│   ├── activity-list.spec.ts      # 月份汇总 / 搜索 / 跳转
+│   ├── activity-detail.spec.ts    # 概览 / 分段表 / 趋势 / AI
+│   ├── tables.spec.ts             # 10 张数据表的结构与内容
+│   ├── stats.spec.ts              # 统计概览 / 周期 / 个人纪录
+│   ├── mobile.spec.ts             # 移动端 (375×667)
+│   ├── a11y.spec.ts               # axe 扫描 (7 页 × 桌面/移动)
+│   └── helpers/                   # e2e 公共工具
+├── fixtures/                      # 夹具 (activities.db 现生成; *.zip 为 FIT 样本)
+├── python/                        # Python 脚本测试 (pytest)
+│   ├── conftest.py
+│   ├── test_fetcher_strava.py
+│   └── test_get_garmin_token.py
+├── env.ts / setup.ts / style-stub.js
+└── README.md
 ```
+
+> 不存在 `tests/mocks/` 目录，也不存在独立的 SQL 夹具脚本（夹具由 `make-fixture-db.js`
+> 直接调用 `DatabaseManager` 生成）。Mock 数据就近定义在测试文件内的工厂函数里（见 §6.2）。
+
+---
 
 ## 2. 单元测试 (Jest)
 
@@ -186,7 +199,7 @@ describe('vdot-pace', () => {
 
 #### lib/db.ts
 ```typescript
-// tests/unit/lib/db-queries.test.ts
+// tests/unit/lib/db.test.ts（另有 db-gaps / db-degradation / db-stats-branches 等分支套件）
 describe('Database Queries', () => {
   let mockDb: any;
 
@@ -236,7 +249,7 @@ describe('Database Queries', () => {
 
 #### React Components
 ```typescript
-// tests/unit/components/ListClient.test.tsx
+// tests/unit/components/list-client.test.tsx（组件测试文件名为 kebab-case）
 describe('ListClient', () => {
   const mockProps = {
     initialMonthSummaries: [
@@ -270,7 +283,7 @@ describe('ListClient', () => {
 
 #### API Routes
 ```typescript
-// tests/unit/api/activities.test.ts
+// tests/unit/api/routes.test.ts（含 /api/activities 的 GET 用例）
 import { GET } from '@/app/api/activities/route';
 
 describe('API - /api/activities', () => {
@@ -396,7 +409,7 @@ export default defineConfig({
 
 #### 页面导航测试
 ```typescript
-// tests/e2e/pages/navigation.spec.ts
+// tests/e2e/navigation.spec.ts
 test.describe('页面导航', () => {
   test('首页应重定向到活动列表', async ({ page }) => {
     await page.goto('/');
@@ -423,7 +436,7 @@ test.describe('页面导航', () => {
 
 #### 活动列表页测试
 ```typescript
-// tests/e2e/pages/activity-list.spec.ts
+// tests/e2e/activity-list.spec.ts
 test.describe('活动列表页', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/list');
@@ -461,7 +474,7 @@ test.describe('活动列表页', () => {
 
 #### 活动详情页测试
 ```typescript
-// tests/e2e/pages/activity-detail.spec.ts
+// tests/e2e/activity-detail.spec.ts
 test.describe('活动详情页', () => {
   test('应显示活动基本信息', async ({ page }) => {
     await page.goto('/pages/12345');
@@ -490,7 +503,7 @@ test.describe('活动详情页', () => {
 
 #### 统计分析页测试
 ```typescript
-// tests/e2e/pages/stats.spec.ts
+// tests/e2e/stats.spec.ts
 test.describe('统计页面', () => {
   test('应显示总体统计数据', async ({ page }) => {
     await page.goto('/stats');
@@ -515,7 +528,7 @@ test.describe('统计页面', () => {
 
 #### 分析页面测试
 ```typescript
-// tests/e2e/pages/analysis.spec.ts
+// tests/e2e/navigation.spec.ts（分析页断言在 navigation 里）
 test.describe('分析页面', () => {
   test('应显示心率区间图表', async ({ page }) => {
     await page.goto('/analysis');
@@ -540,7 +553,7 @@ test.describe('分析页面', () => {
 
 #### 移动端适配测试
 ```typescript
-// tests/e2e/mobile/responsive.spec.ts
+// tests/e2e/mobile.spec.ts
 test.describe('移动端响应式', () => {
   test('活动列表在移动端应正常显示', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 667 });
@@ -576,7 +589,7 @@ test.describe('移动端响应式', () => {
 ### 4.1 数据同步流程测试
 
 ```typescript
-// tests/integration/sync-flows/garmin-sync.spec.ts
+// tests/integration/strava-sync.test.js（Garmin 同步流程由 tests/unit/garmin/* 覆盖）
 describe('Garmin 同步流程', () => {
   test('完整同步流程：下载 → 解析 → 存储', async () => {
     // 1. 模拟FIT文件下载
@@ -598,7 +611,7 @@ describe('Garmin 同步流程', () => {
 ### 4.2 API 集成测试
 
 ```typescript
-// tests/integration/api-flows/activity-crud.spec.ts
+// tests/integration/strava-sync.test.js（API 流程由 tests/unit/api/routes.test.ts 覆盖）
 describe('Activity API 流程', () => {
   test('获取活动 → 获取详情 → 获取分段数据', async () => {
     // 1. 获取活动列表
@@ -621,134 +634,83 @@ describe('Activity API 流程', () => {
 
 ## 5. Python 脚本测试 (pytest)
 
-### 5.1 配置
+### 5.1 运行方式
 
-**tests/python/conftest.py**
-```python
-import pytest
-import tempfile
-import os
-
-@pytest.fixture
-def temp_db():
-    """提供临时数据库"""
-    with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as f:
-        db_path = f.name
-    yield db_path
-    os.unlink(db_path)
-
-@pytest.fixture
-def mock_strava_response():
-    """模拟Strava API响应"""
-    return {
-        "id": 12345,
-        "name": "Morning Run",
-        "distance": 10000,
-        "moving_time": 3600,
-        "average_heartrate": 150,
-        "max_heartrate": 170,
-    }
+```bash
+npm run test:python        # = python3 -m pytest tests/python -q
 ```
 
-### 5.2 测试用例
+**已在 CI 的 `quality` 作业中执行**（`.github/workflows/test.yml` 的「Python 脚本测试」
+步骤，先 `pip install pytest` 再 `npm run test:python`），并同步纳入 `npm run test:ci`。
+守护测试：`tests/unit/ci/gate-alignment.test.ts` 断言 `test:python` 存在、包含
+`tests/python`、且被 `test:ci` 与 workflow 同时调用 —— 防止「测试存在但没人跑」。
 
-```python
-# tests/python/test_fetcher_strava.py
-def test_fetch_activities(strava_fetcher, mock_response):
-    """测试获取活动列表"""
-    activities = strava_fetcher.fetch_activities(limit=10)
-    assert len(activities) <= 10
-    assert all('id' in a for a in activities)
+> 历史教训（2026-10-27）：这套测试此前**从未进 CI**。文档声称有 pytest，实际没人执行，
+> 于是两个真实缺陷长期潜伏：
+> 1. `get_garmin_token` 的 `@patch('getpass.getpass')` 打错目标 —— 源码是
+>    `from getpass import getpass`，已绑定为模块级名字，patch 标准库模块属性无效，
+>    测试会真的去读终端密码，无 TTY 的 runner 上直接 `UnsupportedOperation`。
+> 2. Strava `max_speed` 未转 km/h，与 Garmin 写入的 km/h 混在同一列。
 
-def test_fetch_activity_detail(strava_fetcher):
-    """测试获取活动详情"""
-    detail = strava_fetcher.fetch_activity_detail(12345)
-    assert detail['id'] == 12345
-    assert 'laps' in detail or 'splits_metric' in detail
+### 5.2 依赖处理
 
-def test_gpx_export(strava_fetcher, tmp_path):
-    """测试GPX导出"""
-    output_dir = tmp_path / "gpx"
-    output_dir.mkdir()
+`tests/python` **不依赖** `stravalib` / `gpxpy` / `garth` 这些外部库：测试文件在 import
+被测模块之前自行 `sys.modules` mock 掉它们，因此在干净 runner 上只需 pytest 即可运行。
+若某个被测函数确实需要真实库，应在测试文件顶部显式 mock 并注明原因，而不是让
+ImportError 打断整个收集阶段（一个模块 import 失败会让整轮 pytest 一条都不跑）。
 
-    gpx_path = strava_fetcher.export_gpx(12345, output_dir)
-    assert gpx_path.exists()
-    assert gpx_path.suffix == '.gpx'
+### 5.3 覆盖范围
 
-def test_rate_limit_handling(strava_fetcher):
-    """测试速率限制处理"""
-    # 模拟429响应
-    with pytest.raises(RateLimitError):
-        strava_fetcher.handle_rate_limit()
-```
+| 文件 | 被测对象 | 关键断言 |
+|------|---------|---------|
+| `test_fetcher_strava.py` | `scripts/strava/fetcher.py` 的纯函数与 `transform_activity_data` | `parse_quantity` / `format_duration` / `format_pace` / `pace_to_seconds`；`distance` 米→公里；`average_speed` 与 `max_speed` **同为 km/h**（4.5 m/s → 16.2 km/h，回归：旧实现原样落 m/s）；步频 rpm→spm；无 `max_speed` 落 `None` 而非 `0.0` |
+| `test_get_garmin_token.py` | `scripts/garmin/get_garmin_token.py` 的 `_load_dotenv` / `main` | `.env` 解析（注释、空行、已有环境变量不覆盖）；环境变量优先于交互输入；缺凭据返回 1；认证异常返回 1。patch 目标是**模块级名字** `get_garmin_token.getpass`，不是 `getpass.getpass` |
+
+### 5.4 与 Jest 的分工
+
+Python 测试只覆盖**Python 写入侧**（Strava fetcher 的单位换算与字段映射）。TS/JS 侧
+（FIT 解析、DB 层、API、UI、AI prompt）全部由 Jest 覆盖，两者不重复。单位契约需要
+两侧同时验证：Garmin 走 `fit-parser.js`（Jest），Strava 走 `fetcher.py`（pytest），
+两边写进同一列就必须同单位。
 
 ---
 
 ## 6. 测试数据管理
 
-### 6.1 测试数据库
+### 6.1 夹具库（e2e 与本地联调）
 
-**tests/fixtures/test-data.sql**
-```sql
--- 创建测试活动数据
-INSERT INTO activities (activity_id, name, activity_type, start_time, start_time_local,
-                       distance, duration, average_pace, average_heart_rate, vdot_value)
-VALUES
-  (1, 'Test Run 1', 'running', '2024-01-01T08:00:00Z', '2024-01-01 16:00:00', 10.0, 3600, 360, 150, 45.5),
-  (2, 'Test Run 2', 'running', '2024-01-02T08:00:00Z', '2024-01-02 16:00:00', 15.0, 5400, 360, 155, 47.0);
+**唯一来源：`scripts/testing/make-fixture-db.js`**（`npm run fixture:db`）
 
--- 创建测试分段数据
-INSERT INTO activity_laps (activity_id, lap_index, distance, duration, average_pace)
-VALUES
-  (1, 1, 1000, 360, 360),
-  (1, 2, 1000, 350, 350);
+```bash
+npm run fixture:db                       # → tests/fixtures/activities.db
+node scripts/testing/make-fixture-db.js /tmp/other.db   # 指定输出
 ```
 
-**scripts/setup-test-db.js**
-```javascript
-const Database = require('better-sqlite3');
-const fs = require('fs');
-const path = require('path');
+要点：
 
-function setupTestDb() {
-  const testDbPath = path.join(__dirname, '../tests/fixtures/test.db');
-  const db = new Database(testDbPath);
+- 用**生产同一套** `DatabaseManager` 建表，schema 与线上完全一致（不是手写 SQL 副本）。
+- 时间**相对 `Date.now()` 生成**（`daysAgo` / `isoUtc` / `localStamp`，偏移 2/4/7/12/14 天）。
+  写死日期会让「最近 30 天」窗口随时间推移再也圈不到夹具活动，页面显示「数据不足」，
+  e2e 断言随即失败 —— 而业务代码完全正确。这类失败只在特定日期之后出现，极难归因。
+- 夹具必须让**展示条件可达**：例如「跑步动态」卡片的渲染条件是
+  「触地平衡 / 触地时间 / 垂直摆动 / 垂直振幅比 任一非空」，而真实库里
+  `average_gct_balance` 348/348 全为 NULL、触地时间与垂直摆动 241/241 都有值 ——
+  夹具若只写 `gct_balance`，就会造出「测试全绿但功能从未渲染」的假绿灯。
+  同理，标题/文案由实际非零数据派生时（如心率区间标题），夹具要覆盖到非零区间。
+- `tests/fixtures/*.db` 被 `.gitignore` 忽略（第 76 行），CI 每次现生成。
+- `tests/fixtures/activity.zip` / `activity-nofit.zip` 是 FIT 解析测试用的真实文件样本。
 
-  const sql = fs.readFileSync(
-    path.join(__dirname, '../tests/fixtures/test-data.sql'),
-    'utf-8'
-  );
-  db.exec(sql);
-  db.close();
+### 6.2 Mock 数据
 
-  console.log('Test database created at:', testDbPath);
-}
+不设独立的 `tests/mocks/` 目录。各处 mock 就近定义在测试文件内（工厂函数 + 覆盖参数），
+例如：
 
-setupTestDb();
-```
+- `tests/unit/lib/llm.test.ts` 的 `fakeActivity(over)` / `fakeLaps()`
+- `tests/unit/scripts/validate-data.test.js` 的 `wireDb(overrides)`（按 SQL 片段分派结果）
+- `tests/python/test_fetcher_strava.py` 的 `_activity(**over)`（Strava API 原始单位：米 / m/s / rpm）
 
-### 6.2 Mock数据
-
-**tests/mocks/strava/activities.json**
-```json
-{
-  "activities": [
-    {
-      "id": 123456789,
-      "name": "Morning Run",
-      "distance": 10000,
-      "moving_time": 3600,
-      "elapsed_time": 3700,
-      "total_elevation_gain": 50,
-      "type": "Run",
-      "start_date": "2024-01-15T06:00:00Z",
-      "average_heartrate": 150,
-      "max_heartrate": 170,
-      "average_cadence": 180
-    }
-  ]
-}
-```
+就近定义的目的是让「夹具与断言」在同一个文件里可对照 —— 单位换算类测试尤其如此：
+夹具若沿用错误假设（如把 `activities.distance` 当米），测试就会和 bug 一起绿。
 
 ---
 
@@ -769,6 +731,7 @@ setupTestDb();
 - 类型检查(tsc)
 - MCP Server 构建(tsc -p mcp-server)
 - Lint(eslint)
+- Python 脚本测试(pytest)
 - 单元测试 + 覆盖率(jest)
 - jest 失败诊断(摘要 + annotation)
 - 覆盖率摘要(markdown)
@@ -840,8 +803,9 @@ setupTestDb();
   溢出时键盘用户无法聚焦滚动（axe `scrollable-region-focusable`，仅移动端断点触发，桌面端
   不溢出故此前的桌面扫描未暴露）。该组件被 10 张表复用。
 
-修正后 axe 在两种视口下均归零；e2e 合计 51 项（36 功能 + 15 a11y）在 **chromium 与 firefox**
-两种引擎下全过（本地实测 2.6m / 3.2m）。
+修正后 axe 在两种视口下均归零。e2e 用例总数**不写死**（页面或扫描维度增减都会改变它，
+写死数字必然随时间漂移）：以 `npx playwright test --list --project=chromium` 为准
+（2026-10-27 实测 52 项 = 37 功能 + 15 a11y）。
 
 **门槛余量规则**（`tests/unit/ci/threshold-margin.test.ts` 守护）：每组每项的
 「实测 − 门槛」须 ≥ 1.5pt（门槛接近 100 时按数学上限放宽为 `100-gate-0.5`），
