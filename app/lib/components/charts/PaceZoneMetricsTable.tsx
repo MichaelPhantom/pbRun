@@ -1,7 +1,7 @@
 'use client';
 
 import type { PaceZoneStat } from '@/app/lib/types';
-import { formatPace } from '@/app/lib/format';
+import { formatPace, formatDuration } from '@/app/lib/format';
 import { hrZoneBadgeStyle, HR_ZONE_NAMES } from '@/app/lib/hr-zones';
 import { DataTable, type DataTableColumn } from '@/app/components/ui/DataTable';
 
@@ -26,8 +26,17 @@ export default function PaceZoneMetricsTable({ data }: PaceZoneMetricsTableProps
     );
   }
 
+  // 区间内「跑了多久 / 多少公里 / 几次」是判断该区间训练量的直接依据。
+  // 数据层早已算好 (total_duration / total_distance / activity_count)，但旧表格
+  // 只展示心率/步频/步幅 —— 用户在页面上完全看不到「Z2 占了多少时间」这类
+  // 最关键的信息。这里按行展示，空值保持 '--'（该区间无数据）。
+  const zoneDuration = (sec: number): string => (sec > 0 ? formatDuration(sec) : '--');
+
   const columns: DataTableColumn[] = [
     { key: 'zone', label: '配速区间', className: 'min-w-[9rem]' },
+    { key: 'duration', label: '时长', unit: 'h:mm:ss' },
+    { key: 'distance', label: '距离', unit: 'km' },
+    { key: 'count', label: '次数', unit: '次' },
     { key: 'hr', label: '心率', unit: 'bpm' },
     { key: 'cadence', label: '步频', unit: 'spm' },
     { key: 'stride', label: '步幅', unit: 'm' },
@@ -35,7 +44,7 @@ export default function PaceZoneMetricsTable({ data }: PaceZoneMetricsTableProps
 
   return (
     <DataTable
-      caption="各配速区间的心率、步频与步幅统计"
+      caption="各配速区间的时长、距离、次数与心率、步频、步幅统计"
       columns={columns}
       rows={rows.map((row) => ({
         key: row.zone,
@@ -52,6 +61,10 @@ export default function PaceZoneMetricsTable({ data }: PaceZoneMetricsTableProps
               </span>
             </span>
           ),
+          duration: zoneDuration(row.total_duration),
+          // total_distance 单位为**米**（lap 距离），展示按公里
+          distance: row.total_distance > 0 ? (row.total_distance / 1000).toFixed(1) : '--',
+          count: row.activity_count > 0 ? row.activity_count : '--',
           hr: row.avg_heart_rate != null ? Math.round(row.avg_heart_rate) : '--',
           cadence: row.avg_cadence != null ? row.avg_cadence.toFixed(0) : '--',
           stride: row.avg_stride_length != null ? row.avg_stride_length.toFixed(2) : '--',

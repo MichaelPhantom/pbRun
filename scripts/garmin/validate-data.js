@@ -279,9 +279,11 @@ class DataValidator {
         }
       });
 
-      // Validate total distance（均为米）
-      const lapDistanceSum = laps.reduce((sum, lap) => sum + lap.distance, 0);
-      if (activity && Math.abs(lapDistanceSum - activity.total_distance) > 1) {
+      // Validate total distance: lap 距离是**米**，activity.distance 是**公里**（DB 契约）。
+      // 旧写法直接比 lapDistanceSum(m) 与 total_distance(km)，对真实库 20/20 条活动
+      // 全部误判「分段距离总和不一致」（6779m vs 6.779km）—— 每跑一次校验就报 20 条假警。
+      const lapDistanceSumKm = laps.reduce((sum, lap) => sum + lap.distance, 0) / 1000;
+      if (activity && Math.abs(lapDistanceSumKm - activity.total_distance) > 0.001) {
         distanceSumErrors++;
       }
     });

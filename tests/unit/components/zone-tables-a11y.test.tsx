@@ -74,4 +74,54 @@ describe('可访问性: 区间表格', () => {
     expect(badge.className).toContain('whitespace-nowrap');
     expect(badge.querySelector('span.block')).toBeNull();
   });
+
+  /**
+   * 区间表此前只展示心率/步频/步幅 —— 而数据层算好的
+   * `activity_count` / `total_duration` / `total_distance` 从未露出。
+   * 对心率区间表来说「各区累计时长」正是最核心的指标（用户在页面上看不到
+   * 「Z2 占了多少时间」）。这类「算了但不显示」与「展示了空字段」同属契约缺陷。
+   */
+  describe('区间训练量列必须真的展示 (算了不显示 = 白算)', () => {
+    test('HrZoneMetricsTable: 时长/距离/次数三列都在表头', () => {
+      render(<HrZoneMetricsTable data={hrRows} />);
+      const headers = screen.getAllByRole('columnheader').map((h) => h.textContent ?? '');
+      expect(headers.some((h) => h.includes('时长'))).toBe(true);
+      expect(headers.some((h) => h.includes('距离'))).toBe(true);
+      expect(headers.some((h) => h.includes('次数'))).toBe(true);
+    });
+
+    test('HrZoneMetricsTable: 时长按 h:mm:ss, 距离由米换算成公里, 次数原样', () => {
+      const { container } = render(<HrZoneMetricsTable data={hrRows} />);
+      const cells = Array.from(container.querySelectorAll('tbody td')).map((td) => td.textContent);
+      expect(cells).toContain('3:00:00');  // 10800 秒
+      expect(cells).toContain('30.0');     // 30000 米 → 30.0 km（不是 30000）
+      expect(cells).toContain('3');        // activity_count
+      expect(cells).not.toContain('30000');
+    });
+
+    test('PaceZoneMetricsTable: 时长/距离/次数三列都在表头', () => {
+      render(<PaceZoneMetricsTable data={paceRows} />);
+      const headers = screen.getAllByRole('columnheader').map((h) => h.textContent ?? '');
+      expect(headers.some((h) => h.includes('时长'))).toBe(true);
+      expect(headers.some((h) => h.includes('距离'))).toBe(true);
+      expect(headers.some((h) => h.includes('次数'))).toBe(true);
+    });
+
+    test('PaceZoneMetricsTable: 距离按公里, 次数原样', () => {
+      const { container } = render(<PaceZoneMetricsTable data={paceRows} />);
+      const cells = Array.from(container.querySelectorAll('tbody td')).map((td) => td.textContent);
+      expect(cells).toContain('2:00:00');  // 7200 秒
+      expect(cells).toContain('20.0');     // 20000 米 → 20.0 km
+      expect(cells).toContain('2');
+    });
+
+    test('区间无数据时时长/距离/次数显示 -- (不显示 0:00 或 0.0)', () => {
+      const emptyZone: HrZoneStat = { ...hrRows[0], hr_zone: 4, activity_count: 0, total_duration: 0, total_distance: 0 };
+      const { container } = render(<HrZoneMetricsTable data={[emptyZone]} />);
+      const cells = Array.from(container.querySelectorAll('tbody td')).map((td) => td.textContent);
+      expect(cells).toContain('--');
+      expect(cells).not.toContain('0:00');
+      expect(cells).not.toContain('0.0');
+    });
+  });
 });

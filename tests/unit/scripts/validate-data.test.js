@@ -35,7 +35,10 @@ function wireDb(overrides = {}) {
     laps: [{ lap_index: 0, distance: 1000, duration: 360, average_speed: 10, average_pace: 360 }],
     activitiesWithLaps: [{ activity_id: 1 }],
     lapsOfActivity: [{ lap_index: 0, distance: 1000, duration: 360, average_speed: 10, average_pace: 360, cumulative_time: 360 }],
-    activityTotal: { total_distance: 1000 },
+    // 真实口径: lap 距离 1000 **米**, activity.distance 1 **公里** —— 二者相等。
+    // 旧夹具写 total_distance: 1000 (当成米), 于是「米 vs 米」恰好相等, 把
+    // 脚本里「米 vs 公里」的错也一起盖住了 (真实库 20/20 条活动被误判)。
+    activityTotal: { total_distance: 1 },
     nullCounts: 0,
     rangeStats: { min_val: 160, max_val: 180, avg_val: 170, count: 2 },
     outOfRange: 0,
@@ -123,7 +126,7 @@ describe('问题数据 → issue/warning 双通道', () => {
       lapsOfActivity: [
         { lap_index: 0, distance: 1000, duration: 360, average_speed: 99, average_pace: 1, cumulative_time: 9999 },
       ],
-      activityTotal: { total_distance: 5000 },
+      activityTotal: { total_distance: 5 },
       nullCounts: 2, // 全部为 NULL (totalCount=2)
       outOfRange: 3,
       orphanedLaps: 5,
