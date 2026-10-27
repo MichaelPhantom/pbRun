@@ -92,8 +92,8 @@ GET /api/activities
 | `activity_id` | number | 活动唯一 ID | - |
 | `name` | string | 活动名称 | - |
 | `activity_type` | string | 运动类型 (`running` / `strength_training` / `lap_swimming`…) | - |
-| `sport_type` | string \| null | FIT sport 中文展示 (跑步/健身器械…) | - |
-| `sub_sport_type` | string \| null | FIT sub_sport 中文展示 (路跑/跑步机/越野…) | - |
+| `sport_type` | string \| null | FIT sport 中文展示 (跑步/健身器械…)；**含退化值「通用」与未翻译原始枚举**（`basketball` / `floor_climbing` / `tennis`），展示前必须过 `isInformativeTypeValue` | - |
+| `sub_sport_type` | string \| null | FIT sub_sport 中文展示 (路跑/跑步机/越野…)；真实库 **269/348** 条为「通用」（设备未填子类型），不能直接当类型名用 —— 见 `activityTypeName` | - |
 | `start_time` | string | 开始时间（UTC 绝对时刻） | - |
 | `start_time_local` | string | 开始时间（本地墙钟，无时区标记） | - |
 | `distance` | number | 总距离（**公里**，注意不是米） | km |

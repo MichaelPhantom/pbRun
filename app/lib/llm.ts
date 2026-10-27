@@ -9,7 +9,7 @@
 import type { Activity, ActivityLap } from '@/app/lib/types';
 import { formatPace, formatDuration, formatRecoveryTime } from '@/app/lib/format';
 import { findPreset, resolvePresets } from '@/app/lib/model-curation';
-import { activityTypeLabel, isRunningType } from '@/app/lib/sport';
+import { activityTypeName, isRunningType } from '@/app/lib/sport';
 
 export { DEFAULT_MODEL } from '@/app/lib/model-curation';
 
@@ -479,7 +479,12 @@ export function buildAnalysisMessages(
 
   const date = (activity.start_time_local || activity.start_time || '').slice(0, 10) || '--';
 
-  const typeName = activity.sub_sport_type || activity.sport_type || activityTypeLabel(activity.activity_type);
+  // 类型名必须走 `activityTypeName`: 真实库 269/348 条活动的 `sub_sport_type` 是
+  // 「通用」（227 跑步 + 42 非跑步），它 truthy 会压过 `activity_type` —— 旧实现
+  // 直接 `sub_sport_type || sport_type || label` 让 77% 的活动在 prompt 里显示
+  // 「类型: 通用」，而非跑步 prompt 明确要求「按运动专项解读（游泳/力量/球类）」，
+  // 类型名失效后模型只能靠活动名称猜运动。
+  const typeName = activityTypeName(activity.activity_type, activity.sub_sport_type, activity.sport_type);
 
   // 跑步专属行（配速/步频/步幅/触地/VDOT）对非跑步活动整行不输出:
   // 宁可让模型看到「没有这一项」，也不要给它一个语义错误的值去解读。

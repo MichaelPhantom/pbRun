@@ -11,6 +11,8 @@ import {
   RUNNING_ACTIVITY_TYPES,
   activityTypeIcon,
   activityTypeLabel,
+  activityTypeName,
+  isInformativeTypeValue,
   isRunningType,
 } from '@/app/lib/sport';
 
@@ -134,5 +136,71 @@ describe('activityTypeIcon', () => {
 
   test('图标表与标签表覆盖同一批类型键 (不会出现有名字没图标)', () => {
     expect(Object.keys(ACTIVITY_TYPE_ICONS).sort()).toEqual(Object.keys(ACTIVITY_TYPE_LABELS).sort());
+  });
+});
+
+describe('activityTypeName', () => {
+  // 真实库 348 条: sub_sport_type='通用' 有 269 条 (227 跑步 + 42 非跑步)。
+  // 旧实现 `sub_sport_type || sport_type || label` 让 77% 的活动在 AI 数据块里
+  // 显示「类型: 通用」—— 非跑步 prompt 要求「按运动专项解读」时类型名失效。
+  test('设备只写「通用」时回落到规范类型名 (269/348 条的真实情况)', () => {
+    expect(activityTypeName('basketball', '通用', 'basketball')).toBe('篮球');
+    expect(activityTypeName('floor_climbing', '通用', 'floor_climbing')).toBe('爬楼');
+    expect(activityTypeName('hiit', '通用', '通用')).toBe('HIIT');
+    expect(activityTypeName('jump_rope', '通用', '通用')).toBe('跳绳');
+    expect(activityTypeName('table_tennis', '通用', 'tennis')).toBe('乒乓球');
+    expect(activityTypeName('badminton', '通用', '通用')).toBe('羽毛球');
+    expect(activityTypeName('running', '通用', '跑步')).toBe('跑步');
+  });
+
+  test('「训练」是退化值; 「有氧」已被规范名包含, 不重复拼接', () => {
+    // 室内有氧 + sub=有氧: 「有氧」是规范名的子串 → 不重复; sport=训练 是退化值
+    expect(activityTypeName('indoor_cardio', '有氧', '训练')).toBe('室内有氧');
+    expect(activityTypeName('strength_training', '力量', '训练')).toBe('力量训练');
+  });
+
+  test('有价值的细节拼进括号 (田径场 / 室内骑行)', () => {
+    expect(activityTypeName('running', '田径场', '跑步')).toBe('跑步（田径场）');
+    expect(activityTypeName('indoor_cycling', '室内骑行', '骑行')).toBe('室内骑行');
+  });
+
+  test('规范名已含该细节时不重复 (泳池游泳/泳池, 跑步机/跑步机)', () => {
+    expect(activityTypeName('lap_swimming', '泳池', '游泳')).toBe('泳池游泳');
+    expect(activityTypeName('treadmill_running', '跑步机', '跑步')).toBe('跑步机');
+    expect(activityTypeName('track_running', '田径场', '跑步')).toBe('田径场跑');
+  });
+
+  test('不把上一级大类当成子类型 (track_running + sport=跑步)', () => {
+    // 「田径场跑（跑步）」是把父类当细节的典型噪音
+    expect(activityTypeName('track_running', null, '跑步')).toBe('田径场跑');
+  });
+
+  test('不把设备原始枚举当成细节 (floor_climbing / tennis)', () => {
+    expect(activityTypeName('basketball', null, 'basketball')).toBe('篮球');
+    expect(activityTypeName('table_tennis', null, 'tennis')).toBe('乒乓球');
+  });
+
+  test('空值/未知类型回落规范名', () => {
+    expect(activityTypeName(null)).toBe('跑步');
+    expect(activityTypeName('some_future_sport')).toBe('some_future_sport');
+    expect(activityTypeName('running', '', null)).toBe('跑步');
+  });
+});
+
+describe('isInformativeTypeValue', () => {
+  test('退化值/原始枚举/父类名 都不展示', () => {
+    expect(isInformativeTypeValue('通用', 'basketball')).toBe(false);
+    expect(isInformativeTypeValue('训练', 'strength_training')).toBe(false);
+    expect(isInformativeTypeValue('basketball', 'basketball')).toBe(false);
+    expect(isInformativeTypeValue('跑步', 'track_running')).toBe(false);
+    expect(isInformativeTypeValue('', 'running')).toBe(false);
+    expect(isInformativeTypeValue(null, 'running')).toBe(false);
+  });
+
+  test('有价值的细节展示, 已被规范名包含的不展示', () => {
+    expect(isInformativeTypeValue('田径场', 'running')).toBe(true);
+    expect(isInformativeTypeValue('路跑', 'running')).toBe(true);
+    expect(isInformativeTypeValue('泳池', 'lap_swimming')).toBe(false); // 泳池游泳 已含
+    expect(isInformativeTypeValue('室内骑行', 'indoor_cycling')).toBe(false);
   });
 });

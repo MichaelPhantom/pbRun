@@ -291,6 +291,49 @@ describe('buildAnalysisMessages', () => {
     expect(user.content).toContain('0.0-1.0km 12:39 131bpm 188spm');
   });
 
+  /**
+   * 类型名缺陷：真实库 348 条活动里 `sub_sport_type='通用'` 有 **269 条**
+   * （227 跑步 + 篮球 3 / 爬楼 30 / HIIT 3 / 跳绳 3 / 乒乓 2 / 羽毛球 1）。
+   * 旧实现 `sub_sport_type || sport_type || label` 让它 truthy 胜出 —— AI 数据块
+   * 对 77% 的活动输出「类型: 通用」。非跑步 prompt 的核心原则第 3 条要求
+   * 「按运动专项解读：游泳看每 100m 配速、力量训练看组数、球类看间歇密度」，
+   * 类型名失效时模型只能靠活动名称猜，猜错就整套框架都错位。
+   */
+  test('类型名不得退化成「通用」(真实库 269/348 条 sub_sport_type=通用)', () => {
+    const cases: Array<[string, string, string, string]> = [
+      // [activity_type, sub_sport_type, sport_type, 期望出现在数据块里的类型名]
+      ['basketball', '通用', 'basketball', '类型: 篮球（非跑步）'],
+      ['floor_climbing', '通用', 'floor_climbing', '类型: 爬楼（非跑步）'],
+      ['hiit', '通用', '通用', '类型: HIIT（非跑步）'],
+      ['jump_rope', '通用', '通用', '类型: 跳绳（非跑步）'],
+      ['table_tennis', '通用', 'tennis', '类型: 乒乓球（非跑步）'],
+      ['badminton', '通用', '通用', '类型: 羽毛球（非跑步）'],
+      ['running', '通用', '跑步', '类型: 跑步'],
+    ];
+    for (const [type, sub, sport, expected] of cases) {
+      const [, user] = buildAnalysisMessages(
+        fakeActivity({ activity_type: type, sub_sport_type: sub, sport_type: sport }),
+        [],
+      );
+      expect(user.content).toContain(expected);
+      expect(user.content).not.toContain('类型: 通用');
+    }
+  });
+
+  test('有价值的子类型细节保留 (田径场 / 室内骑行), 冗余不重复', () => {
+    const [, track] = buildAnalysisMessages(
+      fakeActivity({ activity_type: 'running', sub_sport_type: '田径场', sport_type: '跑步' }),
+      [],
+    );
+    expect(track.content).toContain('类型: 跑步（田径场）');
+    const [, swim] = buildAnalysisMessages(
+      fakeActivity({ activity_type: 'lap_swimming', sub_sport_type: '泳池', sport_type: '游泳' }),
+      [],
+    );
+    // 「泳池」已被规范名「泳池游泳」包含 → 不重复拼接
+    expect(swim.content).toContain('类型: 泳池游泳（非跑步）');
+  });
+
   test('空 activity_type 按跑步处理 (旧库兼容)', () => {
     const [system, user] = buildAnalysisMessages(fakeActivity({ activity_type: '' }), []);
     expect(system.content).toContain('精英跑步教练');

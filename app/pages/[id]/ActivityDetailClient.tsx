@@ -10,7 +10,7 @@ import { DataTable } from '@/app/components/ui/DataTable';
 import ActivityTrendCharts, { trendChartTitle } from '@/app/lib/components/charts/ActivityTrendCharts';
 import { ActivityInsightPanel, ROLE_LABEL, ROLE_TONE } from '@/app/lib/components/charts/ActivityInsightPanel';
 import { AiAnalysis } from '@/app/lib/components/ai/AiAnalysis';
-import { activityTypeLabel, activityTypeIcon, isRunningType } from '@/app/lib/sport';
+import { activityTypeIcon, activityTypeName, isInformativeTypeValue, isRunningType } from '@/app/lib/sport';
 
 // 路线地图纯 SVG 客户端组件 (无 leaflet 依赖); 仅在客户端渲染避免 SSR window 引用。
 // 注: 本处动态 import 与 loading 回调在单测中因 next/dynamic 被 mock 且 ssr:false 而不可达
@@ -47,7 +47,11 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
   // 库里同时有篮球/游泳/力量训练: 配速/步频/步幅只在跑步内部可比
   // (泳池 1670s/km、乒乓球 30826s/km、篮球步频 16 展示成「配速」「步频」纯属误导)。
   const running = isRunningType(activity.activity_type);
-  const typeLabel = activityTypeLabel(activity.activity_type);
+  // 类型名走 `activityTypeName`: 真实库 269/348 条活动 `sub_sport_type` 是「通用」,
+  // 旧实现 `activityTypeLabel(activity_type)` 对篮球/爬楼/HIIT 已经正确, 但漏掉了
+  // 「跑步（田径场）」这类**有价值的细节**; 而 AI 数据块此前用 `sub_sport_type` 优先
+  // 反而让 77% 的活动显示「通用」。两处统一到同一函数。
+  const typeLabel = activityTypeName(activity.activity_type, activity.sub_sport_type, activity.sport_type);
   const distanceKm = activity.distance ?? 0;
   const durationSec = activity.moving_time ?? activity.duration ?? 0;
   const durationMinutes = durationSec / 60;
@@ -142,8 +146,12 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
               {typeLabel}
             </Badge>
           )}
-          {activity.sub_sport_type && <Badge variant="neutral">{activity.sub_sport_type}</Badge>}
-          {activity.sport_type && activity.sport_type !== '跑步' && <Badge variant="neutral">{activity.sport_type}</Badge>}
+          {activity.sub_sport_type && isInformativeTypeValue(activity.sub_sport_type, activity.activity_type) && (
+            <Badge variant="neutral">{activity.sub_sport_type}</Badge>
+          )}
+          {activity.sport_type && isInformativeTypeValue(activity.sport_type, activity.activity_type) && (
+            <Badge variant="neutral">{activity.sport_type}</Badge>
+          )}
         </div>
       </div>
 

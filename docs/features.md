@@ -76,6 +76,7 @@ pbRun 是跑步分析工具，但 Garmin 同步会把篮球/游泳/力量训练�
 |------|-----------------|
 | `/list` 类型下拉 | 值仍是原始 `activity_type`，文案走 `activityTypeLabel` 中文名（按拼音排序）；空 `activity_type` 归一成 `running` 键，不再与真实 `running` 分裂成两个同名选项 |
 | 活动卡片 / 仪表盘「最近活动」 | 隐藏配速（泳池 1670s/km、乒乓 30826s/km 不是跑步配速）与「即时跑力 / VDOT」（跑步跑力指标），改显示类型徽标；无名称时按类型兜底命名。训练负荷与心率与运动类型无关，照常展示 |
+| **类型名（AI 数据块 + 详情页徽标）** | 走 `activityTypeName` 单一来源：真实库 **269/348** 条活动 `sub_sport_type='通用'`（227 跑步 + 篮球/爬楼/HIIT/跳绳/乒乓/羽毛球 42 条），旧实现 `sub_sport_type \|\| sport_type \|\| label` 让它 truthy 胜出 —— AI 数据块对 **77%** 的活动输出「类型: 通用」，详情页则并列渲染「通用」「训练」两个零信息徽标。见下方 §1.3 |
 | 活动详情页概览 | 隐藏「即时跑力 / 平均配速 / 步频 / 步幅」整列（不是显示 `--`，那会让人以为数据缺失）；「平均功率」同样按字段存在性渲染 —— 真实库 107 条非跑步活动功率全为 NULL（0/107），旧实现无条件渲染会永远显示 `--` |
 | 仪表盘「本月概览」 | 「跑步天数」而非「活动天数」—— 数据源 `getTrainingLoads` 是跑步口径，真实库 2026-10 有 16 个活动日但只有 15 个跑步日（多出力量训练/爬楼）；旧标签会让人以为漏了一天 |
 | 仪表盘「VDOT 趋势」 | 副标题「近 N 次跑步」而非「次活动」—— `getVDOTHistory` 只含跑步（`vdot_value` 只对跑步计算） |
@@ -107,8 +108,29 @@ pbRun 是跑步分析工具，但 Garmin 同步会把篮球/游泳/力量训练�
 的实际文本（含「30000 米 → 30.0 km」的换算与「无数据显示 `--`」）。
 
 跑步类型判定单点定义在纯模块 `app/lib/sport.ts`（`RUNNING_ACTIVITY_TYPES` /
-`isRunningType` / `activityTypeLabel` / `activityTypeIcon`）：`db.ts` 的 SQL 片段由该
-常量派生，客户端组件直接用同一份判定，因此不存在「SQL 与 UI 两套列表漂移」。
+`isRunningType` / `activityTypeLabel` / `activityTypeIcon` / `activityTypeName`）：
+`db.ts` 的 SQL 片段由该常量派生，客户端组件直接用同一份判定，因此不存在
+「SQL 与 UI 两套列表漂移」。
+
+**类型名也必须单点派生**（`activityTypeName`，2026-10-27）：设备的 `sub_sport_type`
+在真实库 **269/348** 条活动里是「通用」（227 跑步 + 篮球 3 / 爬楼 30 / HIIT 3 /
+跳绳 3 / 乒乓 2 / 羽毛球 1），`sport_type` 里还有 `basketball` / `floor_climbing` /
+`tennis` 这类**未翻译的原始枚举**和 `训练` 这类退化值。旧实现按
+`sub_sport_type || sport_type || activityTypeLabel(...)` 取值，truthy 的「通用」压过
+`activity_type`：
+
+| 位置 | 旧输出 | 后果 |
+|------|-------|------|
+| 活动 AI 数据块「类型:」 | **269/348 条 = 通用** | 非跑步 prompt 第 3 条要求「按运动专项解读：游泳看每 100m 配速 / 力量训练看组数 / 球类看间歇密度」，类型名失效后模型只能靠活动名称猜运动 |
+| 详情页徽标 | 并列渲染「通用」+「训练」两个零信息标签 | 用户看到两个不说明任何事的标签，真正有意义的「田径场」反而被淹没 |
+
+规则（三重过滤）：`activity_type` 是**规范身份**，`sub_sport_type` / `sport_type`
+只作补充细节，且必须 ① 不是退化值（通用/训练/其他/未知）；② 不是设备原始枚举
+（纯 ASCII 未翻译）；③ 不是已被规范名包含的冗余（`田径场跑`+`田径场`）或上一级大类
+（`track_running` + `sport_type='跑步'` → 不能得到「田径场跑（跑步）」）。
+守护：`tests/unit/lib/sport.test.ts`（退化值回落 / 细节拼接 / 冗余去重 / 父类过滤）+
+`tests/unit/lib/llm.test.ts`（7 种类型的数据块断言 + 「不含『类型: 通用』」）+
+`tests/unit/pages/activity-detail.test.tsx`（徽标过滤退化值 + 保留「田径场」）。
 
 ### 1.2 心率区间只有一个口径（`activities.time_in_hr_zone`）
 

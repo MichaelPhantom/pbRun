@@ -328,12 +328,47 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
     });
     render(await page('1001'));
 
-    expect(screen.getByText('骑行')).toBeInTheDocument(); // sport_type !== '跑步'
+    expect(screen.getByText('骑行')).toBeInTheDocument();
     expect(screen.getByText('路跑')).toBeInTheDocument();
     const overview = screen.getByText('活动概览').closest('section')!;
     expect(within(overview).getByText('9')).toBeInTheDocument();
     expect(within(overview).getByText('45')).toBeInTheDocument();
     expect(within(overview).getByText('46.3')).toBeInTheDocument(); // vdot toFixed(1)
+  });
+
+  /**
+   * 徽标缺陷：真实库 269/348 条活动的 `sub_sport_type` 是「通用」。
+   * 旧实现无条件渲染两个徽标 → 详情页出现「通用」「训练」这类**零信息**标签，
+   * 而真正有意义的「田径场」反而和「通用」并列。同一条活动还会因为
+   * `sport_type='跑步'` 被排除而漏掉细节。
+   */
+  test('类型徽标过滤退化值: 不出现「通用」「训练」这类零信息标签', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'basketball',
+      sport_type: 'basketball', // 设备原始枚举, 未翻译
+      sub_sport_type: '通用', // 真实库 269/348 条的取值
+      name: '',
+    });
+    render(await page('2002'));
+    expect(screen.queryByText('通用')).toBeNull();
+    expect(screen.queryByText('basketball')).toBeNull();
+    // 标题兜底与类型徽标都用规范名
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/篮球/);
+  });
+
+  test('有价值的子类型徽标保留 (田径场), 规范名已含的不重复', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'running',
+      sport_type: '跑步',
+      sub_sport_type: '田径场',
+      name: '田径场训练',
+    });
+    render(await page('2003'));
+    // 「田径场」有意义 → 保留徽标; 「跑步」已被类型名包含 → 不再重复一个徽标
+    expect(screen.getByText('田径场')).toBeInTheDocument();
+    expect(screen.queryByText('跑步')).toBeNull();
   });
 
   test('轨迹点不足 (<2) → 不渲染路线地图', async () => {
