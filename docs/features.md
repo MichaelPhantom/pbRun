@@ -179,6 +179,37 @@ pbRun 是跑步分析工具，但 Garmin 同步会把篮球/游泳/力量训练�
 - **降级纪律**：任何一步查询失败只丢失对应段落，返回空串也不阻塞 AI 主流程。
 - **不做**：不用跨全历史的宏观趋势替代对当次的解读；趋势只作为解释当次状态的背景。
 
+#### 活动数据块的「缺失」分两类（2026-10-27）
+
+真实库 348 条活动逐字段审计后，两类缺失必须区别处理 —— 统一写成 `--` 会制造噪音：
+
+| 类别 | 判定 | 输出 | 实例（真实库） |
+|------|------|------|---------------|
+| **该运动不产出** | 写入口就限定运动类型，或设备/平台根本不写 | **整项不输出**（连标签） | `training_stress_score` / `intensity_factor` / `average_power_to_weight` / `avg_grade` **0/348**；非跑步的 `average_power` / `normalized_power` / `training_load` / `avg_altitude` / `average_temperature` **0/107** |
+| **该活动没测到** | 数据源支持，只是这次没有 | 保留标签 + `--` | `vdot_value` 120/241 为空、`time_in_hr_zone` 208/348 为空、非跑步的 `average_speed` 97/107 为空 |
+
+实现：`fmtNumIf()` 值为空返回 `null`，`statRow()` 把 `null` 项整项略去、全空则整行丢弃。
+守护：`tests/unit/lib/llm-gateway.test.ts`（「数据源从不产出的字段整项不出现」/「有值时照常
+输出」/「不存在只剩标签的空行」）+ `tests/unit/lib/llm.test.ts`（非跑步 prompt 不得引用
+数据里不存在的指标）。
+
+**为什么非跑步 prompt 也要改**：`NON_RUNNING_SYSTEM_PROMPT` 曾要求「用训练负荷（TL）评估
+强度」并把负荷列为「所有运动都有的指标」，但非跑步 `training_load` **0/107** 有值
+（`sync.js` 的 `runnableTypes2` 限定跑步类型）—— prompt 与数据源直接矛盾，模型只能编造
+或抱怨缺数据。现已改为「心率区间时长 × 心率水平」估算强度，并显式禁止引用 TL/TSS/IF。
+
+**`max_speed` 的双层缺陷**（单位之外）：
+
+1. 库里已是 km/h（`fit-parser` 用 `speedUnit:'km/h'`），旧代码又乘 3.6 —— 20.76 报成 74.7；
+2. 修好单位后仍有第二层：它是**设备瞬时峰值**，不是可持续速度。实测 `653862644` 峰值
+   20.8 km/h（2:53/km）那一刻心率只有 **102bpm**、前两秒 `cadence: 0`（人在停步）——
+   GPS 重捕抖动；33 条有该字段的跑步活动里 9 条超过最快分段速度 1.5 倍（最高 2.6 倍）。
+
+故跑步分支输出时附「（设备瞬时峰值, 不代表持续能力）」限定语，缺值时整行不输出
+（真实库仅 33/241 跑步活动有值，86% 是 `--`）；非跑步分支整项不输出 —— 乒乓球
+8.03 km/h 是挥拍抖动（均速 0.12），羽毛球 4.23 km/h（均速 0.08）。两个 prompt 的分析
+框架都**没有**最大速度这一维度，模型却会主动拿它下「冲刺能力」结论。
+
 ### 2.2 汇总页：区间与趋势优先
 
 `GlobalCoach` 的 `days` 由页面决定，服务端用**同一区间**重新计算洞察指标：
@@ -230,7 +261,8 @@ pbRun 是跑步分析工具，但 Garmin 同步会把篮球/游泳/力量训练�
 | **区块展示条件不得依赖单一罕见字段** | `ActivityDetailClient` 跑步动态卡（三项任一非空 + `running`） | `tests/unit/pages/activity-detail.test.tsx`（`gct_balance` 为 NULL 但触地时间/垂直摆动有值时仍渲染；非跑步即便有值也不渲染）；`tests/e2e/activity-detail.spec.ts` + 夹具按真实分布只写触地时间/垂直摆动 |
 | **UI 标签必须与实际统计口径一致** | `app/page.tsx` 的「跑步天数」（数据源 `getTrainingLoads` 为跑步口径） | `tests/unit/pages/home-page.test.tsx`（标签为「跑步天数」，不得写「活动天数」——真实库 2026-10 有 16 个活动日但仅 15 个跑步日） |
 | **深挖响应显式声明运动口径** | `ActivityInsightResponse.running` + `activity-insight.ts` 的 `analyzeLaps({running})` | `tests/unit/lib/activity-insight.test.ts`（非跑步不外传 `bestPaceSecPerKm`/`workAvgPaceSecPerKm`/`gradeAdjusted`；按相对心率识别强度段） |
-| **AI prompt 按运动类型分流** | `llm.ts` 的 `SYSTEM_PROMPT` / `NON_RUNNING_SYSTEM_PROMPT` | `tests/unit/lib/llm.test.ts`（非跑步不出现跑步术语与配速行） |
+| **AI prompt 按运动类型分流** | `llm.ts` 的 `SYSTEM_PROMPT` / `NON_RUNNING_SYSTEM_PROMPT` | `tests/unit/lib/llm.test.ts`（非跑步不出现跑步术语与配速行；prompt 不引用非跑步数据里不存在的指标） |
+| **活动数据块的两类缺失** | `llm.ts` 的 `fmtNumIf` / `statRow` | `tests/unit/lib/llm-gateway.test.ts`（「该运动不产出」整项不输出、「该活动没测到」保留 `--`、有值时照常输出、无只剩标签的空行） |
 | **`max_speed` 单位契约：全链路 km/h** | `fit-parser.js`（`speedUnit:'km/h'`，`enhanced_max_speed` 原样落库）/ `fetcher.py`（Strava m/s → km/h `*3.6`）/ `llm.ts`（直接 `toFixed(1)`）/ `validate-data.js`（阈值按 km/h） | `tests/unit/lib/llm.test.ts`（20.76 km/h 渲染为 `20.8 km/h`，且不含 74.7；非跑步分支同样不乘 3.6；缺值为 `--`）；`tests/python/test_fetcher_strava.py`（4.5 m/s → 16.2 km/h，与 `average_speed` 同单位）；`tests/unit/scripts/validate-data.test.js`（`distance` 按公里解释，干净数据零误报；103.5 = 28.8×3.6 被抓） |
 | **AI 可比样本块按运动口径收敛** | `activity-coach-context.ts` 的 `performanceLines`（按 `insight.running` 二次把关） | `tests/unit/lib/activity-coach-context.test.ts`（非跑步不出现配速/等价平路行，口径说明改非跑步语义） |
 | **同路径几何质量只统计可校验的同伴** | `activity-insight-service.ts` 的 `summarizeRouteQuality` | `tests/unit/lib/insight-services.test.ts`（无轨迹同伴不计入 `verifiedPeers`；未校验时 `routeQuality` 显式 `null`） |

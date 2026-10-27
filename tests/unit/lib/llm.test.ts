@@ -53,18 +53,37 @@ describe('buildAnalysisMessages', () => {
     expect(user.content).not.toContain('74.8');
   });
 
-  test('非跑步分支的 max_speed 同样不乘 3.6', () => {
-    const [, user] = buildAnalysisMessages(
-      fakeActivity({ activity_type: 'lap_swimming', max_speed: 5.11 }),
-      [],
-    );
-    expect(user.content).toContain('最大速度: 5.1 km/h');
-    expect(user.content).not.toContain('18.4');
+  /**
+   * 单位修对之后还有第二层：它是**设备瞬时峰值**，不是可持续速度。
+   * 实测 653862644 峰值 20.8 km/h 那一刻心率只有 102bpm、前两秒 cadence=0
+   * （人在停步）—— GPS 重捕抖动；33 条有值的跑步活动里 9 条超过最快分段速度
+   * 1.5 倍（最高 2.6 倍）。两个 prompt 的分析框架都**没有**最大速度这一维度，
+   * 模型却会拿它下「冲刺能力」结论。故必须带「瞬时峰值」限定语。
+   */
+  test('最大速度标注「设备瞬时峰值」, 防止被读成可持续冲刺能力', () => {
+    const [, user] = buildAnalysisMessages(fakeActivity({ max_speed: 20.76 }), []);
+    expect(user.content).toContain('设备瞬时峰值');
+    expect(user.content).toContain('不代表持续能力');
   });
 
-  test('缺 max_speed 时为 -- 占位, 不乘出 0.0', () => {
+  test('非跑步活动不输出最大速度 (乒乓球 8.03km/h 是挥拍抖动, 均速 0.12)', () => {
+    const [, user] = buildAnalysisMessages(
+      fakeActivity({ activity_type: 'table_tennis', max_speed: 8.03 }),
+      [],
+    );
+    // 不是「值错了」而是「这项指标对本运动无意义」—— 整项不出现
+    expect(user.content).not.toContain('最大速度');
+    expect(user.content).not.toContain('8.0');
+    // 非跑步仍有平均速度（乒乓 0.12km/h 虽低但语义正确）
+    expect(user.content).toContain('平均速度:');
+  });
+
+  test('缺 max_speed 时整行不输出 (86% 跑步活动没有该字段, 不留 -- 噪音)', () => {
     const [, user] = buildAnalysisMessages(fakeActivity(), []);
-    expect(user.content).toContain('最大速度: -- km/h');
+    expect(user.content).not.toContain('最大速度');
+    expect(user.content).not.toContain('-- km/h');
+    // 平均配速这一行仍在（它总是有值）
+    expect(user.content).toContain('平均配速: 6:37');
   });
 
   test('缺失距离时显示0.00 km而非NaN', () => {
@@ -173,16 +192,42 @@ describe('buildAnalysisMessages', () => {
         average_pace: 1670,
         average_cadence: 32,
         vdot_value: null,
+        // 真实库 0/107 条非跑步活动有 training_load（写入口 sync.js 限定跑步类型），
+        // 夹具必须同样为 null —— 否则「非跑步不输出训练负荷」这条永远不会被测到。
+        training_load: null,
       }),
       [],
     );
-    for (const label of ['平均配速', '平均步频', '步幅', '触地平衡', 'VDOT']) {
+    for (const label of ['平均配速', '平均步频', '步幅', '触地平衡', 'VDOT', '训练负荷']) {
       expect(user.content).not.toContain(label);
     }
     // 所有运动共有的指标照常输出
     expect(user.content).toContain('平均心率: 137bpm');
-    expect(user.content).toContain('训练负荷: 143');
     expect(user.content).toContain('平均速度:');
+  });
+
+  /**
+   * 非跑步活动的「功率 / 标准化功率 / 平均海拔 / 温度 / 训练负荷」在真实库
+   * **107/107 全部为空**（写入口限定跑步类型），旧 prompt 却整行输出 `--`，
+   * 同时 NON_RUNNING_SYSTEM_PROMPT 还要求模型「用训练负荷评估强度」并把负荷
+   * 列为「所有运动都有的指标」—— prompt 与数据源直接矛盾，模型只能编或抱怨缺数据。
+   */
+  test('非跑步 prompt 不得引用数据里不存在的指标 (训练负荷/TSS/IF)', () => {
+    const [system, user] = buildAnalysisMessages(
+      fakeActivity({ activity_type: 'lap_swimming', training_load: null, average_power: null }),
+      [],
+    );
+    expect(system.content).not.toContain('训练负荷（TL）');
+    expect(system.content).not.toContain('负荷定位');
+    // 「所有运动都有的指标」这句本身没问题，但不能把负荷算进去（它只有跑步活动有）
+    expect(system.content).toContain('时长 / 心率 / 热量');
+    expect(system.content).not.toContain('时长 / 心率 / 负荷 / 热量');
+    // 明确告知模型不要引用
+    expect(system.content).toContain('不要引用训练负荷');
+    // 数据块里也不出现这些整行
+    expect(user.content).not.toContain('平均功率');
+    expect(user.content).not.toContain('标准化功率');
+    expect(user.content).not.toContain('训练负荷');
   });
 
   test('非跑步活动的分段用时长而非配速 (游泳每段「配速」不是跑步配速)', () => {

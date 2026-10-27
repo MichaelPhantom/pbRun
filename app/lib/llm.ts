@@ -56,7 +56,7 @@ const SYSTEM_PROMPT = `你是一位世界顶级的精英跑步教练与运动科
 - **触地时间**：过长降低经济性，过短可能牺牲缓冲
 
 ### 5. 负荷与恢复
-- **本次训练负荷**：TSS/IF/ETC 等指标评估本次强度
+- **本次训练负荷**：用活动数据里的「训练负荷」（Garmin training_load）评估本次强度；
 - **近期状态**：结合 TSB、近 7/28 天跑量判断本次是否合理
 - **疲劳管理**：是否在疲劳日强行高强度？是否需要调整？
 - **恢复建议**：本次后需要多少恢复时间？推荐何种恢复方式？
@@ -157,24 +157,25 @@ HIIT、跳绳等非跑步运动的训练诊断。
 
 ### 1. 训练性质与执行质量
 - 判定本次在该运动中的性质（有氧维持/力量刺激/技术练习/高强度间歇/主动恢复）
-- 用**时长 + 平均心率 + 心率区间分布 + 训练负荷**评估执行强度是否达到预期
+- 用**时长 + 平均心率 + 心率区间分布 + 热量**评估执行强度是否达到预期
 - 指出偏差原因（强度过高/过低、间歇恢复不足、动作代偿等）
 
 ### 2. 强度与心率
 - **心率区间分布**：Z1–Z5 各区间时长占比，判断这次是「轻松有氧」还是「高强度」
 - **心率 - 时长关系**：同等心率下时长是否明显超出个人常态（过量信号）
-- **训练负荷（TL）**：与近期跑步负荷对比，说明它在周总量中的分量
+- **强度量化**：用「心率区间时长 × 心率水平」估算这次的实际强度。**不要引用训练负荷
+  （TL/TSS/IF）**—— 它们由跑步专用公式产生，非跑步活动不计算，数据里不会出现
 
 ### 3. 该运动的关键指标
 - **游泳**：每 100m 配速、划频（如有）、分段一致性、SWOLF 类效率指标
 - **力量训练**：总时长、心率区间（力量训练常驻 Z1/Z2，若大量 Z3+ 说明组间休息过短）
 - **球类/间歇类**：心率区间在高强度段的停留时间、间歇密度
 - **爬楼/跳绳**：累计爬升或总次数、心率漂移（后程心率明显上升 = 有氧储备被消耗）
-- 没有对应数据时，只讲**时长 / 心率 / 负荷 / 热量**这四个所有运动都有的指标
+- 没有对应数据时，只讲**时长 / 心率 / 热量**这三个所有运动都有的指标
 
 ### 4. 对跑步的影响（交叉训练视角）
-- 本次是**帮助**还是**妨碍**跑步？依据：心率区间分布 + 负荷大小 + 与上次跑步的间隔
-- 若强度高（大量 Z3+ 或负荷 > 当日跑步均值）：提示下肢/中枢疲劳，建议次日跑步降级为 Z1–Z2 或休息
+- 本次是**帮助**还是**妨碍**跑步？依据：心率区间分布 + 时长 + 与上次跑步的间隔
+- 若强度高（大量 Z3+）：提示下肢/中枢疲劳，建议次日跑步降级为 Z1–Z2 或休息
 - 若强度低（几乎全 Z1–Z2）：视为主动恢复，可正常安排跑步
 
 ### 5. 负荷与恢复
@@ -189,11 +190,11 @@ HIIT、跳绳等非跑步运动的训练诊断。
 
 ## 🎯 训练性质与执行质量
 - **判定性质**：[有氧维持/力量刺激/技术练习/高强度间歇/主动恢复] + 理由
-- **执行评分**：[优秀/良好/合格/需改进] + 依据（时长/心率/负荷的具体数值）
+- **执行评分**：[优秀/良好/合格/需改进] + 依据（时长/心率/心率区间的具体数值）
 
 ## 📈 数据解读
 - **强度分布**：[心率区间占比，如 Z1 12% / Z2 68% / Z3 20%]
-- **负荷定位**：[训练负荷数值 + 与近期跑步负荷的对比]
+- **强度定位**：[心率区间时长 + 与近期同类活动的对比；不引用训练负荷]
 - **该运动专项**：[游泳每 100m 配速 / 力量训练组间强度 / 球类间歇密度；无数据则跳过]
 
 ## 💡 亮点与改进空间
@@ -266,6 +267,37 @@ function fmtNum(v?: number | null, digits = 0, unit = ''): string {
   if (v == null || Number.isNaN(v)) return '--';
   const n = digits > 0 ? v.toFixed(digits) : String(Math.round(v));
   return unit ? `${n}${unit}` : n;
+}
+
+/**
+ * 与 `fmtNum` 相同, 但**值为空时返回 null**（表示「这一项不存在, 连标签都别输出」）。
+ *
+ * 两种缺失必须分开处理, 否则 prompt 会常年带着一行行 `--`:
+ * - **该活动没记录**（真实库偶有值, 如 `max_speed` 43/348、`time_in_hr_zone` 140/348）→
+ *   输出 `--`，模型据此知道「这次没测到」；
+ * - **真实库 348/348 全为空**（`training_stress_score` / `intensity_factor` /
+ *   `average_power_to_weight` / `avg_grade`）→ 整项不输出。
+ *
+ * 后者写成 `--` 的代价很实在：模型每轮都看到「TSS: --  IF: --  功率体重比: --」，
+ * 于是把篇幅花在「建议补齐 TSS / IF / 功率计数据」上 —— 而这些字段 Garmin 手表
+ * 几乎不写进 FIT（TSS/IF 是 Garmin Connect 云端算的，不在设备文件里），建议永远
+ * 无法执行，还挤掉了真实数据的解读空间。空占位不是「诚实」，是噪音。
+ */
+function fmtNumIf(v?: number | null, digits = 0, unit = ''): string | null {
+  if (v == null || Number.isNaN(v)) return null;
+  return fmtNum(v, digits, unit);
+}
+
+/**
+ * 拼接一行内的若干「标签: 值」。
+ *
+ * 值为 `null` 的字段**整项略去**（连标签一起）；全空时返回 `null`, 由调用方丢弃该行 ——
+ * 避免 prompt 里出现只剩标签的空行。
+ */
+function statRow(parts: Array<[string, string | null]>): string | null {
+  const kept = parts.filter((p): p is [string, string] => p[1] != null);
+  if (kept.length === 0) return null;
+  return kept.map(([label, value]) => `${label}: ${value}`).join('  ');
 }
 
 function fmtZoneTimes(json?: string | null): string {
@@ -443,29 +475,95 @@ export function buildAnalysisMessages(
   // 以 speedUnit:'km/h' 解析，enhanced_max_speed 原样落库（实测 16.49 → DB 16.49）。
   // 旧代码按「Garmin 原始 m/s」乘了 3.6，把 16.5km/h 报成 59.4km/h（真实库最大
   // 28.75 → 103.5km/h，等于 2:53/km 的世界纪录配速），模型据此判定「冲刺能力惊人」。
-  const maxSpeedKmh = activity.max_speed != null ? activity.max_speed.toFixed(1) : '--';
-  const runningLines = running
-    ? `平均配速: ${formatPace(activity.average_pace, false)}  最大速度: ${maxSpeedKmh} km/h
-平均步频: ${fmtNum(activity.average_cadence, 0, 'spm')}  步幅: ${fmtNum(activity.average_stride_length, 2, 'm')}
-触地平衡: ${fmtNum(activity.average_gct_balance, 1, '%')}  触地时间: ${fmtNum(activity.average_ground_contact_time, 0, 'ms')}  垂直摆动: ${fmtNum(activity.average_vertical_oscillation, 1, 'cm')}  垂直振幅比: ${fmtNum(activity.average_vertical_ratio, 1, '%')}
-VDOT: ${fmtNum(activity.vdot_value, 1)}  有氧训练效果: ${fmtNum(activity.total_training_effect, 1)}  无氧: ${fmtNum(activity.total_anaerobic_training_effect, 1)}
-TSS: ${fmtNum(activity.training_stress_score, 0)}  IF: ${fmtNum(activity.intensity_factor, 2)}`
-    : `平均速度: ${activity.average_speed != null ? activity.average_speed.toFixed(2) : '--'} km/h  最大速度: ${maxSpeedKmh} km/h
-训练效果: ${fmtNum(activity.total_training_effect, 1)}  无氧效果: ${fmtNum(activity.total_anaerobic_training_effect, 1)}`;
+  //
+  // 单位修对之后还有第二层问题：它是**设备记录的瞬时峰值**，不是可持续速度。
+  // 实测 653862644 峰值 20.8 km/h（2:53/km）那一刻心率只有 102bpm、前两秒
+  // cadence=0（人在停步）—— GPS 重捕抖动。33 条有 max_speed 的跑步活动里 9 条
+  // 超过最快分段速度 1.5 倍（最高 2.6 倍）。而两个 prompt 的分析框架都**没有**
+  // 提到最大速度，模型却会主动拿它下「冲刺能力」结论。
+  // 故：跑步分支保留（附「瞬时峰值」限定语），缺值整行不输出（86% 的活动没有）；
+  // 非跑步分支整项不输出 —— 乒乓球的 8.03 km/h 是挥拍抖动，均速只有 0.12。
+  const maxSpeedLine =
+    running && activity.max_speed != null
+      ? `最大速度: ${activity.max_speed.toFixed(1)} km/h（设备瞬时峰值, 不代表持续能力）`
+      : null;
+  const runningLines = (
+    running
+      ? [
+          `平均配速: ${formatPace(activity.average_pace, false)}`,
+          maxSpeedLine,
+          statRow([
+            ['平均步频', fmtNum(activity.average_cadence, 0, 'spm')],
+            ['步幅', fmtNum(activity.average_stride_length, 2, 'm')],
+          ]),
+          statRow([
+            ['触地平衡', fmtNumIf(activity.average_gct_balance, 1, '%')],
+            ['触地时间', fmtNum(activity.average_ground_contact_time, 0, 'ms')],
+            ['垂直摆动', fmtNum(activity.average_vertical_oscillation, 1, 'cm')],
+            ['垂直振幅比', fmtNum(activity.average_vertical_ratio, 1, '%')],
+          ]),
+          statRow([
+            ['VDOT', fmtNum(activity.vdot_value, 1)],
+            ['有氧训练效果', fmtNum(activity.total_training_effect, 1)],
+            ['无氧', fmtNum(activity.total_anaerobic_training_effect, 1)],
+          ]),
+          statRow([
+            ['TSS', fmtNumIf(activity.training_stress_score, 0)],
+            ['IF', fmtNumIf(activity.intensity_factor, 2)],
+          ]),
+        ]
+      : [
+          `平均速度: ${activity.average_speed != null ? activity.average_speed.toFixed(2) : '--'} km/h`,
+          statRow([
+            ['训练效果', fmtNum(activity.total_training_effect, 1)],
+            ['无氧效果', fmtNum(activity.total_anaerobic_training_effect, 1)],
+          ]),
+        ]
+  )
+    .filter((line): line is string => line != null)
+    .join('\n');
 
   const lapTitle = running ? '【每公里分段】（区间为累计距离，非序号）' : '【分段明细】（区间为累计距离，非序号）';
+
+  // 所有运动共有的指标行。规则：
+  //  - 「该运动不产出该字段」→ 用 fmtNumIf，值为空则整项略去（整行全空则该行不输出）；
+  //  - 「该运动应该有该字段，只是这次没测到」→ 用 fmtNum 保留 `--`，让模型知道缺失。
+  // 实测（348 条活动）: 平均功率/标准化功率/平均海拔/温度/训练负荷 在 107 条非跑步
+  // 活动中 **0/107** 有值（写入口限定跑步类型），旧实现整行输出 `--` 是纯噪音。
+  const commonLines = [
+    statRow([
+      ['平均心率', fmtNum(activity.average_heart_rate, 0, 'bpm')],
+      ['最大心率', fmtNum(activity.max_heart_rate, 0, 'bpm')],
+    ]),
+    statRow([
+      ['平均功率', fmtNumIf(activity.average_power, 0, 'W')],
+      ['标准化功率', fmtNumIf(activity.normalized_power, 0, 'W')],
+      ['功率体重比', fmtNumIf(activity.average_power_to_weight, 1, 'W/kg')],
+    ]),
+    statRow([
+      ['累计爬升', fmtNumIf(activity.total_ascent, 0, 'm')],
+      ['累计下降', fmtNumIf(activity.total_descent, 0, 'm')],
+      ['平均坡度', fmtNumIf(activity.avg_grade, 1, '%')],
+    ]),
+    statRow([['训练负荷', fmtNumIf(activity.training_load, 0)]]),
+    statRow([
+      ['平均海拔', fmtNumIf(activity.avg_altitude, 0, 'm')],
+      ['热量', fmtNum(activity.calories, 0, 'kcal')],
+      ['温度', fmtNumIf(activity.average_temperature, 1, '°C')],
+    ]),
+    // 区间时间即使全空也保留标签: 「没记录心率区间」本身是模型该知道的信息
+    // （它会据此避免谈区间分布），且 140/348 的活动确实有值。
+    `心率区间时间: ${fmtZoneTimes(activity.time_in_hr_zone)}`,
+  ]
+    .filter((line): line is string => line != null)
+    .join('\n');
 
   const user = `${profileBlock ? profileBlock + '\n\n' : ''}【活动】
 日期: ${date}
 名称: ${activity.name || '--'}  类型: ${typeName}${running ? '' : '（非跑步）'}
 距离: ${dist.toFixed(2)} km  移动时长: ${formatDuration(dur)}  总时长: ${formatDuration(activity.duration)}
 ${runningLines}
-平均心率: ${fmtNum(activity.average_heart_rate, 0, 'bpm')}  最大心率: ${fmtNum(activity.max_heart_rate, 0, 'bpm')}
-平均功率: ${fmtNum(activity.average_power, 0, 'W')}  标准化功率: ${fmtNum(activity.normalized_power, 0, 'W')}  功率体重比: ${fmtNum(activity.average_power_to_weight, 1, 'W/kg')}
-累计爬升: ${fmtNum(activity.total_ascent, 0, 'm')}  累计下降: ${fmtNum(activity.total_descent, 0, 'm')}  平均坡度: ${fmtNum(activity.avg_grade, 1, '%')}
-训练负荷: ${fmtNum(activity.training_load, 0)}
-平均海拔: ${fmtNum(activity.avg_altitude, 0, 'm')}  热量: ${fmtNum(activity.calories, 0, 'kcal')}  温度: ${fmtNum(activity.average_temperature, 1, '°C')}
-心率区间时间: ${fmtZoneTimes(activity.time_in_hr_zone)}
+${commonLines}
 
 ${lapTitle}
 ${lapLines || '(无分段数据)'}${contextBlock ? `\n\n${contextBlock}` : ''}`;

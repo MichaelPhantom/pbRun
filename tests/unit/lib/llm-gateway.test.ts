@@ -122,10 +122,62 @@ describe('buildAnalysisMessages 的空值/坏数据兜底', () => {
     expect(content).toContain('VDOT: --');
     expect(content).toContain('名称: --');
     expect(content).not.toMatch(/undefined|NaN/);
-    expect(content).toContain('触地平衡: --');
     // 垂直振幅比同样入 prompt: 真实库 241/241 条跑步活动都有值, 但此前
     // UI 与 prompt 都没用它 —— 数据在库里却拿不到。
     expect(content).toContain('垂直振幅比: --');
+  });
+
+  /**
+   * 「该活动没记录」与「数据源从不产出」是两种缺失, 处理方式必须不同。
+   *
+   * 真实库实测 (348 条活动):
+   *   average_gct_balance        0/348   ← Garmin 需双传感器, 从不写入
+   *   training_stress_score      0/348   ← TSS 是 Connect 云端算的, 不在 FIT 里
+   *   intensity_factor           0/348
+   *   average_power_to_weight    0/348
+   *   avg_grade                  0/348
+   * 而 average_vertical_oscillation / ground_contact_time / vertical_ratio 都是
+   * 241/241（跑步活动全有）。
+   *
+   * 前一类若仍写成 `TSS: --  IF: --`, 模型每轮都看到它们, 就会把篇幅花在
+   * 「建议补齐 TSS/IF/功率计数据」——而这些字段没有任何写入方, 建议永远无法执行。
+   */
+  test('数据源从不产出的字段整项不出现 (不再输出 TSS: -- 这类噪音)', () => {
+    const [, user] = buildAnalysisMessages(sparse, []);
+    const content = user.content as string;
+    for (const label of ['TSS', 'IF:', '功率体重比', '平均坡度', '触地平衡']) {
+      expect(content).not.toContain(label);
+    }
+    // 这些是「本次没记录」而非「从不产出」, 保留标签 + -- 占位
+    expect(content).toContain('VDOT: --');
+    expect(content).toContain('垂直振幅比: --');
+    expect(content).toContain('心率区间时间: --');
+  });
+
+  test('有值时 TSS/IF/功率体重比/平均坡度 照常输出 (不是永久屏蔽)', () => {
+    const [, user] = buildAnalysisMessages(
+      {
+        ...sparse,
+        training_stress_score: 78,
+        intensity_factor: 0.86,
+        average_power_to_weight: 3.7,
+        avg_grade: 1.4,
+      } as Activity,
+      [],
+    );
+    const content = user.content as string;
+    expect(content).toContain('TSS: 78');
+    expect(content).toContain('IF: 0.86');
+    expect(content).toContain('功率体重比: 3.7W/kg');
+    expect(content).toContain('平均坡度: 1.4%');
+  });
+
+  test('不存在「只剩标签」的空行 (值为空时不留下悬空冒号)', () => {
+    const [, user] = buildAnalysisMessages(sparse, []);
+    const lines = (user.content as string).split('\n');
+    // 「训练负荷: --」是合法占位（该活动没记录）; 真正的缺陷是值完全缺失,
+    // 即行尾只剩冒号（statRow 把空值字段整项略去后可能留下的残骸）。
+    expect(lines.filter((l) => /:\s*$/.test(l))).toEqual([]);
   });
 
   test('跑姿四项都进 prompt (触地平衡/触地时间/垂直摆动/垂直振幅比)', () => {
