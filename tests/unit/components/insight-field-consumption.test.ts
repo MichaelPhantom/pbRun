@@ -86,6 +86,9 @@ const ACTIVITY_FIELD_ALLOWLIST: Record<string, string> = {
   route_km: '清洗后轨迹长度, 仅用于路线聚类长度比',
   start_lat: '轨迹首点纬度, 仅用于同起点召回',
   start_lng: '轨迹首点经度, 仅用于同起点召回',
+  // 注: `track` 不在账本里 —— 它**确实被消费**（`getActivityTrack` 解析后供详情页
+  // 地图与 `route-shape` 使用），只是通用行/列表接口会剥离原始 JSON 串。
+  // 「被剥离」不等于「不展示」，所以不能进豁免账本（账本只记**真的不展示**的字段）。
 
   // ---- 语义陷阱：同名不同口径 ----
   // 这是本表最重要的一条。`max_heart_rate_fit` 是**手表里的用户配置值**,
@@ -106,8 +109,11 @@ const ACTIVITY_FIELD_ALLOWLIST: Record<string, string> = {
   avg_neg_grade: '真实库 0/348, 设备从不写入',
   max_pos_grade: '真实库 0/348, 设备从不写入',
   max_neg_grade: '真实库 0/348, 设备从不写入',
-  time_in_speed_zone: '真实库 0/348; FIT profile 有字段但设备从不写入, app 亦无对应 5 区模型',
-  time_in_cadence_zone: '真实库 0/348; FIT profile 有字段但设备从不写入, app 亦无对应 5 区模型',
+  // 注: `time_in_speed_zone` / `time_in_cadence_zone` 两条已于 2026-10-27 删除 ——
+  // 这两列**已被 `_initDatabase` 从 schema 里 DROP**（app 无对应 5 区模型，设备原始
+  // 数组的正确落点是 `device_*` 前缀列）。账本里留着不存在的列，等于账本本身失真：
+  // 下一个人会以为「库里还有这两列、只是没展示」。守卫见下方
+  // 「allowlist 的每个键都必须仍是真实列」。
   // 功率区间: 已由逐秒功率按 app 5 区 %FTP 模型统一到 `time_in_power_zone`
   // （241/241 覆盖, 长度恒为 5, 可按索引跨活动聚合）。设备原始数组另存
   // `device_time_in_power_zone`（绝对瓦数边界, 16 套方案）—— 与
@@ -402,5 +408,48 @@ describe('Activity 的每个字段都必须被消费或显式记账', () => {
       expect(reason).not.toBe('暂不支持');
       expect(reason).toMatch(/真实库|设备|派生|语义|仅用于|配置值|同源|恒等于|方案|无关/);
     }
+  });
+
+  /**
+   * allowlist 的**每个键都必须仍是真实列**（2026-10-27 新增）。
+   *
+   * ## 缺陷
+   *
+   * 账本原本只校验一个方向：「账本里的字段不得已被消费」。没有校验
+   * 「账本里的字段是否还存在」—— 于是 `_initDatabase` 把
+   * `time_in_speed_zone` / `time_in_cadence_zone` 从 schema 里 DROP 之后，
+   * 账本里仍留着这两条豁免。账本失真比缺条目更危险：下一个人读到
+   * 「这两列设备从不写入」会以为**库里还有这两列、只是没展示**，
+   * 而实际上它们已经不存在了 —— 真正该加的列反而没人加。
+   *
+   * ## 判据
+   *
+   * 真值来源是 `DatabaseManager.declaredColumns('activities')`（真实建表路径），
+   * 不是把列名再抄一遍。同时要求**覆盖完整**：`Activity` 的字段 ∪ 账本的键
+   * 必须等于 schema 的全部列 —— 否则就是「有一列既没被声明、也没被记账」。
+   */
+  test('allowlist 的每个键都必须是真实存在的列 (账本不得记录已删除的列)', () => {
+    // 全局 setup 把 better-sqlite3 mock 掉了；这里需要真实内存库取声明列集合。
+    jest.unmock('better-sqlite3');
+    jest.isolateModules(() => {
+      const DatabaseManager = require('../../../scripts/common/db-manager');
+      const declared = new Set(DatabaseManager.declaredColumns('activities'));
+      const phantom = Object.keys(ACTIVITY_FIELD_ALLOWLIST).filter((k) => !declared.has(k));
+      expect(phantom).toEqual([]);
+    });
+  });
+
+  test('schema 的每一列都必须「被声明 或 被记账 或 被消费」(不允许有列三头都不在)', () => {
+    jest.unmock('better-sqlite3');
+    jest.isolateModules(() => {
+      const DatabaseManager = require('../../../scripts/common/db-manager');
+      const declared = DatabaseManager.declaredColumns('activities');
+      const accounted = new Set([...leaves, ...Object.keys(ACTIVITY_FIELD_ALLOWLIST)]);
+      // `track` 这类**在 `Activity` 里没声明、但确实被消费**的列（经
+      // `getActivityTrack` 单独取，供详情页地图/route-shape 用）必须也算已记账 ——
+      // 否则守卫会把「已消费」误报成「孤儿列」，逼人把活字段塞进豁免账本。
+      const orphans = declared.filter((c) => !accounted.has(c) && !isConsumed(consumers, c));
+      expect(orphans).toEqual([]);
+    });
   });
 });

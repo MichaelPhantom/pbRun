@@ -458,11 +458,26 @@ FTP 缺失不猜 / 海拔比值 / 尖峰过滤）、`tests/unit/pages/activity-d
 聚类索引列（`route_cells` / `route_bounds` / `route_km` / `start_lat` / `start_lng`）、
 语义陷阱（`max_heart_rate_fit` 是**设备配置值**不是本次峰值；`devices` 已脱敏）、
 真实库 0/348 从不产出（`average_step_rate_loss*` / `max_power_to_weight` /
-`avg_pos_grade` 等 4 项 / `time_in_speed_zone` / `time_in_cadence_zone`）、
+`avg_pos_grade` 等 4 项）、
 以及仅追溯用的设备原始区间数组（`device_time_in_hr_zone` / `device_time_in_power_zone`
 / `device_time_in_speed_zone` / `device_time_in_cadence_zone` —— 统一口径列
 `time_in_hr_zone` / `time_in_power_zone` 已分别被 `hrZoneBreakdown` /
 `powerZoneBreakdown` 消费，见 §1.2）。
+
+**账本本身也要被守卫**（2026-10-27 修）。原守卫只校验一个方向：「账本里的字段不得
+已被消费」。缺了「账本里的字段**是否还存在**」—— 于是 `_initDatabase` 把
+`time_in_speed_zone` / `time_in_cadence_zone` 从 schema 里 DROP 之后，账本里仍留着
+这两条豁免。**账本失真比缺条目更危险**：下一个人读到「这两列设备从不写入」会以为
+库里还有这两列、只是没展示，而实际上它们已经不存在了。现在补三条：
+
+- **账本的每个键都必须是真实列**（真值来源 `DatabaseManager.declaredColumns()`，
+  不是再抄一遍列名）；
+- **schema 的每一列都必须「被声明 或 被记账 或 被消费」** —— 不允许有列三头都不在。
+  注意 `track` 属于第三类：它在 `Activity` 里没声明，但经 `getActivityTrack` 单独取
+  供详情页地图/`route-shape` 使用，是**真的被消费**，不能塞进豁免账本（「被剥离」
+  不等于「不展示」）。
+- 反例已排除：`start_tz_offset_min` 等 6 个聚类/记账列确实不在 `Activity` 里，
+  但仍在 schema 里 —— 它们留在账本里是对的。
 
 ---
 
