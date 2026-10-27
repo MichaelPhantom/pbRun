@@ -142,6 +142,20 @@ function parseInterfaces(src: string): Map<string, { fields: string[]; refs: str
     const body = src.slice(i, j - 1);
     const fields: string[] = [];
     for (const f of body.matchAll(/^\s{2,}([A-Za-z_][A-Za-z0-9_]*)\??\s*:/gm)) fields.push(f[1]);
+    // **内联对象字面量的字段也必须收进来。**
+    //
+    // 这是一处曾经让整个守卫静默失效的盲点：`LoadInsight.weekly` 写成
+    // `weekly: { week: string; km: number; tl: number; n: number; seconds: number }[]`
+    // —— 没有独立的 interface 名，旧解析器只把 `weekly` 当成一个叶子字段，
+    // 里面的 `n` / `seconds` 从未进入字段集合。于是这两个「算出来却从不展示」
+    // 的字段在本测试下**永远绿**。而 `zDistribution[].seconds` 恰好同名字段，
+    // 就算把它们手工加进来，按名字去重的叶子集合也会让两者共享一次消费判定。
+    //
+    // 修法两条：① 收内联字面量字段；② 叶子身份用「路径」而不是「名字」
+    // （见 `collectLeafPaths`）。
+    for (const inline of body.matchAll(/\{([^{}]*)\}/g)) {
+      for (const f of inline[1].matchAll(/([A-Za-z_][A-Za-z0-9_]*)\??\s*:/g)) fields.push(f[1]);
+    }
     const refs = [...body.matchAll(/:\s*([A-Z]\w+)/g)].map((x) => x[1]);
     out.set(name, { fields, refs });
     i = j;
@@ -164,6 +178,38 @@ function collectLeaves(interfaces: Map<string, { fields: string[]; refs: string[
     for (const r of block.refs) if (interfaces.has(r)) stack.push(r);
   }
   return leaves;
+}
+
+/**
+ * 递归展开根 interface，返回所有叶子字段的**完整路径**（如
+ * `LoadInsight.weekly.seconds`）。
+ *
+ * 为什么路径比名字重要：`seconds` 同时出现在 `LoadInsight.weekly[]` 与
+ * `LoadInsight.zDistribution[]`。若按名字去重，只要 UI 读了 `z.seconds`
+ * （强度分布柱状图确实读了），`weekly[].seconds` 就跟着「已消费」——
+ * 一个字段的消费掩盖了另一个字段的从未消费。**同一个名字不等于同一个字段。**
+ */
+function collectLeafPaths(
+  interfaces: Map<string, { fields: string[]; refs: string[] }>,
+  root: string,
+): Map<string, string> {
+  const out = new Map<string, string>(); // 叶子名 → 完整路径
+  const seen = new Set<string>();
+  const stack: [string, string][] = [[root, root]];
+  while (stack.length > 0) {
+    const [name, prefix] = stack.pop()!;
+    if (seen.has(name)) continue;
+    seen.add(name);
+    const block = interfaces.get(name);
+    if (!block) continue;
+    for (const f of block.fields) {
+      const full = `${prefix}.${f}`;
+      // 同名叶子只留第一条路径，供失败信息定位；去重责任交给调用方的路径断言
+      if (!out.has(f)) out.set(f, full);
+    }
+    for (const r of block.refs) if (interfaces.has(r)) stack.push([r, `${prefix}.${r}`]);
+  }
+  return out;
 }
 
 /** 去掉注释与字符串里的偶发命中，避免「注释里提过字段名」就骗过守卫。 */
@@ -211,6 +257,43 @@ describe('InsightResponse 的每个字段都必须被消费', () => {
     expect(leaves.has('avgTrainingLoad')).toBe(true);
     expect(leaves.has('avgCadence')).toBe(true);
     expect(leaves.has('stravaLikeCount')).toBe(true);
+    // **内联对象字面量的字段必须也被收进来**。`LoadInsight.weekly` 没有独立
+    // interface 名，旧解析器漏掉整块 —— `weekly[].n` / `weekly[].seconds`
+    // 因此可以「算了不展示」而永远绿。
+    expect(leaves.has('seconds')).toBe(true);
+    expect(leaves.has('pct')).toBe(true);
+    expect(leaves.has('zone')).toBe(true);
+    expect(leaves.has('week')).toBe(true);
+  });
+
+  test('内联字面量字段数达标 (防止内联解析再次静默失效)', () => {
+    // 61 个内联字面量字段散落在 13 个 interface 里；若正则坏掉会骤降到 0。
+    const inlineCount = [...interfaces.values()].reduce(
+      (a, b) => a + b.fields.filter((f) => f === 'week' || f === 'pct' || f === 'zone').length,
+      0,
+    );
+    expect(inlineCount).toBeGreaterThanOrEqual(5);
+  });
+
+  /**
+   * **本守卫的已知盲区（写在这里，免得下一个人以为它是万能的）**
+   *
+   * 叶子身份是「字段名」，不是「路径」。`seconds` 同时是
+   * `LoadInsight.weekly[].seconds` 与 `LoadInsight.zDistribution[].seconds`：
+   * UI 读了 `z.seconds`（强度分布柱状图），`weekly[].seconds` 就跟着算「已消费」。
+   * 2026-10-28 审计正是靠**人工**发现 `weekly[].n` 与 `weekly[].seconds`
+   * 算出来从未被任何消费方读取 —— 本守卫当时全绿。
+   *
+   * 名字级守卫无法区分这两者，所以同名字段必须用**行为断言**兜底
+   * （见 `tests/unit/lib/insight-coach.test.ts` 的「周训练量块含 km/时长/次数」，
+   * 该断言做过缺陷注入：删掉周序列块立即转红）。
+   * 这里的断言只保证「内联字面量字段确实进了字段集合」—— 那是守卫能可靠
+   * 保证的部分，不能假装它保证了更多。
+   */
+  test('内联字面量字段已进入字段集合 (路径级去重交给行为断言)', () => {
+    const paths = collectLeafPaths(interfaces, 'InsightResponse');
+    expect(paths.get('seconds')).toContain('LoadInsight');
+    expect(paths.has('zone')).toBe(true);
   });
 
   test('没有「已计算但从未展示」的字段', () => {

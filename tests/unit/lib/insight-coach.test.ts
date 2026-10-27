@@ -128,6 +128,34 @@ describe('formatInsightForCoach', () => {
     expect(text).toContain('【全局训练指标】');
     expect(text).not.toContain('训练类别');
   });
+
+  /**
+   * `LoadInsight.weekly` 的 `n`(次数) 与 `seconds`(周训练时长) 长期只算不用：
+   * 全局教练只拿到 acute/chronic 两个汇总值, 回答不了「近 7/30/180 天趋势」
+   * 这类问题 —— 而那正是摘要页 AI 的主场。判别式：同一周里给出
+   * `km` 与 `seconds`/`n`, 文本必须同时出现公里、分:秒 时长与次数。
+   */
+  test('周训练量块含 km / 时长 / 次数 (weekly 的 seconds 与 n 必须被消费)', () => {
+    const text = formatInsightForCoach(
+      makeInsight({
+        load: {
+          ...makeInsight().load,
+          weekly: [
+            { week: '2026-W37', km: 49.7, tl: 430, n: 5, seconds: 19000 },
+            { week: '2026-W38', km: 51.3, tl: 412, n: 5, seconds: 19400 },
+          ],
+        },
+      }),
+    );
+    expect(text).toContain('周训练量');
+    expect(text).toContain('2026-W37 49.7km/5:16:40/5次/430TL');
+    expect(text).toContain('2026-W38 51.3km/5:23:20/5次/412TL');
+  });
+
+  test('weekly 为空时不输出周训练量块 (不编造空行)', () => {
+    const text = formatInsightForCoach(makeInsight());
+    expect(text).not.toContain('周训练量');
+  });
 });
 
 describe('buildGlobalCoachMessages', () => {

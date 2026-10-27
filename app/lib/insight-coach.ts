@@ -4,6 +4,7 @@
  */
 
 import type { InsightResponse } from './types';
+import { formatDuration } from './format';
 
 function fmtPace(secPerKm: number | null | undefined): string {
   if (secPerKm == null || !Number.isFinite(secPerKm) || secPerKm <= 0) return '--';
@@ -40,6 +41,17 @@ export function formatInsightForCoach(insight: InsightResponse): string {
     `负荷: 急性(7天) ${n(load.acute, 0)}  慢性(28天周均) ${n(load.chronic, 0)}  ` +
       `ACWR ${n(load.acwr, 2)}（${load.acwrTone}）`,
   );
+  // 周序列: 只给 acute/chronic 两个汇总值时, 模型看不到「哪一周在涨/掉」——
+  // 这正是「近 7/30/180 天趋势」类问题的答案来源。weekly 里 n(次数) 与
+  // seconds(周训练时长) 此前算出来从未被任何消费方读取。
+  if (load.weekly.length > 0) {
+    L.push(
+      '周训练量: ' +
+        load.weekly
+          .map((w) => `${w.week} ${n(w.km, 1)}km/${formatDuration(w.seconds)}/${w.n}次/${n(w.tl, 0)}TL`)
+          .join(' '),
+    );
+  }
   L.push(
     `强度分布: ` +
       load.zDistribution
