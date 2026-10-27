@@ -3,11 +3,13 @@
  */
 
 import {
+  aggregateWeeklyLoad,
   dayOrdinal,
   linearRegression,
   mean,
   type DailyLoad,
 } from './insight';
+import { isoWeekBounds, isoWeeksBetween } from './date-utils';
 import type {
   CategoryComparison,
   CategoryStats,
@@ -304,58 +306,105 @@ export function computeRouteComparison(samples: RouteSample[], minRuns = 2): Rou
 // 周期化分析
 // ---------------------------------------------------------------------------
 
-/** 由逐日负荷 + ISO 周聚合计算周期化洞察 (含周维度 CTL/ATL/TSB)。 */
+/**
+ * 由逐日负荷 + ISO 周聚合计算周期化洞察 (含周维度 CTL/ATL/TSB)。
+ *
+ * `range` 提供所选区间的日期边界（含两端）。窗口口径的判定必须用**日期**，
+ * 不能用周键字符串比较：
+ *   - 旧实现拿预热窗口的逐日数据全量聚合，再交给 UI 显示 —— 「近一周」会得到
+ *     6 周共 191.6km（真实该窗口只有 26.4km）；
+ *   - 修窗口时也不能用 `week >= startDate.slice(0,7)`：`'2026-W43' >= '2026-10'`
+ *     恒为真（`W` > `1`），等于没过滤。
+ *
+ * 缺省 `range` 时退化为「用数据自身的最早/最晚日」，供纯函数单测直接调用。
+ */
 export function computePeriodization(
   daily: DailyLoad[],
-  weeklyCtlAtlTsb: PeriodizationWeek[] | null = null,
+  weeklyCtlAtlTsb: Pick<PeriodizationWeek, 'week' | 'ctl' | 'atl' | 'tsb'>[] | null = null,
+  range?: { startDate: string; endDate: string },
 ): PeriodizationInsight {
-  // 周聚合跑量/负荷/次数
-  const byWeek = new Map<string, { km: number; tl: number; n: number }>();
-  for (const d of [...daily].sort((a, b) => (a.date < b.date ? -1 : 1))) {
-    const key = isoWeekKeyLocal(d.date);
-    const w = byWeek.get(key) ?? byWeek.set(key, { km: 0, tl: 0, n: 0 }).get(key)!;
-    w.km += d.distanceMeters / 1000;
-    w.tl += d.load;
-    w.n += 1;
-  }
+  const sorted = [...daily].sort((a, b) => (a.date < b.date ? -1 : 1));
+  const startDate = range?.startDate ?? sorted[0]?.date;
+  const endDate = range?.endDate ?? sorted[sorted.length - 1]?.date;
+
+  // 只聚合落在区间内的日；预热窗口（ACWR 用）不得进入周期化统计。
+  const inRange = startDate && endDate ? sorted.filter((d) => d.date >= startDate && d.date <= endDate) : [];
+
+  // 周聚合跑量/负荷/次数 —— 复用 `aggregateWeeklyLoad`（唯一实现），
+  // 保证「训练负荷」和「周期化」两张表对同一周给出同一组数字。
+  const byWeek = aggregateWeeklyLoad(inRange);
+
+  // **区间内的每一个 ISO 周都必须出现**，零跑量周也不例外。
+  // 旧实现只列出「有数据的周」，于是休息周直接从图和表里消失：跑量曲线看似
+  // 连续、周环比波动 σ 偏小（真实库 90 天窗口 18.1% vs 含零周 45.5%）、
+  // 「周均」偏高。休息周是训练结构的一部分，不能被聚合悄悄抹掉。
+  const weekKeys = startDate && endDate ? isoWeeksBetween(startDate, endDate) : [...byWeek.keys()].sort();
 
   const loadMap = new Map((weeklyCtlAtlTsb ?? []).map((w) => [w.week, w]));
-  let weeks: PeriodizationWeek[] = [...byWeek.entries()]
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([week, v]) => {
-      const extra = loadMap.get(week);
-      return {
-        week,
-        km: Math.round(v.km * 10) / 10,
-        tl: Math.round(v.tl),
-        activities: v.n,
-        ctl: extra?.ctl ?? 0,
-        atl: extra?.atl ?? 0,
-        tsb: extra?.tsb ?? 0,
-      };
-    });
+  let weeks: PeriodizationWeek[] = weekKeys.map((week) => {
+    const v = byWeek.get(week);
+    const extra = loadMap.get(week);
+    // 截断周: 该周周一早于区间起点, 或周日晚于区间终点。这样的周只统计了区间内
+    // 的那几天, 跑量天然偏小 —— 必须显式标记, 否则它会被当成「退步的一周」。
+    //
+    // 只在调用方**显式传入 range** 时才有「截断」概念: 缺省时区间退化为数据
+    // 自身的首尾日, 此时任何一周都必然「越界」, 标记全员截断没有意义。
+    const b = range != null ? isoWeekBounds(week) : null;
+    const partial = b != null && startDate != null && endDate != null
+      ? b.startDate < startDate || b.endDate > endDate
+      : false;
+    return {
+      week,
+      km: v ? Math.round(v.km * 10) / 10 : 0,
+      tl: v ? Math.round(v.tl) : 0,
+      activities: v ? v.n : 0,
+      ctl: extra?.ctl ?? 0,
+      atl: extra?.atl ?? 0,
+      tsb: extra?.tsb ?? 0,
+      partial,
+    };
+  });
 
   if (weeks.length === 0) {
-    return { weeks: [], peakWeekKm: 0, avgWeekKm: 0, rampRatePerWeek: 0, weeklyChangeStdPct: null };
+    return {
+      weeks: [],
+      peakWeekKm: 0,
+      avgWeekKm: 0,
+      rampRatePerWeek: 0,
+      weeklyChangeStdPct: null,
+      statsBasis: 'all',
+      statsWeekCount: 0,
+    };
   }
 
-  const kms = weeks.map((w) => w.km);
+  // 峰值/周均/增幅/波动只用**完整周**算。
+  //
+  // 旧实现把截断周也当完整周: 真实库 30 天窗口的末周只含 1 天 (4.8km), 于是
+  // 「周均」从 38.9km 掉到 32.1km、「周波动 σ」从 29.2% 涨到 41.2%、「周均增幅」
+  // 从 -6.84 变成 -10.26 —— 全部指向一个不存在的「断崖式减量」。
+  // 区间不足 2 个完整周时 (如「近一周」) 无法只用完整周, 退化为全部周, 并把
+  // 口径写进 `statsBasis` 让 UI/AI 如实声明。
+  const complete = weeks.filter((w) => !w.partial);
+  const basisWeeks = complete.length >= 2 ? complete : weeks;
+  const statsBasis: PeriodizationInsight['statsBasis'] = complete.length >= 2 ? 'complete' : 'all';
+
+  const kms = basisWeeks.map((w) => w.km);
   const peakWeekKm = Math.max(...kms);
   const avgWeekKm = Math.round((kms.reduce((a, b) => a + b, 0) / kms.length) * 10) / 10;
 
   // 平均每周增幅 (线性回归斜率)
   let rampRatePerWeek = 0;
-  if (weeks.length >= 2) {
-    const reg = linearRegression(weeks.map((_, i) => i), kms);
+  if (basisWeeks.length >= 2) {
+    const reg = linearRegression(basisWeeks.map((_, i) => i), kms);
     rampRatePerWeek = reg ? Math.round(reg.slope * 100) / 100 : 0;
   }
 
-  // 周环比波动标准差 (%)
+  // 周环比波动标准差 (%) —— 同样只在完整周序列上算
   let weeklyChangeStdPct: number | null = null;
   const pcts: number[] = [];
-  for (let i = 1; i < weeks.length; i++) {
-    if (weeks[i - 1].km > 0) {
-      pcts.push(((weeks[i].km - weeks[i - 1].km) / weeks[i - 1].km) * 100);
+  for (let i = 1; i < basisWeeks.length; i++) {
+    if (basisWeeks[i - 1].km > 0) {
+      pcts.push(((basisWeeks[i].km - basisWeeks[i - 1].km) / basisWeeks[i - 1].km) * 100);
     }
   }
   if (pcts.length >= 2) {
@@ -365,15 +414,13 @@ export function computePeriodization(
   }
 
   weeks = weeks.slice(-12); // 只保留最近 12 周用于展示
-  return { weeks, peakWeekKm, avgWeekKm, rampRatePerWeek, weeklyChangeStdPct };
-}
-
-/** 本地 ISO 周键 (与 insight.isoWeekKey 语义一致, 但独立避免循环引入)。 */
-function isoWeekKeyLocal(dateStr: string): string {
-  const d = new Date(`${dateStr.slice(0, 10)}T00:00:00Z`);
-  const day = d.getUTCDay() || 7;
-  d.setUTCDate(d.getUTCDate() + 4 - day);
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  const week = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
-  return `${d.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
+  return {
+    weeks,
+    peakWeekKm,
+    avgWeekKm,
+    rampRatePerWeek,
+    weeklyChangeStdPct,
+    statsBasis,
+    statsWeekCount: basisWeeks.length,
+  };
 }

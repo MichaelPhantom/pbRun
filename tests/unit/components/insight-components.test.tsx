@@ -110,12 +110,14 @@ const insight: InsightResponse = {
   },
   periodization: {
     weeks: [
-      { week: '2026-W38', km: 51.3, tl: 412, activities: 5, ctl: 45, atl: 50, tsb: -5 },
+      { week: '2026-W38', km: 51.3, tl: 412, activities: 5, ctl: 45, atl: 50, tsb: -5, partial: false },
     ],
     peakWeekKm: 56.8,
     avgWeekKm: 46,
     rampRatePerWeek: 0.8,
     weeklyChangeStdPct: 12,
+    statsBasis: 'complete' as const,
+    statsWeekCount: 1,
   },
 };
 
@@ -293,11 +295,13 @@ describe('InsightClient', () => {
         monthly: [{ period: '2026-09', n: 5, cadence: 0, strideLength: 0, groundContactMs: null, verticalOscillation: null, verticalRatio: null }],
       },
       periodization: {
-        weeks: [{ week: '2026-W38', km: 51.3, tl: 412, activities: 5, ctl: 45, atl: 40, tsb: 6 }],
+        weeks: [{ week: '2026-W38', km: 51.3, tl: 412, activities: 5, ctl: 45, atl: 40, tsb: 6, partial: false }],
         peakWeekKm: 0,
         avgWeekKm: 46,
         rampRatePerWeek: -0.7,
         weeklyChangeStdPct: null,
+        statsBasis: 'complete' as const,
+        statsWeekCount: 1,
       },
       paceHr: { ...insight.paceHr, intercept: 238, slope: 3.2 },
       categories: {
@@ -324,15 +328,71 @@ describe('InsightClient', () => {
     const negTsb: InsightResponse = {
       ...insight,
       periodization: {
-        weeks: [{ week: '2026-W38', km: 51.3, tl: 412, activities: 5, ctl: 40, atl: 52, tsb: -12 }],
+        weeks: [{ week: '2026-W38', km: 51.3, tl: 412, activities: 5, ctl: 40, atl: 52, tsb: -12, partial: false }],
         peakWeekKm: 56.8,
         avgWeekKm: 46,
         rampRatePerWeek: 2.1, // > 1.5 → warn
         weeklyChangeStdPct: 12,
+        statsBasis: 'complete' as const,
+        statsWeekCount: 1,
       },
     } as InsightResponse;
     render(<InsightClient insight={negTsb} timeRangeDays={90} />);
     expect(screen.getAllByText(/2026-W38/).length).toBeGreaterThan(0);
+  });
+
+  /**
+   * 周窗口口径（UI 侧）。两个必须显形的信号：
+   *  1. 截断周要在周键后加 `*` —— 否则末周「1 天 4.8km」被读成断崖式减量；
+   *  2. `statsBasis: 'all'` 时峰值周卡片要说明口径 —— 否则用户以为峰值是完整周。
+   */
+  test('截断周在周键后标 *, 完整周不标', () => {
+    const mixed: InsightResponse = {
+      ...insight,
+      periodization: {
+        weeks: [
+          { week: '2026-W42', km: 30, tl: 300, activities: 4, ctl: 40, atl: 42, tsb: -2, partial: false },
+          { week: '2026-W43', km: 4.8, tl: 40, activities: 1, ctl: 41, atl: 38, tsb: 3, partial: true },
+        ],
+        peakWeekKm: 30,
+        avgWeekKm: 30,
+        rampRatePerWeek: 0,
+        weeklyChangeStdPct: null,
+        statsBasis: 'complete',
+        statsWeekCount: 1,
+      },
+    } as InsightResponse;
+    render(<InsightClient insight={mixed} timeRangeDays={90} />);
+    expect(screen.getByText('2026-W43 *')).toBeInTheDocument();
+    expect(screen.getByText('2026-W42')).toBeInTheDocument();
+    // 旧文案（未标记的周键）不得出现
+    expect(screen.queryByText('2026-W43')).not.toBeInTheDocument();
+  });
+
+  test('statsBasis=all 时峰值周卡片声明口径', () => {
+    const truncated: InsightResponse = {
+      ...insight,
+      periodization: {
+        weeks: [
+          { week: '2026-W43', km: 28.3, tl: 300, activities: 3, ctl: 40, atl: 44, tsb: -4, partial: true },
+          { week: '2026-W44', km: 4.8, tl: 40, activities: 1, ctl: 41, atl: 40, tsb: 1, partial: true },
+        ],
+        peakWeekKm: 28.3,
+        avgWeekKm: 16.5,
+        rampRatePerWeek: -16.87,
+        weeklyChangeStdPct: null,
+        statsBasis: 'all',
+        statsWeekCount: 2,
+      },
+    } as InsightResponse;
+    render(<InsightClient insight={truncated} timeRangeDays={90} />);
+    expect(screen.getByText(/区间不足 2 个完整周/)).toBeInTheDocument();
+    expect(screen.getByText(/按 2 个（含截断）周统计/)).toBeInTheDocument();
+  });
+
+  test('statsBasis=complete 时不出现口径注脚 (不制造噪音)', () => {
+    render(<InsightClient insight={insight} timeRangeDays={90} />);
+    expect(screen.queryByText(/区间不足 2 个完整周/)).not.toBeInTheDocument();
   });
 
   test('跑姿缺 cadence → 系列取 null (?? 右侧)', () => {

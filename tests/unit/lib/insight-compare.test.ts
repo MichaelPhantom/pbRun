@@ -178,9 +178,9 @@ describe('computeRouteComparison', () => {
 describe('computePeriodization', () => {
   test('周聚合 + 峰值/均值', () => {
     const daily: DailyLoad[] = [
-      { date: '2026-09-14', load: 60, distanceMeters: 10000, duration: 3600 },
-      { date: '2026-09-15', load: 50, distanceMeters: 8000, duration: 3000 },
-      { date: '2026-09-21', load: 70, distanceMeters: 12000, duration: 4000 },
+      { date: '2026-09-14', load: 60, distanceMeters: 10000, duration: 3600, runs: 1 },
+      { date: '2026-09-15', load: 50, distanceMeters: 8000, duration: 3000, runs: 1 },
+      { date: '2026-09-21', load: 70, distanceMeters: 12000, duration: 4000, runs: 1 },
     ];
     const r = computePeriodization(daily);
     expect(r.weeks.length).toBe(2);
@@ -193,14 +193,125 @@ describe('computePeriodization', () => {
     expect(r.weeks).toEqual([]);
     expect(r.peakWeekKm).toBe(0);
     expect(r.weeklyChangeStdPct).toBeNull();
+    expect(r.statsWeekCount).toBe(0);
   });
 
   test('合并周维度 CTL/ATL/TSB', () => {
-    const daily: DailyLoad[] = [{ date: '2026-09-15', load: 50, distanceMeters: 10000, duration: 3600 }];
+    const daily: DailyLoad[] = [{ date: '2026-09-15', load: 50, distanceMeters: 10000, duration: 3600, runs: 1 }];
     const r = computePeriodization(daily, [
-      { week: '2026-W38', km: 10, tl: 50, activities: 1, ctl: 55.2, atl: 60.1, tsb: -4.9 },
+      { week: '2026-W38', ctl: 55.2, atl: 60.1, tsb: -4.9 },
     ]);
     expect(r.weeks[0].ctl).toBeCloseTo(55.2, 1);
     expect(r.weeks[0].tsb).toBeCloseTo(-4.9, 1);
+  });
+
+  /**
+   * 周聚合口径缺陷族（2026-10-28 审计）。
+   *
+   * 三个独立但同源的错误，全部表现为「数字看起来合理，窗口/计数是错的」：
+   *  1. 预热窗口（ACWR 需要 28 天历史）混进周期化统计 → 「近一周」显示 6 周；
+   *  2. 零跑量周被聚合抹掉 → 跑量曲线看似连续，周波动 σ 被严重低估；
+   *  3. 截断周（区间首尾的半周）当完整周参与峰值/周均/波动 → 末周 1 天 4.8km
+   *     被读成「断崖式减量」。
+   */
+  describe('周窗口口径', () => {
+    /** 造逐日行: [日期, km, runs] */
+    const days = (rows: [string, number, number?][]): DailyLoad[] =>
+      rows.map(([date, km, runs]) => ({
+        date,
+        load: km * 10,
+        distanceMeters: km * 1000,
+        duration: 3000,
+        runs: runs ?? 1,
+      }));
+
+    test('只统计区间内的日 —— 预热窗口不得进入周期化', () => {
+      // 预热期（9 月）有大量跑量，区间（10 月）只有一周
+      const daily = days([
+        ['2026-09-01', 20], ['2026-09-08', 20], ['2026-09-15', 20], ['2026-09-22', 20],
+        ['2026-10-20', 5],
+      ]);
+      const r = computePeriodization(daily, null, { startDate: '2026-10-19', endDate: '2026-10-25' });
+      // 只有 W43 一个周, 且跑量只算区间内的 5km —— 不是预热的 80km
+      expect(r.weeks).toHaveLength(1);
+      expect(r.weeks[0].week).toBe('2026-W43');
+      expect(r.weeks[0].km).toBeCloseTo(5, 5);
+      expect(r.peakWeekKm).toBeCloseTo(5, 5);
+    });
+
+    test('零跑量周必须出现, 不能被聚合抹掉', () => {
+      // 三周连续, 中间一周完全没跑
+      const daily = days([['2026-10-05', 10], ['2026-10-19', 12]]);
+      const r = computePeriodization(daily, null, { startDate: '2026-10-05', endDate: '2026-10-25' });
+      expect(r.weeks.map((w) => w.week)).toEqual(['2026-W41', '2026-W42', '2026-W43']);
+      const rest = r.weeks.find((w) => w.week === '2026-W42')!;
+      expect(rest.km).toBe(0);
+      expect(rest.activities).toBe(0);
+      // 休息周进入分母: 周均 = (10+0+12)/3, 不是 (10+12)/2
+      expect(r.avgWeekKm).toBeCloseTo(7.3, 1);
+    });
+
+    test('休息周进入周波动计算 (σ 不因缺周而低估)', () => {
+      // 有零周: 10 → 0 → 20 的环比是 -100% / +∞, 至少中间那次断崖被看见
+      const withRest = computePeriodization(
+        days([['2026-10-05', 10], ['2026-10-19', 20]]),
+        null,
+        { startDate: '2026-10-05', endDate: '2026-10-25' },
+      );
+      // 只有两周数据时 σ 需要 >=2 个环比, 故这里是 null —— 但周均必然含零周
+      expect(withRest.weeks).toHaveLength(3);
+      expect(withRest.avgWeekKm).toBeCloseTo(10, 1); // (10+0+20)/3
+      // 对照: 旧实现只聚合有数据的周 → 周均 (10+20)/2 = 15
+      expect(withRest.avgWeekKm).not.toBeCloseTo(15, 1);
+    });
+
+    test('截断周被显式标记', () => {
+      const r = computePeriodization(
+        days([['2026-10-21', 8], ['2026-10-26', 4]]),
+        null,
+        { startDate: '2026-10-21', endDate: '2026-10-28' },
+      );
+      // 起点是周三 → W43 截断; 终点周三 → W44 截断
+      expect(r.weeks.map((w) => [w.week, w.partial])).toEqual([
+        ['2026-W43', true],
+        ['2026-W44', true],
+      ]);
+      // 不足 2 个完整周 → 退化为全部周, 并如实声明
+      expect(r.statsBasis).toBe('all');
+      expect(r.statsWeekCount).toBe(2);
+    });
+
+    test('完整周 ≥2 时只用完整周统计 (排除截断周)', () => {
+      // 区间 2026-10-05(周一)..2026-10-25(周日) 恰好三个完整周, 末周截断
+      const r = computePeriodization(
+        days([
+          ['2026-10-05', 10], ['2026-10-12', 10], ['2026-10-19', 10],
+          ['2026-10-26', 1], // 落在 W44, 被区间截断
+        ]),
+        null,
+        { startDate: '2026-10-05', endDate: '2026-10-28' },
+      );
+      expect(r.statsBasis).toBe('complete');
+      // W41/W42/W43 完整, W44 截断 → 峰值/周均只看前三个
+      const complete = r.weeks.filter((w) => !w.partial);
+      expect(complete.map((w) => w.week)).toEqual(['2026-W41', '2026-W42', '2026-W43']);
+      expect(r.statsWeekCount).toBe(3);
+      expect(r.avgWeekKm).toBeCloseTo(10, 5);
+      // 若把截断周 1km 算进平均, 会得到 (10*3+1)/4 = 7.8
+      expect(r.avgWeekKm).not.toBeCloseTo(7.8, 1);
+    });
+
+    test('「次数」是真实跑步次数, 不是天数', () => {
+      // 同一天跑两次 —— 真实库有 3 个这样的日子
+      const daily = days([['2026-10-19', 5, 2], ['2026-10-20', 6, 1]]);
+      const r = computePeriodization(daily, null, { startDate: '2026-10-19', endDate: '2026-10-25' });
+      expect(r.weeks[0].activities).toBe(3); // 不是 2 (天数)
+    });
+
+    test('缺省 range 时退化为数据自身边界 (纯函数直调不报错)', () => {
+      const r = computePeriodization(days([['2026-10-19', 5]]));
+      expect(r.weeks.map((w) => w.week)).toEqual(['2026-W43']);
+      expect(r.weeks[0].partial).toBe(false);
+    });
   });
 });

@@ -3,6 +3,9 @@ import {
   parseTimeRangeDays,
   monthToRange,
   isoWeekOf,
+  isoWeekKey,
+  isoWeekBounds,
+  isoWeeksBetween,
   periodKeyOf,
   previousDateRange,
   timeRangeLabel,
@@ -232,6 +235,68 @@ describe('date-utils', () => {
       if (originalTz === undefined) delete process.env.TZ;
       else process.env.TZ = originalTz;
       expect(new Set(results).size).toBe(1);
+    });
+  });
+
+  /**
+   * 周窗口口径 —— 这一族缺陷曾经让「近一周」显示 6 周、191.6km（真实 26.4km）。
+   *
+   * 根因是拿两种不同格式的字符串做比较：`'2026-W43' >= '2026-10'` 恒为真，
+   * 因为 `'W'`(0x57) > `'1'`(0x31)。所以周窗口**必须**用日期判定，
+   * 这些用例锁定唯一实现 `isoWeeksBetween` 的语义。
+   */
+  describe('isoWeekKey / isoWeekBounds / isoWeeksBetween', () => {
+    test('isoWeekKey 与 periodKeyOf(week) 完全一致 (同一实现)', () => {
+      for (const d of ['2024-01-01', '2025-01-04', '2025-12-29', '2026-12-31', '2026-10-06T07:41:39.000']) {
+        expect(isoWeekKey(d)).toBe(periodKeyOf(d, 'week'));
+      }
+    });
+
+    test('isoWeekBounds: 周一/周日, 跨年周也正确', () => {
+      // 2026-W01 = 2025-12-29(周一) .. 2026-01-04(周日)
+      expect(isoWeekBounds('2026-W01')).toEqual({ startDate: '2025-12-29', endDate: '2026-01-04' });
+      expect(isoWeekBounds('2026-W43')).toEqual({ startDate: '2026-10-19', endDate: '2026-10-25' });
+      expect(isoWeekBounds('2026-W44')).toEqual({ startDate: '2026-10-26', endDate: '2026-11-01' });
+    });
+
+    test('isoWeekBounds: 非法键返回 null 而不是编造日期', () => {
+      for (const bad of ['', '2026-10', '2026-W', '2026-W00', '2026-W54', 'not-a-week']) {
+        expect(isoWeekBounds(bad)).toBeNull();
+      }
+    });
+
+    test('isoWeeksBetween: 与区间相交的每一周都出现, 含首尾被截断的周', () => {
+      // 「近一周」2026-10-21(周三) .. 2026-10-28(周三) 跨越 W43/W44
+      expect(isoWeeksBetween('2026-10-21', '2026-10-28')).toEqual(['2026-W43', '2026-W44']);
+      // 30 天窗口
+      expect(isoWeeksBetween('2026-09-28', '2026-10-28')).toEqual([
+        '2026-W40', '2026-W41', '2026-W42', '2026-W43', '2026-W44',
+      ]);
+    });
+
+    test('isoWeeksBetween: 同一周内起止 → 只有一周', () => {
+      expect(isoWeeksBetween('2026-10-19', '2026-10-25')).toEqual(['2026-W43']);
+      expect(isoWeeksBetween('2026-10-19', '2026-10-19')).toEqual(['2026-W43']);
+    });
+
+    test('isoWeeksBetween: 逆序或非法 → 空数组 (不抛错破坏页面)', () => {
+      expect(isoWeeksBetween('2026-10-28', '2026-10-21')).toEqual([]);
+      expect(isoWeeksBetween('not-a-date', '2026-10-28')).toEqual([]);
+      expect(isoWeeksBetween('', '')).toEqual([]);
+    });
+
+    /**
+     * 判别式: 证明旧实现（字符串前缀比较）**必然**多算周，新实现不会。
+     * 这不是「新旧差不多」的容差断言 —— 两者结果集不同。
+     */
+    test('旧实现 `week >= startDate.slice(0,7)` 会多算周 (缺陷复现)', () => {
+      const weeks = isoWeeksBetween('2026-10-21', '2026-10-28');
+      const start = '2026-10-21';
+      // 预热窗口里还有 4 个更早的周 —— 它们在旧过滤下全部通过
+      const warmup = ['2026-W39', '2026-W40', '2026-W41', '2026-W42'];
+      const oldFilter = (ws: string[]) => ws.filter((w) => w >= start.slice(0, 7));
+      expect(oldFilter([...warmup, ...weeks])).toHaveLength(6); // 旧: 6 周
+      expect(weeks).toHaveLength(2);                            // 新: 2 周
     });
   });
 });

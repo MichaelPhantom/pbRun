@@ -369,6 +369,14 @@ export interface TrainingLoadPoint {
   load: number;                                  // 当日训练负荷合计
   distance: number;                              // 当日总距离（米）
   duration: number;                              // 当日总时长（秒，计时器时间口径）
+  /**
+   * 当日**跑步次数**（`COUNT(*)`，不是「有数据的天数」）。
+   *
+   * 真实库 238 个跑步日里有 3 天跑了不止一次（`2026-06-11` ×3、`2026-03-11` ×2、
+   * `2025-11-18` ×2），全历史 238 天 / 242 次。周表的「次数」列若在聚合层用
+   * 「每个日行 +1」来数，就只会得到 238 —— 一个**看起来对、实际是天数**的数字。
+   */
+  runs: number;
 }
 
 /** 跑力配速区间：基于 VDOT 的 Z1-Z5 目标配速及该区间内 laps 的统计 */
@@ -618,6 +626,14 @@ export interface PeriodizationWeek {
   ctl: number;                                    // 期末 CTL
   atl: number;                                    // 期末 ATL
   tsb: number;                                    // 期末 TSB
+  /**
+   * 该 ISO 周是否被所选区间**截断**（周一早于 startDate 或周日晚于 endDate）。
+   *
+   * 截断周的 `km` 只含区间内的那几天，不能与完整周直接比较：真实库 30 天窗口
+   * 的末周 `2026-W44` 只含 1 天（4.8km），把它算进「周均」会把 38.9km 压到
+   * 32.1km、把「周波动 σ」从 29.2% 抬到 41.2%。
+   */
+  partial: boolean;
 }
 
 export interface PeriodizationInsight {
@@ -626,6 +642,16 @@ export interface PeriodizationInsight {
   avgWeekKm: number;
   rampRatePerWeek: number;                        // 平均每周跑量增幅 (km)
   weeklyChangeStdPct: number | null;              // 周环比波动的标准差 (%)
+  /**
+   * `peakWeekKm`/`avgWeekKm`/`rampRatePerWeek`/`weeklyChangeStdPct` 的统计基础。
+   *
+   * - `complete`: 只用未被截断的完整周（区间 ≥ 2 个完整周时的默认口径）；
+   * - `all`: 完整周不足 2 个（如「近一周」），只能退化为用全部周 —— 此时峰值/
+   *   周均只作参考，UI 与教练上下文必须把这一点说出来。
+   */
+  statsBasis: 'complete' | 'all';
+  /** 参与统计的周数（`statsBasis` 为 `complete` 时即完整周数）。 */
+  statsWeekCount: number;
 }
 
 // ---------------------------------------------------------------------------

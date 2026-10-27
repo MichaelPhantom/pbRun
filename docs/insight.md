@@ -32,6 +32,7 @@
 | 负荷 | ACWR | 急性(近 7 天负荷) / 慢性(近 28 天周均负荷)；`optimal` 0.8–1.3、`caution` 1.3–1.5、`risk` >1.5 |
 | 负荷 | 强度分布 | 各活动 `time_in_hr_zone` 汇总各区间秒数占比（**本地 5 区口径，数组长度恒为 5**，由逐秒心率推导、覆盖 348/348 活动）；`lowIntensityPct` = Z1+Z2、`highIntensityPct` = Z4+Z5。页面标题由**实际非零区间**派生（`zoneRangeLabel`），不写死区间范围 |
 | 周期 | 周 CTL/ATL/TSB | 由逐日负荷经 Banister EWMA（τ=42 / 7）计算，取每周期末值 |
+| 周期 | 周跑量/负荷/次数 | 按 ISO 周聚合（**周键唯一实现 `date-utils.isoWeekKey`**、**聚合唯一实现 `insight.aggregateWeeklyLoad`**）。窗口由 `isoWeeksBetween(startDate, endDate)` 按**日期**判定 —— 不得用 `week >= startDate.slice(0,7)` 这类字符串比较（`'2026-W43' >= '2026-10'` 恒为真）。区间内每个周都出现（**零跑量周不省略**），被区间截断的周标 `partial`。`次数` 是**跑步次数**（SQL `COUNT(*)`），不是有数据的天数 |
 | 有氧 | 解耦 Pa:HR | 对 ≥10km 活动，用逐秒记录比较前后半段「速度/心率」比值相对变化；越低越强（优秀 <5%） |
 | 跑姿 | 步频/触地/垂直比 | 按月均值 |
 | 配速-心率 | 回归 | 稳态跑（≥8km）样本线性回归 `HR = intercept + slope × 配速(分/km)`；用阈值心率反推阈值配速 |

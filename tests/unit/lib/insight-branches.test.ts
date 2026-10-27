@@ -95,6 +95,32 @@ describe('computeLoadInsight', () => {
     expect(out.weekly.every((w) => /^\d{4}-W\d{2}$/.test(w.week))).toBe(true);
     expect(out.weekly[0]).toMatchObject({ km: expect.any(Number), tl: expect.any(Number), n: expect.any(Number) });
   });
+
+  /**
+   * 「次数」是**跑步次数**，不是「有数据的天数」。
+   *
+   * 旧实现 `w.n += 1` 每个日行加 1 → 一天两练的日子只算 1 次。真实库 238 个
+   * 跑步日里有 3 天跑了不止一次（`2026-06-11` ×3、`2026-03-11` ×2、
+   * `2025-11-18` ×2），全历史真实次数 242 而旧实现给出 238。
+   */
+  test('「次数」累加当日真实跑步次数 (一天两练不能被压成一次)', () => {
+    const rows: DailyLoad[] = [
+      { date: '2026-06-11', load: 60, distanceMeters: 8000, duration: 2800, runs: 3 },
+      { date: '2026-06-12', load: 40, distanceMeters: 5000, duration: 1800, runs: 1 },
+    ];
+    const out = computeLoadInsight(rows, secs({}));
+    expect(out.weekly).toHaveLength(1);
+    // 2 个日行, 但 4 次跑步 —— 旧实现会给 2
+    expect(out.weekly[0].n).toBe(4);
+    expect(out.weekly[0].n).not.toBe(2);
+  });
+
+  test('缺 runs 时按 1 兜底 (有跑量的日必然至少跑了一次)', () => {
+    const rows = [
+      { date: '2026-06-11', load: 60, distanceMeters: 8000, duration: 2800 } as DailyLoad,
+    ];
+    expect(computeLoadInsight(rows, secs({})).weekly[0].n).toBe(1);
+  });
 });
 
 describe('computeDecouplingPct', () => {

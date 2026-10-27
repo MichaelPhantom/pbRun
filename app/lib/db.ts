@@ -1068,19 +1068,29 @@ export function getTrainingLoads(startDate: string, endDate: string): TrainingLo
        SUM(COALESCE(training_load, 0)) AS load,
        SUM(distance) AS distance,
        -- 与配速同一时间基数（见 app/lib/pace.ts）。
-       SUM(CASE WHEN moving_time > 0 THEN moving_time ELSE duration END) AS duration
+       SUM(CASE WHEN moving_time > 0 THEN moving_time ELSE duration END) AS duration,
+       -- 「次数」与「天数」是两个量: 真实库有 3 天跑了不止一次（238 天 / 242 次）。
+       -- 必须在 SQL 里数行数, 聚合层无法从日行反推次数。
+       COUNT(*) AS runs
      FROM activities
      WHERE start_time_local IS NOT NULL AND start_time_local >= ? AND start_time_local <= ?
        AND ${runningTypeClause('activities')}
      GROUP BY date
      ORDER BY date`
-  ).all(startDate, endDate + 'T23:59:59.999') as { date: string; load: number; distance: number; duration: number }[];
+  ).all(startDate, endDate + 'T23:59:59.999') as {
+    date: string;
+    load: number;
+    distance: number;
+    duration: number;
+    runs: number;
+  }[];
 
   return rows.map((r) => ({
     date: r.date,
     load: r.load ?? 0,
     distance: (r.distance ?? 0) * 1000,
     duration: r.duration ?? 0,
+    runs: r.runs ?? 0,
   }));
 }
 

@@ -26,6 +26,7 @@ import {
   type WeatherSample,
 } from './insight-compare';
 import { computeTrainingLoads } from './training-load';
+import { isoWeekKey } from './date-utils';
 import type { InsightParams, InsightResponse, LoadInsight, PeriodizationWeek } from './types';
 
 /** 计算区间天数 (含端点)。 */
@@ -64,11 +65,15 @@ export function getInsight(params: InsightParams): InsightResponse {
     load: p.load,
     distanceMeters: p.distance,
     duration: p.duration,
+    runs: p.runs,
   }));
-  const fullLoad: LoadInsight = computeLoadInsight(dailyLoads, zTotals, endDate);
-  const rangeStartKey = startDate.slice(0, 7);
-  const weeklyInRange = fullLoad.weekly.filter((w) => w.week >= `${rangeStartKey}`);
-  const load: LoadInsight = { ...fullLoad, weekly: weeklyInRange };
+  const fullLoad: LoadInsight = computeLoadInsight(dailyLoads, zTotals, endDate, { startDate, endDate });
+  // 周聚合已在 `computeLoadInsight` 内按区间裁好（含零跑量周），这里不再二次过滤。
+  // 旧实现的两处独立错误都在这里收口：
+  //  - `w.week >= startDate.slice(0, 7)`：`'2026-W43' >= '2026-10'` 恒为真，
+  //    预热窗口的周全部混进来（「近一周」显示 6 周 191.6km，真实 26.4km）；
+  //  - 与周期化卡各算各的窗口：同一周在两张卡上显示不同跑量。
+  const load: LoadInsight = fullLoad;
 
   // 解耦: 区间的长跑, 逐条读取记录
   const longRuns = db
@@ -138,17 +143,14 @@ export function getInsight(params: InsightParams): InsightResponse {
   });
 
   // 周期化: 复用预热窗口的逐日负荷, 计算周维度 CTL/ATL/TSB 期末值
-  const weeklyLoads: PeriodizationWeek[] = (() => {
+  const weeklyLoads: Pick<PeriodizationWeek, 'week' | 'ctl' | 'atl' | 'tsb'>[] = (() => {
     const summary = computeTrainingLoads(db.getDailyLoads(warmupStart, endDate));
-    const byWeek = new Map<string, PeriodizationWeek>();
+    const byWeek = new Map<string, Pick<PeriodizationWeek, 'week' | 'ctl' | 'atl' | 'tsb'>>();
     for (const p of summary.series) {
       if (p.date < startDate) continue;
-      const key = isoWeekKeyOf(p.date);
+      const key = isoWeekKey(p.date);
       byWeek.set(key, {
         week: key,
-        km: 0,
-        tl: 0,
-        activities: 0,
         ctl: Math.round(p.ctl * 10) / 10,
         atl: Math.round(p.atl * 10) / 10,
         tsb: Math.round(p.tsb * 10) / 10,
@@ -162,8 +164,10 @@ export function getInsight(params: InsightParams): InsightResponse {
       load: d.load,
       distanceMeters: d.distanceMeters,
       duration: d.duration,
+      runs: d.runs,
     })),
     weeklyLoads,
+    { startDate, endDate },
   );
 
   return {
@@ -180,14 +184,4 @@ export function getInsight(params: InsightParams): InsightResponse {
     routes,
     periodization,
   };
-}
-
-/** 本地 ISO 周键 (YYYY-Www)。 */
-function isoWeekKeyOf(dateStr: string): string {
-  const d = new Date(`${dateStr.slice(0, 10)}T00:00:00Z`);
-  const day = d.getUTCDay() || 7;
-  d.setUTCDate(d.getUTCDate() + 4 - day);
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  const week = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
-  return `${d.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
 }

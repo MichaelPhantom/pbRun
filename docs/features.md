@@ -638,6 +638,67 @@ FTP 缺失不猜 / 海拔比值 / 尖峰过滤）、`tests/unit/pages/activity-d
 `K0=Z2` 不得回归）、`tests/unit/lib/llm.test.ts`（AI 标题由 `lapSectionTitle` 派生）、
 `tests/e2e/tables.spec.ts`（`#` 列 1 基且与行数一致，不写死具体数字）。
 
+#### 周聚合的窗口口径：四个独立错误共用一个「周」（2026-10-28）
+
+上一节是「把存储键当展示量」，本节是「**把窗口当数据**」。周聚合在页面上有两张
+卡（「训练负荷」的周跑量趋势 + 「周期化分析」的周维度表），它们各自实现了一遍
+聚合，于是同一周在两个位置可以有四个不同的答案：
+
+| 子缺陷 | 旧实现 | 真实库后果 |
+|--------|--------|-----------|
+| **窗口过滤失效** | `w.week >= startDate.slice(0,7)` | `'2026-W43' >= '2026-10'` 恒为真（`W` > `1`）→ 预热窗口 28 天全混入。「近一周」显示 **6 周 / 191.6 km**，该窗口真实 **2 周 / 33.1 km**（峰值卡 54.4 vs 28.3） |
+| **周量从不累加** | `byWeek.set(key, { km: 0, tl: 0, activities: 0, … })` | `periodization.weeks[].km/tl/activities` 恒为 0 → 周期化图全是 0、周表跑量/负荷/次数全是 0、峰值周/周均/增幅全部退化为 0 |
+| **「次数」其实是天数** | `w.n += 1`（每个日行 +1） | 238 个跑步日里有 3 天跑了不止一次（`2026-06-11` ×3、`2026-03-11` ×2、`2025-11-18` ×2），全历史真实 242 次而页面给 **238** |
+| **截断周当完整周** | 区间首尾的半周直接进峰值/周均/波动 | 30 天窗口末周只含 1 天（4.8 km）：周均 38.9 → **32.1**、周波动 σ 29.2% → **41.2%**、周均增幅 -6.85 → **-10.26**（指向一个不存在的「断崖式减量」） |
+
+还有第五个，是修窗口时才会暴露的：**两张卡各自裁窗口**。`load.weekly` 按整周聚合、
+`periodization` 只算区间内的日，于是「近一周」的 W43 在负荷卡是 **28.3 km**、在
+周期化卡是 **21.6 km** —— 同一页面上同一周两个跑量，两张卡看起来都自洽。
+
+**修法**（四条纪律）：
+
+1. **周键只有一个实现**：`app/lib/date-utils.isoWeekKey`。此前四份拷贝分别住在
+   `insight.ts` / `insight-compare.ts` / `insight-service.ts` / `date-utils.ts`，
+   各自维护「同一活动属于哪一周」。其余三处改为 re-export。
+2. **窗口判定必须比较日期，不能比较字符串**：`isoWeekBounds(weekKey)` 给出周一/周日，
+   `isoWeeksBetween(startDate, endDate)` 给出与区间相交的全部周。任何调用方都不得
+   自己写 `week >= startDate.slice(0,7)`。
+3. **周聚合只有一个实现**：`insight.aggregateWeeklyLoad(daily)`。两张卡都走它，
+   `computeLoadInsight` 与 `computePeriodization` 因此对同一周必然给出同一组数字
+   （真实库 7/30/90/180/365 天窗口实测 **0 处不一致**）。
+4. **次数与天数分离**：`DailyLoad.runs` / `TrainingLoadPoint.runs` 由 SQL 的
+   `COUNT(*)` 提供，聚合层只做加法。日聚合行存在即意味着当天至少跑了一次，故
+   `d.runs ?? 1` 兜底（兜底成 0 会凭空产生「有跑量、0 次」的怪行）。
+
+**区间内的每一个 ISO 周都必须出现**，零跑量周也不例外。旧实现只列「有数据的周」，
+休息周直接从图和表里消失：跑量曲线看似连续、周均偏高（全年含零周 40.48 km vs 仅
+出现周 41.25 km），而「掉到 0 又爬回来」这段最该被看见的断崖被抹平了。休息周是
+训练结构的一部分，不能被聚合悄悄抹掉。
+
+**截断周必须显式标记**：`PeriodizationWeek.partial` 为真时周键后加 `*`、表格行
+`title` 说明「该周被所选区间截断」。峰值/周均/增幅/波动 σ 只在**完整周 ≥ 2 个**时
+用完整周计算（`statsBasis: 'complete'`）；不足 2 个完整周（如「近一周」）退化为
+全部周，并把口径写进 `statsBasis: 'all'` + `statsWeekCount` —— UI 卡片 hint 与教练
+上下文都必须声明「按 N 个（含截断）周统计，截断周跑量偏低」。模型若不知道这一点，
+会把「末周只有 1 天」读成「断崖式减量」并建议加量。
+
+守护：`tests/unit/lib/date-utils.test.ts`（`isoWeekKey` 与 `periodKeyOf(week)` 同源、
+`isoWeekBounds` 跨年周/非法键、`isoWeeksBetween` 含首尾截断周/逆序空数组、旧字符串
+过滤必然多算周的判别式）、`tests/unit/lib/insight-compare.test.ts`（预热隔离、零跑量周、
+截断周标记、完整周统计基础、次数≠天数、缺省 range 退化）、
+`tests/unit/lib/insight-branches.test.ts`（一天两练不被压成一次、缺 `runs` 兜底 1）、
+`tests/unit/lib/insight-services.test.ts`（`load.weekly` 只含相交周、周期化不吃预热、
+两张卡逐周一致）、`tests/unit/components/insight-components.test.tsx`（截断周标 `*`、
+`statsBasis='all'` 的口径注脚、`complete` 时不制造噪音）、
+`tests/unit/lib/insight-coach.test.ts`（逐周序列含休息周与截断标记、口径声明）。
+7 处缺陷注入全部转红（窗口过滤 / 周期化丢 range / 次数改回天数 / 丢零跑量周 /
+截断周进统计 / 只保留完整周 / 周边界少一天）。
+
+**夹具掩盖了它**：`insight-components.test.tsx` 手工喂 `periodization` 的
+56.8/46/0.8/12，而真实服务的 `km` 恒为 0 —— 夹具比服务「干净」，缺陷在测试里被
+合法化。这与上一节 `lap_index` 的 1 基夹具、以及 §1.6 的 `average_pace` 夹具是
+同一个机制（见 `docs/testing-strategy.md` §6.5）。
+
 ---
 
 ## 2. AI 上下文口径（核心契约）
@@ -974,6 +1035,10 @@ GPS 漂移、起终点的静止采样都被判为「有效移动」，混进前�
 | **UI 时长格与配速同口径，且 `moving_time = 0` 必须回退** | `ListClient.tsx` / `RecentActivityCard.tsx` / `ActivityDetailClient.tsx`（概览 + 分段表）/ `powerIntensity` 全部 import `effectiveTimeSec`，不写 `moving_time ?? duration` 或 `moving_time \|\| duration` | `tests/unit/components/list-client.test.tsx` + `tests/unit/components/recent-activity-card.test.tsx`（`moving_time: 0` / `duration: 2800` → 必须显示 46:40；`??` 实现显示 0:00，注入后两条同时转红）+ `tests/unit/pages/activity-detail.test.tsx` + `tests/unit/lib/power.test.ts`（TSS 2201s 而非 5000s） |
 | **`LoadInsight.weekly` 的 `n`/`seconds` 必须进教练上下文** | `insight-coach.ts` 的「周训练量」块（`week km/时长/次数/TL`） | `tests/unit/lib/insight-coach.test.ts`（两个 ISO 周必须逐字输出 `49.7km/5:16:40/5次/430TL`；删掉整块立即转红）+ `tests/unit/components/insight-field-consumption.test.ts`（内联对象字面量字段必须进入字段集合 —— 旧解析器只收多行 interface，`weekly` 整块漏掉，该字段族**永远绿**） |
 | **表格「单位」副标题必须与单元格渲染格式一致** | `DataTable` 的 `unit`（`ActivityDetailClient` 分段表 `h:mm:ss`；三个区间表同为 `h:mm:ss`） | `tests/unit/pages/activity-detail.test.tsx`（分段表「时长」表头必须是 `h:mm:ss` 且不含 `min`，单元格是 `5:40` 形态；改回 `min` 立即转红） |
+| **周键只有一个实现，周窗口只能按日期判定** | `app/lib/date-utils.ts` 的 `isoWeekKey` / `isoWeekBounds` / `isoWeeksBetween`；`insight.ts` / `insight-compare.ts` / `insight-service.ts` 只做 re-export，不得自带拷贝 | `tests/unit/lib/date-utils.test.ts`（`isoWeekKey` ≡ `periodKeyOf(week)`、跨年周边界、非法键 `null`、含首尾截断周、旧字符串过滤必然多算周的判别式） |
+| **周聚合只有一个实现，两张周表必须逐周一致** | `insight.aggregateWeeklyLoad` 同时供 `computeLoadInsight`（`load.weekly`）与 `computePeriodization`（`periodization.weeks`）；两者的 range 都由 `isoWeeksBetween` 决定 | `tests/unit/lib/insight-services.test.ts`（`load.weekly` 与 `periodization.weeks` 逐周 `km`/`n` 相等、周集合相同；丢 range 或改回字符串过滤立即转红）+ 真实库 7/30/90/180/365 天窗口 0 处不一致 |
+| **「次数」是跑步次数，不是天数** | `DailyLoad.runs` / `TrainingLoadPoint.runs` 由 SQL `COUNT(*)` 提供；聚合层只做加法（`d.runs ?? 1`） | `tests/unit/lib/insight-branches.test.ts`（一天三练 → 3 次而非 1 次）+ `tests/unit/lib/insight-compare.test.ts`（同一天两练 → 周 `activities` 为 3 而非 2；改回 `n += 1` 立即转红） |
+| **区间内每个 ISO 周都出现，截断周必须标记** | `PeriodizationWeek.partial`；`PeriodizationInsight.statsBasis` / `statsWeekCount`；UI 周键后 `*` + `title`；教练上下文「按 N 个（含截断）周统计」 | `tests/unit/lib/insight-compare.test.ts`（零跑量周出现且进分母、截断周标记、完整周 ≥2 时只用完整周）+ `tests/unit/components/insight-components.test.tsx`（`2026-W43 *` 且旧的无标记文案不得出现、`statsBasis='all'` 的口径注脚、`complete` 时不制造噪音）+ `tests/unit/lib/insight-coach.test.ts`（逐周序列含 `0.0km/0次` 与 `(截断)`） |
 
 ---
 
@@ -1095,7 +1160,7 @@ GPS 漂移、起终点的静止采样都被判为「有效移动」，混进前�
 | `average_pace_gap`（lap） | 读 `avg_pace_gap`，profile 里没有任何 pace/gap 字段 | **读错名字**（已删除死读） |
 | `average_step_rate_loss` / `_percent` | 读同名字段，profile 无此概念 | **读错名字**（已删除死读） |
 | `average_power_to_weight` / `max_power_to_weight` | 读同名字段，profile 无此字段 | **读错名字**（已删除；改由 `app/lib/power.ts` 派生） |
-| `average_gct_balance` | 正确名 `avg_stance_time_balance` 已读取，但设备确实不写 | **设备不写**（348/348 实测） |
+| `average_gct_balance` | 正确名 `avg_stance_time_balance` 已读取，但设备确实不写（见下方证据） | **设备不写**（348/348 实测） |
 | `avg_grade` / `avg_pos_grade` / `avg_neg_grade` / `max_pos_grade` / `max_neg_grade` | profile 有这些字段，但真实设备 348/348 不写 | **设备不写** |
 | `time_in_speed_zone` / `time_in_cadence_zone`（活动+lap） | profile 有字段，设备不写；app 亦无对应 5 区模型 → 一律进 `device_time_in_speed_zone` / `device_time_in_cadence_zone` | **设备不写**（列已带 device_ 前缀） |
 | `time_in_hr_zone` / `time_in_power_zone`（lap） | profile 有字段，但设备**从不写 lap 级**区间数组（3082/3082 空） | **已改为推导**（不再依赖设备）：逐秒记录按 `cumulative_time` 时间窗切分。回填后 **3081/3082** / **2955/3082** 有值（见 §4.3） |
@@ -1104,6 +1169,25 @@ GPS 漂移、起终点的静止采样都被判为「有效移动」，混进前�
 那列会永远为空且没人再查 —— 这正是本次 19 个死读站点能潜伏这么久的机制。
 `tests/unit/garmin/fit-parser-sdk-fields.test.ts` 让这类缺陷在**写入任何数据之前**
 （CI 阶段）就转红。
+
+#### `average_gct_balance` 的证据链：「设备不写」而非「读错名字」
+
+这一列是唯一一个**「读错名字」假设已被证伪**的案例，值得单独记录证据，否则
+下一次审计还会重复怀疑它：
+
+1. **SDK profile 定义了正确的字段名**：`fit-file-parser` 的
+   `left_right_balance_100` 枚举含 `16383: 'mask'` —— 即设备用 16383 表示
+   「平衡未测量」的哨兵值。
+2. **读取的字段名是对的**：`fit-parser` 读 `avg_stance_time_balance`，
+   该名字存在于 profile；同一族里 `average_gct_balance` 只是它在我们 schema 中的
+   列名，不是读错的字段。
+3. **真实数据全是哨兵**：349/349 个 session + 3087/3087 个 lap 的
+   `avg_stance_time_balance` 都恰好是 `{"0":false,"value":16383,"right":true}`；
+   记录级 `left_right_balance` 出现 **0 次**。
+
+结论：设备从不写这项测量，不是我们读错了名字。因此保留 `avg_stance_time_balance`
+的读法，`average_gct_balance` 继续为 NULL 并归入「设备不写」。若哪天设备开始写，
+写入侧已经就位，不需要改代码。
 
 还有第三类，比前两类更隐蔽：**列能算，但写入侧把数据丢了**。
 

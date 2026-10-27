@@ -14,6 +14,9 @@ import type {
   PaceHrModel,
   VdotTrendFit,
 } from './types';
+import { isoWeekKey, isoWeeksBetween } from './date-utils';
+
+export { isoWeekKey } from './date-utils';
 
 // ---------------------------------------------------------------------------
 // 通用统计工具
@@ -152,44 +155,94 @@ export interface DailyLoad {
   distanceMeters: number;
   /** 当日总时长（秒）。**时间基数 = 计时器时间**（与配速/TSS 同一口径，见 `app/lib/pace.ts`）。 */
   duration: number;
+  /**
+   * 当日**跑步次数**。与「天数」是两个不同的量 —— 真实库 238 个跑步日里有 3 天
+   * 跑了不止一次（`2026-06-11` ×3、`2026-03-11` ×2、`2025-11-18` ×2），全历史
+   * 238 天 / 242 次。
+   *
+   * 为什么要区分: 周表的「次数」列此前直接累加 `n += 1`（每天一次），于是
+   * 全历史显示 238 次而真实是 242 次 —— 一个**看起来对、其实是天数**的数字。
+   * 日聚合是「天数」，次数必须由 SQL 的 `COUNT(*)` 提供，不能在聚合层猜。
+   */
+  runs: number;
 }
 
-/** ISO 周键 (YYYY-Www)。 */
-export function isoWeekKey(dateStr: string): string {
-  const d = new Date(`${dateStr.slice(0, 10)}T00:00:00Z`);
-  const day = d.getUTCDay() || 7;
-  d.setUTCDate(d.getUTCDate() + 4 - day);
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  const week = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
-  return `${d.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
+/**
+ * ISO 周键 (YYYY-Www)。**实现已统一到 `date-utils.isoWeekKey`** —— 此处仅作
+ * 向后兼容的再导出。历史上这里有一份独立拷贝 (`insight-compare.ts` 也有一份),
+ * 四份拷贝各自维护「同一活动属于哪一周」, 是周聚合口径漂移的根源。
+ */
+
+/** 一周的训练量合计。 */
+export interface WeeklyTotals {
+  km: number;
+  tl: number;
+  /** **跑步次数**（不是天数）。 */
+  n: number;
+  seconds: number;
+}
+
+/**
+ * 逐日负荷 → 按 ISO 周聚合。**周聚合的唯一实现**。
+ *
+ * `computeLoadInsight`（训练负荷卡 + 周训练量块）和 `computePeriodization`
+ * （周期化卡 + 周维度表）都走这里 —— 两处各自实现时，「次数」在一处是天数、
+ * 在另一处是次数，同一周在两张表里数字不一致。
+ *
+ * 注意 `n` 累加的是 `d.runs`（当日真实跑步次数），不是「每个日行 +1」。
+ * 缺省按 1 兜底：日聚合行只在当天确实有跑步时才存在，所以「有行 ⇒ 至少一次」
+ * 是语义上成立的；兜底成 0 会凭空产生「有跑量、0 次」的怪行。
+ */
+export function aggregateWeeklyLoad(daily: DailyLoad[]): Map<string, WeeklyTotals> {
+  const out = new Map<string, WeeklyTotals>();
+  for (const d of daily) {
+    const key = isoWeekKey(d.date);
+    const w = out.get(key) ?? out.set(key, { km: 0, tl: 0, n: 0, seconds: 0 }).get(key)!;
+    w.km += d.distanceMeters / 1000;
+    w.tl += d.load;
+    w.n += d.runs ?? 1;
+    w.seconds += d.duration;
+  }
+  return out;
 }
 
 /**
  * 由逐日负荷计算: 周聚合 + 急性/慢性负荷 + ACWR + 强度分布。
  * @param daily 逐日负荷
- * @param zSeconds 各 HR 区间总秒数 (7 元素, 索引 0=Z1)
+ * @param zSeconds 各 HR 区间总秒数 (**5 元素**, 索引 0=Z1)。上游 `getHrZoneTotals`
+ *   保证长度为 5（app 的 5 区模型），函数内再 `slice(0,5)` 防御设备原始 7 槽数组。
  * @param referenceDate 计算 ACWR 的"今天"; 缺省用 daily 最后一天
+ * @param range 周聚合的展示区间。**ACWR 仍然吃完整的 `daily`**（它需要 28 天预热），
+ *   但周序列必须裁到这个区间内 —— 否则同一页面上「训练负荷」卡的某一周会包含
+ *   区间外的天数，而「周期化」卡的同一周只含区间内的天数，两处显示不同的跑量
+ *   （真实库「近一周」：W43 在负荷卡 28.3km、在周期化卡 21.6km，差的是 10-19/20
+ *   这两天）。缺省时退化为「不裁剪」，供纯函数单测直接调用。
  */
 export function computeLoadInsight(
   daily: DailyLoad[],
   zSeconds: number[],
   referenceDate?: string,
+  range?: { startDate: string; endDate: string },
 ): LoadInsight {
   const sorted = [...daily].sort((a, b) => (a.date < b.date ? -1 : 1));
 
-  // 周聚合
-  const byWeek = new Map<string, { km: number; tl: number; n: number; seconds: number }>();
-  for (const d of sorted) {
-    const key = isoWeekKey(d.date);
-    const w = byWeek.get(key) ?? byWeek.set(key, { km: 0, tl: 0, n: 0, seconds: 0 }).get(key)!;
-    w.km += d.distanceMeters / 1000;
-    w.tl += d.load;
-    w.n += 1;
-    w.seconds += d.duration;
-  }
-  const weekly = [...byWeek.entries()]
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([week, v]) => ({ week, ...v }));
+  // 周聚合 —— 唯一实现见 `aggregateWeeklyLoad`。
+  //
+  // 「次数」必须是 `d.runs`（当日真实跑步次数）之和，**不是**「有数据的天数」。
+  // 旧实现 `w.n += 1` 每个日行加 1，于是周表的「次数」实际是「跑步天数」：
+  // 全历史显示 238 次而真实 242 次（3 天跑了不止一次）。这个错误极隐蔽 ——
+  // 数字本身合理，只有在「一天两练」的日子才和真值分叉。
+  const weeklyDays =
+    range != null ? sorted.filter((d) => d.date >= range.startDate && d.date <= range.endDate) : sorted;
+  const byWeek = aggregateWeeklyLoad(weeklyDays);
+
+  // 区间内的每个 ISO 周都要出现（零跑量周也出现），与 `computePeriodization` 同口径。
+  // 只在**显式传入 range** 时补齐：缺省时不裁剪，补齐会把数据边界外的周也画出来。
+  const weekKeys = range != null ? isoWeeksBetween(range.startDate, range.endDate) : [...byWeek.keys()].sort();
+  const weekly = weekKeys.map((week) => {
+    const v = byWeek.get(week);
+    return { week, km: v?.km ?? 0, tl: v?.tl ?? 0, n: v?.n ?? 0, seconds: v?.seconds ?? 0 };
+  });
 
   // 急性/慢性: 以参考日为终点回溯
   const ref = referenceDate ?? sorted[sorted.length - 1]?.date;

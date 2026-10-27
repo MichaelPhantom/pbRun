@@ -144,6 +144,10 @@ export default function InsightClient({
   );
 
   const acwrBadge = ACWR_LABEL[load.acwrTone];
+  // 峰值周**只能取自所选区间的周**（`load.weekly` 已在服务层按 `isoWeeksBetween`
+  // 裁好）。旧实现直接对 `load.weekly` 取 max，而那份数据当时混进了 28 天预热
+  // 窗口 —— 「近一周」的卡片显示 54.4km（四周前某周的跑量），该窗口真实峰值
+  // 只有 28.3km。窗口正确后这里无需再过滤，但顺序仍按「先裁窗口、再取峰值」。
   const peakWeek = useMemo(
     () => load.weekly.reduce((a, b) => (b.km > a.km ? b : a), load.weekly[0] ?? { km: 0, week: '—' }),
     [load.weekly],
@@ -179,6 +183,13 @@ export default function InsightClient({
     }),
     [periodization],
   );
+
+  // 峰值周的口径说明。统计只用完整周时不必额外解释；退化为全部周（区间不足
+  // 2 个完整周）时必须说出来 —— 否则用户会把「截断周的跑量」当成一整周。
+  const periodizationBasisHint =
+    periodization?.statsBasis === 'all'
+      ? `区间不足 2 个完整周，按 ${periodization.statsWeekCount} 个（含截断）周统计`
+      : undefined;
 
   return (
     <div className="flex flex-col gap-4 sm:gap-5">
@@ -335,7 +346,13 @@ export default function InsightClient({
           }
         >
           <div className="mb-3 grid grid-cols-3 gap-3">
-            <StatCard value={periodization.peakWeekKm.toFixed(1)} label="峰值周" unit="km" accent />
+            <StatCard
+              value={periodization.peakWeekKm.toFixed(1)}
+              label="峰值周"
+              unit="km"
+              accent
+              hint={periodizationBasisHint}
+            />
             <StatCard
               value={`${periodization.rampRatePerWeek >= 0 ? '+' : ''}${periodization.rampRatePerWeek.toFixed(2)}`}
               label="周均增幅"
@@ -370,8 +387,11 @@ export default function InsightClient({
             ]}
             rows={periodization.weeks.slice(-8).reverse().map((w) => ({
               key: w.week,
+              // 截断周必须显式标出：它的跑量只含区间内的几天，与完整周不可比。
+              // 不加标记的话，末周 1 天 4.8km 会被读成「断崖式减量」。
+              title: w.partial ? '该周被所选区间截断，跑量只含区间内的天数' : undefined,
               cells: {
-                week: w.week,
+                week: w.partial ? `${w.week} *` : w.week,
                 km: w.km.toFixed(1),
                 tl: w.tl,
                 n: w.activities,

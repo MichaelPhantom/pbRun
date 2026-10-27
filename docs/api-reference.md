@@ -775,14 +775,14 @@ GET /api/insight?startDate=2026-06-01&endDate=2026-09-22
 | `range` | 实际计算区间 `{startDate, endDate}` |
 | `activityCount` | 区间内**跑步**次数（非跑步活动不计，见 [统计口径](#统计口径跑步-vs-全类型)） |
 | `vdot` | VDOT 趋势：`raw` 散点、`perMonth` 月聚合、`slopePer30d` 斜率、`plateau` 平台期 |
-| `load` | 训练负荷：`weekly` 周聚合、`acute`/`chronic`/`acwr`/`acwrTone`、`zDistribution` 强度分布 |
+| `load` | 训练负荷：`weekly` 周聚合（`{week, km, tl, n, seconds}`，`n` 为**跑步次数**；只含与区间相交的周，零跑量周也出现）、`acute`/`chronic`/`acwr`/`acwrTone`、`zDistribution` 强度分布 |
 | `decoupling` | 有氧解耦：`points` 明细、`meanPct`、`trendPer30d` |
 | `form` | 跑姿按月趋势（步频/步幅/触地/垂直振幅/垂直比） |
 | `paceHr` | 配速-心率回归模型：`slope`/`intercept`/`r`/`predictions`/`thresholdPaceSecPerKm` |
 | `categories` | 训练类别对比（阈值/间歇/长距离/节奏/VO₂max/轻松），含时长加权配速/心率与有氧效率 |
 | `weather` | 气温分档对比（心率/配速/效率） |
 | `routes` | 常跑路线对比（次数/最佳/均值/配速趋势） |
-| `periodization` | 周期化：周跑量/负荷/CTL/ATL/TSB、峰值、增幅、波动 |
+| `periodization` | 周期化：周跑量/负荷/次数/CTL/ATL/TSB、峰值、增幅、波动；每周期带 `partial`（该周被所选区间截断）、`statsBasis`（`complete` 只用完整周 / `all` 区间不足 2 个完整周时退化为全部周）、`statsWeekCount` |
 | `findings` | 动态洞察建议数组：`{id, severity, title, detail, metric?, action?}` |
 
 **响应示例（节选）**

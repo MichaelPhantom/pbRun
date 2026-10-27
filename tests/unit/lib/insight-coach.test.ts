@@ -156,6 +156,61 @@ describe('formatInsightForCoach', () => {
     const text = formatInsightForCoach(makeInsight());
     expect(text).not.toContain('周训练量');
   });
+
+  /**
+   * 周期化的「周序列」与「统计口径声明」。
+   *
+   * 只有峰值/周均两个汇总值时，模型回答不了「哪一周在涨/掉」，也看不见休息周；
+   * 更危险的是 `statsBasis: 'all'` 的情形 —— 区间不足 2 个完整周，峰值/周均
+   * 含被截断的周（跑量天然偏小）。模型若不知道，会把「末周只有 1 天」读成
+   * 「断崖式减量」并建议加量。
+   */
+  test('周期化输出逐周序列 (含休息周与截断标记)', () => {
+    const text = formatInsightForCoach(
+      makeInsight({
+        periodization: {
+          weeks: [
+            { week: '2026-W41', km: 10, tl: 100, activities: 1, ctl: 40, atl: 42, tsb: -2, partial: false },
+            { week: '2026-W42', km: 0, tl: 0, activities: 0, ctl: 38, atl: 30, tsb: 8, partial: false },
+            { week: '2026-W43', km: 20, tl: 200, activities: 2, ctl: 39, atl: 44, tsb: -5, partial: true },
+          ],
+          peakWeekKm: 10,
+          avgWeekKm: 10,
+          rampRatePerWeek: 0,
+          weeklyChangeStdPct: null,
+          statsBasis: 'complete',
+          statsWeekCount: 2,
+        },
+      }),
+    );
+    expect(text).toContain('周序列');
+    expect(text).toContain('2026-W41 10.0km/1次');
+    expect(text).toContain('2026-W42 0.0km/0次'); // 休息周必须出现
+    expect(text).toContain('2026-W43 20.0km/2次(截断)');
+    // 完整周充足时不需要口径注脚
+    expect(text).not.toContain('含截断周统计');
+  });
+
+  test('statsBasis=all 时声明口径 (区间不足 2 个完整周)', () => {
+    const text = formatInsightForCoach(
+      makeInsight({
+        periodization: {
+          weeks: [
+            { week: '2026-W43', km: 28.3, tl: 300, activities: 3, ctl: 40, atl: 44, tsb: -4, partial: true },
+            { week: '2026-W44', km: 4.8, tl: 40, activities: 1, ctl: 41, atl: 40, tsb: 1, partial: true },
+          ],
+          peakWeekKm: 28.3,
+          avgWeekKm: 16.5,
+          rampRatePerWeek: -16.87,
+          weeklyChangeStdPct: null,
+          statsBasis: 'all',
+          statsWeekCount: 2,
+        },
+      }),
+    );
+    expect(text).toContain('按 2 个含截断周统计');
+    expect(text).toContain('截断周跑量偏低');
+  });
 });
 
 describe('buildGlobalCoachMessages', () => {

@@ -247,13 +247,13 @@ describe('getPeriodStats / getVDOTTrend 日期过滤', () => {
 
 describe('getTrainingLoads / getDailyLoads', () => {
   test('NULL 值兜底 + 距离 km→m', () => {
-    mockAll.mockReturnValueOnce([{ date: '2026-09-20', load: null, distance: null, duration: null }]);
+    mockAll.mockReturnValueOnce([{ date: '2026-09-20', load: null, distance: null, duration: null, runs: null }]);
     expect(getTrainingLoads('2026-09-01', '2026-09-30')).toEqual([
-      { date: '2026-09-20', load: 0, distance: 0, duration: 0 },
+      { date: '2026-09-20', load: 0, distance: 0, duration: 0, runs: 0 },
     ]);
 
-    mockAll.mockReturnValueOnce([{ date: '2026-09-21', load: 60, distance: 8, duration: 2800 }]);
-    expect(getDailyLoads('2026-09-01', '2026-09-30')[0]).toMatchObject({ distance: 8000, load: 60 });
+    mockAll.mockReturnValueOnce([{ date: '2026-09-21', load: 60, distance: 8, duration: 2800, runs: 2 }]);
+    expect(getDailyLoads('2026-09-01', '2026-09-30')[0]).toMatchObject({ distance: 8000, load: 60, runs: 2 });
   });
 
   test('逆序范围与形态非法日期 → 抛清晰错误', () => {

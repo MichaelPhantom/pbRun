@@ -107,6 +107,65 @@ describe('insight-service.getInsight', () => {
     expect(r.decoupling.sampleCount).toBe(1);
     expect(r.decoupling.points[0].decouplingPct).toBeGreaterThan(0);
   });
+
+  /**
+   * 周窗口口径（服务层）—— 两个独立的泄漏点，都会让「近一周」显示别的周：
+   *  1. `load.weekly` 曾用 `w.week >= startDate.slice(0,7)` 过滤，而 `'2026-W43'
+   *     >= '2026-10'` 恒为真（`W` > `1`）→ 预热窗口的周全部混进来；
+   *  2. `periodization` 曾直接吃预热窗口的逐日数据 → 同样的 28 天混入。
+   *
+   * mock 的 `getDailyLoads` 只返回区间内的 3 天（9 月），区间设成 9-15..9-22，
+   * 于是 9-01 那条属于**区间外**，必须不出现在两张表里。
+   */
+  test('load.weekly 只含与所选区间相交的周', () => {
+    const r = getInsight({ startDate: '2026-09-15', endDate: '2026-09-22' });
+    // 9-15 是周二 (W38), 9-22 也是周二 (W39) —— 区间跨两个周, 两者都必须出现;
+    // 9-01 落在 W36, 属预热窗口, 必须被排除。
+    expect(r.load.weekly.map((w) => w.week)).toEqual(['2026-W38', '2026-W39']);
+    expect(r.load.weekly.some((w) => w.week === '2026-W36')).toBe(false);
+  });
+
+  test('periodization 不吃预热窗口的数据', () => {
+    const r = getInsight({ startDate: '2026-09-15', endDate: '2026-09-22' });
+    const weeks = r.periodization!.weeks.map((w) => w.week);
+    expect(weeks).toEqual(['2026-W38', '2026-W39']);
+    // 9-01 的 10km 属于预热窗口, 不得计入: W38 只有 12km, W39 只有 11km
+    const byWeek = new Map(r.periodization!.weeks.map((w) => [w.week, w.km]));
+    expect(byWeek.get('2026-W38')).toBeCloseTo(12, 0);
+    expect(byWeek.get('2026-W39')).toBeCloseTo(11, 0);
+  });
+
+  /**
+   * 同一页面上两张周表必须给出同一组数字。
+   *
+   * 真实库「近一周」曾出现 W43 在「训练负荷」卡是 28.3km、在「周期化」卡是
+   * 21.6km —— 因为两张卡各自裁窗口：一张按整周聚合、另一张只算区间内的日。
+   * 用户看到的是「同一周两个跑量」，且两张卡看起来都合理，无法判断谁对。
+   */
+  test('load.weekly 与 periodization.weeks 逐周一致 (同一周只能有一个跑量)', () => {
+    const r = getInsight({ startDate: '2026-09-15', endDate: '2026-09-22' });
+    const loadByWeek = new Map(r.load.weekly.map((w) => [w.week, w]));
+    for (const w of r.periodization!.weeks) {
+      const l = loadByWeek.get(w.week);
+      expect(l).toBeDefined();
+      expect(l!.km).toBeCloseTo(w.km, 5);
+      expect(l!.n).toBe(w.activities);
+    }
+    // 两张卡的周集合也必须相同（周期化只截最近 12 周，此处区间很短故应相等）
+    expect([...loadByWeek.keys()]).toEqual(r.periodization!.weeks.map((w) => w.week));
+  });
+
+  test('周期化声明统计口径 (完整周 vs 含截断周)', () => {
+    // 9-15(周二)..9-22(周二) 只覆盖一个被截断的周 → 完整周 0 个
+    const r = getInsight({ startDate: '2026-09-15', endDate: '2026-09-22' });
+    expect(r.periodization!.statsBasis).toBe('all');
+    expect(r.periodization!.weeks[0].partial).toBe(true);
+
+    // 9-14(周一)..9-27(周日) = 两个完整周
+    const r2 = getInsight({ startDate: '2026-09-14', endDate: '2026-09-27' });
+    expect(r2.periodization!.statsBasis).toBe('complete');
+    expect(r2.periodization!.weeks.every((w) => !w.partial)).toBe(true);
+  });
 });
 
 describe('activity-insight-service.getActivityInsight', () => {

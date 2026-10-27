@@ -858,6 +858,27 @@ expect(distToTimer).toBeLessThanOrEqual(1);              // ±1s 取整误差
    现 `activity-insight-panel` / `activity-coach-context` 的夹具都改成 `bestLapIndex`
    指向真实存在的 lap。
 
+#### 补充：夹具「比服务更干净」也会掩盖聚合缺陷（2026-10-28 周聚合）
+
+同一机制在**聚合层**再次出现，形态更隐蔽 —— 缺陷不在「夹具的键值约定」，而在
+**夹具直接手写了服务本该算出来的结果**：
+
+| 缺陷 | 真实服务输出 | 单测夹具形态 | 结果 |
+|------|-------------|-------------|------|
+| `periodization.weeks[].km/tl/activities` 恒为 0 | 全 0（`byWeek.set(...)` 从未累加） | 手写 `km: 51.3, tl: 412, activities: 5` | 图表与周表看起来完全正常 |
+| 峰值周/周均/增幅/波动 σ 全退化为 0 | `peakWeekKm: 0, avgWeekKm: 0, rampRatePerWeek: 0, weeklyChangeStdPct: null` | 手写 `56.8 / 46 / 0.8 / 12` | 三张统计卡永远有数 |
+| `load.weekly` 混入 28 天预热窗口 | 「近一周」返回 6 周 / 191.6 km | 只给 2 个周 | 窗口过滤是空操作也测不出来 |
+
+**纪律 4**：**派生字段不得手写，必须由真实实现产出**。UI 组件测试若要一个「有数据」
+的 `periodization`，就应该调 `computePeriodization(真实输入)` 或至少构造**服务真能
+产出的**组合（`km` 与 `tl`/`activities` 同源、`peakWeekKm` = 各周 km 的最大值）。
+手写派生值等于把被测逻辑抄进夹具 —— 服务坏了，夹具仍然「对」。
+
+本次新增的断言都遵守这条：`insight-compare.test.ts` 的 `computePeriodization` 用例
+全部用逐日行喂真实实现；`insight-services.test.ts` 的跨卡一致性用例比较两张卡的
+输出；`insight-components.test.tsx` 的手写 `periodization` 只保留**不可达分支**需要
+的形态，并补一条「截断周标记」用例（该字段由服务派生，夹具只能复刻其形态）。
+
 ## 7. CI/CD 集成
 
 ### 7.1 GitHub Actions 配置

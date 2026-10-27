@@ -94,15 +94,15 @@ describe('MCP 新增 db 函数', () => {
   describe('getTrainingLoads', () => {
     test('应按本地日期聚合, 距离转为米', () => {
       mockAll.mockReturnValue([
-        { date: '2026-07-01', load: 71, distance: 8.29, duration: 3400 },
-        { date: '2026-07-02', load: 60, distance: 5, duration: 2000 },
+        { date: '2026-07-01', load: 71, distance: 8.29, duration: 3400, runs: 1 },
+        { date: '2026-07-02', load: 60, distance: 5, duration: 2000, runs: 2 },
       ]);
 
       const result = getTrainingLoads('2026-07-01', '2026-07-02');
 
       expect(result).toHaveLength(2);
-      expect(result[0]).toEqual({ date: '2026-07-01', load: 71, distance: 8290, duration: 3400 });
-      expect(result[1]).toEqual({ date: '2026-07-02', load: 60, distance: 5000, duration: 2000 });
+      expect(result[0]).toEqual({ date: '2026-07-01', load: 71, distance: 8290, duration: 3400, runs: 1 });
+      expect(result[1]).toEqual({ date: '2026-07-02', load: 60, distance: 5000, duration: 2000, runs: 2 });
     });
 
     test('无数据应返回空数组', () => {

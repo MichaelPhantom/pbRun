@@ -63,10 +63,26 @@ export function formatInsightForCoach(insight: InsightResponse): string {
 
   // 周期化
   if (periodization && periodization.weeks.length > 0) {
+    // 统计口径必须随数字一起给出：`statsBasis: 'all'` 表示区间内完整周不足 2 个，
+    // 峰值/周均/增幅都含被区间截断的周（跑量天然偏小）。模型若不知道这一点，
+    // 会把「末周只有 1 天」读成「断崖式减量」并建议加量。
+    const basisNote =
+      periodization.statsBasis === 'all'
+        ? `  （区间不足 2 个完整周, 按 ${periodization.statsWeekCount} 个含截断周统计, 截断周跑量偏低）`
+        : '';
     L.push(
       `周期化: 峰值周 ${n(periodization.peakWeekKm, 1)}km  周均 ${n(periodization.avgWeekKm, 1)}km  ` +
         `周均增幅 ${periodization.rampRatePerWeek >= 0 ? '+' : ''}${n(periodization.rampRatePerWeek, 2)}km/周  ` +
-        `周波动 σ ${n(periodization.weeklyChangeStdPct, 1)}%`,
+        `周波动 σ ${n(periodization.weeklyChangeStdPct, 1)}%` +
+        basisNote,
+    );
+    // 逐周序列（含零跑量周）。只有峰值/周均两个汇总值时，模型回答不了
+    // 「哪一周在涨/掉」；而休息周正是训练结构里最该被看见的一段。
+    L.push(
+      '周序列: ' +
+        periodization.weeks
+          .map((w) => `${w.week} ${n(w.km, 1)}km/${w.activities}次${w.partial ? '(截断)' : ''}`)
+          .join(' '),
     );
   }
 
