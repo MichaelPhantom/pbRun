@@ -99,9 +99,9 @@ const ACTIVITY_FIELD_ALLOWLIST: Record<string, string> = {
   // ---- 真实库 0/348 全空, 写入口从不产出 ----
   // 这些字段属于「设备/平台根本不写」类, 展示只会是永久 `--` 噪音。
   // 与 `fmtNumIf` 的整项略去纪律一致（见 docs/features.md §1.2 缺失两类）。
-  average_step_rate_loss: '真实库 0/348, 设备从不写入',
-  average_step_rate_loss_percent: '真实库 0/348, 设备从不写入',
-  max_power_to_weight: '真实库 0/348; 且 max_power 是瞬时尖峰, 用它算 W/kg 会产出怪物数据',
+  average_step_rate_loss: '真实库 0/348; FIT profile 无「步速损失」概念, 设备根本不产此量',
+  average_step_rate_loss_percent: '真实库 0/348; 同上, FIT profile 无对应字段',
+  max_power_to_weight: '真实库 0/348; FIT profile 无此字段, 且 max_power 是瞬时尖峰, 用它算 W/kg 会产出怪物数据',
   avg_pos_grade: '真实库 0/348, 设备从不写入',
   avg_neg_grade: '真实库 0/348, 设备从不写入',
   max_pos_grade: '真实库 0/348, 设备从不写入',

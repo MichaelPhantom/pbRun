@@ -397,7 +397,10 @@ class GarminSync {
         activityData.vdot_value = vdot;
       }
     }
-    // training_load：优先用 FIT 官方（fit-parser 已提取），缺省才回退自定义公式
+    // training_load：FIT 里**没有**官方 training_load 字段（SDK profile 只有语义
+    // 不同的 training_load_peak，实测与库内值比值 1.2–2.6 倍浮动、不可换算），
+    // 故这里实际上总是走派生分支。保留 `== null` 判断是为了让将来若真有设备
+    // 写入（走别的同步源）时仍能优先采用。
     if (activityData.training_load == null && this.vdotCalculator && activityData.duration && activityData.average_heart_rate) {
       const runnableTypes2 = ['running', 'treadmill_running', 'track_running'];
       if (runnableTypes2.includes(activityData.activity_type)) {

@@ -63,7 +63,7 @@ const SYSTEM_PROMPT = `你是一位世界顶级的精英跑步教练与运动科
 - **触地时间**：过长降低经济性，过短可能牺牲缓冲
 
 ### 5. 负荷与恢复
-- **本次训练负荷**：用活动数据里的「训练负荷」（Garmin training_load）评估本次强度；
+- **本次训练负荷**：用活动数据里的「训练负荷」（无量纲负荷分，由时长×心率区间派生）评估本次强度；
 - **近期状态**：结合 TSB、近 7/28 天跑量判断本次是否合理
 - **疲劳管理**：是否在疲劳日强行高强度？是否需要调整？
 - **恢复建议**：本次后需要多少恢复时间？推荐何种恢复方式？
@@ -508,9 +508,12 @@ export function buildAnalysisMessages(
   // 旧实现把这三项按「数据源从不产出」整项略去 —— 于是模型永远看不到强度因子，
   // 只能靠配速猜强度；而 prompt §5 明确要求「用训练负荷评估本次强度」。
   //
-  // 与 `training_load`（Garmin 官方 TL，241/241）**不是同一个东西**：TL 是无量纲
-  // 的官方负荷分，TSS 是 NP/FTP 派生的自行车式训练压力。两者都输出时必须让模型
-  // 能区分，否则会出现「TSS 48 但 TL 65」这种看起来自相矛盾的数字。
+  // 与 `training_load`（库内派生的无量纲负荷分，241/241）**不是同一个东西**：
+  // TL 由「时长 × 心率区间因子」派生（`calculateTrainingLoad`），TSS 是 NP/FTP
+  // 派生的自行车式训练压力。两者都输出时必须让模型能区分，否则会出现
+  // 「TSS 48 但 TL 65」这种看起来自相矛盾的数字。
+  // 注：`training_load` **不是** FIT 官方字段 —— SDK profile 里没有 training_load
+  // （只有语义不同的 `training_load_peak`），见 docs/features.md §2.1。
   const power = powerIntensity(activity);
   const powerLines = running
     ? [

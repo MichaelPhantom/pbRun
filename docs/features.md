@@ -399,10 +399,15 @@ Garmin 功率区间数组形如 `[218,267,307,338,390,4000,null,null]`。实测 
 
 #### TSS 与 TL 是两套口径，必须同时声明
 
-`training_load`（Garmin 官方负荷分，241/241）与派生的 `TSS` 并存时会出现
+`training_load`（库内派生的无量纲负荷分，241/241）与派生的 `TSS` 并存时会出现
 「TSS 41 但 TL 65」—— 不解释的话模型会当成数据矛盾并浪费篇幅核对。故数据块在
-IF/TSS 行后追加固定说明：「与训练负荷 TL 是两套口径：TL 是 Garmin 官方负荷分,
+IF/TSS 行后追加固定说明：「与训练负荷 TL 是两套口径：TL 由时长×心率区间派生,
 TSS 是阈值功率派生量」。
+
+> **勘误（2026-10-27）**：`training_load` 此前被描述为「Garmin 官方负荷分」，
+> 但 **FIT profile 里根本没有 `training_load` 字段**（详见下方「FIT 字段名必须
+> 存在于 SDK profile」一节）。库内 241/241 的值全部来自 `sync.js` 的
+> `calculateTrainingLoad` 派生，与设备无关。
 
 #### 海拔净高差 ≠ 累计爬升
 
@@ -597,6 +602,48 @@ GPS 漂移、起终点的静止采样都被判为「有效移动」，混进前�
 原因同上：这些秒里 `cadence` 为 0 或 `step_length` 缺失（走/停/传感器缺项），
 `pace` 的派生前置条件不满足，而 GPS 仍在记录速度。这是**正确的缺失**，不是漏洞。
 
+#### FIT 字段名必须存在于 SDK profile（2026-10-27 审计，19 个死读站点）
+
+前两节讲的是「同一数据的两种口径」。这一节讲更底层的一类：**解析器读的字段名
+在 `fit-file-parser` 的 profile 里根本不存在**。
+
+`_safeGet*(msg, 'field')` 对不存在的键返回 `null`，**不抛错、不打日志**。于是：
+多数站点都写了 `?? this._safeGet*(msg, '<正确名>')` 兜底，看起来在工作（值确实进了库），
+缺陷完全静默；少数站点没有正确兜底，那列就永久 NULL —— 而 UI/AI 以为是「设备不写」。
+
+审计方法：从 SDK 的 `FIT.messages` 运行时 introspect 每个 message 的字段名集合，
+按解析器的局部变量映射回 message，逐站点校验。共发现 **19 个死读站点、12 个不存在的字段名**：
+
+| 读的字段名 | SDK 里的正确名字 | 真实库后果 | 处理 |
+|-----------|-----------------|-----------|------|
+| `avg_stride_length`（活动+lap） | `avg_step_length` | 有正确兜底，348/348 走兜底 | 删除死名 |
+| `avg_ground_contact_time`（活动+lap） | `avg_stance_time` | 有正确兜底，348/348 走兜底 | 删除死名 |
+| `avg_gct_balance`（活动+lap） | `avg_stance_time_balance` | 兜底存在但**设备 348/348 不写** → 列恒 NULL | 删除死名，保留正确名读取 |
+| `avg_power_to_weight` / `max_power_to_weight`（活动+lap） | 无 | 0/348、0/3082；已由 `app/lib/power.ts` 派生 | 删除死名 |
+| `avg_step_rate_loss` / `_percent`（活动+lap） | **无任何对应字段** | 0/348、0/3082 | 删除死读 |
+| `avg_pace_gap`（lap） | **profile 里没有任何 pace/gap 字段** | `activity_laps.average_pace_gap` 0/3082 | 删除死读 |
+| `best_lap_time`（lap） | 只有 `best_lap_index`（**索引不是时间**） | `activity_laps.best_pace` 0/3082 | 删除死读 |
+| `training_load` / `training_load_score` / `acute_training_load` | 无；真实存在 `training_load_peak` | `training_load` 241/241 全部来自 `calculateTrainingLoad` 派生 | 删除死读，见下 |
+
+**为什么 `training_load_peak` 不能接线**（这是本节最容易犯的错）：它确实在真实 FIT 里
+（348/348 有值，如 `2918977`），但**与库内 `training_load` 不是同一个量**：
+
+- 量级差 5 个数量级（`2918977` vs `~50`），且 `scale: 1` 表示**没有小数缩放**；
+- 除以 65536 后与 TL 的比值仍在 **1.2–2.6 倍之间浮动**（p10 1.21 / p90 2.60），
+  相关系数仅 **0.72**，`round(peak/65536) === tl` 在 241 条里 **0 条**成立；
+- 按 float32 重新解释得到的是 denormal（`4e-39` 量级），也不是浮点编码。
+
+结论：它是另一个指标（疑似 EPOC/峰值负荷），语义未确认前**不得**当作 `training_load`。
+库内 `training_load` 由 `sync.js` 的 `calculateTrainingLoad`（时长 × 心率区间因子）派生，
+实测与 241 条中的 **237** 条一致（另 4 条是早期公式版本遗留，差异在 ±10 以内）。
+
+**机器守卫**（防止 SDK 升级改名后静默变 NULL）：`tests/unit/garmin/fit-parser-sdk-fields.test.ts`
+运行时 introspect `FIT.messages`，逐站点校验字段名，失败信息直接给出
+`L564 lap.'best_lap_time'` 这样的行号定位；并有三条反向断言 ——
+① 变量→message 映射必须覆盖所有读站点（漏配会让该站点不被校验）；
+② allowlist 不得包含**真实存在**的字段（否则掩盖「其实能读了」）；
+③ allowlist 不得留**已不再读取**的僵尸条目。当前 allowlist 为空。
+
 #### 第三类缺陷：prompt 承诺 ⇒ 数据块必须供给（2026-10-27）
 
 前两类讲的是「数据有值但输出方式不对」。第三类是**数据有值、prompt 也明确要求，
@@ -677,6 +724,8 @@ GPS 漂移、起终点的静止采样都被判为「有效移动」，混进前�
 | **功率区间聚合必须按 %FTP，不能按绝对瓦数** | `app/lib/db.ts` 的 `getPowerZoneStats`（逐 lap `resolveFtp` → `powerZoneOf`）/ `app/api/analysis/power-zones/route.ts` / `PowerZoneMetricsTable` / `mcp-server/tools.ts` 的 `get_power_zone_analysis` | `tests/unit/lib/db-power-zone-stats.test.ts`（两个 FTP 差 2 倍的活动里同样的 150W 分属 Z2 与 Z1；无 FTP 的 lap 跳过并计入 `laps_without_ftp`；非跑步排除；时长加权；距离米）；`tests/unit/api/power-zones-route.test.ts`（400/200、`ranges` 由参照 FTP 派生）；`tests/unit/components/zone-tables-a11y.test.tsx`（参照 FTP 披露 + 「共 14 个不同 FTP」）；`tests/unit/mcp/tool-scope-contract.test.ts`（声明「按各活动自身 FTP」「不是任何一次活动的 FTP」） |
 | **参照 FTP 是参照值，不是区间定义域** | `PowerZoneReference.ftp_median_watts` + UI 列名「参照瓦数」+ 表下说明 | `tests/unit/components/zone-tables-a11y.test.tsx`（`distinct_ftp_count > 1` 时必须出现「共 N 个不同 FTP」；单套 FTP 时不出现该噪音；无参照 FTP 时不编造 `0W+`）；`tests/unit/pages/analysis-page.test.tsx`（`228-279W` 与「共 14 个不同 FTP」同时出现） |
 | **`pace` 与 `speed` 不得互相校验（两条独立推导链）** | `app/lib/insight.ts` 的 `computeDecouplingPct` / `grade-adjust.ts` 用 `speed`（实际移动）；`ActivityTrendCharts` / 分段表用 `pace`（跑姿效率） | `tests/unit/lib/insight.test.ts`（解耦只用 `speed`）；`tests/unit/components/activity-trend-charts.test.tsx`（趋势图配速轴用 `pace`，缺失时按 `cadence×step_length` 派生） |
+| **FIT 解析器读的字段名必须在 SDK profile 里存在** | `scripts/garmin/fit-parser.js` 的全部 `_safeGet*(msg, 'field')` 站点（2026-10-27 清掉 19 个死读站点、12 个不存在的名字） | `tests/unit/garmin/fit-parser-sdk-fields.test.ts`（运行时 introspect `FIT.messages` 逐站点校验，失败信息给出行号；三条反向断言：映射覆盖、allowlist 不含真实存在字段、不含僵尸条目）；`tests/unit/garmin/fit-parser-branches.test.js`（`training_load` 不由解析器提供，连 `training_load_peak` 也不得当作 TL） |
+| **`training_load` 不是 FIT 官方字段** | `scripts/garmin/sync.js` 的 `calculateTrainingLoad` 派生（时长 × 心率区间因子）；`app/lib/types.ts` / `app/lib/llm.ts` 注释同步勘误 | `tests/unit/garmin/fit-parser-branches.test.js`（四个历史字段名 + `training_load_peak` 均不得产出 `training_load`） |
 | **字段必须被消费（算出来 ≠ 展示）** | `InsightClient.tsx` / `insight-coach.ts` / `ActivityInsightPanel.tsx` / `llm.ts` | `tests/unit/components/insight-field-consumption.test.ts`（递归展开 `InsightResponse` / `ActivityInsightResponse` / `Activity` 全部叶子字段, 剥离注释后逐个断言被消费; 消费方 = 展示入口的 import 传递闭包, 死代码模块不算; allowlist 反查腐化） |
 | **可推算字段必须真的推算** | `app/lib/power.ts`（FTP 回退 / IF / TSS / W·kg⁻¹ / 峰值过滤）/ `app/lib/elevation.ts`（净高差 / 爬升比） | `tests/unit/lib/power.test.ts`（28 例: 33→241 FTP 回退、TSS 用 moving_time、尖峰过滤、显式值优先）+ `tests/unit/lib/elevation.test.ts`（12 例: 净高差 ≠ 累计爬升、越界拒绝） |
 | **IF/TSS 与 TL 是两套口径** | `llm.ts` 的 `powerNote` | `tests/unit/lib/llm-gateway.test.ts`（TSS 与 TL 并存时必须声明「两套口径」, 否则模型当矛盾） |
@@ -766,6 +815,28 @@ GPS 漂移、起终点的静止采样都被判为「有效移动」，混进前�
   记录按 lap 时间窗切分，属新增能力。
 - **非跑步活动不产出**。逐秒功率在 107 条非跑步活动里 0/107 —— 不是缺陷，而是设备
   不记录；UI 与 AI 都按 `running` 门控整项不渲染，而不是给出「全是 Z1」的假分布。
+
+### 4.3.1 全 NULL 的列：区分「设备不写」与「我们读错了名字」
+
+`activity_laps` 有 **16 列 100% NULL**、`activities` 有 14 列零覆盖。这些列长期被
+统一归因为「设备不写」，但 2026-10-27 审计发现其中一部分其实是**解析器读了 SDK
+profile 里不存在的字段名**（见 §2.1「FIT 字段名必须存在于 SDK profile」）：
+
+| 列 | 真实原因 | 归属 |
+|----|---------|------|
+| `best_pace`（lap） | 读 `best_lap_time`，SDK 只有 `best_lap_index`（索引） | **读错名字**（已删除死读） |
+| `average_pace_gap`（lap） | 读 `avg_pace_gap`，profile 里没有任何 pace/gap 字段 | **读错名字**（已删除死读） |
+| `average_step_rate_loss` / `_percent` | 读同名字段，profile 无此概念 | **读错名字**（已删除死读） |
+| `average_power_to_weight` / `max_power_to_weight` | 读同名字段，profile 无此字段 | **读错名字**（已删除；改由 `app/lib/power.ts` 派生） |
+| `average_gct_balance` | 正确名 `avg_stance_time_balance` 已读取，但设备确实不写 | **设备不写**（348/348 实测） |
+| `avg_grade` / `avg_pos_grade` / `avg_neg_grade` / `max_pos_grade` / `max_neg_grade` | profile 有这些字段，但真实设备 348/348 不写 | **设备不写** |
+| `time_in_speed_zone` / `time_in_cadence_zone`（活动+lap） | profile 有字段，设备不写 | **设备不写** |
+| `time_in_hr_zone` / `time_in_power_zone`（lap） | profile 有字段，设备不写 lap 级数组 | **设备不写**（活动级已有统一口径列） |
+
+纪律：**遇到全 NULL 列必须先分辨这两类**。若归因为「设备不写」却其实是读错名字，
+那列会永远为空且没人再查 —— 这正是本次 19 个死读站点能潜伏这么久的机制。
+`tests/unit/garmin/fit-parser-sdk-fields.test.ts` 让这类缺陷在**写入任何数据之前**
+（CI 阶段）就转红。
 
 ### 4.4 文档与工程
 

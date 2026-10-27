@@ -1,5 +1,16 @@
 /**
  * FIT file parser for Garmin activities (binary .fit from Garmin Connect)
+ *
+ * **字段名纪律**：`_safeGet*(msg, 'field')` 读的字段名**必须真实存在于
+ * `fit-file-parser` 的 SDK profile**。该函数对不存在的键返回 `null` 且不报错，
+ * 所以「读错名字」这类缺陷完全静默 —— 有兜底时看起来正常，没兜底的那列就
+ * 永久 NULL 且被误归因为「设备不写」。2026-10-27 审计清掉 19 个这类死读站点
+ * （12 个不存在的字段名），并由 `tests/unit/garmin/fit-parser-sdk-fields.test.ts`
+ * 在 CI 阶段拦截新增死读。详见 docs/features.md §2.1。
+ *
+ * 特别注意：FIT **没有** `training_load` 字段（真实存在的是语义不同的
+ * `training_load_peak`），库内 `training_load` 由 `sync.js` 的
+ * `calculateTrainingLoad` 派生。
  */
 
 const FitParser = require('fit-file-parser').default;
@@ -342,7 +353,12 @@ class GarminFITParser {
     }
 
     // Running dynamics (FIT data is in mm, convert to meters)
-    const stepLength = this._safeGetFloat(session, 'avg_step_length') ?? this._safeGetFloat(session, 'avg_stride_length');
+    //
+    // 字段名只能取 SDK profile 里真实存在的名字（`avg_step_length`）。历史实现
+    // 还写了一个 `?? avg_stride_length` 兜底，但该名**不在 SDK profile 里**，
+    // 永远取不到值 —— 纯死代码（`tests/unit/garmin/fit-parser-sdk-fields.test.ts`
+    // 会拦住这类「读了不存在的字段」）。
+    const stepLength = this._safeGetFloat(session, 'avg_step_length');
     if (stepLength) {
       activityData.average_stride_length = stepLength / 1000;
     }
@@ -355,21 +371,30 @@ class GarminFITParser {
 
     activityData.average_vertical_ratio = this._safeGetFloat(session, 'avg_vertical_ratio');
 
-    // Ground contact time (fit-file-parser may use avg_stance_time)
-    const gct = this._safeGetFloat(session, 'avg_ground_contact_time') ?? this._safeGetFloat(session, 'avg_stance_time');
+    // Ground contact time: SDK profile 的字段名是 `avg_stance_time`（不是
+    // `avg_ground_contact_time`，后者不在 profile 里，读取永远返回 null）。
+    const gct = this._safeGetFloat(session, 'avg_stance_time');
     if (gct) {
       activityData.average_ground_contact_time = gct;
     }
 
-    activityData.average_gct_balance = this._safeGetFloat(session, 'avg_gct_balance') ?? this._safeGetFloat(session, 'avg_stance_time_balance');
-    activityData.average_step_rate_loss = this._safeGetFloat(session, 'avg_step_rate_loss');
-    activityData.average_step_rate_loss_percent = this._safeGetFloat(session, 'avg_step_rate_loss_percent');
+    // 触地平衡：SDK 字段是 `avg_stance_time_balance`。真实设备 348/348 都不写
+    // 该字段（只有部分高阶手表 + 双传感器配置才有），所以这一列在库里恒为 NULL。
+    // 保留读取是为了「设备将来写入时自动生效」，但必须用正确的字段名。
+    activityData.average_gct_balance = this._safeGetFloat(session, 'avg_stance_time_balance');
+
+    // 步速损失（step rate loss）在 FIT profile 里**没有任何对应字段**
+    // （`avg_step_rate_loss` / `avg_step_rate_loss_percent` 均不存在），
+    // 属「设备根本不写」类，故不读取 —— 数据库列保留为历史兼容，恒 NULL。
 
     // Power
     activityData.average_power = this._safeGetInt(session, 'avg_power');
     activityData.max_power = this._safeGetInt(session, 'max_power');
-    activityData.average_power_to_weight = this._safeGetFloat(session, 'avg_power_to_weight');
-    activityData.max_power_to_weight = this._safeGetFloat(session, 'max_power_to_weight');
+    // W/kg **不读设备字段**：FIT profile 里没有 `avg_power_to_weight` /
+    // `max_power_to_weight`（读它们恒为 null，是死读）。唯一来源是
+    // `app/lib/power.ts` 的 `average_power / user_weight` 派生（241/241 可算）。
+    // `powerIntensity()` 仍保留「显式值优先」的分支 —— 那是为将来真有设备
+    // 写入时准备的，但当前没有任何写入路径会填这两列。
 
     // Elevation（FIT 解析器在 lengthUnit: 'km' 时会把海拔也转成 km，需乘 1000 还原为米）
     // 直接相乘会引入浮点噪声 (0.05900000000000001*1000=59.00000000000001), 收敛到 1 位小数
@@ -391,11 +416,14 @@ class GarminFITParser {
     activityData.normalized_power = this._safeGetInt(session, 'normalized_power');
     activityData.training_stress_score = this._safeGetInt(session, 'training_stress_score');
     activityData.intensity_factor = this._safeGetFloat(session, 'intensity_factor');
-    // FIT 官方 training_load（若有则优先用，缺省才回退自定义公式；兼容解析器可能的不同字段名）
-    const fitTrainingLoad = this._safeGetInt(session, 'training_load')
-      ?? this._safeGetInt(session, 'training_load_score')
-      ?? this._safeGetInt(session, 'acute_training_load');
-    if (fitTrainingLoad != null) activityData.training_load = fitTrainingLoad;
+    // 训练负荷：**FIT profile 没有官方 training_load 字段**。
+    // 曾尝试 `training_load` / `training_load_score` / `acute_training_load` 三个
+    // 名字，但三者都不在 SDK profile 里（死读）。真实存在的是 `training_load_peak`
+    // （uint32 原值，实测 2918977），但它与库内 `training_load`（量级 ~50）**不是
+    // 同一个量**：实测 241 条活动的比值在 1.2–2.6 倍之间浮动、相关系数仅 0.72，
+    // 强行除以 65536 也无一相等 —— 语义/scale 未确认，不得接线。
+    // 故 training_load 统一由 `sync.js` 的 `calculateTrainingLoad` 派生（实测
+    // 与库内 241 条中的 237 条一致，另 4 条为早期版本遗留）。
 
     // 海拔（米）— session 可能无此字段，兜底从 records 计算
     activityData.avg_altitude = this._altitudeToMeters(
@@ -484,8 +512,14 @@ class GarminFITParser {
       }
 
       // Pace variations
-      lapData.average_pace_gap = this._safeGetFloat(lap, 'avg_pace_gap');
-      lapData.best_pace = this._safeGetFloat(lap, 'best_lap_time');
+      //
+      // `average_pace_gap` / `best_pace` 两列在库里 **0/3082 全 NULL**，原因不是
+      // 设备不写，而是**读的字段名在 SDK profile 里不存在**：
+      //  - `avg_pace_gap`：SDK profile 里没有任何 pace/gap 字段；
+      //  - `best_lap_time`：SDK 只有 `best_lap_index`（索引，不是时间）。
+      // 二者都没有可等价派生的来源（GAP 需逐秒坡度+速度，见 `app/lib/grade-adjust.ts`
+      // 的活动级实现；最快 lap 由 `activity-insight` 的 `bestLapIndex` 现算）。
+      // 故不再读取，数据库列保留为历史兼容，恒 NULL。
 
       const movingTime = lapData.moving_time;
       if (distanceKm != null && distanceKm > 0 && movingTime && movingTime > 0) {
@@ -505,9 +539,9 @@ class GarminFITParser {
 
       // Power
       lapData.average_power = this._safeGetInt(lap, 'avg_power');
-      lapData.average_power_to_weight = this._safeGetFloat(lap, 'avg_power_to_weight');
       lapData.max_power = this._safeGetInt(lap, 'max_power');
-      lapData.max_power_to_weight = this._safeGetFloat(lap, 'max_power_to_weight');
+      // lap 级 W/kg 同样不读设备字段（SDK 无 `avg_power_to_weight` /
+      // `max_power_to_weight`）；需要时由平均功率 ÷ 体重派生。
 
       // Cadence
       const avgCadence = this._safeGetInt(lap, 'avg_cadence');
@@ -521,17 +555,18 @@ class GarminFITParser {
       }
 
       // Running dynamics (FIT data is in mm, convert to meters)
-      const stepLength = this._safeGetFloat(lap, 'avg_step_length') ?? this._safeGetFloat(lap, 'avg_stride_length');
+      const stepLength = this._safeGetFloat(lap, 'avg_step_length');
       if (stepLength) {
         lapData.average_stride_length = stepLength / 1000;
       }
 
-      const gct = this._safeGetFloat(lap, 'avg_ground_contact_time') ?? this._safeGetFloat(lap, 'avg_stance_time');
+      const gct = this._safeGetFloat(lap, 'avg_stance_time');
       if (gct) {
         lapData.average_ground_contact_time = gct;
       }
 
-      lapData.average_gct_balance = this._safeGetFloat(lap, 'avg_gct_balance') ?? this._safeGetFloat(lap, 'avg_stance_time_balance');
+      // 触地平衡: SDK 字段为 `avg_stance_time_balance`（真实设备 348/348 不写）。
+      lapData.average_gct_balance = this._safeGetFloat(lap, 'avg_stance_time_balance');
 
       const vo = this._safeGetFloat(lap, 'avg_vertical_oscillation');
       if (vo) {
@@ -539,8 +574,7 @@ class GarminFITParser {
       }
 
       lapData.average_vertical_ratio = this._safeGetFloat(lap, 'avg_vertical_ratio');
-      lapData.average_step_rate_loss = this._safeGetFloat(lap, 'avg_step_rate_loss');
-      lapData.average_step_rate_loss_percent = this._safeGetFloat(lap, 'avg_step_rate_loss_percent');
+      // 步速损失: FIT profile 无对应字段, 不再读取（列保留为历史兼容, 恒 NULL）。
 
       // 坡度（%）
       lapData.avg_grade = this._safeGetFloat(lap, 'avg_grade');

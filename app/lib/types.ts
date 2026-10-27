@@ -34,15 +34,15 @@ export interface Activity {
   average_vertical_oscillation?: number;         // 平均垂直摆动（厘米）
   average_vertical_ratio?: number;               // 平均垂直步幅比（%）
   average_ground_contact_time?: number;          // 平均触地时间（毫秒）
-  average_gct_balance?: number;                  // 平均触地时间平衡（%）
-  average_step_rate_loss?: number;               // 平均步速损失（厘米/秒）
-  average_step_rate_loss_percent?: number;       // 平均步速损失百分比（%）
+  average_gct_balance?: number;                  // 平均触地时间平衡（%）; 真实库 0/348（SDK 字段 avg_stance_time_balance, 设备不写）
+  average_step_rate_loss?: number;               // 平均步速损失（厘米/秒）; 真实库 0/348, FIT profile 无此概念
+  average_step_rate_loss_percent?: number;       // 平均步速损失百分比（%）; 真实库 0/348, FIT profile 无此概念
 
   // 功率数据
   average_power?: number;                        // 平均功率（瓦）
   max_power?: number;                            // 最大功率（瓦）
-  average_power_to_weight?: number;              // 平均功率体重比（瓦/公斤）
-  max_power_to_weight?: number;                  // 最大功率体重比（瓦/公斤）
+  average_power_to_weight?: number;              // 平均功率体重比（瓦/公斤）; 设备不写, 由 app/lib/power.ts 派生
+  max_power_to_weight?: number;                  // 最大功率体重比（瓦/公斤）; 设备不写且无派生（max_power 是瞬时尖峰）
 
   // 爬升数据
   total_ascent?: number;                         // 累计爬升（米）
@@ -90,7 +90,7 @@ export interface Activity {
 
   // VDOT 跑力值
   vdot_value?: number | null;                   // VDOT 跑力值（Daniels；仅 Z3+ 代表性强度，轻松/恢复跑为 null）
-  training_load?: number | null;                 // 训练负荷（优先 FIT 官方，缺省回退）
+  training_load?: number | null;                 // 训练负荷（无量纲; 由 calculateTrainingLoad 派生, FIT 无此字段）
 
   // Garmin 官方指标（FIT activity_metrics 消息）
   garmin_vo2max?: number | null;                 // Garmin 官方 VO2max（ml/kg/min，区别于本地推算的 vdot_value）
@@ -168,8 +168,8 @@ export interface ActivityLap {
   // 距离和配速
   distance: number;                              // 分段距离（米）
   average_pace?: number;                         // 平均配速（秒/公里）
-  average_pace_gap?: number;                     // 平均坡度调整配速（秒/公里）
-  best_pace?: number;                            // 最佳配速（秒/公里）
+  average_pace_gap?: number;                     // 平均坡度调整配速（秒/公里）; 真实库 0/3082, FIT profile 无此字段
+  best_pace?: number;                            // 最佳配速（秒/公里）; 真实库 0/3082, FIT 只有 best_lap_index（索引）
   average_speed?: number;                        // 平均速度（公里/小时）
   average_moving_pace?: number;                  // 平均移动配速（秒/公里）
 
@@ -183,20 +183,20 @@ export interface ActivityLap {
 
   // 功率
   average_power?: number;                        // 平均功率（瓦）
-  average_power_to_weight?: number;              // 平均功率体重比（瓦/公斤）
+  average_power_to_weight?: number;              // 平均功率体重比（瓦/公斤）; 设备不写（SDK 无此字段）, 需派生
   max_power?: number;                            // 最大功率（瓦）
-  max_power_to_weight?: number;                  // 最大功率体重比（瓦/公斤）
+  max_power_to_weight?: number;                  // 最大功率体重比（瓦/公斤）; 设备不写（SDK 无此字段）
 
   // 跑步动态
   average_cadence?: number;                      // 平均步频（步/分钟）
   max_cadence?: number;                          // 最大步频（步/分钟）
   average_stride_length?: number;                // 平均步幅（米）
   average_ground_contact_time?: number;          // 平均触地时间（毫秒）
-  average_gct_balance?: number;                  // 平均触地时间平衡（%）
+  average_gct_balance?: number;                  // 平均触地时间平衡（%）; 真实库 0/3082（设备不写 avg_stance_time_balance）
   average_vertical_oscillation?: number;         // 平均垂直摆动（厘米）
   average_vertical_ratio?: number;               // 平均垂直步幅比（%）
-  average_step_rate_loss?: number;               // 平均步速损失（厘米/秒）
-  average_step_rate_loss_percent?: number;       // 平均步速损失百分比（%）
+  average_step_rate_loss?: number;               // 平均步速损失（厘米/秒）; 真实库 0/3082, FIT profile 无此概念
+  average_step_rate_loss_percent?: number;       // 平均步速损失百分比（%）; 真实库 0/3082, FIT profile 无此概念
 
   // 坡度（%）
   avg_grade?: number;                            // 平均坡度

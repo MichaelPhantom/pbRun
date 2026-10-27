@@ -335,6 +335,21 @@ describe('CLI 脚本导入契约', () => {
 | React Components | P1 | 70%+ |
 | 同步脚本 | P0 | 80%+ |
 
+### 2.2.1 契约型机器守卫（覆盖率之外的防线）
+
+有些缺陷**不改变分支/行覆盖**，只在「代码与外部契约不一致」时出现 —— 这类必须用
+**运行时 introspect + 反向断言**的守卫，而不是指望覆盖率：
+
+| 守卫 | 拦的缺陷 | 为什么覆盖率拦不住 |
+|------|---------|-------------------|
+| `tests/unit/garmin/fit-parser-sdk-fields.test.ts` | 解析器读了 `fit-file-parser` SDK profile 里**不存在**的字段名（2026-10-27 审计发现 19 个死读站点、12 个假名字） | `_safeGet*` 对不存在的键返回 `null` 且不报错，**所有分支都走到了**、覆盖率 100%，只是值永远是 null。它从 `FIT.messages` 运行时取字段名集合逐站点校验，并反向断言 allowlist 不含真实存在/已不再读取的条目 |
+| `tests/unit/components/insight-field-consumption.test.ts` | 类型里声明、数据层算好，但 UI/AI **从未读取**的字段 | 字段存在即「有值」，没人读不产生任何未覆盖分支 |
+| `tests/unit/mcp/tool-scope-contract.test.ts` | MCP tool description 不声明统计口径/单位 | 文案是字符串常量，没有分支 |
+| `tests/unit/docs/api-route-coverage.test.ts` | 新增 API 路由未写进 README/API 文档 | 文档与代码是两棵树 |
+
+纪律：**同一类缺陷第二次出现时，必须把「人眼审计」升级成机器守卫**。本节第一个
+守卫就是这样诞生的 —— 先人工发现 1 个读错的字段名，再扩成全量 introspect。
+
 ---
 
 ## 3. E2E UI测试 (Playwright)

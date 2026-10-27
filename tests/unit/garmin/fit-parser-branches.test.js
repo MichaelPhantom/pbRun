@@ -127,15 +127,27 @@ describe('_extractActivityData 分支', () => {
     expect(some.total_descent).toBe(20);
   });
 
-  test('training_load 兼容三种字段名, 优先级从高到低', () => {
-    expect(
-      p._extractActivityData({ sessions: [{ training_load: 88, training_load_score: 77 }] }).training_load,
-    ).toBe(88);
-    expect(
-      p._extractActivityData({ sessions: [{ training_load_score: 77, acute_training_load: 66 }] }).training_load,
-    ).toBe(77);
-    expect(p._extractActivityData({ sessions: [{ acute_training_load: 66 }] }).training_load).toBe(66);
-    expect(p._extractActivityData({ sessions: [{}] }).training_load).toBeUndefined();
+  /**
+   * 回归（2026-10-27 审计）：解析器**不得**从 session 里读 `training_load`
+   * 一族的字段名 —— 它们都不在 `fit-file-parser` 的 SDK profile 里，
+   * 读取恒为 null（死读）。`training_load` 的唯一来源是 `sync.js` 的
+   * `calculateTrainingLoad` 派生（实测与库内 241 条中的 237 条一致）。
+   *
+   * 真实存在的是 `training_load_peak`（uint32 原值，实测 2918977），但它与
+   * 库内 training_load（量级 ~50）**不是同一个量**：241 条活动的比值在
+   * 1.2–2.6 倍浮动、相关系数仅 0.72，除以 65536 也无一相等 —— 语义未确认，
+   * 不得接线。故解析器对任何 training_load 形态的输入都应保持 undefined。
+   */
+  test('training_load 不由 FIT 解析器提供 (三个历史字段名均不存在于 SDK profile)', () => {
+    for (const sessions of [
+      [{ training_load: 88, training_load_score: 77 }],
+      [{ training_load_score: 77, acute_training_load: 66 }],
+      [{ acute_training_load: 66 }],
+      // 真实设备字段名也不该被当成 training_load 用
+      [{ training_load_peak: 2918977 }],
+    ]) {
+      expect(p._extractActivityData({ sessions }).training_load).toBeUndefined();
+    }
   });
 
   test('session 无海拔 → 从 records 兜底聚合 (均值/最大/最小)', () => {
