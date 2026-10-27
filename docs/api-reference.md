@@ -260,7 +260,9 @@ GET /api/activities/{id}
 
 ### 4. 获取活动分段数据
 
-获取活动的分段（Laps）数据，通常按公里分段。
+获取活动的分段（Laps）数据。**分段不等于公里**：`lap_index` 是 0 基存储键，展示序号
+由有序列表位置 +1 推导（`app/lib/lap-label.ts`）；真实库跑步 lap 只有 57.8% 落在
+950–1050 m，时间切段的间歇课可以是 0.08 km。
 
 **请求**
 
@@ -283,7 +285,7 @@ GET /api/activities/{id}/laps
     {
       "id": 1,
       "activity_id": 14234567890,
-      "lap_index": 1,
+      "lap_index": 0,
       "duration": 300,
       "cumulative_time": 300,
       "moving_time": 300,

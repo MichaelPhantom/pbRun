@@ -11,6 +11,12 @@
 
 import { formatPace } from './format';
 import { dominantZone } from './activity-insight';
+import {
+  lapBestHintLabel,
+  lapPositionOf,
+  lapStartDistancesMeters,
+  lapZoneSpreadLabel,
+} from './lap-label';
 import { CATEGORY_LABELS } from './insight-compare';
 import type { ActivityEnvironmentSummary } from './activity-environment';
 import type {
@@ -254,33 +260,55 @@ function performanceLines(insight: ActivityInsightResponse | null): string[] {
       bits.push(running ? '未识别出明显主课段（整体配速均匀）' : '未识别出明显强度分段');
     }
     if (running && lap.bestPaceSecPerKm != null && lap.bestPaceSecPerKm > 0) {
+      // 「哪一段最快」的标签与 UI 同源（`lap-label.ts`）。旧实现写
+      // `（第 ${bestLapIndex} 段）` —— 那是 0 基存储键，且 lap 长度不等于 1 km 时
+      // 「第 N 段」与「第 N 公里」完全不是一回事。
+      const bestPosition = lapPositionOf(lap.laps, lap.bestLapIndex);
+      const bestWhere = lapBestHintLabel(lap.laps, bestPosition);
       bits.push(
         `最快分段 ${fmtPace(lap.bestPaceSecPerKm)}/km` +
-          (lap.bestLapIndex != null ? `（第 ${lap.bestLapIndex} 段）` : ''),
+          (bestWhere != null ? `（${bestWhere}）` : ''),
       );
     }
     // 分段强度分布: 由每段的 5 区秒数取占比最高区间。这是「主课段是否真的在
     // 目标强度」的唯一量化依据 —— 只看平均心率看不出「前松后紧」。
     // 只在**有**分段区间数据时输出，否则整项不出现（不写「未知」噪音）。
+    //
+    // 标签用累计距离区间而非 `K${lapIndex}`：后者是 0 基存储键，模型会当成
+    // 「第 N 公里」，而间歇课的 lap 可能是 0.08 km。区间标签与 llm.ts 的分段行
+    // （`5.8-6.8km 4:25 168bpm`）同一写法，模型能把两行直接对上。
+    const lapStarts = lapStartDistancesMeters(lap.laps);
     const zoneSpread = lap.laps
-      .map((l) => ({ i: l.lapIndex, z: dominantZone(l.hrZoneSeconds) }))
+      .map((l, i) => ({ i, z: dominantZone(l.hrZoneSeconds) }))
       .filter((x): x is { i: number; z: number } => x.z != null);
     if (zoneSpread.length >= 2) {
       bits.push(
         '分段主区间 ' +
-          zoneSpread.map((x) => `K${x.i}=Z${x.z}`).join(' '),
+          zoneSpread
+            .map((x) => {
+              const label = lapZoneSpreadLabel(lapStarts[x.i], lap.laps[x.i].distanceMeters);
+              return label == null ? null : `${label}=Z${x.z}`;
+            })
+            .filter((s): s is string => s != null)
+            .join(' '),
       );
     }
     // 分段主功率区间: 只对跑步输出（逐秒功率 0/107 非跑步，且 W 与心率不是
     // 同一套强度语义）。这是判断「间歇段功率是否真达到目标」的依据。
     if (running) {
       const powerSpread = lap.laps
-        .map((l) => ({ i: l.lapIndex, z: dominantZone(l.powerZoneSeconds) }))
+        .map((l, i) => ({ i, z: dominantZone(l.powerZoneSeconds) }))
         .filter((x): x is { i: number; z: number } => x.z != null);
       if (powerSpread.length >= 2) {
         bits.push(
           '分段主功率区间 ' +
-            powerSpread.map((x) => `K${x.i}=Z${x.z}`).join(' '),
+            powerSpread
+              .map((x) => {
+                const label = lapZoneSpreadLabel(lapStarts[x.i], lap.laps[x.i].distanceMeters);
+                return label == null ? null : `${label}=Z${x.z}`;
+              })
+              .filter((s): s is string => s != null)
+              .join(' '),
         );
       }
     }

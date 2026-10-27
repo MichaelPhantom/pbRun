@@ -14,6 +14,12 @@ import { activityTypeIcon, activityTypeName, isInformativeTypeValue, isRunningTy
 import { powerIntensity } from '@/app/lib/power';
 import { hrZoneColor } from '@/app/lib/hr-zones';
 import { dominantZone } from '@/app/lib/activity-insight';
+import {
+  lapBestBadgeLabel,
+  lapOrdinalAt,
+  lapPositionOf,
+  lapTableCaption,
+} from '@/app/lib/lap-label';
 import { elevationSpan } from '@/app/lib/elevation';
 import { effectiveTimeSec } from '@/app/lib/pace';
 import { evaluateWorkoutExecution, formatWorkoutPlan } from '@/app/lib/workout';
@@ -119,6 +125,11 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
   // 两套今天恰好一致，但只要任一侧加了过滤就会**同页自相矛盾**。
   // 现在以服务端为准；insight 还没拉到（或请求失败）时退回本地口径，
   // 保证徽章不因渐进增强失败而消失。
+  //
+  // `bestLapIndex` 是**存储键**（`activity_laps.lap_index`，0 基），不是展示序号。
+  // 文案一律由 `app/lib/lap-label.ts` 派生 —— 旧实现写 `最快 K{bestLapIndex}`，
+  // 在 18/242 条活动上渲染出「K0」，在间歇课上渲染出与真实位置差 5 公里的
+  // 「K11」（详见该模块头注释）。
   const serverBest = insight?.lapAnalysis;
   let bestLapIndex = -1;
   let bestPace = Infinity;
@@ -131,6 +142,10 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
       if (p != null && p > 0 && p < bestPace) { bestPace = p; bestLapIndex = l.lap_index; }
     });
   }
+  const bestPosition = lapPositionOf(laps, bestLapIndex >= 0 ? bestLapIndex : null);
+  const bestBadge = running && bestPace < Infinity
+    ? lapBestBadgeLabel(laps, bestPosition)
+    : null;
 
   const overviewItems: { value: string; unit?: string; label: string }[] = [
     // 跑步专属: VDOT / 配速 / 步频 / 步幅。非跑步活动这些列语义不同, 直接不渲染
@@ -348,8 +363,8 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
         title="分段数据"
         accent
         action={
-          running && bestLapIndex >= 0 ? (
-            <Badge variant="good">最快 K{bestLapIndex} {formatPace(bestPace, false)}</Badge>
+          bestBadge ? (
+            <Badge variant="good">{bestBadge} {formatPace(bestPace, false)}</Badge>
           ) : undefined
         }
       >
@@ -357,7 +372,7 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
           <div className="py-8 text-center text-sm text-fg-muted">暂无分段数据</div>
         ) : (
           <DataTable
-            caption="每公里分段数据"
+            caption={lapTableCaption(laps)}
             columns={[
               { key: 'i', label: '#', className: 'w-6' },
               { key: 'role', label: '角色' },
@@ -384,7 +399,7 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
               { key: 'zone', label: '主要区间' },
               { key: 'asc', label: '爬升', unit: 'm' },
             ]}
-            rows={laps.map((lap) => {
+            rows={laps.map((lap, i) => {
               // 最快段高亮只对跑步有意义: 非跑步的 lap.average_pace 是「每公里
               // 游泳/击球时间」, 拿它排序得到的「最快」不是运动学概念。
               const isBest = running && lap.lap_index === bestLapIndex;
@@ -393,7 +408,9 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
                 key: lap.id,
                 highlight: isBest,
                 cells: {
-                  i: <span className="font-medium text-fg">{lap.lap_index}</span>,
+                  // `#` 列 = **展示序号（1 基）**，由列表位置推导，不是 `lap_index`。
+                  // 旧实现直接打印 `lap.lap_index`（0 基存储键），表格第一行是 0。
+                  i: <span className="font-medium text-fg">{lapOrdinalAt(i)}</span>,
                   role: role ? (
                     <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium leading-none sm:text-[11px] ${ROLE_CELL_CLASS[ROLE_TONE[role]]}`}>
                       {ROLE_LABEL[role]}

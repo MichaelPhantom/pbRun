@@ -14,6 +14,7 @@ import {
   powerZoneRangeLabelOfZones,
 } from '@/app/lib/power-zones';
 import type { ActivityComparison, ActivityInsightResponse, TrainingCategory } from '@/app/lib/types';
+import { lapBestHintLabel, lapPositionOf } from '@/app/lib/lap-label';
 
 export const ROLE_LABEL: Record<string, string> = {
   warmup: '热身',
@@ -176,6 +177,11 @@ export function ActivityInsightPanel({ data }: { data: ActivityInsightResponse |
     running,
   } = data;
   const isRunning = running !== false;
+  // 最快段 hint 由 `lap-label` 派生（存储键 → 展示标签的唯一实现）。
+  // 旧实现直接写 `第 ${bestLapIndex} 段`，那是 0 基存储键：真实库会渲染
+  // 「第 0 段」，间歇课上则会指错段（详见 `app/lib/lap-label.ts`）。
+  const bestPosition = lapPositionOf(lapAnalysis.laps, lapAnalysis.bestLapIndex);
+  const bestHint = lapBestHintLabel(lapAnalysis.laps, bestPosition);
   const showLocation = !!locationComparison && locationComparison.peers.length > 0;
   const showPrimary = !!comparison && comparison.peers.length > 0 && !(showLocation && samePeerSet(locationComparison, comparison));
 
@@ -226,7 +232,7 @@ export function ActivityInsightPanel({ data }: { data: ActivityInsightResponse |
           让人以为「慢得离谱」。改为只展示与配速无关的段数与心率漂移。 */}
       <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
         {isRunning && (
-          <StatCard value={lapAnalysis.bestPaceSecPerKm != null ? fmtPace(lapAnalysis.bestPaceSecPerKm) : '--'} unit="/km" label="最快分段" accent hint={lapAnalysis.bestLapIndex != null ? `第 ${lapAnalysis.bestLapIndex} 段` : undefined} />
+          <StatCard value={lapAnalysis.bestPaceSecPerKm != null ? fmtPace(lapAnalysis.bestPaceSecPerKm) : '--'} unit="/km" label="最快分段" accent hint={bestHint ?? undefined} />
         )}
         <StatCard value={String(lapAnalysis.workLaps)} label="主课段数" hint={`${(lapAnalysis.workDistanceMeters / 1000).toFixed(2)} km`} />
         {isRunning && (

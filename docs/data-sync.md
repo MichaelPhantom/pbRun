@@ -102,7 +102,7 @@ FIT (Flexible and Interoperable Data Transfer) 是 Garmin 设备使用的二进�
 
 | 字段 | 说明 | 示例 |
 |------|------|------|
-| `lap_index` | 分段索引 | `1` |
+| `lap_index` | 分段**存储键**（0 基，`0..N-1` 连续；只保证可排序，**不是「第几公里」也不是展示序号** —— 展示序号由位置推导，见 `app/lib/lap-label.ts`） | `0` |
 | `start_time` | 分段开始时间 | `2026-02-13 06:30:00` |
 | `total_distance` | 分段距离 (米) | `1000` |
 | `total_timer_time` | **计时器时间**（秒）→ `moving_time`，lap 配速的时间基数 | `300` |

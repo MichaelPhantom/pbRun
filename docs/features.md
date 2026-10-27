@@ -86,7 +86,7 @@ pbRun 是跑步分析工具，但 Garmin 同步会把篮球/游泳/力量训练�
 | 丹尼尔斯页「当前跑力」说明 | 「近一周跑步活动的 VDOT 平均值」并注明「只含跑步，游泳/球类不参与」—— 同源 `getStats('week')` |
 | `/stats` 个人纪录「单次最长距离」 | 「单次跑步最长距离」而非「单次训练最长距离」—— `getPersonalRecords` 带 `runningTypeClause`，游泳/球类不计入 |
 | 全局教练【区间环比】次数行 | 「跑步次数」而非「次数」—— `getPeriodStats` 是跑步口径，模型若读成全部活动数会误判训练频率 |
-| 活动详情页分段表 | 隐藏配速与步频列，不给「最快 K」徽章 |
+| 活动详情页分段表 | 隐藏配速与步频列，不给「最快段」徽章 |
 | `/analysis` 区间表（配速/心率） | 展示「时长 / 距离 / 次数」三列。数据层算好的 `activity_count` / `total_duration` / `total_distance` 此前**从未露出** —— 心率区间表只给「Z2 平均配速 5:40」，用户看不到这个区间到底占了多少训练量。距离由**米**换算成公里（`total_distance` 是 lap 距离累加），时长走 `formatDuration`，空区间显示 `--` 而非 `0:00` |
 | 活动详情页「跑步动态」 | 展示条件为**触地平衡 / 触地时间 / 垂直摆动 / 垂直振幅比 四项任一非空且为跑步**。垂直振幅比（= 垂直摆动/步幅）在真实库 **241/241** 条跑步活动都有值（6.69–10.48%），此前 UI 与活动 AI prompt 都未使用 —— 数据在库里却拿不到。旧实现只判 `average_gct_balance`，而真实库 **348/348 条活动该字段全为 NULL**（Garmin 仅部分高阶手表/双传感器配置写入），触地时间与垂直摆动却在 **241/241 条跑步活动**里都有值 —— 结果这张卡片在生产环境**从未渲染过**，已有的跑姿数据用户永远看不到。非跑步活动四项全 NULL（0/107），且额外按 `running` 门控（步态指标对游泳/球类无语义） |
 | 活动详情页趋势图 | 不渲染配速/步频/步幅三图（非跑步记录的 `cadence` 是划水/踏频/移动步频，真实库篮球最高 250、乒乓 214、羽毛球 154，套进「步频 100–220 步/分」区间毫无意义）；卡片标题由 `trendChartTitle` **按实际可渲染的图派生**，不再写死 —— 真实库 107 条非跑步活动 `altitude` 全为 0/null（0/107），旧标题「心率 / 海拔 趋势」是空承诺 |
@@ -574,6 +574,70 @@ FTP 缺失不猜 / 海拔比值 / 尖峰过滤）、`tests/unit/pages/activity-d
 （`distance` / `moving_time` / `duration`），派生值一律用真实实现现场算；并刻意让
 活动 1 与 lap 2 的 `moving_time ≠ duration`，否则「读哪一列」在 e2e 里测不出来。
 
+#### 标签也必须由数据派生：`lap_index` 不是「第几公里」（2026-10-28）
+
+上一节是「读错列」，本节是「**把存储键当成展示量**」。`activity_laps.lap_index`
+是从 **0 开始的存储键**（生产库 287/287 个活动都是 `0..N-1` 连续），它只保证同一
+活动内可排序，不携带任何距离含义。但旧实现把它当展示量用了四处：
+
+| 位置 | 旧文案 | 真实库后果 |
+|------|--------|-----------|
+| 分段表 `#` 列 | `lap.lap_index` | 表格第一行显示 **0**，读起来像「第 0 段」 |
+| 分段表徽章 | `最快 K{bestLapIndex}` | **18/242** 条跑步活动渲染成 `最快 K0` |
+| 深度分析 hint | `第 ${bestLapIndex} 段` | 同上（`ActivityInsightPanel`） |
+| AI 数据块 | `K${lapIndex}=Z2` | 模型收到 `K0=Z2`，当成「第 0 公里」 |
+
+更严重的是 **`K` 这个字母本身在撒谎**。它宣称「第 N 公里」，而真实库跑步 lap 只有
+**57.8%**（1714/2967）落在 950–1050 m：间歇课的 lap 是手表按**时间**切的
+（`lap_trigger='time'`，870/2967 段），长度可以是 0.48 km / 0.08 km。于是：
+
+| 活动 | 距离 / 段数 | 旧徽章 | 该段真实位置 |
+|------|------------|--------|-------------|
+| `650375691` | 8.31 km / 16 段 | `最快 K11` | **5.81–6.81 km**（差 5 公里，且这次跑根本没有「第 11 公里」） |
+| `651707081` | 5.04 km / 14 段 | `最快 K9` | **3.63–3.72 km**（90 m 短段） |
+
+而「每段都约 1 公里」这个前提在真实库里**几乎从不成立**：242 条跑步活动里严格
+全 1 km 的只有 **1 条**（几乎每次跑都有不满整段的收尾段 —— 242 个 `session_end`
+段里 237 个 < 950 m）。所以表名 `每公里分段数据`、AI 标题 `【每公里分段】`
+在绝大多数活动上都是假话。
+
+**修法**：单一实现 `app/lib/lap-label.ts`（UI 徽章 / 深度分析 hint / AI 数据块 /
+表名 / AI 标题全部走它）：
+
+1. **展示序号 = 有序列表中的位置 + 1**（`lapOrdinalAt`），由位置推导，不由
+   `lap_index` 推导 —— 存储键无论是 0 基还是 1 基（历史夹具用过 1 基）都不会错位；
+2. **只有每段都约 1 公里**（`isOneKmLap`，容差 ±50 m）才允许出现「每公里」/`K{n}`；
+   否则表名中性化为 `分段明细数据`、徽章改写成累计区间 `最快段 5.8-6.8km`；
+3. **默认用累计距离区间**（`5.8-6.8km`）—— 它与表里的「距离」列、与活动总距离
+   都能自证；这也是 `llm.ts` 早就采用的写法（注释写明「K1..Kn 会误导模型以为每段
+   恰为 1 公里」），此前只是 UI 侧没跟进。
+
+区间标签本身也有**精度陷阱**（实现时被真实数据抓到）：固定一位小数在短段上会
+**零宽** —— 真实库有 **7** 条活动的最快段是 45–92 m（如 `633654536` 的 45.34 m
+落在 8.0–8.05 km），渲染成 `8.0-8.0km`，读起来像「零距离」。直接加位又会**虚胖**：
+74 m 的段在两位小数下变成 `3.2-3.3km`（看似 100 m，放大 35%）。故判据是
+「**打印宽度 ≤ 真实宽度 × 1.2**」，从一位小数起逐级加位取第一个满足者；
+三位仍不满足（< 0.5 m）返回 `null`（不打印自我矛盾的区间）。实测 241 条需要区间
+样式的活动：**0 条零宽、0 条虚胖**。
+
+**为什么表名不是「分段数据」**：那与区块标题 `SectionCard title="分段数据"` 完全相同，
+读屏会连念两遍，测试里 `getByText` 也会撞到两个节点 —— 表名必须能与标题区分。
+
+**夹具掩盖了它**：单测夹具用 `lap_index: 1/2`（1 基）且每段 1000 m，恰好既看不出
+0 基错位、也看不出「每公里」的假话。这与 §1.6 的 `average_pace` 夹具是同一类问题：
+**夹具比生产数据「干净」时，缺陷在测试里被合法化**。故新增的断言一律用 0 基存储键
+（`lap_index: 0/1/2`）+ 含残段的活动。
+
+守护：`tests/unit/lib/lap-label.test.ts`（28 例：容差边界、空列表、两种距离字段名、
+1 基/0 基定位、区间标签、越界返回 `null`、`650375691` 形态复刻）、
+`tests/unit/pages/activity-detail.test.tsx`（`#` 列首行为 1 且不出现 0、每段 1 km
+时徽章 `最快 K2`、有残段时徽章改成 `最快段 1.6-2.6km` 且不出现 `最快 K\d`、表名
+中性化）、`tests/unit/components/activity-insight-panel.test.tsx`（hint 由 lap 位置
+派生；夹具必须自洽 —— `bestLapIndex` 指向真实存在的段）、
+`tests/unit/lib/activity-coach-context.test.ts`（分段主区间标签用累计区间、旧
+`K0=Z2` 不得回归）、`tests/unit/lib/llm.test.ts`（AI 标题由 `lapSectionTitle` 派生）、
+`tests/e2e/tables.spec.ts`（`#` 列 1 基且与行数一致，不写死具体数字）。
+
 ---
 
 ## 2. AI 上下文口径（核心契约）
@@ -654,7 +718,7 @@ FTP 缺失不猜 / 海拔比值 / 尖峰过滤）、`tests/unit/pages/activity-d
 
 | 表现 | 真实库规模 |
 |------|-----------|
-| 分段表「最快 K」徽章指到一个 4 秒碎片 | 8/241 条跑步活动 |
+| 分段表「最快段」徽章指到一个 4 秒碎片 | 8/241 条跑步活动 |
 | 「快于基准 8%」判 `work`，碎片被当成**主课** → UI/AI 被告知「主课 1 段 / 主课均配速 4:39」，而实际是一次匀速 5:18 慢跑 | 4 条（`540880879` / `545577281` / `555458865` / `586992075`） |
 
 修法是**按时长设门槛**（`MIN_RELIABLE_LAP_SEC = 10` 秒），而不是按距离：
@@ -882,13 +946,14 @@ GPS 漂移、起终点的静止采样都被判为「有效移动」，混进前�
 | **校验器必须真的能失败** | `scripts/garmin/validate-data.js` 的 `main()` 退出码：`issues`→1、仅 `warnings`→0（设备不写是常态）、`--strict`→1；退出调用写在 `try/catch` 之外 | `tests/unit/scripts/validate-data.test.js` 的 `main() 退出码契约` 5 例（含「仅 warning 不得卡 CI」与「有 issue 必须失败」两个反向断言） |
 | **生产库列集合必须与代码声明一致** | `DatabaseManager.declaredColumns(table)`（内存库走真实建表+迁移路径得到声明列集合）；`_initDatabase` 幂等补 `device_*` 列并清理旧口径 `time_in_speed_zone`/`time_in_cadence_zone`（全 NULL 直接 DROP，有值先 `COALESCE` 搬到 `device_*` 再 DROP） | `tests/unit/common/db-manager-schema-drift.test.js`（声明自洽、旧库遗留列被清理且**有值时不丢数据**、`COALESCE` 不覆盖新值、生产库与声明完全一致）+ `validate-data.js` 的 `validateSchemaDrift`（缺列判错、多列告警，两表独立） |
 | **schema 单位注释必须与解析器一致** | `scripts/common/db-manager.js` 的 `activity_records.speed`/`distance` 注释（公里/小时、公里），真值来源是 `fit-parser` 的 `lengthUnit='km'` / `speedUnit='km/h'` | `tests/unit/common/db-manager-units.test.js`（注释表述 = 解析器配置、旧「米/秒」表述不得回归、模块可加载防模板字符串语法错误） |
+| **分段标签由位置/距离派生，不得直接用 `lap_index`** | `app/lib/lap-label.ts`（`lapOrdinalAt` 位置→1 基序号 / `isOneKmLap` ±50m / `allLapsOneKm` / `lapTableCaption` / `lapSectionTitle` / `lapBestBadgeLabel` / `lapBestHintLabel` / `lapZoneSpreadLabel` / `lapStartDistancesMeters`）；消费方：`ActivityDetailClient`（`#` 列、徽章、表名）、`ActivityInsightPanel`（hint）、`activity-coach-context`（最快段 + 分段主区间）、`llm.ts`（标题 + 分段行） | `tests/unit/lib/lap-label.test.ts`（28 例：容差边界 / 空列表 / 两种距离字段名 / 0 基与 1 基定位 / 区间标签 / 越界 null / `650375691` 形态复刻）；`tests/unit/pages/activity-detail.test.tsx`（`#` 首行必须为 1 且不得出现 0；每段 1km → `最快 K2`；有残段 → `最快段 1.6-2.6km` 且不得出现 `最快 K\d`；表名中性化）；`tests/unit/components/activity-insight-panel.test.tsx`（hint 由 lap 位置派生）；`tests/unit/lib/activity-coach-context.test.ts`（分段主区间用累计区间，`K0=Z2` 不得回归）；`tests/unit/lib/llm.test.ts`（标题由 `lapSectionTitle` 派生）；`tests/e2e/tables.spec.ts`（`#` 列 1 基且与行数一致） |
 | **「最快段 / 主课」只认配速可信的分段** | `app/lib/activity-insight.ts` 的 `MIN_RELIABLE_LAP_SEC = 10` + `isReliableLapPace()`：`work` 角色、最快段、角色基准均值三处共用同一常量（4 秒碎片 → 279 s/km 是量化噪声，非真实配速）；详情页以服务端 `lapAnalysis.bestLapIndex` 为权威，仅在 insight 失败时本地兜底 | `tests/unit/lib/activity-insight.test.ts`（8 例：4s 尾段不得成最快段 / 不得判主课 / 15s 真实间歇不误伤 / 时长缺失按可信 / 基准不被拉偏 / 非跑步不受影响 / 边界 10s vs 9s）；`tests/unit/pages/activity-detail.test.tsx`（服务端优先于本地重算 / insight 失败退回本地兜底） |
 | **lap 级区间必须有例行校验（两种口径都查）** | `validate-data.js` 的 `validateLapZoneScope()`：lap `time_in_hr_zone`/`time_in_power_zone` 长度恒为 5；lap 求和 vs 活动级偏差 ≤15%（共用 `_checkLapZoneSum`，心率/功率同一实现） | `tests/unit/scripts/validate-data.test.js`（8 例：无分段不判错、干净数据双 ✓、长度非 5→issue、坏 JSON→issue、求和 >15%→warning 带样例、5.06% 天然错位不误报、无可对照不误判、零长 lap 不算缺陷）+ 专锁「功率同样受检」1 例（只查心率会红） |
 | **lap 窗口切分只能有一份实现** | `scripts/common/lap-zones.js`（`lapWindowSamples` / `deriveLapZoneSeconds` / `applyLapZoneSeconds`）；`fit-parser._assignLapZoneSeconds` 与 `backfill-lap-zones.js` 都 require 它 | `tests/unit/common/lap-zones.test.js`（半开区间不重不漏、按 `cumulative_time` 而非 `start_time`、长度恒 5、无 FTP/无心率不造全 0、`cumulative_time` 缺失/倒退/零长跳过、`Number(null)===0` 陷阱） |
 | **回填必须先补列再迁移, 最后才重算** | `scripts/garmin/backfill-lap-zones.js`（4 个 `device_*` 列幂等补上 → 旧设备数组迁 `device_*` → 全量重算；无时间窗的 lap 写 NULL 而非保留陈旧值） | `tests/unit/scripts/backfill-lap-zones.test.js`（15 例：顺序缺陷注入转红、幂等不二次覆盖、损坏 JSON 不迁移、无 FTP/无记录/无时间窗不猜、dry-run 不改 schema、求和偏离告警） |
 | **lap 级区间秒数只由 app 5 区模型推导** | `scripts/garmin/fit-parser.js` 的 `_assignLapZoneSeconds`（按 `cumulative_time` 半开窗口切分逐秒样本，长度恒 5）；设备原始数组一律进 `device_time_in_*_zone` | `tests/unit/garmin/lap-zone-scope.test.js`（设备 7/8 槽数组不得进统一列；推导长度恒 5；各 lap 求和 ≈ 活动级；无 FTP/无心率时不写列；`cumulative_time` 缺失/倒退时跳过） |
 | **`insertLaps` 的列集合必须取所有 lap 的键并集** | `scripts/common/db-manager.js`（旧实现只看 `lapsData[0]`，真实丢弃 `599287904`/`614598589` 各 14/12 个 lap 的配速/速度/步频） | `tests/unit/common/db-manager-lap-columns.test.js`（首段缺键时后续 lap 的值必须进库；反向缺键绑 NULL；三 lap 各有独有字段；整体替换语义不变） |
-| **lap 级区间必须有消费方** | `ActivityDetailClient` 分段表「主要区间」列（`dominantZone`）；`activity-coach-context` 的「分段主区间 K0=Z2…」（功率区间另受 `running` 门控） | `tests/unit/pages/activity-detail.test.tsx`（列头恒在、有数据展示 Z 徽章、无数据 `--`、非跑步同样展示）；`tests/unit/lib/activity-coach-context.test.ts`（单段不输出、全空不输出、非跑步不出功率区间） |
+| **lap 级区间必须有消费方** | `ActivityDetailClient` 分段表「主要区间」列（`dominantZone`）；`activity-coach-context` 的「分段主区间 0.0-1.0km=Z2…」（累计距离区间，非 0 基序号；功率区间另受 `running` 门控） | `tests/unit/pages/activity-detail.test.tsx`（列头恒在、有数据展示 Z 徽章、无数据 `--`、非跑步同样展示）；`tests/unit/lib/activity-coach-context.test.ts`（单段不输出、全空不输出、非跑步不出功率区间） |
 | **`training_load` 不是 FIT 官方字段** | `scripts/garmin/sync.js` 的 `calculateTrainingLoad` 派生（时长 × 心率区间因子）；`app/lib/types.ts` / `app/lib/llm.ts` 注释同步勘误 | `tests/unit/garmin/fit-parser-branches.test.js`（四个历史字段名 + `training_load_peak` 均不得产出 `training_load`） |
 | **字段必须被消费（算出来 ≠ 展示）** | `InsightClient.tsx` / `insight-coach.ts` / `ActivityInsightPanel.tsx` / `llm.ts` | `tests/unit/components/insight-field-consumption.test.ts`（递归展开 `InsightResponse` / `ActivityInsightResponse` / `Activity` 全部叶子字段, 剥离注释后逐个断言被消费; 消费方 = 展示入口的 import 传递闭包, 死代码模块不算; allowlist 反查腐化） |
 | **可推算字段必须真的推算** | `app/lib/power.ts`（FTP 回退 / IF / TSS / W·kg⁻¹ / 峰值过滤）/ `app/lib/elevation.ts`（净高差 / 爬升比） | `tests/unit/lib/power.test.ts`（28 例: 33→241 FTP 回退、TSS 用 moving_time、尖峰过滤、显式值优先）+ `tests/unit/lib/elevation.test.ts`（12 例: 净高差 ≠ 累计爬升、越界拒绝） |
@@ -992,7 +1057,8 @@ GPS 漂移、起终点的静止采样都被判为「有效移动」，混进前�
   与活动级总数中位偏差 **0.17%**（p90 0.27%，最大 5.06%）—— 口径可加总。
   唯一没值的那 1 个 lap 是 `550530240` 的 `duration: 0` 零长段（无时间窗，不猜）。
   消费方：分段表「主要区间」列（`dominantZone` 取占比最高区间）+ AI 上下文
-  「分段主区间 K0=Z2 K1=Z3」（`running` 门控下另给「分段主功率区间」）。
+  「分段主区间 0.0-1.0km=Z2 1.0-2.0km=Z3」（与分段行同一写法，`running` 门控下另给
+  「分段主功率区间」）。
 - **lap 级口径必须有例行校验**。活动级有 `validateHrZoneScope` 守着，lap 级此前
   **完全没有** —— 而它更容易坏：值由时间窗从逐秒记录切分，窗口算错不报错，只是
   每段分布静默失真（页面照常渲染）。`validate-data.js` 的 `validateLapZoneScope()`

@@ -169,7 +169,7 @@ activities / activity_laps / activity_records (SQLite)
 消费方（UI / AI 上下文 / MCP）一律按该字段分支，而不是猜测字段是否为 `null`：
 
 - `ActivityInsightPanel` **整张卡片不渲染**「最快分段 / 主课均配速」（显示 `--` 会被误读成数据缺失）；
-- `ActivityDetailClient` 不对非跑步分段做「最快 K」高亮；
+- `ActivityDetailClient` 不对非跑步分段做「最快段」高亮；
 - `ActivityTrendCharts` 不渲染配速/步频/步幅三图（非跑步的 `cadence` 是划水/踏频/移动步频），
   且卡片标题由 `trendChartTitle` **按实际可渲染的图派生** —— 真实库 107 条非跑步活动
   `altitude` 全为 0/null，旧标题写死「心率 / 海拔 趋势」属于空承诺；

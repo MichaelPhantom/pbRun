@@ -23,7 +23,15 @@ const base = (over: Partial<ActivityInsightResponse> = {}): ActivityInsightRespo
   ({
     activityId: 1,
     lapAnalysis: {
-      laps: [],
+      // 夹具必须自洽：`bestLapIndex` 是存储键，hint 由 `laps` 里的真实位置派生
+      // （见 `app/lib/lap-label.ts`）。旧夹具 `laps: []` + `bestLapIndex: 2` 是
+      // 不可能同时成立的状态 —— 那正是「标签指到不存在的段」被测试合法化的方式。
+      laps: [
+        { lapIndex: 0, distanceMeters: 1000, paceSecPerKm: 320, heartRate: 140, cadence: 180, power: 240, hrZoneSeconds: null, powerZoneSeconds: null, role: 'warmup' },
+        { lapIndex: 1, distanceMeters: 1000, paceSecPerKm: 300, heartRate: 160, cadence: 184, power: 290, hrZoneSeconds: null, powerZoneSeconds: null, role: 'steady' },
+        { lapIndex: 2, distanceMeters: 1000, paceSecPerKm: 280, heartRate: 168, cadence: 186, power: 310, hrZoneSeconds: null, powerZoneSeconds: null, role: 'work' },
+        { lapIndex: 3, distanceMeters: 1000, paceSecPerKm: 330, heartRate: 145, cadence: 178, power: 235, hrZoneSeconds: null, powerZoneSeconds: null, role: 'cooldown' },
+      ],
       workLaps: 3,
       workDistanceMeters: 6000,
       workAvgPaceSecPerKm: 300,
@@ -48,7 +56,7 @@ describe('空数据与主课摘要', () => {
     render(<ActivityInsightPanel data={base()} />);
     expect(screen.getByText('深度分析')).toBeInTheDocument();
     expect(screen.getByText('4:40')).toBeInTheDocument(); // 最快分段 280s
-    expect(screen.getByText('第 2 段')).toBeInTheDocument();
+    expect(screen.getByText('第 3 公里')).toBeInTheDocument();
     expect(screen.getByText('主课段数')).toBeInTheDocument();
     expect(screen.getByText('6.00 km')).toBeInTheDocument();
     expect(screen.getByText('5:00')).toBeInTheDocument(); // 主课均配速 300s
@@ -71,7 +79,7 @@ describe('空数据与主课摘要', () => {
     );
     expect(screen.getAllByText('--').length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText('-3')).toBeInTheDocument();
-    expect(screen.queryByText(/^第 \d+ 段$/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^第 \d+ 公里$/)).not.toBeInTheDocument();
   });
 
   test('非跑步: 不渲染「最快分段 / 主课均配速」卡片 (不是显示 --)', () => {

@@ -285,6 +285,23 @@ describe('buildAnalysisMessages', () => {
     expect(user.content).not.toContain('30spm'); // 划频不是步频, 不按 spm 展示
   });
 
+  test('跑步但有不满整段的收尾段 → 标题中性化为「分段明细」(不再谎称「每公里」)', () => {
+    // 真实库 242 条跑步活动里「每段都约 1 km」只有 1 条：几乎每次跑都有
+    // `session_end` 残段（242 段里 237 段 < 950 m）。旧实现按运动类型写死
+    // 「【每公里分段】」，在这些活动上就是假话。
+    const laps = [
+      { activity_id: 1, lap_index: 0, distance: 1000, duration: 360, average_pace: 360, average_heart_rate: 140 },
+      { activity_id: 1, lap_index: 1, distance: 1000, duration: 350, average_pace: 350, average_heart_rate: 150 },
+      { activity_id: 1, lap_index: 2, distance: 26, duration: 8, average_pace: 300, average_heart_rate: 152 },
+    ] as ActivityLap[];
+    const [, user] = buildAnalysisMessages(fakeActivity(), laps);
+    expect(user.content).toContain('【分段明细】');
+    expect(user.content).not.toContain('【每公里分段】');
+    // 区间标签必须仍然自证：26 m 残段在一位小数下会零宽（2.0-2.0km），
+    // 故精度自适应到两位 —— 与 `lap-label.ts` 的「打印宽度 ≤ 真实宽度 ×1.2」一致。
+    expect(user.content).toContain('2.00-2.03km');
+  });
+
   test('跑步活动的分段仍用配速 + 步频 (口径未被非跑步分支破坏)', () => {
     const [, user] = buildAnalysisMessages(fakeActivity(), fakeLaps());
     expect(user.content).toContain('【每公里分段】');

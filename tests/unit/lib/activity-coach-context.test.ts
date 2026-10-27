@@ -41,7 +41,10 @@ function insight(over: Partial<ActivityInsightResponse> = {}): ActivityInsightRe
       workAvgHeartRate: 168,
       workHrDrift: 4.4,
       bestPaceSecPerKm: 275,
-      bestLapIndex: 3,
+      // 夹具必须自洽：`bestLapIndex` 是存储键，必须指向上面真实存在的 lap。
+      // 旧夹具写 `3` 而上面只有 0/1 两段 —— 那正是「标签指到一个不存在的段」
+      // 这类缺陷在测试里被合法化的方式。
+      bestLapIndex: 1,
     },
     comparison: null,
     decouplingPct: 4.2,
@@ -162,7 +165,7 @@ describe('formatActivityContext', () => {
     expect(text).toContain('主课配速 4:40/km');
     expect(text).toContain('主课心率 168bpm');
     expect(text).toContain('主课心率漂移 +4bpm');
-    expect(text).toContain('最快分段 4:35/km（第 3 段）');
+    expect(text).toContain('最快分段 4:35/km（第 2 公里）');
     expect(text).toContain('Z1 10.0% / Z2 40.0% / Z3 50.0%');
     // 功率区间必须带 FTP: 「Z3 50%」没有分母时无法换算成瓦数。
     expect(text).toContain('功率区间（FTP 371W）: Z2 30.0% / Z3 50.0% / Z4 20.0%');
@@ -714,9 +717,12 @@ describe('分段主区间（lap 级 5 区秒数的消费方）', () => {
       distanceComparison: null,
     });
 
-  test('每段的主区间按占比最高输出, 形如 K0=Z2 K1=Z3', () => {
+  test('每段的主区间按占比最高输出, 标签用累计距离区间而非 0 基序号', () => {
     const text = render();
-    expect(text).toContain('分段主区间 K0=Z2 K1=Z3');
+    // 旧实现输出 `K0=Z2 K1=Z3` —— `K{n}` 来自 `lap_index`（0 基存储键），
+    // 模型会读成「第 0 公里」。改用累计区间后与 llm.ts 的分段行同一写法。
+    expect(text).toContain('分段主区间 0.0-1.0km=Z2 1.0-2.0km=Z3');
+    expect(text).not.toContain('K0=Z2');
   });
 
   test('只有 1 段有区间数据时不输出（单点无「分布」可言）', () => {
@@ -743,7 +749,7 @@ describe('分段主区间（lap 级 5 区秒数的消费方）', () => {
       ]),
     });
     // 心率区间对非跑步仍有意义
-    expect(text).toContain('分段主区间 K0=Z1 K1=Z2');
+    expect(text).toContain('分段主区间 0.0-1.0km=Z1 1.0-2.0km=Z2');
     // 功率区间不输出
     expect(text).not.toContain('分段主功率区间');
   });
@@ -755,6 +761,6 @@ describe('分段主区间（lap 级 5 区秒数的消费方）', () => {
         { hr: [0, 0, 300, 0, 0], power: [0, 0, 400, 0, 0] },
       ]),
     });
-    expect(text).toContain('分段主功率区间 K0=Z1 K1=Z3');
+    expect(text).toContain('分段主功率区间 0.0-1.0km=Z1 1.0-2.0km=Z3');
   });
 });

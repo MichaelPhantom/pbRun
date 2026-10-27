@@ -71,6 +71,23 @@ test.describe('活动详情页 · 分段数据表', () => {
     await expect(highlighted).toHaveCount(1);
   });
 
+  /**
+   * `#` 列是**展示序号（1 基）**，由行位置推导，不是 `lap_index` 存储键。
+   *
+   * 缺陷原状：直接打印 `lap.lap_index`（0 基），表格第一行显示 **0** ——
+   * 读起来像「第 0 段」。断言「首行 = 1、末行 = 行数」而不写死具体数字，
+   * 这样夹具增删分段时不会假红，而 0 基回归必然红。
+   */
+  test('# 列从 1 开始且与行数一致 (不是 0 基存储键)', async ({ page }) => {
+    const table = tableByColumn(page, '角色');
+    const rows = await rowCount(table);
+    const ordinals = (await table.locator('tbody tr td:nth-child(1)').allInnerTexts()).map((t) => t.trim());
+    expect(ordinals).toHaveLength(rows);
+    expect(ordinals[0]).toBe('1');
+    expect(ordinals[rows - 1]).toBe(String(rows));
+    expect(ordinals).not.toContain('0');
+  });
+
   test('每行单元格单行不换行 (高度近似相等)', async ({ page }) => {
     const table = tableByColumn(page, '角色');
     const heights = await table.locator('tbody tr:first-child td').evaluateAll((tds) =>

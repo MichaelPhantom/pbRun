@@ -1027,3 +1027,73 @@ describe('最快分段以服务端为准 (不重复实现)', () => {
     expect(screen.getByText(/最快 K2/)).toBeInTheDocument();
   });
 });
+
+/**
+ * 分段表的「序号 / 最快段标签」必须来自**位置与累计距离**，不是 `lap_index`。
+ *
+ * ## 缺陷（2026-10-27）
+ *
+ * `activity_laps.lap_index` 是 **0 基存储键**（生产库 287/287 个活动都是 `0..N-1`
+ * 连续），但旧实现把它当展示量用了三处：
+ *
+ * | 位置 | 旧文案 | 真实库后果 |
+ * |------|--------|-----------|
+ * | `#` 列 | `lap.lap_index` | 表格第一行显示 **0** |
+ * | 徽章 | `最快 K{bestLapIndex}` | **18/242** 条跑步活动渲染成 `最快 K0` |
+ * | 徽章（间歇课） | 同上 | `650375691`（8.31km/16 段）写 `最快 K11`，而该段真实位置是 **5.81–6.81km** |
+ *
+ * `K{n}` 这个写法本身也在撒谎：真实库跑步 lap 只有 **57.8%**（1714/2967）落在
+ * 950–1050 m，时间切段的间歇课可以有 0.08 km 的段。故只在「每段都约 1 km」时
+ * 保留紧凑写法，否则改用累计距离区间（与 `llm.ts` 的分段行同一写法）。
+ */
+describe('分段序号与最快段标签 (位置/距离派生, 不用存储键)', () => {
+  test('`#` 列是 1 基展示序号, 不打印 lap_index 原值', async () => {
+    db.getActivityLaps.mockReturnValue([
+      { id: 11, activity_id: 1001, lap_index: 0, duration: 300, cumulative_time: 300, distance: 1000, average_pace: 300 },
+      { id: 12, activity_id: 1001, lap_index: 1, duration: 310, cumulative_time: 610, distance: 1000, average_pace: 310 },
+      { id: 13, activity_id: 1001, lap_index: 2, duration: 320, cumulative_time: 930, distance: 1000, average_pace: 320 },
+    ]);
+    render(await page('1001'));
+    const table = screen.getByRole('table', { name: '每公里分段数据' });
+    // 三行 → 1 / 2 / 3，绝不能出现 0
+    expect(within(table).getByText('1')).toBeInTheDocument();
+    expect(within(table).getByText('2')).toBeInTheDocument();
+    expect(within(table).getByText('3')).toBeInTheDocument();
+    expect(within(table).queryByText('0')).toBeNull();
+  });
+
+  test('每段都约 1km → 徽章保留紧凑的「最快 K{n}」且 n 从 1 起', async () => {
+    db.getActivityLaps.mockReturnValue([
+      { id: 11, activity_id: 1001, lap_index: 0, duration: 300, cumulative_time: 300, distance: 1000, average_pace: 330 },
+      { id: 12, activity_id: 1001, lap_index: 1, duration: 280, cumulative_time: 580, distance: 1000, average_pace: 280 },
+    ]);
+    render(await page('1001'));
+    // 第 2 段最快 → K2（旧实现会写 K1，因为存储键是 1）
+    expect(screen.getByText(/最快 K2/)).toBeInTheDocument();
+    expect(screen.queryByText(/最快 K1/)).toBeNull();
+  });
+
+  test('有非 1km 段 → 徽章改写成累计区间, 不再声称「第 n 公里」', async () => {
+    // 复刻 `650375691` 的形态：整公里段 + 短间歇段 + 收尾残段。
+    db.getActivityLaps.mockReturnValue([
+      { id: 11, activity_id: 1001, lap_index: 0, duration: 365, cumulative_time: 365, distance: 1000, average_pace: 365 },
+      { id: 12, activity_id: 1001, lap_index: 1, duration: 235, cumulative_time: 600, distance: 600, average_pace: 392 },
+      { id: 13, activity_id: 1001, lap_index: 2, duration: 271, cumulative_time: 871, distance: 1000, average_pace: 271 },
+      { id: 14, activity_id: 1001, lap_index: 3, duration: 120, cumulative_time: 991, distance: 300, average_pace: 400 },
+    ]);
+    render(await page('1001'));
+    // 最快是下标 2（1.6–2.6km，271 s/km）
+    expect(screen.getByText(/最快段 1\.6-2\.6km/)).toBeInTheDocument();
+    expect(screen.queryByText(/最快 K\d/)).toBeNull();
+  });
+
+  test('有非 1km 段 → 表名中性化（「每公里分段数据」是假话）', async () => {
+    db.getActivityLaps.mockReturnValue([
+      { id: 11, activity_id: 1001, lap_index: 0, duration: 300, cumulative_time: 300, distance: 1000, average_pace: 300 },
+      { id: 12, activity_id: 1001, lap_index: 1, duration: 60, cumulative_time: 360, distance: 200, average_pace: 300 },
+    ]);
+    render(await page('1001'));
+    expect(screen.getByRole('table', { name: '分段明细数据' })).toBeInTheDocument();
+    expect(screen.queryByRole('table', { name: '每公里分段数据' })).toBeNull();
+  });
+});

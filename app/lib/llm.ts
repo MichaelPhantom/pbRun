@@ -13,6 +13,7 @@ import { activityTypeName, isRunningType } from '@/app/lib/sport';
 import { powerIntensity } from '@/app/lib/power';
 import { ascentToSpanRatio, elevationSpan } from '@/app/lib/elevation';
 import { effectiveTimeSec } from '@/app/lib/pace';
+import { lapSectionTitle, lapStartDistancesMeters, lapRangeLabel } from '@/app/lib/lap-label';
 import {
   evaluateWorkoutExecution,
   formatWorkoutExecution,
@@ -471,12 +472,11 @@ export function buildAnalysisMessages(
 
   // 分段标签用累计距离区间而非序号：laps 含非整公里段（如 709m/472m），
   // K1..Kn 会误导模型以为每段恰为 1 公里（实测曾致模型质疑数据自洽性）。
-  let cumKm = 0;
+  // 区间标签走 `lap-label.ts` 的 `lapRangeLabel`（与详情页/AI 上下文同源）。
+  const lapStarts = lapStartDistancesMeters(ordered);
   const lapLines = ordered
-    .map((l) => {
-      const segKm = (l.distance ?? 0) / 1000; // laps.distance 单位为米
-      const seg = `${cumKm.toFixed(1)}-${(cumKm + segKm).toFixed(1)}km`;
-      cumKm += segKm;
+    .map((l, i) => {
+      const seg = lapRangeLabel(lapStarts[i], l.distance) ?? '--';
       const parts = running
         ? [seg, formatPace(l.average_pace, false)]
         : [seg, formatDuration(effectiveTimeSec(l) ?? 0)];
@@ -598,7 +598,11 @@ export function buildAnalysisMessages(
     .filter((line): line is string => line != null)
     .join('\n');
 
-  const lapTitle = running ? '【每公里分段】（区间为累计距离，非序号）' : '【分段明细】（区间为累计距离，非序号）';
+  // 分段标题由 `lap-label.ts` 派生（与详情页表名/徽章同一份判据）。
+  // 旧实现写死 `running ? '【每公里分段】' : '【分段明细】'` —— 而真实库 242 条
+  // 跑步活动里「每段都约 1 km」的只有 **1 条**（几乎每次跑都有不满整段的收尾段，
+  // 242 段 session_end 里 237 段 < 950 m），所以「每公里分段」在跑步上几乎恒为假话。
+  const lapTitle = lapSectionTitle(laps, running);
 
   // 所有运动共有的指标行。规则：
   //  - 「该运动不产出该字段」→ 用 fmtNumIf，值为空则整项略去（整行全空则该行不输出）；
