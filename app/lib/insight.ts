@@ -14,7 +14,7 @@ import type {
   PaceHrModel,
   VdotTrendFit,
 } from './types';
-import { isoWeekKey, isoWeeksBetween } from './date-utils';
+import { isoWeekBounds, isoWeekKey, isoWeeksBetween } from './date-utils';
 
 export { isoWeekKey } from './date-utils';
 
@@ -241,7 +241,13 @@ export function computeLoadInsight(
   const weekKeys = range != null ? isoWeeksBetween(range.startDate, range.endDate) : [...byWeek.keys()].sort();
   const weekly = weekKeys.map((week) => {
     const v = byWeek.get(week);
-    return { week, km: v?.km ?? 0, tl: v?.tl ?? 0, n: v?.n ?? 0, seconds: v?.seconds ?? 0 };
+    // 截断周标记 —— 与 `computePeriodization` 的 `PeriodizationWeek.partial` 同一判定。
+    // 必须在两条序列上都标：趋势图的最高柱可能来自截断周，而「峰值周跑量」只统计
+    // 完整周，不标就会出现「图最高柱 ≠ 卡片峰值」的自相矛盾。
+    const b = range != null ? isoWeekBounds(week) : null;
+    const partial =
+      b != null && range != null ? b.startDate < range.startDate || b.endDate > range.endDate : false;
+    return { week, km: v?.km ?? 0, tl: v?.tl ?? 0, n: v?.n ?? 0, seconds: v?.seconds ?? 0, partial };
   });
 
   // 急性/慢性: 以参考日为终点回溯

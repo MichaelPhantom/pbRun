@@ -81,14 +81,20 @@ export default function InsightClient({
   );
 
   // 周跑量趋势
+  //
+  // 截断周在 x 轴标签后加 `*`：图上的最高柱可能来自被区间截断的周（真实库
+  // `2026-04-28..2026-05-27` 的 W18 是 49.6km），而「峰值周跑量」卡片只统计完整周
+  // （46.9km）。不标的话用户会看到「图最高柱 ≠ 卡片峰值」，两者都无法自证。
   const weeklyTrend = useMemo(
     () => ({
-      x: load.weekly.map((w) => w.week),
+      x: load.weekly.map((w) => (w.partial ? `${w.week} *` : w.week)),
       km: load.weekly.map((w) => Math.round(w.km * 10) / 10),
       tl: load.weekly.map((w) => Math.round(w.tl)),
     }),
     [load.weekly],
   );
+  /** 本区间内是否存在截断周（决定是否渲染 `*` 图例说明）。 */
+  const hasPartialWeek = load.weekly.some((w) => w.partial);
 
   // 强度分布
   const zoneBars = load.zDistribution
@@ -144,14 +150,15 @@ export default function InsightClient({
   );
 
   const acwrBadge = ACWR_LABEL[load.acwrTone];
-  // 峰值周**只能取自所选区间的周**（`load.weekly` 已在服务层按 `isoWeeksBetween`
-  // 裁好）。旧实现直接对 `load.weekly` 取 max，而那份数据当时混进了 28 天预热
-  // 窗口 —— 「近一周」的卡片显示 54.4km（四周前某周的跑量），该窗口真实峰值
-  // 只有 28.3km。窗口正确后这里无需再过滤，但顺序仍按「先裁窗口、再取峰值」。
-  const peakWeek = useMemo(
-    () => load.weekly.reduce((a, b) => (b.km > a.km ? b : a), load.weekly[0] ?? { km: 0, week: '—' }),
-    [load.weekly],
-  );
+  // 峰值周**必须与「周期化」卡的峰值同源**（`periodization.peakWeek`）。
+  //
+  // 两张卡都显示「峰值周跑量」：这里曾自行对 `load.weekly` 取 max，而周期化卡用
+  // `periodization.peakWeekKm`（只在完整周里取）。两者口径不同 → 真实库有 4 个
+  // 窗口两卡给出不同数字（`2026-04-28..2026-05-27`：49.6 vs 46.9，差的正是那个
+  // 被截断的周）。同一个概念不能有两个答案，故统一读服务端派生值。
+  //
+  // `periodization` 缺省（旧响应）时才回退到本地取 max —— 那是降级路径，不是主路径。
+  const peakWeek = periodization?.peakWeek ?? null;
 
   // 类别分布 (按跑步次数; 数据源 getInsightActivityRows 是跑步口径)
   const categoryBars = useMemo(
@@ -312,6 +319,12 @@ export default function InsightClient({
           />
         ) : (
           <div className="py-8 text-center text-sm text-fg-muted">所选区间周数不足</div>
+        )}
+        {/* 截断周图例：`*` 的含义必须显式说明，否则读者不知道它代表「该周被区间截断」。 */}
+        {hasPartialWeek && (
+          <p className="mt-1 text-[10px] text-fg-muted">
+            * 该周被所选区间截断，跑量只含区间内的天数，不可与完整周直接比较
+          </p>
         )}
 
         <div className="mt-4">

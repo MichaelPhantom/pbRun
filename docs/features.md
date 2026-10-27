@@ -682,6 +682,20 @@ FTP 缺失不猜 / 海拔比值 / 尖峰过滤）、`tests/unit/pages/activity-d
 上下文都必须声明「按 N 个（含截断）周统计，截断周跑量偏低」。模型若不知道这一点，
 会把「末周只有 1 天」读成「断崖式减量」并建议加量。
 
+**「峰值周」只有一个答案，且两条周序列的截断标记必须同源**。页面上有两处显示
+峰值：训练负荷卡的「峰值周跑量」与周期化卡的「峰值周」。旧实现里前者自行对
+`load.weekly` 取 max（含截断周），后者用 `periodization.peakWeekKm`（只用完整周）——
+真实库 **4 个窗口**两卡给出不同数字（`2026-04-28..2026-05-27`：49.6 vs 46.9，
+差的正是被截断的 W18）。现在峰值由服务端单点派生 `PeriodizationInsight.peakWeek`
+（与 `peakWeekKm` 同一个 reduce 选出），两卡都读它。
+
+同一张卡内部还有第二个矛盾：**趋势图最高的柱可能来自截断周**，而峰值卡片只统计
+完整周 —— 用户看到「图最高柱 ≠ 卡片峰值」却无从判断。故 `LoadInsight.weekly[].partial`
+与 `PeriodizationWeek.partial` 同一判定、同一取值，图表 x 轴标签后加 `*` 并渲染一行
+图例说明；教练上下文的「周训练量」块同样输出 `(截断)`。真实库扫描 **540 个窗口**
+（10 个月 × 9 个起点 × 6 种跨度）：`peakWeek.km ≡ peakWeekKm` 且两条序列的 `partial`
+逐周一致，**0 处不一致**。
+
 守护：`tests/unit/lib/date-utils.test.ts`（`isoWeekKey` 与 `periodKeyOf(week)` 同源、
 `isoWeekBounds` 跨年周/非法键、`isoWeeksBetween` 含首尾截断周/逆序空数组、旧字符串
 过滤必然多算周的判别式）、`tests/unit/lib/insight-compare.test.ts`（预热隔离、零跑量周、
@@ -690,9 +704,11 @@ FTP 缺失不猜 / 海拔比值 / 尖峰过滤）、`tests/unit/pages/activity-d
 `tests/unit/lib/insight-services.test.ts`（`load.weekly` 只含相交周、周期化不吃预热、
 两张卡逐周一致）、`tests/unit/components/insight-components.test.tsx`（截断周标 `*`、
 `statsBasis='all'` 的口径注脚、`complete` 时不制造噪音）、
-`tests/unit/lib/insight-coach.test.ts`（逐周序列含休息周与截断标记、口径声明）。
-7 处缺陷注入全部转红（窗口过滤 / 周期化丢 range / 次数改回天数 / 丢零跑量周 /
-截断周进统计 / 只保留完整周 / 周边界少一天）。
+`tests/unit/lib/insight-coach.test.ts`（逐周序列含休息周与截断标记、口径声明、
+周训练量块的 `(截断)` 后缀）。
+9 处缺陷注入全部转红（窗口过滤 / 周期化丢 range / 次数改回天数 / 丢零跑量周 /
+截断周进统计 / 只保留完整周 / 周边界少一天 / UI 自行取 max / peakWeek 不同源 /
+图表漏标 `*` / 图例缺失）。
 
 **夹具掩盖了它**：`insight-components.test.tsx` 手工喂 `periodization` 的
 56.8/46/0.8/12，而真实服务的 `km` 恒为 0 —— 夹具比服务「干净」，缺陷在测试里被
@@ -1038,7 +1054,8 @@ GPS 漂移、起终点的静止采样都被判为「有效移动」，混进前�
 | **周键只有一个实现，周窗口只能按日期判定** | `app/lib/date-utils.ts` 的 `isoWeekKey` / `isoWeekBounds` / `isoWeeksBetween`；`insight.ts` / `insight-compare.ts` / `insight-service.ts` 只做 re-export，不得自带拷贝 | `tests/unit/lib/date-utils.test.ts`（`isoWeekKey` ≡ `periodKeyOf(week)`、跨年周边界、非法键 `null`、含首尾截断周、旧字符串过滤必然多算周的判别式） |
 | **周聚合只有一个实现，两张周表必须逐周一致** | `insight.aggregateWeeklyLoad` 同时供 `computeLoadInsight`（`load.weekly`）与 `computePeriodization`（`periodization.weeks`）；两者的 range 都由 `isoWeeksBetween` 决定 | `tests/unit/lib/insight-services.test.ts`（`load.weekly` 与 `periodization.weeks` 逐周 `km`/`n` 相等、周集合相同；丢 range 或改回字符串过滤立即转红）+ 真实库 7/30/90/180/365 天窗口 0 处不一致 |
 | **「次数」是跑步次数，不是天数** | `DailyLoad.runs` / `TrainingLoadPoint.runs` 由 SQL `COUNT(*)` 提供；聚合层只做加法（`d.runs ?? 1`） | `tests/unit/lib/insight-branches.test.ts`（一天三练 → 3 次而非 1 次）+ `tests/unit/lib/insight-compare.test.ts`（同一天两练 → 周 `activities` 为 3 而非 2；改回 `n += 1` 立即转红） |
-| **区间内每个 ISO 周都出现，截断周必须标记** | `PeriodizationWeek.partial`；`PeriodizationInsight.statsBasis` / `statsWeekCount`；UI 周键后 `*` + `title`；教练上下文「按 N 个（含截断）周统计」 | `tests/unit/lib/insight-compare.test.ts`（零跑量周出现且进分母、截断周标记、完整周 ≥2 时只用完整周）+ `tests/unit/components/insight-components.test.tsx`（`2026-W43 *` 且旧的无标记文案不得出现、`statsBasis='all'` 的口径注脚、`complete` 时不制造噪音）+ `tests/unit/lib/insight-coach.test.ts`（逐周序列含 `0.0km/0次` 与 `(截断)`） |
+| **区间内每个 ISO 周都出现，截断周必须标记** | `PeriodizationWeek.partial` + `LoadInsight.weekly[].partial`（同一判定）；`PeriodizationInsight.statsBasis` / `statsWeekCount`；UI 周表与趋势图 x 轴都加 `*` + 图例；教练上下文「按 N 个（含截断）周统计」+ 周训练量块 `(截断)` | `tests/unit/lib/insight-compare.test.ts`（零跑量周出现且进分母、截断周标记、完整周 ≥2 时只用完整周）+ `tests/unit/components/insight-components.test.tsx`（`2026-W43 *` 且旧的无标记文案不得出现、`statsBasis='all'` 的口径注脚、`complete` 时不制造噪音、图表 x 轴 `2026-W39 *`、`*` 图例有/无两侧）+ `tests/unit/lib/insight-coach.test.ts`（逐周序列含 `0.0km/0次` 与 `(截断)`、周训练量块 `(截断)` 后缀） |
+| **「峰值周」只有一个答案** | `PeriodizationInsight.peakWeek`（与 `peakWeekKm` 同一个 reduce 选出）；训练负荷卡与周期化卡都读它，不得各自取 max | `tests/unit/lib/insight-compare.test.ts`（截断周跑量 40km > 完整周 10km 时峰值仍取 10km、`peakWeek.km ≡ peakWeekKm`、`statsBasis='all'` 时同源、空输入为 `null`）+ `tests/unit/components/insight-components.test.tsx`（两卡都显示 51.3 且 `60.0` 只出现在表里、缺 `peakWeek` 时显示 `--`）+ 真实库 540 个窗口 0 处不一致 |
 
 ---
 

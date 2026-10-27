@@ -59,8 +59,8 @@ const insight: InsightResponse = {
   },
   load: {
     weekly: [
-      { week: '2026-W37', km: 49.7, tl: 430, n: 5, seconds: 19000 },
-      { week: '2026-W38', km: 51.3, tl: 412, n: 5, seconds: 19400 },
+      { week: '2026-W37', km: 49.7, tl: 430, n: 5, seconds: 19000, partial: false },
+      { week: '2026-W38', km: 51.3, tl: 412, n: 5, seconds: 19400, partial: false },
     ],
     acute: 417,
     chronic: 421,
@@ -112,7 +112,8 @@ const insight: InsightResponse = {
     weeks: [
       { week: '2026-W38', km: 51.3, tl: 412, activities: 5, ctl: 45, atl: 50, tsb: -5, partial: false },
     ],
-    peakWeekKm: 56.8,
+    peakWeekKm: 51.3,
+    peakWeek: { week: '2026-W38', km: 51.3 },
     avgWeekKm: 46,
     rampRatePerWeek: 0.8,
     weeklyChangeStdPct: 12,
@@ -296,7 +297,8 @@ describe('InsightClient', () => {
       },
       periodization: {
         weeks: [{ week: '2026-W38', km: 51.3, tl: 412, activities: 5, ctl: 45, atl: 40, tsb: 6, partial: false }],
-        peakWeekKm: 0,
+        peakWeekKm: 51.3,
+        peakWeek: { week: '2026-W38', km: 51.3 },
         avgWeekKm: 46,
         rampRatePerWeek: -0.7,
         weeklyChangeStdPct: null,
@@ -329,7 +331,8 @@ describe('InsightClient', () => {
       ...insight,
       periodization: {
         weeks: [{ week: '2026-W38', km: 51.3, tl: 412, activities: 5, ctl: 40, atl: 52, tsb: -12, partial: false }],
-        peakWeekKm: 56.8,
+        peakWeekKm: 51.3,
+        peakWeek: { week: '2026-W38', km: 51.3 },
         avgWeekKm: 46,
         rampRatePerWeek: 2.1, // > 1.5 → warn
         weeklyChangeStdPct: 12,
@@ -422,9 +425,104 @@ describe('InsightClient', () => {
     expect(screen.getByText(/变慢/)).toBeInTheDocument();
   });
 
-  // 注: 峰值周 `peakWeek ? ... : '--'` 的 '--' 侧为**不可达分支** —— peakWeek 由
-  // load.weekly.reduce(..., load.weekly[0] ?? { km: 0, week: '—' }) 派生, 兜底对象非空,
-  // 故 peakWeek 恒为 truthy; 不为不可达分支构造人为数据。
+  /**
+   * 两张卡都显示「峰值周跑量」，必须是**同一个数**。
+   *
+   * 旧实现：训练负荷卡自行对 `load.weekly` 取 max（含截断周），周期化卡用
+   * `periodization.peakWeekKm`（只用完整周）。真实库有 4 个窗口两卡给出不同数字，
+   * 例如 `2026-04-28..2026-05-27`：负荷卡 49.6km、周期化卡 46.9km —— 差的正是
+   * 那个被区间截断的周。用户看到同一页两个「峰值周」，无法判断谁对。
+   *
+   * 现在两张卡都读 `periodization.peakWeek`（服务端与 `peakWeekKm` 同源派生）。
+   */
+  test('峰值周在两卡上是同一个数 (不得各自取 max)', () => {
+    const divergent: InsightResponse = {
+      ...insight,
+      // 负荷卡的周序列里有一个更大的截断周 —— 若 UI 自行取 max 会取到 60
+      load: {
+        ...insight.load,
+        weekly: [
+          { week: '2026-W38', km: 51.3, tl: 412, n: 5, seconds: 19400, partial: false },
+          { week: '2026-W39', km: 60, tl: 480, n: 6, seconds: 22000, partial: true },
+        ],
+      },
+      periodization: {
+        weeks: [
+          { week: '2026-W38', km: 51.3, tl: 412, activities: 5, ctl: 45, atl: 50, tsb: -5, partial: false },
+          { week: '2026-W39', km: 60, tl: 480, activities: 6, ctl: 46, atl: 52, tsb: -6, partial: true },
+        ],
+        peakWeekKm: 51.3,
+        peakWeek: { week: '2026-W38', km: 51.3 },
+        avgWeekKm: 51.3,
+        rampRatePerWeek: 0,
+        weeklyChangeStdPct: null,
+        statsBasis: 'complete',
+        statsWeekCount: 1,
+      },
+    } as InsightResponse;
+    render(<InsightClient insight={divergent} timeRangeDays={90} />);
+    // 60.0 只能出现在周维度表的 W39 行里 (1 处)。若负荷卡自行取 max, 会多出一处
+    // (卡片上的「峰值周跑量」) —— 那正是两张卡不一致的形态。
+    expect(screen.getAllByText('60.0')).toHaveLength(1);
+    // 两张卡的峰值都必须是完整周的 51.3 (两卡 + 表里 W38 行 = 3 处)
+    expect(screen.getAllByText('51.3').length).toBeGreaterThanOrEqual(2);
+    // 峰值周的周键提示也必须是完整周（卡片 hint + 表里 W38 行）
+    expect(screen.getAllByText('2026-W38').length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText('2026-W39')).not.toBeInTheDocument();
+  });
+
+  /**
+   * 趋势图的最高柱可能来自**被区间截断的周**，而「峰值周跑量」只统计完整周。
+   * 若图上不标 `*`，用户会看到「图最高柱 ≠ 卡片峰值」而无法判断谁对。
+   * 这里断言：有截断周时必须渲染 `*` 图例说明；全是完整周时不得出现（不制造噪音）。
+   */
+  test('有截断周时渲染 * 图例说明', () => {
+    const withPartial: InsightResponse = {
+      ...insight,
+      load: {
+        ...insight.load,
+        weekly: [
+          { week: '2026-W38', km: 51.3, tl: 412, n: 5, seconds: 19400, partial: false },
+          { week: '2026-W39', km: 60, tl: 480, n: 6, seconds: 22000, partial: true },
+        ],
+      },
+      periodization: {
+        ...insight.periodization!,
+        weeks: [
+          { week: '2026-W38', km: 51.3, tl: 412, activities: 5, ctl: 45, atl: 50, tsb: -5, partial: false },
+          { week: '2026-W39', km: 60, tl: 480, activities: 6, ctl: 46, atl: 52, tsb: -6, partial: true },
+        ],
+        peakWeekKm: 51.3,
+        peakWeek: { week: '2026-W38', km: 51.3 },
+      },
+    } as InsightResponse;
+    render(<InsightClient insight={withPartial} timeRangeDays={90} />);
+    expect(screen.getByText(/该周被所选区间截断/)).toBeInTheDocument();
+    // 图表 x 轴标签必须带 * (通过 echarts setOption 的 xAxis.data 断言)
+    const options = setOption.mock.calls.map((c) => c[0]);
+    const weekAxis = options.find((o: any) => o?.xAxis?.data?.some?.((d: string) => d.startsWith('2026-W')));
+    expect(weekAxis).toBeDefined();
+    expect(weekAxis.xAxis.data).toContain('2026-W39 *');
+    expect(weekAxis.xAxis.data).toContain('2026-W38');
+  });
+
+  test('无截断周时不渲染 * 图例 (不制造噪音)', () => {
+    render(<InsightClient insight={insight} timeRangeDays={90} />);
+    expect(screen.queryByText(/该周被所选区间截断/)).not.toBeInTheDocument();
+  });
+
+  test('periodization 缺失 peakWeek 时峰值卡显示 -- (降级不崩)', () => {
+    const legacy: InsightResponse = {
+      ...insight,
+      periodization: {
+        ...insight.periodization!,
+        peakWeek: null,
+      },
+    } as InsightResponse;
+    render(<InsightClient insight={legacy} timeRangeDays={90} />);
+    // 旧响应没有 peakWeek 派生值 → 显示 '--', 而不是编造一个数
+    expect(screen.getByText('--')).toBeInTheDocument();
+  });
 
   test('解耦均值四档阈值 (good/brand/warn/crit)', () => {
     for (const v of [4, 6.5, 9.5, 12]) {

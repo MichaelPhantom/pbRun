@@ -48,7 +48,10 @@ export function formatInsightForCoach(insight: InsightResponse): string {
     L.push(
       '周训练量: ' +
         load.weekly
-          .map((w) => `${w.week} ${n(w.km, 1)}km/${formatDuration(w.seconds)}/${w.n}次/${n(w.tl, 0)}TL`)
+          .map(
+            (w) =>
+              `${w.week} ${n(w.km, 1)}km/${formatDuration(w.seconds)}/${w.n}次/${n(w.tl, 0)}TL${w.partial ? '(截断)' : ''}`,
+          )
           .join(' '),
     );
   }

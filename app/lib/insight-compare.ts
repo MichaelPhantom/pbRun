@@ -372,6 +372,7 @@ export function computePeriodization(
       avgWeekKm: 0,
       rampRatePerWeek: 0,
       weeklyChangeStdPct: null,
+      peakWeek: null,
       statsBasis: 'all',
       statsWeekCount: 0,
     };
@@ -390,6 +391,13 @@ export function computePeriodization(
 
   const kms = basisWeeks.map((w) => w.km);
   const peakWeekKm = Math.max(...kms);
+  // 峰值周必须与 `peakWeekKm` **同源**：同一个 reduce 选出那一周，UI 不得自行再取
+  // 一次最大值（页面上两张卡都显示「峰值周跑量」，各自取 max 时口径不同 ——
+  // 真实库 4 个窗口两卡给出不同数字）。
+  const peakWeek = basisWeeks.reduce<{ week: string; km: number } | null>(
+    (best, w) => (best == null || w.km > best.km ? { week: w.week, km: w.km } : best),
+    null,
+  );
   const avgWeekKm = Math.round((kms.reduce((a, b) => a + b, 0) / kms.length) * 10) / 10;
 
   // 平均每周增幅 (线性回归斜率)
@@ -420,6 +428,7 @@ export function computePeriodization(
     avgWeekKm,
     rampRatePerWeek,
     weeklyChangeStdPct,
+    peakWeek,
     statsBasis,
     statsWeekCount: basisWeeks.length,
   };

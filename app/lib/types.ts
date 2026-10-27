@@ -462,7 +462,21 @@ export interface VdotTrendFit {
 
 /** 急慢性负荷比 (ACWR) 与负荷平衡 */
 export interface LoadInsight {
-  weekly: { week: string; km: number; tl: number; n: number; seconds: number }[]; // 按 ISO 周
+  weekly: {
+    week: string;
+    km: number;
+    tl: number;
+    n: number;
+    seconds: number;
+    /**
+     * 该 ISO 周是否被所选区间**截断**（与 `PeriodizationWeek.partial` 同义、同源）。
+     *
+     * 趋势图最高的柱子可能是被截断的周（真实库 `2026-04-28..2026-05-27` 的
+     * W18 显示 49.6km），而「峰值周跑量」卡片只统计完整周（46.9km）。若图上不标，
+     * 用户会看到「图表最高柱 ≠ 卡片峰值」这种自相矛盾。标记后两者都能自证。
+     */
+    partial: boolean;
+  }[]; // 按 ISO 周
   acute: number;                                 // 近 7 天负荷
   chronic: number;                               // 近 28 天周均负荷
   acwr: number;                                  // acute / chronic
@@ -642,6 +656,18 @@ export interface PeriodizationInsight {
   avgWeekKm: number;
   rampRatePerWeek: number;                        // 平均每周跑量增幅 (km)
   weeklyChangeStdPct: number | null;              // 周环比波动的标准差 (%)
+  /**
+   * 峰值周**是哪一周**（与 `peakWeekKm` 同源）。
+   *
+   * 必须由服务端给出，不能由 UI 各自 `reduce` 求最大值：页面上有两张卡都显示
+   * 「峰值周跑量」（训练负荷卡 + 周期化卡），各自取 max 时一张含截断周、一张只用
+   * 完整周 —— 真实库有 4 个窗口两卡给出不同数字（如 `2026-04-28..2026-05-27`
+   * 负荷卡 49.6km / 周期化卡 46.9km，差的就是那个被截断的周）。
+   *
+   * 另注：`weeks` 只保留最近 12 周用于展示，而峰值可能在更早的周 —— 这也是
+   * 峰值必须单独携带 `week` 键、不能从 `weeks` 里反查的原因。
+   */
+  peakWeek: { week: string; km: number } | null;
   /**
    * `peakWeekKm`/`avgWeekKm`/`rampRatePerWeek`/`weeklyChangeStdPct` 的统计基础。
    *

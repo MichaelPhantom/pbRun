@@ -301,6 +301,50 @@ describe('computePeriodization', () => {
       expect(r.avgWeekKm).not.toBeCloseTo(7.8, 1);
     });
 
+    /**
+     * `peakWeek` 与 `peakWeekKm` 必须来自**同一个**统计基础。
+     *
+     * 页面上两张卡都显示「峰值周跑量」：训练负荷卡曾自行对 `load.weekly` 取 max
+     * （含截断周），周期化卡用 `peakWeekKm`（只用完整周）。真实库 4 个窗口两卡
+     * 给出不同数字。现在两卡都读 `peakWeek`，故 `peakWeek.km` 必须恒等于
+     * `peakWeekKm` —— 若派生时一个用 `weeks`、另一个用 `basisWeeks`，两者就会分叉。
+     */
+    test('peakWeek 与 peakWeekKm 同源 (截断周跑量更大时也不能分叉)', () => {
+      // 截断的 W44 有 40km（远大于完整周的 10km）—— 若 peakWeek 用全部周就会选到它
+      const r = computePeriodization(
+        days([
+          ['2026-10-05', 10], ['2026-10-12', 10], ['2026-10-19', 10],
+          ['2026-10-26', 40],
+        ]),
+        null,
+        { startDate: '2026-10-05', endDate: '2026-10-28' },
+      );
+      expect(r.statsBasis).toBe('complete');
+      // 峰值只认完整周 → 10km, 不是截断周的 40km
+      expect(r.peakWeekKm).toBeCloseTo(10, 5);
+      expect(r.peakWeek).not.toBeNull();
+      expect(r.peakWeek!.km).toBeCloseTo(r.peakWeekKm, 5);
+      expect(r.peakWeek!.week).toBe('2026-W41');
+      // 明确断言它没有选中那个 40km 的截断周
+      expect(r.peakWeek!.km).not.toBeCloseTo(40, 1);
+      expect(r.peakWeek!.week).not.toBe('2026-W44');
+    });
+
+    test('statsBasis=all 时 peakWeek 也来自全部周 (口径一致)', () => {
+      const r = computePeriodization(
+        days([['2026-10-21', 8], ['2026-10-26', 4]]),
+        null,
+        { startDate: '2026-10-21', endDate: '2026-10-28' },
+      );
+      expect(r.statsBasis).toBe('all');
+      expect(r.peakWeek!.km).toBeCloseTo(r.peakWeekKm, 5);
+      expect(r.peakWeek!.week).toBe('2026-W43');
+    });
+
+    test('空输入 → peakWeek 为 null (不编造一个周)', () => {
+      expect(computePeriodization([]).peakWeek).toBeNull();
+    });
+
     test('「次数」是真实跑步次数, 不是天数', () => {
       // 同一天跑两次 —— 真实库有 3 个这样的日子
       const daily = days([['2026-10-19', 5, 2], ['2026-10-20', 6, 1]]);

@@ -141,8 +141,8 @@ describe('formatInsightForCoach', () => {
         load: {
           ...makeInsight().load,
           weekly: [
-            { week: '2026-W37', km: 49.7, tl: 430, n: 5, seconds: 19000 },
-            { week: '2026-W38', km: 51.3, tl: 412, n: 5, seconds: 19400 },
+            { week: '2026-W37', km: 49.7, tl: 430, n: 5, seconds: 19000, partial: false },
+            { week: '2026-W38', km: 51.3, tl: 412, n: 5, seconds: 19400, partial: false },
           ],
         },
       }),
@@ -155,6 +155,29 @@ describe('formatInsightForCoach', () => {
   test('weekly 为空时不输出周训练量块 (不编造空行)', () => {
     const text = formatInsightForCoach(makeInsight());
     expect(text).not.toContain('周训练量');
+  });
+
+  /**
+   * 截断周必须在周训练量块里标 `(截断)`。
+   *
+   * 真实库 `2026-04-28..2026-05-27` 的 W18 只含 2 天（49.6km），而「峰值周跑量」
+   * 只统计完整周（46.9km）。模型若不知道 W18 是被截断的周，会把「图最高柱」
+   * 当成完整周峰值，进而在建议里说「你的峰值周是 49.6km」——与卡片数字矛盾。
+   */
+  test('截断周在周训练量块中标 (截断)', () => {
+    const text = formatInsightForCoach(
+      makeInsight({
+        load: {
+          ...makeInsight().load,
+          weekly: [
+            { week: '2026-W17', km: 46.9, tl: 400, n: 4, seconds: 18000, partial: false },
+            { week: '2026-W18', km: 49.6, tl: 420, n: 2, seconds: 9000, partial: true },
+          ],
+        },
+      }),
+    );
+    expect(text).toContain('2026-W17 46.9km/5:00:00/4次/400TL');
+    expect(text).toContain('2026-W18 49.6km/2:30:00/2次/420TL(截断)');
   });
 
   /**
