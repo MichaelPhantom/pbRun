@@ -12,6 +12,8 @@ import { ActivityInsightPanel, ROLE_LABEL, ROLE_TONE } from '@/app/lib/component
 import { AiAnalysis } from '@/app/lib/components/ai/AiAnalysis';
 import { activityTypeIcon, activityTypeName, isInformativeTypeValue, isRunningType } from '@/app/lib/sport';
 import { powerIntensity } from '@/app/lib/power';
+import { hrZoneColor } from '@/app/lib/hr-zones';
+import { dominantZone } from '@/app/lib/activity-insight';
 import { elevationSpan } from '@/app/lib/elevation';
 import { evaluateWorkoutExecution, formatWorkoutPlan } from '@/app/lib/workout';
 
@@ -99,7 +101,11 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
 
   // 分段角色映射 (lap_index → 角色), 供「分段数据」表展示
   const roleByLap = new Map<number, ActivityInsightResponse['lapAnalysis']['laps'][number]['role']>();
-  insight?.lapAnalysis.laps.forEach((l) => roleByLap.set(l.lapIndex, l.role));
+  const zoneByLap = new Map<number, ActivityInsightResponse['lapAnalysis']['laps'][number]>();
+  insight?.lapAnalysis.laps.forEach((l) => {
+    roleByLap.set(l.lapIndex, l.role);
+    zoneByLap.set(l.lapIndex, l);
+  });
 
   // 最快分段 (最低 average_pace, 仅有效值)
   let bestLapIndex = -1;
@@ -352,6 +358,10 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
                 : []),
               { key: 'dur', label: '时长', unit: 'min' },
               { key: 'hr', label: '心率', unit: 'bpm' },
+              // 主要强度区间: 由该 lap 的心率区间秒数（app 5 区口径、按时间窗推导）
+              // 取占比最高的区间。没有这一列，lap 级区间数据就是「算了但不展示」。
+              // 非跑步也展示 —— 心率区间对所有运动都有意义（不同于配速/步频）。
+              { key: 'zone', label: '主要区间' },
               { key: 'asc', label: '爬升', unit: 'm' },
             ]}
             rows={laps.map((lap) => {
@@ -380,6 +390,19 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
                   // （非跑步 0/255）—— 逐段功率能看出「主课段功率 vs 恢复段」的
                   // 差距，而活动级只有「平均功率」一个数。
                   pw: lap.average_power != null ? Math.round(lap.average_power) : '--',
+                  zone: (() => {
+                    const z = dominantZone(zoneByLap.get(lap.lap_index)?.hrZoneSeconds);
+                    if (z == null) return <span className="text-fg-muted">--</span>;
+                    return (
+                      <span
+                        className="inline-block rounded px-1.5 py-0.5 text-[10px] font-medium leading-none sm:text-[11px]"
+                        style={{ background: `color-mix(in srgb, ${hrZoneColor(z)} 16%, transparent)`, color: hrZoneColor(z) }}
+                        title={`该段心率主要落在 Z${z}（按逐秒心率推导的 5 区口径）`}
+                      >
+                        Z{z}
+                      </span>
+                    );
+                  })(),
                   asc: lap.total_ascent != null ? Math.round(lap.total_ascent) : '--',
                 },
               };

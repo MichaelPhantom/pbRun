@@ -106,14 +106,16 @@ const ACTIVITY_FIELD_ALLOWLIST: Record<string, string> = {
   avg_neg_grade: '真实库 0/348, 设备从不写入',
   max_pos_grade: '真实库 0/348, 设备从不写入',
   max_neg_grade: '真实库 0/348, 设备从不写入',
-  time_in_speed_zone: '真实库 0/348, 设备从不写入',
-  time_in_cadence_zone: '真实库 0/348, 设备从不写入',
+  time_in_speed_zone: '真实库 0/348; FIT profile 有字段但设备从不写入, app 亦无对应 5 区模型',
+  time_in_cadence_zone: '真实库 0/348; FIT profile 有字段但设备从不写入, app 亦无对应 5 区模型',
   // 功率区间: 已由逐秒功率按 app 5 区 %FTP 模型统一到 `time_in_power_zone`
   // （241/241 覆盖, 长度恒为 5, 可按索引跨活动聚合）。设备原始数组另存
   // `device_time_in_power_zone`（绝对瓦数边界, 16 套方案）—— 与
   // `device_time_in_hr_zone` 同一纪律: 仅供追溯, 不进 UI/AI。
   device_time_in_power_zone: '设备原始功率区间秒数(绝对瓦数边界随 FTP 而变, 16 套方案), 仅供追溯',
   device_time_in_hr_zone: '设备原始心率区间秒数(边界方案随固件而变, 19 套方案), 仅供追溯',
+  device_time_in_speed_zone: '设备原始速度区间秒数(app 无对应模型, 仅追溯)',
+  device_time_in_cadence_zone: '设备原始步频区间秒数(app 无对应模型, 仅追溯)',
 };
 
 /** 从 `types.ts` 里解析出 interface 名 → 字段名 + 引用的 interface 名。 */

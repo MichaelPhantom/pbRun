@@ -7,6 +7,7 @@ import {
   powerZoneBreakdown,
   computeComparison,
   hrZoneBreakdown,
+  dominantZone,
   type LapInput,
 } from '@/app/lib/activity-insight';
 import type { RecordSample } from '@/app/lib/insight';
@@ -450,5 +451,167 @@ describe('buildActivityInsight', () => {
     // 而不是「全是 Z1」的假分布（会被读成「本次几乎没用力」）。
     expect(r.powerZoneBreakdown).toEqual([]);
     expect(r.ftpWatts).toBeNull();
+  });
+});
+
+describe('lap 级区间秒数（app 5 区口径）', () => {
+  const withZones = (): LapInput[] => [
+    {
+      lapIndex: 0,
+      distanceMeters: 1000,
+      paceSecPerKm: 400,
+      heartRate: 130,
+      cadence: 180,
+      power: 200,
+      hrZoneSeconds: [500, 0, 0, 0, 0],
+      powerZoneSeconds: [0, 600, 0, 0, 0],
+    },
+    {
+      lapIndex: 1,
+      distanceMeters: 1000,
+      paceSecPerKm: 280,
+      heartRate: 170,
+      cadence: 186,
+      power: 330,
+      hrZoneSeconds: [0, 0, 0, 420, 80],
+      powerZoneSeconds: [0, 0, 0, 500, 100],
+    },
+  ];
+
+  test('原样透传到 lapAnalysis.laps（UI/AI 依赖它取「主要区间」）', () => {
+    const r = analyzeLaps(withZones());
+    expect(r.laps[0].hrZoneSeconds).toEqual([500, 0, 0, 0, 0]);
+    expect(r.laps[1].hrZoneSeconds).toEqual([0, 0, 0, 420, 80]);
+    expect(r.laps[1].powerZoneSeconds).toEqual([0, 0, 0, 500, 100]);
+  });
+
+  test('长度不是 5 一律丢弃为 null（设备原始数组 7/8 槽绝不能漏进来）', () => {
+    const r = analyzeLaps([
+      {
+        lapIndex: 0,
+        distanceMeters: 1000,
+        paceSecPerKm: 400,
+        heartRate: 130,
+        cadence: 180,
+        power: 200,
+        // 设备原始形态: 7 槽 / 8 槽
+        hrZoneSeconds: [0, 18.3, 431.5, 1043.2, 348.9, 795.9, 0],
+        powerZoneSeconds: [656, 552, 273, 613, 544, 0, 0, 0],
+      },
+    ]);
+    expect(r.laps[0].hrZoneSeconds).toBeNull();
+    expect(r.laps[0].powerZoneSeconds).toBeNull();
+  });
+
+  test('全 0 / 全负 / 非数字 → null（不造「全 0」假分布）', () => {
+    const r = analyzeLaps([
+      {
+        lapIndex: 0,
+        distanceMeters: 1000,
+        paceSecPerKm: 400,
+        heartRate: 130,
+        cadence: 180,
+        power: 200,
+        hrZoneSeconds: [0, 0, 0, 0, 0],
+      },
+      {
+        lapIndex: 1,
+        distanceMeters: 1000,
+        paceSecPerKm: 400,
+        heartRate: 130,
+        cadence: 180,
+        power: 200,
+        hrZoneSeconds: [-5, -5, -5, -5, -5],
+      },
+      {
+        lapIndex: 2,
+        distanceMeters: 1000,
+        paceSecPerKm: 400,
+        heartRate: 130,
+        cadence: 180,
+        power: 200,
+        hrZoneSeconds: [NaN, 0, 0, 0, 0],
+      },
+    ]);
+    for (const l of r.laps) expect(l.hrZoneSeconds).toBeNull();
+  });
+
+  test('未提供时为 null（不是 undefined —— 契约要求显式 null）', () => {
+    const r = analyzeLaps(laps());
+    for (const l of r.laps) {
+      expect(l.hrZoneSeconds).toBeNull();
+      expect(l.powerZoneSeconds).toBeNull();
+    }
+  });
+
+  test('非法 JSON 的落库列不炸掉整页（buildActivityInsight 容错）', () => {
+    const r = buildActivityInsight({
+      activityId: 1,
+      laps: [
+        {
+          id: 1,
+          activity_id: 1,
+          lap_index: 0,
+          distance: 1000,
+          duration: 300,
+          cumulative_time: 300,
+          time_in_hr_zone: 'not-json',
+          time_in_power_zone: '{"a":1}',
+        } as never,
+      ],
+      records: [],
+      comparison: null,
+      current: { activityId: 1, date: '2026-01-24', distanceKm: 1, paceSecPerKm: 300, heartRate: 150 },
+    });
+    expect(r.lapAnalysis.laps[0].hrZoneSeconds).toBeNull();
+    expect(r.lapAnalysis.laps[0].powerZoneSeconds).toBeNull();
+  });
+
+  test('落库的 5 槽 JSON 能正确反序列化进 lapAnalysis', () => {
+    const r = buildActivityInsight({
+      activityId: 1,
+      laps: [
+        {
+          id: 1,
+          activity_id: 1,
+          lap_index: 0,
+          distance: 1000,
+          duration: 300,
+          cumulative_time: 300,
+          time_in_hr_zone: '[0,120,300,0,0]',
+          time_in_power_zone: '[0,0,200,400,0]',
+        } as never,
+      ],
+      records: [],
+      comparison: null,
+      current: { activityId: 1, date: '2026-01-24', distanceKm: 1, paceSecPerKm: 300, heartRate: 150 },
+    });
+    expect(r.lapAnalysis.laps[0].hrZoneSeconds).toEqual([0, 120, 300, 0, 0]);
+    expect(r.lapAnalysis.laps[0].powerZoneSeconds).toEqual([0, 0, 200, 400, 0]);
+  });
+});
+
+describe('dominantZone（分段表「主要区间」列的数据源）', () => {
+  test('取占比最高的区间（1-based）', () => {
+    expect(dominantZone([0, 0, 500, 100, 0])).toBe(3);
+    expect(dominantZone([100, 200, 0, 0, 0])).toBe(2);
+  });
+
+  test('并列时取较低区间（保守：不把一段说得比实际更狠）', () => {
+    expect(dominantZone([0, 300, 300, 0, 0])).toBe(2);
+    expect(dominantZone([400, 0, 0, 400, 0])).toBe(1);
+  });
+
+  test('空/长度不对/全 0 → null', () => {
+    expect(dominantZone(null)).toBeNull();
+    expect(dominantZone(undefined)).toBeNull();
+    expect(dominantZone([])).toBeNull();
+    expect(dominantZone([1, 2, 3])).toBeNull(); // 长度 3
+    expect(dominantZone([0, 0, 0, 0, 0])).toBeNull();
+  });
+
+  test('忽略负值与非有限值', () => {
+    expect(dominantZone([-100, 50, 0, 0, 0])).toBe(2);
+    expect(dominantZone([NaN, 0, 10, 0, 0])).toBe(3);
   });
 });

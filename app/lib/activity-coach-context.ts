@@ -10,6 +10,7 @@
  */
 
 import { formatPace } from './format';
+import { dominantZone } from './activity-insight';
 import { CATEGORY_LABELS } from './insight-compare';
 import type { ActivityEnvironmentSummary } from './activity-environment';
 import type {
@@ -257,6 +258,31 @@ function performanceLines(insight: ActivityInsightResponse | null): string[] {
         `最快分段 ${fmtPace(lap.bestPaceSecPerKm)}/km` +
           (lap.bestLapIndex != null ? `（第 ${lap.bestLapIndex} 段）` : ''),
       );
+    }
+    // 分段强度分布: 由每段的 5 区秒数取占比最高区间。这是「主课段是否真的在
+    // 目标强度」的唯一量化依据 —— 只看平均心率看不出「前松后紧」。
+    // 只在**有**分段区间数据时输出，否则整项不出现（不写「未知」噪音）。
+    const zoneSpread = lap.laps
+      .map((l) => ({ i: l.lapIndex, z: dominantZone(l.hrZoneSeconds) }))
+      .filter((x): x is { i: number; z: number } => x.z != null);
+    if (zoneSpread.length >= 2) {
+      bits.push(
+        '分段主区间 ' +
+          zoneSpread.map((x) => `K${x.i}=Z${x.z}`).join(' '),
+      );
+    }
+    // 分段主功率区间: 只对跑步输出（逐秒功率 0/107 非跑步，且 W 与心率不是
+    // 同一套强度语义）。这是判断「间歇段功率是否真达到目标」的依据。
+    if (running) {
+      const powerSpread = lap.laps
+        .map((l) => ({ i: l.lapIndex, z: dominantZone(l.powerZoneSeconds) }))
+        .filter((x): x is { i: number; z: number } => x.z != null);
+      if (powerSpread.length >= 2) {
+        bits.push(
+          '分段主功率区间 ' +
+            powerSpread.map((x) => `K${x.i}=Z${x.z}`).join(' '),
+        );
+      }
     }
     lines.push(`${running ? '本次分段' : '本次分段（按相对快慢划分, 不比配速）'}: ${bits.join(' | ')}`);
   }

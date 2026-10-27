@@ -72,8 +72,8 @@ export interface Activity {
   // 由逐秒心率推导、覆盖全部活动；device_time_in_hr_zone 才是设备原始数组（不可跨活动聚合）。
   time_in_hr_zone?: string;                      // 心率区间秒数（本地 5 区口径）
   device_time_in_hr_zone?: string;                // 设备原始区间秒数（仅供追溯）
-  time_in_speed_zone?: string;                   // 速度区间时间
-  time_in_cadence_zone?: string;                // 步频区间时间
+  device_time_in_speed_zone?: string;            // 设备原始速度区间秒数（app 无对应模型，仅追溯）
+  device_time_in_cadence_zone?: string;          // 设备原始步频区间秒数（app 无对应模型，仅追溯）
   /**
    * 功率区间秒数（**app 5 区 %FTP 口径**，由逐秒功率推导，长度恒为 5）。
    *
@@ -206,10 +206,15 @@ export interface ActivityLap {
   max_neg_grade?: number;                        // 最大负坡度
 
   // 区间时间（秒），JSON 字符串
-  time_in_hr_zone?: string;                     // 心率区间时间
-  time_in_speed_zone?: string;                   // 速度区间时间
-  time_in_cadence_zone?: string;                 // 步频区间时间
-  time_in_power_zone?: string;                   // 功率区间时间
+  // **口径纪律**：不带前缀的两列只装 app 5 区模型结果（长度恒 5、可按索引跨 lap 聚合），
+  // 由逐秒记录按 lap 时间窗推导（见 fit-parser 的 `_assignLapZoneSeconds`）。
+  // 设备原始数组进 `device_*` 列，仅供追溯 —— 设备从不写 lap 级区间（实测 3082/3082 空）。
+  time_in_hr_zone?: string;                     // 心率区间秒数（本地 5 区口径，长度恒 5）
+  time_in_power_zone?: string;                  // 功率区间秒数（app 5 区 %FTP 口径，长度恒 5）
+  device_time_in_hr_zone?: string;              // 设备原始心率区间秒数（不可跨 lap 聚合）
+  device_time_in_power_zone?: string;           // 设备原始功率区间秒数（绝对瓦数边界，不可聚合）
+  device_time_in_speed_zone?: string;           // 设备原始速度区间秒数（app 无对应模型，仅追溯）
+  device_time_in_cadence_zone?: string;         // 设备原始步频区间秒数（app 无对应模型，仅追溯）
 
   // 触发方式与时间戳
   lap_trigger?: string;                          // 分段触发方式（如 manual、distance、time）
@@ -630,6 +635,15 @@ export interface ActivityLapAnalysis {
     heartRate: number | null;
     cadence: number | null;
     power: number | null;
+    /**
+     * 该 lap 的心率区间秒数（**app 5 区口径**，长度恒为 5，索引 0=Z1）。
+     *
+     * 由逐秒记录按 lap 时间窗推导。设备从不写 lap 级区间数组（实测 3082/3082 空），
+     * 故这是「这一段强度分布」的唯一来源。无心率数据时为 null。
+     */
+    hrZoneSeconds: number[] | null;
+    /** 该 lap 的功率区间秒数（app 5 区 %FTP 口径，长度恒为 5）。无 FTP/功率时为 null。 */
+    powerZoneSeconds: number[] | null;
     role: 'warmup' | 'work' | 'recovery' | 'cooldown' | 'steady';
   }[];
   workLaps: number;                               // 主课段数

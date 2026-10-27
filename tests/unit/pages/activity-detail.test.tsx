@@ -848,3 +848,83 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
     expect(screen.getByText(/跑步/)).toBeInTheDocument();
   });
 });
+
+/**
+ * 分段「主要区间」列 —— lap 级区间秒数的唯一展示位。
+ *
+ * 背景：lap 级 `time_in_hr_zone` 历来 0/3082 全 NULL（设备不写 lap 级区间数组），
+ * 现由 fit-parser 从逐秒记录按 lap 时间窗推导（app 5 区口径、长度恒 5）。但
+ * 「算了不展示」本身就是本项目的一类缺陷 —— 没有这一列，推导出来的 lap 级
+ * 区间就永远不会被任何人看到。
+ */
+describe('分段表主要区间列', () => {
+  /** 让 insight 接口返回带 hrZoneSeconds 的 lapAnalysis。 */
+  function mockInsightZones(zones: (number[] | null)[]) {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: {
+          lapAnalysis: {
+            laps: zones.map((hrZoneSeconds, i) => ({
+              lapIndex: i + 1,
+              role: 'steady',
+              hrZoneSeconds,
+            })),
+          },
+        },
+      }),
+    });
+  }
+
+  test('有 lap 区间数据 → 展示「主要区间」列与 Z 徽章', async () => {
+    mockInsightZones([
+      [500, 0, 0, 0, 0], // 全在 Z1
+      [0, 0, 0, 400, 0], // 全在 Z4
+    ]);
+    render(await page('1001'));
+
+    await waitFor(() => expect(screen.getByText('Z1')).toBeInTheDocument());
+    const table = screen.getByRole('table', { name: '每公里分段数据' });
+    expect(within(table).getByText('主要区间')).toBeInTheDocument();
+    expect(within(table).getByText('Z1')).toBeInTheDocument();
+    expect(within(table).getByText('Z4')).toBeInTheDocument();
+  });
+
+  test('无 lap 区间数据 → 列仍在, 单元格为 --（不是把列藏掉）', async () => {
+    mockInsightZones([null, null]);
+    render(await page('1001'));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('insight-panel')).toHaveAttribute('data-has', '1'),
+    );
+    const table = screen.getByRole('table', { name: '每公里分段数据' });
+    // 列头必须存在: 数据缺失时藏列会让「这张表能看什么」随数据漂移
+    expect(within(table).getByText('主要区间')).toBeInTheDocument();
+    expect(within(table).queryByText('Z1')).toBeNull();
+  });
+
+  test('insight 未返回时列头仍存在（渐进增强, 不因接口慢而变表结构）', async () => {
+    render(await page('1001'));
+    const table = screen.getByRole('table', { name: '每公里分段数据' });
+    expect(within(table).getByText('主要区间')).toBeInTheDocument();
+  });
+
+  test('非跑步活动同样展示主要区间（心率区间不分运动类型）', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'basketball',
+      name: '篮球',
+    });
+    mockInsightZones([
+      [0, 400, 0, 0, 0],
+      [0, 0, 400, 0, 0],
+    ]);
+    render(await page('2002'));
+
+    await waitFor(() => expect(screen.getByText('Z2')).toBeInTheDocument());
+    const table = screen.getByRole('table', { name: '每公里分段数据' });
+    expect(within(table).getByText('主要区间')).toBeInTheDocument();
+    expect(within(table).getByText('Z2')).toBeInTheDocument();
+    expect(within(table).getByText('Z3')).toBeInTheDocument();
+  });
+});

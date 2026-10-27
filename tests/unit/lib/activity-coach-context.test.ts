@@ -12,8 +12,28 @@ function insight(over: Partial<ActivityInsightResponse> = {}): ActivityInsightRe
     activityId: 1,
     lapAnalysis: {
       laps: [
-        { lapIndex: 0, distanceMeters: 1000, paceSecPerKm: 360, heartRate: 140, cadence: 180, power: null, role: 'warmup' },
-        { lapIndex: 1, distanceMeters: 1000, paceSecPerKm: 280, heartRate: 168, cadence: 184, power: null, role: 'work' },
+        {
+          lapIndex: 0,
+          distanceMeters: 1000,
+          paceSecPerKm: 360,
+          heartRate: 140,
+          cadence: 180,
+          power: null,
+          role: 'warmup',
+          hrZoneSeconds: [200, 300, 0, 0, 0],
+          powerZoneSeconds: null,
+        },
+        {
+          lapIndex: 1,
+          distanceMeters: 1000,
+          paceSecPerKm: 280,
+          heartRate: 168,
+          cadence: 184,
+          power: null,
+          role: 'work',
+          hrZoneSeconds: [0, 0, 400, 100, 0],
+          powerZoneSeconds: null,
+        },
       ],
       workLaps: 1,
       workDistanceMeters: 1000,
@@ -657,5 +677,84 @@ describe('routeQuality 路面重合段', () => {
       });
       expect(text).not.toContain('路面重合');
     }
+  });
+});
+
+/** 构造 lapAnalysis（可指定每段区间秒数）。 */
+function lapAnalysisOf(
+  zones: { hr: number[] | null; power?: number[] | null }[],
+): ActivityInsightResponse['lapAnalysis'] {
+  return {
+    laps: zones.map((z, i) => ({
+      lapIndex: i,
+      distanceMeters: 1000,
+      paceSecPerKm: 350,
+      heartRate: 140,
+      cadence: 180,
+      power: null,
+      role: 'steady' as const,
+      hrZoneSeconds: z.hr,
+      powerZoneSeconds: z.power ?? null,
+    })),
+    workLaps: 0,
+    workDistanceMeters: 0,
+    workAvgPaceSecPerKm: null,
+    workAvgHeartRate: null,
+    workHrDrift: null,
+    bestPaceSecPerKm: null,
+    bestLapIndex: null,
+  };
+}
+
+describe('分段主区间（lap 级 5 区秒数的消费方）', () => {
+  const render = (over: Partial<ActivityInsightResponse> = {}) =>
+    formatActivityContext({
+      insight: insight(over),
+      routeComparison: comparison(),
+      distanceComparison: null,
+    });
+
+  test('每段的主区间按占比最高输出, 形如 K0=Z2 K1=Z3', () => {
+    const text = render();
+    expect(text).toContain('分段主区间 K0=Z2 K1=Z3');
+  });
+
+  test('只有 1 段有区间数据时不输出（单点无「分布」可言）', () => {
+    const text = render({
+      lapAnalysis: lapAnalysisOf([{ hr: [200, 300, 0, 0, 0] }, { hr: null }]),
+    });
+    expect(text).not.toContain('分段主区间');
+  });
+
+  test('分段全无区间数据时整项不出现（不写「未知」噪音）', () => {
+    const text = render({
+      lapAnalysis: lapAnalysisOf([{ hr: null }, { hr: null }]),
+    });
+    expect(text).not.toContain('分段主区间');
+    expect(text).not.toContain('分段主功率区间');
+  });
+
+  test('非跑步不输出分段主功率区间（功率与心率不是同一套强度语义）', () => {
+    const text = render({
+      running: false,
+      lapAnalysis: lapAnalysisOf([
+        { hr: [300, 0, 0, 0, 0], power: [400, 0, 0, 0, 0] },
+        { hr: [0, 300, 0, 0, 0], power: [0, 400, 0, 0, 0] },
+      ]),
+    });
+    // 心率区间对非跑步仍有意义
+    expect(text).toContain('分段主区间 K0=Z1 K1=Z2');
+    // 功率区间不输出
+    expect(text).not.toContain('分段主功率区间');
+  });
+
+  test('跑步且有功率区间数据时输出分段主功率区间', () => {
+    const text = render({
+      lapAnalysis: lapAnalysisOf([
+        { hr: [300, 0, 0, 0, 0], power: [400, 0, 0, 0, 0] },
+        { hr: [0, 0, 300, 0, 0], power: [0, 0, 400, 0, 0] },
+      ]),
+    });
+    expect(text).toContain('分段主功率区间 K0=Z1 K1=Z3');
   });
 });

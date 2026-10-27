@@ -17,6 +17,56 @@ import type {
   TemperatureDrift,
 } from './types';
 
+/**
+ * 把 lap 级区间秒数收敛成「5 元素数字数组」或 null。
+ *
+ * 契约是**长度恒为 5**（与活动级 `time_in_hr_zone` / `time_in_power_zone` 同构）。
+ * 设备原始数组长度是 7/8，一旦漏进这里就会让下游按索引取值时错位 —— 所以
+ * 这里做一次强制校验，长度不对就当没有（宁可缺，不可错）。
+ */
+function normalizeZoneSeconds(raw: number[] | null | undefined): number[] | null {
+  if (!Array.isArray(raw) || raw.length !== 5) return null;
+  const out = raw.map((v) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0));
+  return out.some((v) => v > 0) ? out : null;
+}
+
+/**
+ * 一组区间秒数（长度 5）→ 占比最高的区间序号（1-5），全 0/空时为 null。
+ *
+ * 分段表用「这一段主要待在哪个强度区间」这一列把 lap 级区间数据变成可读信息 ——
+ * 没有这一列，lap 级区间就是「算了但从不展示」的字段（本项目的明确缺陷类型）。
+ * 并列时取**较低**区间（保守：不把一段说成比实际更狠）。
+ */
+export function dominantZone(seconds: number[] | null | undefined): number | null {
+  if (!Array.isArray(seconds) || seconds.length !== 5) return null;
+  let best: number | null = null;
+  let bestVal = 0;
+  for (let i = 0; i < seconds.length; i++) {
+    const v = seconds[i];
+    if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0) continue;
+    if (v > bestVal) {
+      bestVal = v;
+      best = i + 1;
+    }
+  }
+  return best;
+}
+
+/**
+ * 反序列化区间秒数 JSON（`"[0,120,...]"`）→ 数字数组或 null。
+ * 非法 JSON / 非数组一律 null —— 不抛错（历史脏数据不应炸掉整页）。
+ */
+function parseZoneJson(raw: string | null | undefined): number[] | null {
+  if (typeof raw !== 'string' || raw.trim() === '') return null;
+  try {
+    const v: unknown = JSON.parse(raw);
+    if (!Array.isArray(v)) return null;
+    return v.map((x) => (typeof x === 'number' ? x : Number(x)));
+  } catch {
+    return null;
+  }
+}
+
 export interface LapInput {
   lapIndex: number;
   distanceMeters: number;
@@ -24,6 +74,16 @@ export interface LapInput {
   heartRate: number | null;
   cadence: number | null;
   power: number | null;
+  /**
+   * 该 lap 的心率区间秒数（**app 5 区口径**，长度恒为 5，索引 0=Z1）。
+   *
+   * 由 fit-parser 从逐秒记录按 lap 时间窗推导（`_assignLapZoneSeconds`）。
+   * 设备从不写 lap 级区间数组（实测 3082/3082 空），所以这一项是**唯一**的
+   * 「这一段强度分布」数据源。缺失/无心率时为 null（不造「全 0」假分布）。
+   */
+  hrZoneSeconds?: number[] | null;
+  /** 该 lap 的功率区间秒数（app 5 区 %FTP 口径，长度恒为 5）。无 FTP 时为 null。 */
+  powerZoneSeconds?: number[] | null;
 }
 
 /**
@@ -84,6 +144,10 @@ export function analyzeLaps(
       heartRate: l.heartRate,
       cadence: l.cadence,
       power: l.power,
+      // 区间秒数原样透传: 5 元素校验在这里做, 长度异常一律丢弃 ——
+      // 下游 UI/AI 依赖「长度恒为 5」这个契约做索引映射。
+      hrZoneSeconds: normalizeZoneSeconds(l.hrZoneSeconds),
+      powerZoneSeconds: normalizeZoneSeconds(l.powerZoneSeconds),
       role,
     };
   });
@@ -365,6 +429,11 @@ export function buildActivityInsight(params: {
       heartRate: l.average_heart_rate ?? null,
       cadence: l.average_cadence ?? null,
       power: l.average_power ?? null,
+      // lap 级区间秒数：解析器已按时间窗推导并落库（`_assignLapZoneSeconds`）。
+      // 这里只做 JSON 反序列化，长度校验交给 `normalizeZoneSeconds` ——
+      // 设备原始数组（7/8 槽）若因历史脏数据出现在统一列，会被这条校验挡掉。
+      hrZoneSeconds: parseZoneJson(l.time_in_hr_zone),
+      powerZoneSeconds: parseZoneJson(l.time_in_power_zone),
     }));
 
   const dc = computeDecouplingPct(params.records);
