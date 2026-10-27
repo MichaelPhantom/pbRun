@@ -224,6 +224,55 @@ Z1 19.5% / Z2 53.0% / Z3 16.1% / Z4 9.2% / Z5 2.2%（低 72.5% / 高 11.4%）。
 `tests/unit/lib/llm.test.ts`（课表进数据块 / 非跑步不判定 / 空课表不输出空壳）、
 `tests/unit/pages/activity-detail.test.tsx`（卡片渲染条件、三态徽标、非跑步不判定）。
 
+### 1.4 「算出来却从不展示」缺陷族（2026-10-27）
+
+`InsightResponse` / `ActivityInsightResponse` 的字段由服务端**全部计算出来**，但 UI
+只挑了其中一部分渲染。这类缺陷的特殊之处：**类型检查通过**（字段有声明）、
+**覆盖率很高**（计算分支被测过）、**页面正常渲染** —— 唯一显形的地方是「模型与用户
+手上少了这个数」，因此长期靠人工审计发现。
+
+一次全量审计（真实库全历史窗口）找出 **12 个有真实值却从未展示的字段**：
+
+| 字段 | 真实库值域 | 后果 |
+|------|-----------|------|
+| `form.monthly[].strideLength` | 0.887–1.019 m | SYSTEM_PROMPT §5 要求「步频×步幅经济性」，数据块只有步频 |
+| `form.monthly[].verticalOscillation` | 7.12–7.92 cm | 同 §5「垂直摆动过大 = 能量浪费」无法评估 |
+| `categories.stats[].avgCadence` | 178.7 spm | 「轻松跑步频比节奏跑低多少」看不到 |
+| `categories.stats[].avgTrainingLoad` | 61.0 TL | 各类课的平均负荷强度不可比 |
+| `categories.totalActivities` | 241 | 类别表未声明覆盖了多少次跑步 |
+| `weather.buckets[].avgCadence` | 175.2–181.8 spm | 高温代价只讲心率/配速，漏掉「步频下降」这第三个信号 |
+| `routes.stravaLikeCount` | 239 | 无法判断 6 条路线榜单覆盖了多少样本 |
+| `vdot.raw` | 121 个散点 | 趋势线可信度（3 点 vs 121 点）无从判断 |
+| `routes[].best` | 含 `activityId` | 「最佳 5:14/km」点不到那一次 |
+| `routes[].recent` | 每条路线最近 5 次 | 单看斜率无法判断是否被某次异常拉偏 |
+| `gradeAdjusted.distanceMeters` / `sampleCount` | 4971 点 / 15.06km | 等价平路配速不给样本量就无法跨活动比较 |
+| `temperatureDrift.minC` / `maxC` / `sampleCount` | 19–27°C | 只看首尾会漏掉中途极端值 |
+
+**呈现口径（不得歪曲量纲）**：步幅(m)/垂直摆动(cm) 与步频(spm)/触地(ms) 差 2 个数量级，
+同轴作图会把厘米级曲线压成直线 —— 故走**月度明细表**，趋势图仍只画步频与触地。
+类别表新增「均步频 / 均负荷」两列，气温卡片新增步频一行，路线卡新增「N 次有地点轨迹」
+徽章 + 最佳可达链接 + 最近 5 次配速链接，VDOT 卡新增「N 个样本」徽章。
+
+**机器守卫替代人工审计**：`tests/unit/components/insight-field-consumption.test.ts`
+递归展开 `InsightResponse` / `ActivityInsightResponse` 引用的全部 interface，收集
+所有叶子字段名，逐个断言它作为**代码标识符**出现在消费方（UI + 教练上下文 + AI
+数据块 + MCP）里。要点：
+
+- **必须剥离注释再比对** —— 否则「注释里提过字段名」就能骗过守卫（本测试第一版
+  正是被自己的注释骗过，注入验证时才暴露）；
+- `ALLOWLIST` 是显式技术债账本，每条必须写理由，且反向断言「已消费的字段不得
+  留在 allowlist 里」，防止账本腐化；
+- 递归展开本身也要断言（`leaves.size > 50` + 抽查嵌套字段），否则解析器坏掉时
+  只剩顶层 13 个字段、测试会假绿。
+
+守护：`tests/unit/components/insight-field-consumption.test.ts`（6 例）、
+`tests/unit/components/insight-components.test.tsx`（跑姿明细表 / 类别表新列 /
+气温步频 / 路线可识别数 / 缺字段不编造）、`tests/unit/lib/insight-coach.test.ts`
+（跑姿含步幅与垂直摆动、类别含总次数/步频/负荷、气温含步频、路线声明样本量）、
+`tests/unit/components/activity-insight-panel.test.tsx`（GAP 样本量 / 温度全段极值）、
+`tests/unit/pages/activity-detail.test.tsx`（分段功率列 + 非跑步不展示功率）、
+`tests/unit/lib/llm.test.ts`（分段功率进 AI 数据块 + 非跑步不输出）。
+
 ---
 
 ## 2. AI 上下文口径（核心契约）
@@ -400,6 +449,7 @@ Z1 19.5% / Z2 53.0% / Z3 16.1% / Z4 9.2% / Z5 2.2%（低 72.5% / 高 11.4%）。
 | **AI prompt 按运动类型分流** | `llm.ts` 的 `SYSTEM_PROMPT` / `NON_RUNNING_SYSTEM_PROMPT` | `tests/unit/lib/llm.test.ts`（非跑步不出现跑步术语与配速行；prompt 不引用非跑步数据里不存在的指标） |
 | **活动数据块的两类缺失** | `llm.ts` 的 `fmtNumIf` / `statRow` | `tests/unit/lib/llm-gateway.test.ts`（「该运动不产出」整项不输出、「该活动没测到」保留 `--`、有值时照常输出、无只剩标签的空行） |
 | **`max_speed` 单位契约：全链路 km/h** | `fit-parser.js`（`speedUnit:'km/h'`，`enhanced_max_speed` 原样落库）/ `fetcher.py`（Strava m/s → km/h `*3.6`）/ `llm.ts`（直接 `toFixed(1)`）/ `validate-data.js`（阈值按 km/h） | `tests/unit/lib/llm.test.ts`（20.76 km/h 渲染为 `20.8 km/h`，且不含 74.7；非跑步分支同样不乘 3.6；缺值为 `--`）；`tests/python/test_fetcher_strava.py`（4.5 m/s → 16.2 km/h，与 `average_speed` 同单位）；`tests/unit/scripts/validate-data.test.js`（`distance` 按公里解释，干净数据零误报；103.5 = 28.8×3.6 被抓） |
+| **字段必须被消费（算出来 ≠ 展示）** | `InsightClient.tsx` / `insight-coach.ts` / `ActivityInsightPanel.tsx` / `llm.ts` | `tests/unit/components/insight-field-consumption.test.ts`（递归展开 `InsightResponse` / `ActivityInsightResponse` 全部叶子字段, 剥离注释后逐个断言被消费; allowlist 反查腐化） |
 | **课表单位与步数完整性** | `scripts/garmin/fit-workout.js`（重扫原始字节 + 毫秒/mm-s 归一）/ `fit-parser._extractWorkout(fitData, rawBuffer)` / `app/lib/workout.ts`（读取端代际判别 + 加权区间） | `tests/unit/scripts/fit-workout.test.js`（多步重扫、单位换算、占位步过滤）+ `tests/unit/garmin/fit-parser-branches.test.js`（调用点确实传 buffer 的完整 `parseFitFile` 链路）+ `tests/unit/lib/workout.test.ts`（旧/新格式、加权区间、三态判定）+ `tests/unit/lib/llm.test.ts` + `tests/unit/pages/activity-detail.test.tsx` |
 | **AI 可比样本块按运动口径收敛** | `activity-coach-context.ts` 的 `performanceLines`（按 `insight.running` 二次把关） | `tests/unit/lib/activity-coach-context.test.ts`（非跑步不出现配速/等价平路行，口径说明改非跑步语义） |
 | **同路径几何质量只统计可校验的同伴** | `activity-insight-service.ts` 的 `summarizeRouteQuality` | `tests/unit/lib/insight-services.test.ts`（无轨迹同伴不计入 `verifiedPeers`；未校验时 `routeQuality` 显式 `null`） |

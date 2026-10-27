@@ -122,6 +122,7 @@ const laps = [
     average_pace: 340,
     average_heart_rate: 150,
     average_cadence: 176,
+    average_power: 258,
     total_ascent: 10,
   },
   {
@@ -134,6 +135,7 @@ const laps = [
     average_pace: 330,
     average_heart_rate: 162,
     average_cadence: 180,
+    average_power: 302,
     total_ascent: 12,
   },
 ];
@@ -602,6 +604,20 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
     expect(screen.getAllByText('泳池游泳').length).toBeGreaterThanOrEqual(1);
   });
 
+  /**
+   * 分段功率列。真实库 **2827/2827** 条跑步 lap 都有 `average_power`
+   * （track/treadmill 也 100%），非跑步 lap **0/255** —— 不是「这次没测到」，
+   * 是这类运动不产出。旧实现只有活动级「平均功率」一个数，逐段功率从未展示，
+   * 于是「间歇的主课段功率是否真的高于恢复段」这个执行质量核心证据不可见。
+   */
+  test('跑步分段表展示功率列', async () => {
+    render(await page('2001'));
+    const table = screen.getByRole('table', { name: '每公里分段数据' });
+    expect(within(table).getByText('功率')).toBeInTheDocument();
+    expect(within(table).getByText('258')).toBeInTheDocument();
+    expect(within(table).getByText('302')).toBeInTheDocument();
+  });
+
   test('非跑步活动的分段表不展示配速/步频列, 也不给「最快 K」徽章', async () => {
     db.getActivityById.mockReturnValue({
       ...activity,
@@ -616,6 +632,7 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
     const table = screen.getByRole('table', { name: '每公里分段数据' });
     expect(within(table).queryByText('配速')).toBeNull();
     expect(within(table).queryByText('步频')).toBeNull();
+    expect(within(table).queryByText('功率')).toBeNull();
     expect(within(table).getByText('距离')).toBeInTheDocument();
     expect(within(table).getByText('时长')).toBeInTheDocument();
   });

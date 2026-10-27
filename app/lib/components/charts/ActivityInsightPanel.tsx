@@ -204,7 +204,10 @@ export function ActivityInsightPanel({ data }: { data: ActivityInsightResponse |
               unit="/km"
               label="等价平路配速"
               accent
-              hint={`实际 ${fmtPace(data.gradeAdjusted.actualPaceSecPerKm)}/km · 爬升 ${data.gradeAdjusted.ascentPerKm.toFixed(1)}m/km`}
+              /* `distanceMeters` / `sampleCount` 此前只参与计算从未展示：
+                 等价平路配速是「在这段距离、这些采样点上」估出来的，不给样本量
+                 用户无法判断它和别的活动是否可比。 */
+              hint={`实际 ${fmtPace(data.gradeAdjusted.actualPaceSecPerKm)}/km · 爬升 ${data.gradeAdjusted.ascentPerKm.toFixed(1)}m/km · ${(data.gradeAdjusted.distanceMeters / 1000).toFixed(2)}km / ${data.gradeAdjusted.sampleCount} 点`}
             />
           )}
           {data.temperatureDrift && (
@@ -212,7 +215,10 @@ export function ActivityInsightPanel({ data }: { data: ActivityInsightResponse |
               value={`${data.temperatureDrift.deltaC > 0 ? '+' : ''}${data.temperatureDrift.deltaC.toFixed(1)}`}
               unit="°C"
               label="温度漂移"
-              hint={`${data.temperatureDrift.startC.toFixed(1)} → ${data.temperatureDrift.endC.toFixed(1)}°C`}
+              /* 首尾温度不足以说明「过程」：真实库有 19→27°C 这类活动，
+                 只看首尾会漏掉中途的极端值。minC/maxC/sampleCount 都算出来了
+                 却从未展示。 */
+              hint={`${data.temperatureDrift.startC.toFixed(1)} → ${data.temperatureDrift.endC.toFixed(1)}°C · 全段 ${data.temperatureDrift.minC.toFixed(1)}–${data.temperatureDrift.maxC.toFixed(1)}°C / ${data.temperatureDrift.sampleCount} 点`}
             />
           )}
         </div>

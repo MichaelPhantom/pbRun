@@ -293,6 +293,10 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
                 ? [
                     { key: 'pace', label: '配速', unit: 'min/km' },
                     { key: 'cad', label: '步频', unit: 'spm' },
+                    // 功率列同样只对跑步展示: 真实库 2827/2827 条跑步 lap 全部有
+                    // `average_power`（track/treadmill 也 100%），而非跑步 lap
+                    // 0/255 有值 —— 不是「这次没测到」，是这类运动不产出。
+                    { key: 'pw', label: '功率', unit: 'W' },
                   ]
                 : []),
               { key: 'dur', label: '时长', unit: 'min' },
@@ -321,6 +325,10 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
                   dur: formatDuration(lap.duration),
                   hr: lap.average_heart_rate != null ? Math.round(lap.average_heart_rate) : '--',
                   cad: lap.average_cadence != null ? Math.round(lap.average_cadence) : '--',
+                  // 分段功率: 真实库 2827/2827 条跑步 lap 都有 `average_power`
+                  // （非跑步 0/255）—— 逐段功率能看出「主课段功率 vs 恢复段」的
+                  // 差距，而活动级只有「平均功率」一个数。
+                  pw: lap.average_power != null ? Math.round(lap.average_power) : '--',
                   asc: lap.total_ascent != null ? Math.round(lap.total_ascent) : '--',
                 },
               };

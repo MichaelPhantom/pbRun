@@ -477,6 +477,11 @@ export function buildAnalysisMessages(
         : [seg, formatDuration(l.duration)];
       if (l.average_heart_rate != null) parts.push(`${Math.round(l.average_heart_rate)}bpm`);
       if (running && l.average_cadence != null) parts.push(`${Math.round(l.average_cadence)}spm`);
+      // 分段功率只对跑步输出: 真实库 2827/2827 条跑步 lap 有 `average_power`
+      // （非跑步 0/255）。SYSTEM_PROMPT §6 要求「功率 - 配速」交叉分析，
+      // 而数据块此前只有活动级平均功率一个数 —— 无法判断「主课段功率是否真的
+      // 高于恢复段」，而这正是间歇执行质量的核心证据。
+      if (running && l.average_power != null) parts.push(`${Math.round(l.average_power)}W`);
       if (l.total_ascent != null) parts.push(`${l.total_ascent >= 0 ? '+' : ''}${Math.round(l.total_ascent)}m`);
       return parts.join(' ');
     })

@@ -25,8 +25,8 @@ function fakeActivity(over: Partial<Activity> = {}): Activity {
 
 function fakeLaps(): ActivityLap[] {
   return [
-    { activity_id: 1, lap_index: 0, distance: 1000, duration: 759, average_pace: 759, average_heart_rate: 131, average_cadence: 188, total_ascent: 17 },
-    { activity_id: 1, lap_index: 1, distance: 1000, duration: 405, average_pace: 405, average_heart_rate: 135, average_cadence: 189, total_ascent: 5 },
+    { activity_id: 1, lap_index: 0, distance: 1000, duration: 759, average_pace: 759, average_heart_rate: 131, average_cadence: 188, average_power: 241, total_ascent: 17 },
+    { activity_id: 1, lap_index: 1, distance: 1000, duration: 405, average_pace: 405, average_heart_rate: 135, average_cadence: 189, average_power: 286, total_ascent: 5 },
   ] as ActivityLap[];
 }
 
@@ -288,7 +288,21 @@ describe('buildAnalysisMessages', () => {
   test('跑步活动的分段仍用配速 + 步频 (口径未被非跑步分支破坏)', () => {
     const [, user] = buildAnalysisMessages(fakeActivity(), fakeLaps());
     expect(user.content).toContain('【每公里分段】');
-    expect(user.content).toContain('0.0-1.0km 12:39 131bpm 188spm');
+    // 分段功率: 真实库 2827/2827 条跑步 lap 都有 average_power。SYSTEM_PROMPT §6
+    // 要求「功率 - 配速」交叉分析, 只有活动级平均功率时无法判断主课段是否真的
+    // 比恢复段更用力。
+    expect(user.content).toContain('0.0-1.0km 12:39 131bpm 188spm 241W');
+  });
+
+  test('非跑步分段不输出功率 (真实库 0/255 非跑步 lap 有 average_power)', () => {
+    const laps = [
+      { activity_id: 1, lap_index: 0, distance: 500, duration: 620, average_pace: 1240, average_heart_rate: 130, average_cadence: 30, average_power: 120 },
+    ] as ActivityLap[];
+    const [, user] = buildAnalysisMessages(
+      fakeActivity({ activity_type: 'lap_swimming', sport_type: '游泳', sub_sport_type: '泳池游泳' }),
+      laps,
+    );
+    expect(user.content).not.toMatch(/\d+W/);
   });
 
   /**

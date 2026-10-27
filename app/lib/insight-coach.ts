@@ -69,12 +69,13 @@ export function formatInsightForCoach(insight: InsightResponse): string {
 
   // 类别对比
   if (categories && categories.stats.length > 0) {
-    L.push('训练类别:');
+    L.push(`训练类别（共 ${categories.totalActivities} 次跑步）:`);
     for (const c of categories.stats) {
       L.push(
         `  - ${c.label}${c.isBestEfficiency ? '(最经济)' : ''}: ${c.count} 次, 里程占比 ${n(c.kmSharePct, 1)}%, ` +
           `时长占比 ${n(c.timeSharePct, 1)}%, 均距 ${n(c.avgDistanceKm, 2)}km, 均配速 ${fmtPace(c.avgPaceSecPerKm)}/km, ` +
-          `均心率 ${n(c.avgHeartRate, 0)}bpm, 均VDOT ${n(c.avgVdot, 1)}, 效率 ${n(c.efficiency, 4)}`,
+          `均心率 ${n(c.avgHeartRate, 0)}bpm, 均步频 ${n(c.avgCadence, 0)}spm, 均负荷 ${n(c.avgTrainingLoad, 0)}TL, ` +
+          `均VDOT ${n(c.avgVdot, 1)}, 效率 ${n(c.efficiency, 4)}`,
       );
     }
   }
@@ -85,14 +86,16 @@ export function formatInsightForCoach(insight: InsightResponse): string {
     for (const b of weather.buckets) {
       L.push(
         `  - ${b.bucket}: ${b.count} 次, 均配速 ${fmtPace(b.avgPaceSecPerKm)}/km, ` +
-          `均心率 ${n(b.avgHeartRate, 0)}bpm, 效率 ${n(b.efficiency, 4)}`,
+          `均心率 ${n(b.avgHeartRate, 0)}bpm, 均步频 ${n(b.avgCadence, 0)}spm, 效率 ${n(b.efficiency, 4)}`,
       );
     }
   }
 
   // 路线
   if (routes && routes.routes.length > 0) {
-    L.push('常跑路线:');
+    L.push(
+      `常跑路线${routes.stravaLikeCount != null ? `（${routes.stravaLikeCount} 次活动名称含可识别地点）` : ''}:`,
+    );
     for (const r of routes.routes.slice(0, 6)) {
       L.push(
         `  - ${r.label}: ${r.count} 次, 均配速 ${fmtPace(r.avgPaceSecPerKm)}/km, 最佳 ${fmtPace(r.bestPaceSecPerKm)}/km, ` +
@@ -112,7 +115,9 @@ export function formatInsightForCoach(insight: InsightResponse): string {
     );
   }
 
-  // 跑姿 (取最近 3 个月)
+  // 跑姿 (取最近 3 个月)。步幅与垂直摆动此前只算不展示，而 SYSTEM_PROMPT §5 明确
+  // 要求「步频×步幅经济性」「垂直摆动过大=能量浪费」—— 数据块缺这两项时模型只能
+  // 用「步频看着还行」糊过去。
   if (form.monthly.length > 0) {
     const last = form.monthly.slice(-3);
     L.push(
@@ -120,7 +125,8 @@ export function formatInsightForCoach(insight: InsightResponse): string {
         last
           .map(
             (m) =>
-              `${m.period} 步频${n(m.cadence, 0)} 触地${n(m.groundContactMs, 0)}ms 垂直比${n(m.verticalRatio, 1)}%`,
+              `${m.period} 步频${n(m.cadence, 0)} 步幅${n(m.strideLength, 2)}m 触地${n(m.groundContactMs, 0)}ms ` +
+              `垂直摆动${n(m.verticalOscillation, 1)}cm 垂直比${n(m.verticalRatio, 1)}%`,
           )
           .join(' / '),
     );

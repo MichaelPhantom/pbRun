@@ -1,7 +1,7 @@
 /**
  * 洞察相关组件渲染测试 (jsdom; mock echarts / fetch / next/navigation)。
  */
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 
 const setOption = jest.fn();
 jest.mock('echarts', () => ({
@@ -157,6 +157,66 @@ describe('InsightClient', () => {
     render(<InsightClient insight={insight} timeRangeDays={0} />);
     expect(screen.getByText(/全部历史/)).toBeInTheDocument();
     expect(screen.queryByText(/2000-01-01/)).not.toBeInTheDocument();
+  });
+
+  /**
+   * 「算出来却从不展示」缺陷族（8 个字段）。
+   *
+   * 这些字段在真实库全历史里都有值，旧实现只参与计算、从未出现在 UI：
+   *  - `form.monthly[].strideLength` 0.887–1.019 m
+   *  - `form.monthly[].verticalOscillation` 7.12–7.92 cm
+   *  - `categories.stats[].avgCadence` 178.7 spm
+   *  - `categories.stats[].avgTrainingLoad` 61.0 TL
+   *  - `categories.totalActivities` 241
+   *  - `weather.buckets[].avgCadence` 175.2–181.8 spm
+   *  - `routes.stravaLikeCount` 239
+   *  - `categories.bestEfficiencyCategory`（已由 isBestEfficiency 行高亮覆盖）
+   *
+   * 呈现方式必须尊重量纲：步幅(m)/垂直摆动(cm) 与步频(spm)/触地(ms) 差 2 个数量级，
+   * 同轴作图会把厘米级曲线压成直线 —— 故走明细表而不是塞进趋势图。
+   */
+  test('跑姿明细表展示步幅/垂直摆动 (不与步频同轴作图)', () => {
+    render(<InsightClient insight={insight} timeRangeDays={90} />);
+    const table = screen.getByRole('table', { name: '跑姿技术月度明细' });
+    // 新列存在
+    expect(within(table).getByText('步幅')).toBeInTheDocument();
+    expect(within(table).getByText('垂直摆动')).toBeInTheDocument();
+    expect(within(table).getByText('垂直比')).toBeInTheDocument();
+    // 实际数值: 步幅 0.90m / 垂直摆动 7.1cm
+    expect(within(table).getByText('0.90')).toBeInTheDocument();
+    expect(within(table).getByText('7.1')).toBeInTheDocument();
+    // 旧文案只承诺「步频与触地时间」
+    expect(screen.queryByText(/按月聚合平均步频与触地时间/)).toBeNull();
+  });
+
+  test('训练类别表展示均步频/均负荷/总次数', () => {
+    render(<InsightClient insight={insight} timeRangeDays={90} />);
+    const table = screen.getByRole('table', { name: '训练类别对比明细' });
+    expect(within(table).getByText('均步频')).toBeInTheDocument();
+    expect(within(table).getByText('均负荷')).toBeInTheDocument();
+    expect(within(table).getByText('178')).toBeInTheDocument();
+    expect(within(table).getByText('60')).toBeInTheDocument();
+    // 总次数进副标题 (241 在真实库是全历史跑步数)
+    expect(screen.getByText(/共 70 次跑步/)).toBeInTheDocument();
+  });
+
+  test('气温卡片展示步频', () => {
+    render(<InsightClient insight={insight} timeRangeDays={90} />);
+    expect(screen.getByText(/步频 176/)).toBeInTheDocument();
+  });
+
+  test('路线卡展示可识别地点活动数', () => {
+    const withCount: InsightResponse = {
+      ...insight,
+      routes: { routes: insight.routes!.routes, stravaLikeCount: 239 },
+    } as InsightResponse;
+    render(<InsightClient insight={withCount} timeRangeDays={90} />);
+    expect(screen.getByText('239 次有地点轨迹')).toBeInTheDocument();
+  });
+
+  test('缺 stravaLikeCount → 不渲染数字徽章 (不编造)', () => {
+    render(<InsightClient insight={insight} timeRangeDays={90} />);
+    expect(screen.queryByText(/次有地点轨迹/)).toBeNull();
   });
 
   test('可选段缺失 → 走空态分支 (categories/weather/routes 为 undefined)', () => {

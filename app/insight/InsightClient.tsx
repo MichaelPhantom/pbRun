@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useMemo } from 'react';
 import { SectionCard } from '@/app/components/ui/SectionCard';
 import { StatCard } from '@/app/components/ui/StatCard';
@@ -124,6 +125,24 @@ export default function InsightClient({
     [form.monthly],
   );
 
+  // 跑姿明细表: 步幅 / 垂直摆动 / 垂直比 此前**算出来却从未展示**。
+  // 真实库全历史值域: 步幅 0.887–1.019 m、垂直摆动 7.12–7.92 cm、垂直比 7.86–8.20%。
+  // 这三项不能塞进上图 —— 步频 179(spm)、触地 248(ms)、步幅 0.95(m)、摆动 7.1(cm)
+  // 量纲差 2 个数量级，同轴作图会让曲线互相压扁。明细表是唯一不歪曲量纲的呈现方式。
+  const formRows = useMemo(
+    () =>
+      form.monthly.map((m) => ({
+        period: m.period,
+        n: m.n,
+        cadence: m.cadence != null ? m.cadence.toFixed(1) : '--',
+        stride: m.strideLength != null ? m.strideLength.toFixed(2) : '--',
+        contact: m.groundContactMs != null ? m.groundContactMs.toFixed(0) : '--',
+        osc: m.verticalOscillation != null ? m.verticalOscillation.toFixed(1) : '--',
+        ratio: m.verticalRatio != null ? m.verticalRatio.toFixed(1) : '--',
+      })),
+    [form.monthly],
+  );
+
   const acwrBadge = ACWR_LABEL[load.acwrTone];
   const peakWeek = useMemo(
     () => load.weekly.reduce((a, b) => (b.km > a.km ? b : a), load.weekly[0] ?? { km: 0, week: '—' }),
@@ -214,7 +233,16 @@ export default function InsightClient({
       <GlobalCoach days={timeRangeDays} />
 
       {/* VDOT 趋势 */}
-      <SectionCard title="跑力 (VDOT) 趋势" accent>
+      <SectionCard
+        title="跑力 (VDOT) 趋势"
+        accent
+        action={
+          /* `vdot.raw` 是原始散点（真实库全历史 121 个有效 VDOT），此前只用于拟合
+             回归、从未展示。样本量决定这条趋势线的可信度：3 个点的「+0.4/月」
+             和 121 个点的「+0.4/月」不是同一件事。 */
+          vdot.raw.length > 0 ? <Badge variant="neutral">{vdot.raw.length} 个样本</Badge> : undefined
+        }
+      >
         <div className="mb-3 grid grid-cols-3 gap-3">
           <StatCard
             value={vdot.latest != null ? vdot.latest.toFixed(1) : '--'}
@@ -365,7 +393,8 @@ export default function InsightClient({
       {categories && categories.stats.length > 0 && (
         <SectionCard title="训练类别对比" accent>
           <p className="mb-3 text-xs text-fg-secondary">
-            按训练类别聚合各类课的结构画像。平均配速/心率为时长加权，效率 = 速度/心率（越高越经济）。
+            按训练类别聚合各类课的结构画像（共 {categories.totalActivities} 次跑步）。
+            平均配速/心率为时长加权，效率 = 速度/心率（越高越经济）。
           </p>
           <div className="mb-4">
             <InsightBarChart data={categoryBars} ariaLabel="训练类别跑步次数分布" height={180} valueSuffix=" 次" />
@@ -380,6 +409,10 @@ export default function InsightClient({
               { key: 'timeShare', label: '时长占比', unit: '%' },
               { key: 'pace', label: '均配速', unit: 'min/km' },
               { key: 'hr', label: '均心率', unit: 'bpm' },
+              // 步频/训练负荷此前只参与计算（真实库 178.7spm / 61.0TL）却从未出现在
+              // 表格里：模型和用户都看不到「轻松跑的步频比节奏跑低多少」。
+              { key: 'cad', label: '均步频', unit: 'spm' },
+              { key: 'tl', label: '均负荷', unit: 'TL' },
               { key: 'vdot', label: '均VDOT' },
               { key: 'eff', label: '效率', unit: 'm/s·bpm⁻¹' },
             ]}
@@ -399,6 +432,8 @@ export default function InsightClient({
                 timeShare: c.timeSharePct.toFixed(1),
                 pace: fmtPace(c.avgPaceSecPerKm),
                 hr: c.avgHeartRate != null ? c.avgHeartRate.toFixed(0) : '--',
+                cad: c.avgCadence != null ? c.avgCadence.toFixed(0) : '--',
+                tl: c.avgTrainingLoad != null ? c.avgTrainingLoad.toFixed(0) : '--',
                 vdot: c.avgVdot != null ? c.avgVdot.toFixed(1) : '--',
                 eff: c.efficiency != null ? c.efficiency.toFixed(4) : '--',
               },
@@ -406,13 +441,25 @@ export default function InsightClient({
           />
           <p className="mt-2 text-[10px] text-fg-muted">
             标注「最经济」= 同类样本 ≥2 中效率（速度/心率）最高；占比为该类别在所选区间的里程/时长份额。
+            均负荷为该类别单次平均训练负荷（TL）。
           </p>
         </SectionCard>
       )}
 
       {/* 常跑路线对比 */}
       {routes && routes.routes.length > 0 && (
-        <SectionCard title="常跑路线对比" accent>
+        <SectionCard
+          title="常跑路线对比"
+          accent
+          action={
+            /* `stravaLikeCount` 是「活动名里带地点前缀、可识别路线」的活动数（真实库
+               239 次）。此前只参与计算从未展示 —— 用户无法判断下面的路线榜单覆盖了
+               多少样本，也就无法判断「6 条路线」是不是全部。 */
+            routes.stravaLikeCount != null ? (
+              <Badge variant="neutral">{routes.stravaLikeCount} 次有地点轨迹</Badge>
+            ) : undefined
+          }
+        >
           <p className="mb-3 text-xs text-fg-secondary">
             按活动名称中的地点前缀归类常跑路线。配速趋势为负表示该路线随时间变快。
           </p>
@@ -426,7 +473,17 @@ export default function InsightClient({
                     <span className="text-sm font-medium text-fg">{r.label}</span>
                     <Badge variant="neutral">{r.count} 次</Badge>
                     {r.bestPaceSecPerKm != null && (
-                      <Badge variant="good">最佳 {fmtPace(r.bestPaceSecPerKm)}/km</Badge>
+                      /* `r.best` 带 activityId —— 徽章可直达那次最快跑。旧实现只有
+                         配速数字，用户看到「最佳 5:14/km」却无法确认是哪一次。 */
+                      r.best ? (
+                        <Link href={`/${r.best.activityId}`} className="rounded hover:opacity-80">
+                          <Badge variant="good">
+                            最佳 {fmtPace(r.bestPaceSecPerKm)}/km · {r.best.date}
+                          </Badge>
+                        </Link>
+                      ) : (
+                        <Badge variant="good">最佳 {fmtPace(r.bestPaceSecPerKm)}/km</Badge>
+                      )
                     )}
                     {r.paceTrendPer30d != null && (
                       <Badge variant={trendGood ? 'good' : trendBad ? 'warn' : 'neutral'}>
@@ -440,6 +497,24 @@ export default function InsightClient({
                     <span>均心率 <span className="tnum text-fg-secondary">{r.avgHeartRate != null ? r.avgHeartRate.toFixed(0) : '--'}</span></span>
                     <span>最近 <span className="tnum text-fg-secondary">{r.lastDate}</span></span>
                   </div>
+                  {/* `r.recent` 是这条路线最近 5 次的 (配速, 心率)。旧实现只算不用 ——
+                      而「同一路线最近 5 次是越来越快还是越来越慢」正是用户最想看的东西，
+                      单看 `paceTrendPer30d` 一个斜率数字无法判断是否只是某次异常拉偏。 */}
+                  {r.recent.length > 0 && (
+                    <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-fg-muted">
+                      <span className="text-fg-secondary">最近 {r.recent.length} 次</span>
+                      {r.recent.map((x) => (
+                        <Link
+                          key={x.activityId}
+                          href={`/${x.activityId}`}
+                          className="tnum rounded text-fg-secondary hover:text-fg hover:underline"
+                          title={`${x.date}${x.heartRate != null ? ` · ${Math.round(x.heartRate)}bpm` : ''}`}
+                        >
+                          {fmtPace(x.paceSecPerKm)}
+                        </Link>
+                      ))}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -467,6 +542,11 @@ export default function InsightClient({
                 <div className="text-[10px] text-fg-muted">{b.bucket}</div>
                 <div className="tnum mt-0.5 text-sm font-medium text-fg">{fmtPace(b.avgPaceSecPerKm)}/km</div>
                 <div className="tnum text-[10px] text-fg-secondary">HR {b.avgHeartRate != null ? b.avgHeartRate.toFixed(0) : '--'}</div>
+                {/* 步频此前只参与计算（真实库各温档 175.2–181.8spm）却从未展示。
+                    高温下步频下降是「配速掉、心率升」之外的第三个代价信号。 */}
+                <div className="tnum text-[10px] text-fg-secondary">
+                  步频 {b.avgCadence != null ? b.avgCadence.toFixed(0) : '--'}
+                </div>
               </div>
             ))}
           </div>
@@ -530,17 +610,46 @@ export default function InsightClient({
       {/* 跑姿技术 */}
       <SectionCard title="跑姿技术趋势">
         <p className="mb-3 text-xs text-fg-secondary">
-          按月聚合平均步频与触地时间，观察技术稳定性与伤病风险信号。
+          按月聚合跑姿指标，观察技术稳定性与伤病风险信号。上图只画步频与触地时间
+          （两者量纲接近）；步幅 / 垂直摆动 / 垂直比见下方明细表 —— 与步频同轴作图会让
+          厘米级的曲线被压成直线。
         </p>
         {form.monthly.length > 0 ? (
-          <InsightTrendChart
-            x={formTrend.x}
-            series={[
-              { name: '步频 (spm)', data: formTrend.cadence, color: 'var(--brand)' },
-              { name: '触地 (ms)', data: formTrend.contact, color: 'var(--cat-4)' },
-            ]}
-            ariaLabel="跑姿技术趋势图"
-          />
+          <>
+            <InsightTrendChart
+              x={formTrend.x}
+              series={[
+                { name: '步频 (spm)', data: formTrend.cadence, color: 'var(--brand)' },
+                { name: '触地 (ms)', data: formTrend.contact, color: 'var(--cat-4)' },
+              ]}
+              ariaLabel="跑姿技术趋势图"
+            />
+            <DataTable
+              className="mt-4"
+              caption="跑姿技术月度明细"
+              columns={[
+                { key: 'period', label: '月份' },
+                { key: 'n', label: '次数' },
+                { key: 'cadence', label: '步频', unit: 'spm' },
+                { key: 'stride', label: '步幅', unit: 'm' },
+                { key: 'contact', label: '触地', unit: 'ms' },
+                { key: 'osc', label: '垂直摆动', unit: 'cm' },
+                { key: 'ratio', label: '垂直比', unit: '%' },
+              ]}
+              rows={formRows.map((r) => ({
+                key: r.period,
+                cells: {
+                  period: r.period,
+                  n: r.n,
+                  cadence: r.cadence,
+                  stride: r.stride,
+                  contact: r.contact,
+                  osc: r.osc,
+                  ratio: r.ratio,
+                },
+              }))}
+            />
+          </>
         ) : (
           <div className="py-8 text-center text-sm text-fg-muted">暂无跑姿数据</div>
         )}

@@ -208,10 +208,12 @@ function makeFixtureDb(outPath = process.argv[2] || DEFAULT_OUT_PATH) {
   // duration/cumulative_time/distance 为 NOT NULL 列
   let cum = 0;
   const lapDefs = [
-    { average_pace: 457, average_heart_rate: 131, average_cadence: 186, duration: 457 },
-    { average_pace: 280, average_heart_rate: 170, average_cadence: 188, duration: 280 },
-    { average_pace: 275, average_heart_rate: 178, average_cadence: 188, duration: 275 },
-    { average_pace: 436, average_heart_rate: 141, average_cadence: 184, duration: 436 },
+    // average_power: 真实库 2827/2827 条跑步 lap 都有值（非跑步 0/255），
+    // 分段表的「功率」列必须能在 e2e 里真的渲染出数字。
+    { average_pace: 457, average_heart_rate: 131, average_cadence: 186, average_power: 232, duration: 457 },
+    { average_pace: 280, average_heart_rate: 170, average_cadence: 188, average_power: 298, duration: 280 },
+    { average_pace: 275, average_heart_rate: 178, average_cadence: 188, average_power: 305, duration: 275 },
+    { average_pace: 436, average_heart_rate: 141, average_cadence: 184, average_power: 240, duration: 436 },
   ];
   // 注: insertLaps 从首条 lap 的键推导列, 故每条须含 activity_id
   db.insertLaps(

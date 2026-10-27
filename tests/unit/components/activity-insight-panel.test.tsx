@@ -320,10 +320,15 @@ describe('海拔/温度修正', () => {
     );
     expect(screen.getByText('等价平路配速')).toBeInTheDocument();
     expect(screen.getByText('4:50')).toBeInTheDocument();
-    expect(screen.getByText(/实际 5:00\/km · 爬升 12.0m\/km/)).toBeInTheDocument();
+    // distanceMeters / sampleCount 此前只算不展示: 不给样本量, 等价平路配速
+    // 无法与其他活动比较 (是 15km 全段还是 300m 片段估出来的?)
+    expect(
+      screen.getByText(/实际 5:00\/km · 爬升 12.0m\/km · 10.00km \/ 100 点/),
+    ).toBeInTheDocument();
     expect(screen.getByText('温度漂移')).toBeInTheDocument();
     expect(screen.getByText('+2.5')).toBeInTheDocument();
-    expect(screen.getByText('24.0 → 26.5°C')).toBeInTheDocument();
+    // 首尾温度不足以说明过程: 真实库存在 19→27°C 中途极端值
+    expect(screen.getByText(/24.0 → 26.5°C · 全段 23.0–27.0°C \/ 100 点/)).toBeInTheDocument();
   });
 
   test('无 GAP/温度数据 → 不渲染修正区', () => {

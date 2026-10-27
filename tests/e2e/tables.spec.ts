@@ -19,7 +19,7 @@ test.describe('活动详情页 · 分段数据表', () => {
     // 表头含 8 列 (含角色)
     const headers = await table.locator('thead th').allInnerTexts();
     const joined = headers.join('|').replace(/\s+/g, '');
-    for (const h of ['#', '角色', '距离', '配速', '时长', '心率', '步频', '爬升']) {
+    for (const h of ['#', '角色', '距离', '配速', '时长', '心率', '步频', '功率', '爬升']) {
       expect(joined).toContain(h);
     }
     // 夹具 4 段
@@ -86,7 +86,10 @@ test.describe('洞察页 · 数据表', () => {
     const table = tableByColumn(page, '里程占比');
     await expect(table).toBeVisible();
     const joined = (await table.locator('thead th').allInnerTexts()).join('|').replace(/\s+/g, '');
-    for (const h of ['类别', '次数', '总里程', '里程占比', '时长占比', '均配速', '均心率', '均VDOT', '效率']) {
+    for (const h of [
+      '类别', '次数', '总里程', '里程占比', '时长占比',
+      '均配速', '均心率', '均步频', '均负荷', '均VDOT', '效率',
+    ]) {
       expect(joined).toContain(h);
     }
     expect(await rowCount(table)).toBeGreaterThanOrEqual(1);
@@ -106,6 +109,33 @@ test.describe('洞察页 · 数据表', () => {
     for (const h of ['周', '跑量', '负荷', '次数', 'CTL', 'ATL', 'TSB']) {
       expect(joined).toContain(h);
     }
+  });
+
+  /**
+   * 「算出来却从不展示」缺陷族的 e2e 守护。
+   * 跑姿的步幅/垂直摆动与步频/触地差 2 个数量级, 不能同轴作图 → 走明细表。
+   */
+  test('跑姿技术月度明细表含步幅/垂直摆动/垂直比列', async ({ page }) => {
+    const table = tableByColumn(page, '垂直摆动');
+    await expect(table).toBeVisible();
+    const joined = (await table.locator('thead th').allInnerTexts()).join('|').replace(/\s+/g, '');
+    for (const h of ['月份', '次数', '步频', '步幅', '触地', '垂直摆动', '垂直比']) {
+      expect(joined).toContain(h);
+    }
+    // 夹具 5 条活动均有 stride_length / vertical_oscillation → 至少 1 行真实数字
+    expect(await rowCount(table)).toBeGreaterThanOrEqual(1);
+  });
+
+  test('气温分档卡片展示步频', async ({ page }) => {
+    const card = page.locator('section', { hasText: '气温影响对比' });
+    await expect(card).toBeVisible();
+    await expect(card.getByText(/步频 \d+/).first()).toBeVisible();
+  });
+
+  test('常跑路线卡声明可识别地点活动数', async ({ page }) => {
+    const card = page.locator('section', { hasText: '常跑路线对比' });
+    await expect(card).toBeVisible();
+    await expect(card.getByText(/\d+ 次有地点轨迹/)).toBeVisible();
   });
 
   test('关键洞察区域渲染 (findings)', async ({ page }) => {

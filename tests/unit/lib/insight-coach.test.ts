@@ -78,6 +78,49 @@ describe('formatInsightForCoach', () => {
     expect(text).toContain('系统识别的关键信号');
   });
 
+  /**
+   * 「算出来却从不展示」缺陷族。这 8 个字段在真实库全历史里都有真实值，但旧实现
+   * 只参与计算、从未进入教练上下文 —— 模型被要求「用步频×步幅判断经济性」「用
+   * 垂直摆动判断能量浪费」时手上根本没有这两个数。
+   */
+  test('跑姿块含步幅与垂直摆动 (真实库 0.887–1.019m / 7.12–7.92cm)', () => {
+    const text = formatInsightForCoach(makeInsight());
+    expect(text).toMatch(/步幅0\.90m/);
+    expect(text).toMatch(/垂直摆动7\.1cm/);
+    // 旧实现只有 步频/触地/垂直比
+    expect(text).not.toMatch(/步频179 触地248ms 垂直比8\.1%/);
+  });
+
+  test('类别块含总次数/均步频/均训练负荷', () => {
+    const text = formatInsightForCoach(makeInsight());
+    expect(text).toContain('共 42 次跑步');
+    expect(text).toContain('均步频 178spm');
+    expect(text).toContain('均负荷 72TL');
+    // 旧标题无总次数
+    expect(text).not.toContain('训练类别:\n  - 乳酸阈值');
+  });
+
+  test('气温块含均步频 (真实库各温档 175.2–181.8spm)', () => {
+    const text = formatInsightForCoach(makeInsight());
+    expect(text).toContain('均步频 176spm');
+  });
+
+  test('路线块声明可识别地点活动数', () => {
+    const withCount = formatInsightForCoach(
+      makeInsight({
+        routes: {
+          routes: [
+            { routeKey: '两江新区', label: '两江新区', count: 12, avgDistanceKm: 7.5, bestPaceSecPerKm: 345, avgPaceSecPerKm: 360, avgHeartRate: 158, lastDate: '2026-09-22', paceTrendPer30d: -1.2, best: null, recent: [] },
+          ],
+          stravaLikeCount: 239,
+        },
+      }),
+    );
+    expect(withCount).toContain('239 次活动名称含可识别地点');
+    // 缺 stravaLikeCount 时不编造数字
+    expect(formatInsightForCoach(makeInsight())).not.toMatch(/次活动名称含可识别地点/);
+  });
+
   test('缺失可选维度时不报错', () => {
     const text = formatInsightForCoach(
       makeInsight({ categories: undefined, weather: undefined, routes: undefined, periodization: undefined }),
