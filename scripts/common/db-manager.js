@@ -43,13 +43,18 @@ class DatabaseManager {
 
         -- 基础指标
         distance REAL NOT NULL,                       -- 距离（公里）
-        duration INTEGER NOT NULL,                    -- 总时长（秒）
-        moving_time INTEGER NOT NULL,                 -- 移动时间（秒）
-        elapsed_time INTEGER NOT NULL,                -- 经过时间（秒）
+        duration INTEGER NOT NULL,                    -- 总时长 = FIT total_elapsed_time（含暂停）
+        moving_time INTEGER NOT NULL,                 -- 移动时间 = FIT total_timer_time（计时器时间）
+        elapsed_time INTEGER NOT NULL,                -- 经过时间（与 duration 同值）
 
         -- 配速和速度
-        average_pace REAL,                            -- 平均配速（秒/公里）
-        average_speed REAL,                           -- 平均速度（公里/小时）
+        -- **时间基数 = moving_time（计时器时间）**，不是 duration。
+        -- duration 含暂停，用它算配速会让「6.63 km / 43.7 分钟」的活动显示
+        -- 26:19/km（配速×距离 = 174 分钟，自相矛盾）。真实库 251 条有配速的
+        -- 活动里 93 条按 duration 算是错的，其中 19 条跑步偏差 >10%。
+        -- 口径唯一实现见 app/lib/pace.ts（CJS 镜像 scripts/common/pace.js）。
+        average_pace REAL,                            -- 平均配速（秒/公里，计时器时间口径）
+        average_speed REAL,                           -- 平均速度（公里/小时，同上口径）
         max_speed REAL,                               -- 最大速度（公里/小时；与 average_speed 同单位）
 
         -- 心率数据
@@ -227,17 +232,19 @@ class DatabaseManager {
         lap_index INTEGER NOT NULL,                   -- 分段编号
 
         -- 时间数据
-        duration INTEGER NOT NULL,                    -- 分段时长（秒）
+        duration INTEGER NOT NULL,                    -- 分段时长 = FIT total_elapsed_time（含暂停）
         cumulative_time INTEGER NOT NULL,             -- 累积时间（秒）
-        moving_time INTEGER,                          -- 移动时间（秒）
+        moving_time INTEGER,                          -- 移动时间 = FIT total_timer_time（计时器时间）
 
         -- 距离和配速
+        -- 时间基数同活动级：**moving_time**（计时器时间），不是 duration。
+        -- 旧实现用 duration 时，活动 598287817 第 7 段（16 m / 392 s）显示 60792 s/km。
         distance REAL NOT NULL,                       -- 分段距离（米）
-        average_pace REAL,                            -- 平均配速（秒/公里）
+        average_pace REAL,                            -- 平均配速（秒/公里，计时器时间口径）
         average_pace_gap REAL,                        -- 平均坡度调整配速（秒/公里）
         best_pace REAL,                               -- 最佳配速（秒/公里）
-        average_speed REAL,                           -- 平均速度（公里/小时）
-        average_moving_pace REAL,                     -- 平均移动配速（秒/公里）
+        average_speed REAL,                           -- 平均速度（公里/小时，同上口径）
+        average_moving_pace REAL,                     -- 平均移动配速（秒/公里）; 与 average_pace 同值（历史冗余列）
 
         -- 心率
         average_heart_rate INTEGER,                   -- 平均心率（bpm）

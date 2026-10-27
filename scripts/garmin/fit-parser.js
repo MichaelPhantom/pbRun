@@ -19,6 +19,7 @@ const { deriveRouteSignature } = require('../common/route-signature');
 const { hrZoneSecondsFromRecords, resolveMaxHr } = require('../common/hr-zones');
 const { powerZoneSecondsFromRecords, resolveFtp } = require('../common/power-zones');
 const { deriveLapZoneSeconds, applyLapZoneSeconds } = require('../common/lap-zones');
+const { effectiveTimeSec, paceSecPerKm, speedKmh } = require('../common/pace');
 const {
   normalizeWorkoutStep,
   normalizeWorkoutSteps,
@@ -338,12 +339,26 @@ class GarminFITParser {
     if (sportLabel) activityData.sport_type = sportLabel;
     if (subSportLabel) activityData.sub_sport_type = subSportLabel;
 
-    // Calculate pace and speed (fit-file-parser with lengthUnit 'km' gives distance in km)
+    // 配速与速度：**时间基数 = 计时器时间**（FIT `total_timer_time`），不是经过时间。
+    //
+    // 旧实现用 `duration`（= `total_elapsed_time`，含暂停）推导，于是同一个活动
+    // 卡片自相矛盾：`582132079` 6.63 km、卡片「时长」43.7 分（`moving_time`），
+    // 「平均配速」却显示 **26:19/km**（配速×距离 = 174.4 分）。真实库 251 条有配速
+    // 的活动里 251/251 严格等于 `duration/distance`，只有 158 条等于
+    // `moving_time/distance` —— 所有暂停较多的活动（跑步 19 条偏差 >10%）都错。
+    //
+    // 设备自己算的 `enhanced_avg_speed` 也是计时器口径（251 条里 248 条与
+    // `distance/moving_time` 偏差 <2%），Strava/Garmin Connect 展示的同样如此。
+    // 故这不是「两种口径都行」，是我们读错了自己存的列。
+    //
+    // 口径唯一实现：`scripts/common/pace.js`（镜像 `app/lib/pace.ts`）。
     const distance = activityData.distance;
-    const duration = activityData.duration;
-    if (distance != null && duration && duration > 0 && distance > 0) {
-      activityData.average_speed = (distance / duration) * 3600; // km/h
-      activityData.average_pace = duration / distance; // sec/km
+    const timeSec = effectiveTimeSec(activityData);
+    if (timeSec != null) {
+      const speed = speedKmh(distance, timeSec);
+      const pace = paceSecPerKm(distance, timeSec);
+      if (speed != null) activityData.average_speed = speed; // km/h
+      if (pace != null) activityData.average_pace = pace; // sec/km
     }
 
     // Heart rate
@@ -552,10 +567,20 @@ class GarminFITParser {
       // Moving time
       lapData.moving_time = this._safeGetInt(lap, 'total_timer_time');
 
-      // 配速与速度：average_speed 公里/小时，average_pace 秒/公里
-      if (distanceM != null && distanceM > 0 && duration && duration > 0) {
-        lapData.average_speed = (distanceM / duration) * 3.6; // km/h
-        lapData.average_pace = duration / distanceKm; // sec/km
+      // 配速与速度：**时间基数 = 计时器时间**，与活动级同一条纪律。
+      //
+      // 旧实现用 `duration`（经过时间），同一个 lap 会算出荒谬值：真实库
+      // `598287817` 第 7 段 16 m / 392 s（`moving_time`）却有 983 s 的
+      // `duration` → 配速 **60792 s/km**（16.9 小时/公里）。这不是「这一段
+      // 跑得慢」，是把暂停算进了配速。
+      //
+      // 口径唯一实现：`scripts/common/pace.js`。
+      const lapTimeSec = effectiveTimeSec(lapData);
+      if (distanceM != null && distanceM > 0 && lapTimeSec != null) {
+        const lapSpeed = speedKmh(distanceKm, lapTimeSec);
+        const lapPace = paceSecPerKm(distanceKm, lapTimeSec);
+        if (lapSpeed != null) lapData.average_speed = lapSpeed; // km/h
+        if (lapPace != null) lapData.average_pace = lapPace; // sec/km
       }
 
       // Pace variations

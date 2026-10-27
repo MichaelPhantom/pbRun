@@ -16,6 +16,7 @@ const DatabaseManager = require('../common/db-manager');
 const { DEFAULT_MAX_HR, hrZoneSecondsFromRecords } = require('../common/hr-zones');
 const { powerZoneSecondsFromRecords } = require('../common/power-zones');
 const { deriveLapZoneSeconds } = require('../common/lap-zones');
+const { paceSecPerKm, speedKmh, effectiveTimeSec } = require('../common/pace');
 
 const DEFAULT_OUT_PATH = path.join(__dirname, '..', '..', 'tests', 'fixtures', 'activities.db');
 
@@ -71,8 +72,6 @@ const samples = [
     duration: 2800,
     moving_time: 2750,
     elapsed_time: 2800,
-    average_pace: 350,
-    average_speed: 10.3,
     max_speed: 14.2,
     average_heart_rate: 165,
     max_heart_rate: 182,
@@ -131,8 +130,6 @@ const samples = [
     duration: 6900,
     moving_time: 6800,
     elapsed_time: 6900,
-    average_pace: 371,
-    average_speed: 9.7,
     average_heart_rate: 149,
     max_heart_rate: 168,
     average_cadence: 178,
@@ -159,7 +156,6 @@ const samples = [
     duration: 2600,
     moving_time: 2580,
     elapsed_time: 2600,
-    average_pace: 361,
     average_heart_rate: 148,
     average_cadence: 180,
     average_stride_length: 0.92,
@@ -181,7 +177,6 @@ const samples = [
     duration: 2700,
     moving_time: 2680,
     elapsed_time: 2700,
-    average_pace: 355,
     average_heart_rate: 162,
     average_cadence: 182,
     average_stride_length: 0.94,
@@ -204,7 +199,6 @@ const samples = [
     duration: 2100,
     moving_time: 2080,
     elapsed_time: 2100,
-    average_pace: 382,
     average_heart_rate: 132,
     average_cadence: 176,
     average_stride_length: 0.9,
@@ -225,6 +219,20 @@ function makeFixtureDb(outPath = process.argv[2] || DEFAULT_OUT_PATH) {
   // 生产 schema 已包含 track / start_lat / start_lng (见 db-manager)；
   // 夹具走同一 DatabaseManager 建表，无需再 ALTER。
 
+  // 配速/速度**由真实实现从计时器时间推导**，不在样本里写死。
+  //
+  // 旧夹具把 `average_pace` 写成 `duration / distance`（例如活动 1 的 350 = 2800/8），
+  // 而 `duration` 是经过时间 —— 于是夹具本身就复刻了那个缺陷：`moving_time` 是
+  // 2750 秒，正确的配速应是 343.8 s/km。夹具写死错误值，等于让 e2e 绕过被测代码，
+  // 「配速读错了时间基数」这类缺陷在端到端测试里永远暴露不了。
+  //
+  // 现在只给输入（distance / moving_time / duration），派生值一律现场算。
+  for (const s of samples) {
+    const seconds = effectiveTimeSec(s);
+    s.average_pace = paceSecPerKm(s.distance, seconds) ?? undefined;
+    s.average_speed = speedKmh(s.distance, seconds) ?? undefined;
+  }
+
   for (const s of samples) db.upsertActivity(s);
 
   // 一条 lap 数据 (供 activity-insight / 分段页)
@@ -233,11 +241,25 @@ function makeFixtureDb(outPath = process.argv[2] || DEFAULT_OUT_PATH) {
   const lapDefs = [
     // average_power: 真实库 2827/2827 条跑步 lap 都有值（非跑步 0/255），
     // 分段表的「功率」列必须能在 e2e 里真的渲染出数字。
-    { average_pace: 457, average_heart_rate: 131, average_cadence: 186, average_power: 232, duration: 457 },
-    { average_pace: 280, average_heart_rate: 170, average_cadence: 188, average_power: 298, duration: 280 },
-    { average_pace: 275, average_heart_rate: 178, average_cadence: 188, average_power: 305, duration: 275 },
-    { average_pace: 436, average_heart_rate: 141, average_cadence: 184, average_power: 240, duration: 436 },
+    //
+    // `average_pace` **不写死**：由下方用 `paceSecPerKm` 从 `moving_time` 推导。
+    // 旧夹具写死 `average_pace`（且是 `duration/distance` 口径），等于让 e2e 绕过
+    // 「配速该用哪个时间基数」这条被测逻辑。
+    //
+    // 第 3 段故意让 `duration`（含暂停）远大于 `moving_time` —— 这是真实库里
+    // 让配速荒谬的那种段（`598287817` 第 7 段 16 m / 392 s）。夹具若各段
+    // duration == moving_time，那么「显示 duration 还是 moving_time」在 e2e 里
+    // 完全测不出来。
+    { average_heart_rate: 131, average_cadence: 186, average_power: 232, duration: 457, moving_time: 457 },
+    { average_heart_rate: 170, average_cadence: 188, average_power: 298, duration: 280, moving_time: 280 },
+    { average_heart_rate: 178, average_cadence: 188, average_power: 305, duration: 275, moving_time: 245 },
+    { average_heart_rate: 141, average_cadence: 184, average_power: 240, duration: 436, moving_time: 436 },
   ];
+  // 距离 1 km/段, 配速由计时器时间推导（与生产同一条路径）
+  for (const l of lapDefs) {
+    l.average_pace = paceSecPerKm(1, l.moving_time);
+    l.average_speed = speedKmh(1, l.moving_time);
+  }
   // 注: insertLaps 取**所有** lap 的键并集推导列（旧实现只看首条，
   // 会静默丢弃后续 lap 独有的字段，见 tests/unit/common/db-manager-lap-columns.test.js）
   // lap 行在记录生成之后再写入 —— 因为 lap 级区间秒数要按时间窗从记录推导。

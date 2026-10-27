@@ -36,6 +36,7 @@ import { hrZoneOf, resolveMaxHr } from './hr-zones';
 import { POWER_ZONE_NAMES, powerZoneOf } from './power-zones';
 import { resolveFtp } from './power';
 import { RUNNING_ACTIVITY_TYPES } from './sport';
+import { effectiveTimeSec, paceSecPerKm } from './pace';
 
 
 /**
@@ -318,7 +319,10 @@ export function getStats(period?: 'week' | 'month' | 'year' | 'total'): StatsRes
     SELECT
       COUNT(*) as totalActivities,
       SUM(distance) as totalDistance,
-      SUM(duration) as totalDuration,
+      -- 总时长的时间基数 = **计时器时间**（与配速/区间/TSS 同一口径）。
+      -- duration 是经过时间（含暂停），拿它做「总时长」会把等人的时间算成训练。
+      -- 真实库 110/348 条活动的两者不同，最多相差 7845 秒。
+      SUM(CASE WHEN moving_time > 0 THEN moving_time ELSE duration END) as totalDuration,
       AVG(average_pace) as averagePace,
       AVG(average_heart_rate) as averageHeartRate,
       SUM(total_ascent) as totalAscent,
@@ -395,7 +399,9 @@ function bestTimeForDistanceMeters(
   let cumTime = 0;
   for (const lap of laps) {
     const lapDist = lap.distance ?? 0;
-    const lapDuration = lap.duration ?? 0;
+    // 与活动级同一时间基数：计时器时间优先（见 `app/lib/pace.ts`）。
+    // 用 `duration`（含暂停）会把休息时间算进 PR 成绩。
+    const lapDuration = effectiveTimeSec(lap) ?? lap.duration ?? 0;
     if (cumDist + lapDist >= targetMeters) {
       const remaining = targetMeters - cumDist;
       const fraction = lapDist > 0 ? remaining / lapDist : 0;
@@ -442,23 +448,27 @@ export function getPersonalRecords(period: 'week' | 'month' | 'year' | 'total' |
   const endStr = localDateYmd(endDate);
 
   const rows = db.prepare(
-    `SELECT activity_id, distance, duration, start_time FROM activities
+    `SELECT activity_id, distance, duration, moving_time, start_time FROM activities
      WHERE start_time >= ? AND start_time <= ? AND distance > 0
        AND ${runningTypeClause('activities')}
      ORDER BY start_time ASC`
-  ).all(toInclusiveStart(startStr, 'getPersonalRecords'), toInclusiveEnd(endStr, 'getPersonalRecords')) as { activity_id: number; distance: number; duration: number; start_time: string }[];
+  ).all(toInclusiveStart(startStr, 'getPersonalRecords'), toInclusiveEnd(endStr, 'getPersonalRecords')) as { activity_id: number; distance: number; duration: number; moving_time: number | null; start_time: string }[];
 
   // 数据库 activities.distance 存的是公里，统一转为米再参与计算
   const activities = rows.map((a) => ({
     ...a,
     distanceMeters: a.distance * 1000,
+    // 个人最佳的时间基数 = **计时器时间**（与配速同一口径，见 `app/lib/pace.ts`）。
+    // 用 `duration`（含暂停）会让一次带长时间停表的跑「跑出」一个假的慢成绩 ——
+    // 对 PR 而言更严重：它会把本该打破纪录的跑判成没破。
+    durationSeconds: effectiveTimeSec(a) ?? a.duration,
   }));
 
   const getLaps = (activityId: number) => getActivityLaps(activityId);
   const records: PersonalRecordItem[] = PR_DISTANCES.map(({ meters, label }) => {
     let best: { durationSeconds: number; achievedAt: string } | null = null;
     for (const a of activities) {
-      const r = bestTimeForDistanceMeters(a.activity_id, a.start_time, a.distanceMeters, a.duration, meters, getLaps);
+      const r = bestTimeForDistanceMeters(a.activity_id, a.start_time, a.distanceMeters, a.durationSeconds, meters, getLaps);
       if (r && (best == null || r.durationSeconds < best.durationSeconds)) best = r;
     }
     return {
@@ -493,6 +503,13 @@ interface LapRow {
   lap_index: number;
   distance: number;
   duration: number;
+  /**
+   * 计时器时间（FIT `total_timer_time`）。**与配速/区间秒数同一时间基数** ——
+   * `duration` 是经过时间（含暂停），拿它做 `total_duration` 累加或做加权平均的
+   * 权重，会让同一行里「区间秒数之和」（按 `moving_time` 推导）与
+   * `total_duration` 互相矛盾：真实库 2958 个 lap 里 88 个偏差 >10%。
+   */
+  moving_time: number | null;
   average_pace: number | null;
   average_heart_rate: number | null;
   average_cadence: number | null;
@@ -512,7 +529,7 @@ export function getPaceZoneStats(
   const bounds = getPaceZoneBoundsFromVdot(vdot);
 
   const rows = db.prepare(
-    `SELECT al.activity_id, al.lap_index, al.distance, al.duration,
+    `SELECT al.activity_id, al.lap_index, al.distance, al.duration, al.moving_time,
             al.average_pace, al.average_heart_rate, al.average_cadence, al.average_stride_length
      FROM activity_laps al
      INNER JOIN activities a ON a.activity_id = al.activity_id
@@ -559,8 +576,11 @@ export function getPaceZoneStats(
     // activity_count 应为「去重活动数」(与 getHrZoneStats 口径一致);
     // 此前按 lap 累加, 导致同一活动的多个 lap 重复计入。
     s.activityIds.add(lap.activity_id);
-    const w = lap.duration > 0 ? lap.duration : 1; // 权重: lap 时长
-    s.total_duration += lap.duration;
+    // 时间基数 = **计时器时间**（与配速、区间秒数同一口径，见 `app/lib/pace.ts`）。
+    // 用 `duration`（含暂停）会让 `total_duration` 与同一行的区间秒数之和矛盾。
+    const lapSec = effectiveTimeSec(lap) ?? 0;
+    const w = lapSec > 0 ? lapSec : 1; // 权重: lap 计时器时长（为 0 时退化为等权）
+    s.total_duration += lapSec;
     s.total_distance += lap.distance;
     s.wPaceSum += pace * w;
     s.wPaceDur += w;
@@ -630,7 +650,7 @@ export function getPowerZoneStats(
   const end = toInclusiveEnd(endDate, 'getPowerZoneStats');
 
   const rows = db.prepare(
-    `SELECT al.activity_id, al.duration, al.distance, al.average_power,
+    `SELECT al.activity_id, al.duration, al.moving_time, al.distance, al.average_power,
             al.average_heart_rate, al.average_cadence, al.average_stride_length,
             a.functional_threshold_power, a.power_zone_boundaries
      FROM activity_laps al
@@ -641,6 +661,7 @@ export function getPowerZoneStats(
   ).all(start, end) as {
     activity_id: number;
     duration: number | null;
+    moving_time: number | null;
     distance: number | null;
     average_power: number;
     average_heart_rate: number | null;
@@ -700,10 +721,12 @@ export function getPowerZoneStats(
     const s = acc[zone];
     s.activityIds.add(lap.activity_id);
     s.lapCount += 1;
-    const dur = lap.duration && lap.duration > 0 ? lap.duration : 0;
+    // 时间基数 = **计时器时间**（与配速、区间秒数同一口径，见 `app/lib/pace.ts`）。
+    // `duration` 含暂停，会让 `total_duration` 与同一行的区间秒数之和矛盾。
+    const dur = effectiveTimeSec(lap) ?? 0;
     s.duration += dur;
     s.distance += lap.distance ?? 0;
-    // 瓦数/心率/步频/步幅按 lap 时长加权; 时长为 0 的 lap 退化为等权 (权重 1)
+    // 瓦数/心率/步频/步幅按 lap 计时器时长加权; 时长为 0 的 lap 退化为等权 (权重 1)
     const w = dur > 0 ? dur : 1;
     s.wPow += lap.average_power * w;
     s.wDur += w;
@@ -830,8 +853,9 @@ export function getHrZoneStats(params: HrZoneAnalysisParams): HrZoneStat[] {
   }
 
   const rows = db.prepare(
-    `SELECT al.activity_id, a.start_time, a.start_time_local, al.duration, al.distance,
-            al.average_pace, al.average_cadence, al.average_stride_length, al.average_heart_rate
+    `SELECT al.activity_id, a.start_time, a.start_time_local, al.duration, al.moving_time,
+            al.distance, al.average_pace, al.average_cadence, al.average_stride_length,
+            al.average_heart_rate
      FROM activity_laps al
      INNER JOIN activities a ON a.activity_id = al.activity_id
      WHERE al.average_heart_rate IS NOT NULL AND al.average_heart_rate > 0 AND al.distance > 0
@@ -843,6 +867,7 @@ export function getHrZoneStats(params: HrZoneAnalysisParams): HrZoneStat[] {
     start_time: string;
     start_time_local: string | null;
     duration: number;
+    moving_time: number | null;
     distance: number;
     average_pace: number | null;
     average_cadence: number | null;
@@ -887,7 +912,7 @@ export function getHrZoneStats(params: HrZoneAnalysisParams): HrZoneStat[] {
     activitySet.add(lap.activity_id);
     stat.activity_count = activitySet.size;
 
-    stat.total_duration += lap.duration || 0;
+    stat.total_duration += effectiveTimeSec(lap) ?? 0;
     stat.total_distance += lap.distance || 0;
 
     const s = sums.get(key)!;
@@ -933,11 +958,11 @@ export function getVDOTTrend(params: VDOTTrendParams): VDOTTrendPoint[] {
   }
 
   const rows = db.prepare(
-    `SELECT start_time, start_time_local, vdot_value, distance, duration
+    `SELECT start_time, start_time_local, vdot_value, distance, duration, moving_time
      FROM activities
      ${dateFilter}
      ORDER BY start_time`
-  ).all(...queryParams) as { start_time: string; start_time_local: string | null; vdot_value: number; distance: number; duration: number }[];
+  ).all(...queryParams) as { start_time: string; start_time_local: string | null; vdot_value: number; distance: number; duration: number; moving_time: number | null }[];
 
   const trendsMap = new Map<string, VDOTTrendPoint>();
 
@@ -962,7 +987,7 @@ export function getVDOTTrend(params: VDOTTrendParams): VDOTTrendPoint[] {
     trend.activity_count += 1;
     // activities.distance 为公里, VDOTTrendPoint.total_distance 约定为米
     trend.total_distance += (activity.distance ?? 0) * 1000;
-    trend.total_duration += activity.duration || 0;
+    trend.total_duration += effectiveTimeSec(activity) ?? 0;
 
     trend.avg_vdot += activity.vdot_value;
     trend.max_vdot = trend.max_vdot === null ? activity.vdot_value : Math.max(trend.max_vdot, activity.vdot_value);
@@ -991,7 +1016,8 @@ export function getPeriodStats(startDate: string, endDate: string): PeriodStats 
   const row = db.prepare(
     `SELECT
        SUM(distance) AS totalDistance,
-       SUM(duration) AS totalDuration,
+       -- 同 getStats: 总时长用计时器时间（moving_time），不用经过时间。
+       SUM(CASE WHEN moving_time > 0 THEN moving_time ELSE duration END) AS totalDuration,
        COUNT(*) AS totalActivities,
        AVG(average_pace) AS avgPace,
        AVG(vdot_value) AS avgVDOT,
@@ -1268,7 +1294,7 @@ export function getLongRuns(
   const start = toInclusiveStart(startDate, 'getLongRuns');
   const end = toInclusiveEnd(endDate, 'getLongRuns');
   const rows = db.prepare(
-    `SELECT activity_id, start_time_local, distance, duration
+    `SELECT activity_id, start_time_local, distance, duration, moving_time
      FROM activities
      WHERE distance >= ? AND duration > 0 AND start_time >= ? AND start_time <= ?
        AND ${runningTypeClause('activities')}
@@ -1278,12 +1304,15 @@ export function getLongRuns(
     start_time_local: string;
     distance: number;
     duration: number;
+    moving_time: number | null;
   }[];
   return rows.map((r) => ({
     activityId: r.activity_id,
     date: r.start_time_local,
     distanceMeters: (r.distance ?? 0) * 1000,
-    durationSeconds: r.duration ?? 0,
+    // 解耦曲线上的配速与 PR/详情页同一口径（计时器时间，见 `app/lib/pace.ts`）。
+    // 用 `duration` 会让「暂停多的长跑」在解耦趋势里显示一个慢得离谱的点。
+    durationSeconds: effectiveTimeSec(r) ?? r.duration ?? 0,
   }));
 }
 
@@ -1336,7 +1365,7 @@ export function getPaceHrSamples(
   const start = toInclusiveStart(startDate, 'getPaceHrSamples');
   const end = toInclusiveEnd(endDate, 'getPaceHrSamples');
   const rows = db.prepare(
-    `SELECT distance, duration, average_heart_rate
+    `SELECT distance, duration, moving_time, average_heart_rate
      FROM activities
      WHERE distance >= ? AND duration > 0 AND average_heart_rate > 0
        AND start_time >= ? AND start_time <= ?
@@ -1345,13 +1374,17 @@ export function getPaceHrSamples(
   ).all(minKm, start, end) as {
     distance: number;
     duration: number;
+    moving_time: number | null;
     average_heart_rate: number;
   }[];
   return rows
     .map((r) => {
-      const meters = (r.distance ?? 0) * 1000;
+      // 配速-心率回归的输入必须与展示口径一致（计时器时间）。
+      // 若这里用 `duration`，回归出的「同心率下配速更快」结论会与实际
+      // 展示的配速对不上 —— 同一份数据两套配速。
+      const seconds = effectiveTimeSec(r);
       return {
-        paceSecPerKm: meters > 0 ? r.duration / (meters / 1000) : 0,
+        paceSecPerKm: paceSecPerKm(r.distance, seconds) ?? 0,
         heartRate: r.average_heart_rate,
       };
     })

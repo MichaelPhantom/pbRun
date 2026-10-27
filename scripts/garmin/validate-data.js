@@ -7,6 +7,7 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 const DatabaseManager = require('../common/db-manager');
+const { effectiveTimeSec, speedKmh, paceSecPerKm } = require('../common/pace');
 
 /**
  * 人类瞬时速度合理上限 (km/h)。跑步世界纪录约 44 km/h, 球类挥拍/击球峰值也在此量级;
@@ -88,7 +89,7 @@ class DataValidator {
 
     // Check distance unit (km vs m)
     const activities = this.db.prepare(`
-      SELECT activity_id, distance, duration, average_speed, average_pace
+      SELECT activity_id, distance, duration, moving_time, average_speed, average_pace
       FROM activities
       WHERE distance > 0 AND duration > 0
       LIMIT 100
@@ -99,7 +100,14 @@ class DataValidator {
       // average_speed 为 km/h, **distance 为公里**（DB 契约, 见 db-manager）。
       // 旧写法把 distance 当米算出 (distance/duration)*3.6, 对真实库 100/100 条
       // 全部误判为「单位不一致」—— 校验脚本自己就是错的, 每次运行都在报假警。
-      const expectedSpeed = (act.distance / (act.duration / 3600));
+      //
+      // 时间基数 = **计时器时间**（`moving_time`），不是经过时间（见
+      // `scripts/common/pace.js`）。旧校验按 `duration` 比对，等于把
+      // 「配速读错了时间基数」这个缺陷锁进校验器里 —— 校验器会一直说
+      // 「251/251 正确」，而实际 93/251 条配速是错的。
+      const seconds = effectiveTimeSec(act);
+      const expectedSpeed = speedKmh(act.distance, seconds);
+      if (expectedSpeed == null) return;
       const diff = Math.abs(expectedSpeed - act.average_speed);
 
       if (diff > 0.01) {
@@ -153,17 +161,18 @@ class DataValidator {
     let timeErrors = 0;
 
     activities.forEach(act => {
-      // average_speed (km/h) = distance(km) / duration(h) = distance / (duration/3600)
-      // 旧写法按「distance 是米」算 (distance/duration)*3.6, 对真实库 100/100 全误判。
-      const expectedSpeed = act.distance / (act.duration / 3600);
-      if (Math.abs(expectedSpeed - act.average_speed) > 0.01) {
+      // average_speed (km/h) 与 average_pace (s/km) 的**时间基数都是计时器时间**
+      // （`moving_time`）。旧写法用 `duration`（含暂停）比对，等于把「配速读错了
+      // 时间基数」锁进校验器 —— 校验器会一直报「251/251 正确」，而实际 93/251
+      // 条配速是错的（真实库 582132079 显示 26:19/km，实为 6:35/km）。
+      const seconds = effectiveTimeSec(act);
+      const expectedSpeed = speedKmh(act.distance, seconds);
+      if (expectedSpeed != null && Math.abs(expectedSpeed - act.average_speed) > 0.01) {
         speedErrors++;
       }
 
-      // average_pace 秒/公里 = duration / distance(km)
-      // 旧写法再乘 1000 (当 distance 是米), 同样 100/100 全误判。
-      const expectedPace = act.duration / act.distance;
-      if (Math.abs(expectedPace - act.average_pace) > 0.01) {
+      const expectedPace = paceSecPerKm(act.distance, seconds);
+      if (expectedPace != null && Math.abs(expectedPace - act.average_pace) > 0.01) {
         paceErrors++;
       }
 
@@ -249,7 +258,7 @@ class DataValidator {
 
     activitiesWithLaps.forEach(({ activity_id }) => {
       const laps = this.db.prepare(`
-        SELECT lap_index, distance, duration, average_speed, average_pace, cumulative_time
+        SELECT lap_index, distance, duration, moving_time, average_speed, average_pace, cumulative_time
         FROM activity_laps
         WHERE activity_id = ?
         ORDER BY lap_index
@@ -262,16 +271,17 @@ class DataValidator {
       let expectedCumulativeTime = 0;
 
       laps.forEach(lap => {
-        // average_speed 公里/小时 = (distance米 / duration秒) * 3.6
-        if (lap.duration > 0 && lap.distance > 0) {
-          const expectedSpeed = (lap.distance / lap.duration) * 3.6;
-          if (lap.average_speed != null && Math.abs(expectedSpeed - lap.average_speed) > 0.01) {
+        // average_speed / average_pace 的时间基数同样是**计时器时间**（lap 的
+        // `moving_time`）。旧写法用 `duration`，与活动级同一处缺陷。
+        const lapSeconds = effectiveTimeSec(lap);
+        if (lap.distance > 0) {
+          const expectedSpeed = speedKmh(lap.distance / 1000, lapSeconds);
+          if (expectedSpeed != null && lap.average_speed != null && Math.abs(expectedSpeed - lap.average_speed) > 0.01) {
             speedCalcErrors++;
           }
 
-          // average_pace 秒/公里 = duration / (distance/1000)
-          const expectedPace = (lap.duration * 1000) / lap.distance;
-          if (lap.average_pace != null && Math.abs(expectedPace - lap.average_pace) > 0.01) {
+          const expectedPace = paceSecPerKm(lap.distance / 1000, lapSeconds);
+          if (expectedPace != null && lap.average_pace != null && Math.abs(expectedPace - lap.average_pace) > 0.01) {
             paceCalcErrors++;
           }
         }

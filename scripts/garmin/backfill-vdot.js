@@ -14,6 +14,7 @@ const fs = require('fs').promises;
 const DatabaseManager = require('../common/db-manager');
 const GarminFITParser = require('./fit-parser');
 const VDOTCalculator = require('../common/vdot-calculator');
+const { effectiveTimeSec } = require('../common/pace');
 
 const FIT_CACHE_DIR = path.join(process.cwd(), '.cache', 'fit');
 
@@ -70,13 +71,20 @@ async function main() {
       let seg = null;
       const wholeHr = activityRow.average_heart_rate ?? parsed.activity?.average_heart_rate;
       const wholeDist = parsed.activity?.distance ?? activityRow.distance;
-      const wholeDur = parsed.activity?.duration ?? activityRow.duration;
+      // **时间基数 = 计时器时间**（与配速/VDOT/训练负荷同一口径）。
+      // 旧实现取 `parsed.activity?.duration ?? activityRow.duration`，两者都是
+      // `total_elapsed_time`（含暂停）—— 于是 VDOT 与 training_load 都按
+      // 「把暂停也算成跑步」的速度/时长算，真实库 25 条 VDOT、19 条 TL 偏差 >10%。
+      const wholeDur = effectiveTimeSec({
+        moving_time: parsed.activity?.moving_time ?? activityRow.moving_time,
+        duration: parsed.activity?.duration ?? activityRow.duration,
+      }) ?? 0;
       if (isRunningActivity) {
         if (Array.isArray(laps) && laps.length > 0) {
-          const cands = laps.filter(l => l.distance > 400 && l.duration > 30 && l.average_heart_rate && l.average_pace);
+          const cands = laps.filter(l => l.distance > 400 && (effectiveTimeSec(l) ?? 0) > 30 && l.average_heart_rate && l.average_pace);
           if (cands.length > 0) {
             const best = cands.reduce((a, b) => (a.average_pace < b.average_pace ? a : b));
-            if (calc.isRepresentativeEffort(best.average_heart_rate)) seg = { d: best.distance, t: best.duration };
+            if (calc.isRepresentativeEffort(best.average_heart_rate)) seg = { d: best.distance, t: effectiveTimeSec(best) ?? best.duration };
             else if (wholeHr && calc.isRepresentativeEffort(wholeHr)) seg = { d: (wholeDist || 0) * 1000, t: wholeDur || 0 };
           } else if (wholeHr && calc.isRepresentativeEffort(wholeHr)) {
             seg = { d: (wholeDist || 0) * 1000, t: wholeDur || 0 };

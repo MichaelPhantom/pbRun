@@ -75,6 +75,53 @@ describe('_extractActivityData 分支', () => {
     expect(noDur.average_pace).toBeUndefined();
   });
 
+  /**
+   * 配速/速度的时间基数 = **计时器时间**（`total_timer_time`），不是经过时间。
+   *
+   * 缺陷原状（2026-10-27 审计）：`average_pace = duration / distance`，而
+   * `duration` 存的是 `total_elapsed_time`（含暂停）。真实库 251 条有配速的
+   * 活动里 251/251 严格等于 `duration/distance`，只有 158 条等于
+   * `moving_time/distance` —— 所有「暂停较多」的活动配速都是错的。
+   *
+   * 最刺眼的一例：`582132079` 6.63 km、卡片「时长」43.7 分（moving_time），
+   * 「平均配速」却显示 **26:19/km**（配速×距离 = 174.4 分）。设备自己算的
+   * `enhanced_avg_speed` 也是计时器口径（251 条里 248 条偏差 <2%）。
+   */
+  test('配速/速度: 用计时器时间 total_timer_time, 不是经过时间', () => {
+    const out = p._extractActivityData({
+      sessions: [
+        {
+          total_distance: 10,
+          total_elapsed_time: 4200, // 含 600s 暂停
+          total_timer_time: 3600,
+        },
+      ],
+    });
+    // 10 km / 3600 s → 10 km/h、360 s/km
+    expect(out.average_speed).toBeCloseTo(10, 5);
+    expect(out.average_pace).toBeCloseTo(360, 5);
+    // 经过时间口径会得到 420 s/km —— 必须**不**是这个值
+    expect(out.average_pace).not.toBeCloseTo(420, 1);
+    // 两个时间列本身仍按各自语义落库（总时长 vs 移动时间）
+    expect(out.duration).toBe(4200);
+    expect(out.moving_time).toBe(3600);
+  });
+
+  test('配速/速度: 缺 total_timer_time → 回退经过时间 (不造 NULL)', () => {
+    const out = p._extractActivityData({
+      sessions: [{ total_distance: 10, total_elapsed_time: 3600 }],
+    });
+    expect(out.average_pace).toBeCloseTo(360, 5);
+    expect(out.average_speed).toBeCloseTo(10, 5);
+  });
+
+  test('配速与速度严格互为倒数 (不会一个按计时器、一个按经过时间)', () => {
+    const out = p._extractActivityData({
+      sessions: [{ total_distance: 6.63, total_elapsed_time: 10465, total_timer_time: 2621 }],
+    });
+    expect(out.average_speed * out.average_pace).toBeCloseTo(3600, 6);
+  });
+
   test('跑步动力学: 0 值不写入 (cadence/步幅/摆动/触地)', () => {
     const out = p._extractActivityData({
       sessions: [
@@ -197,6 +244,47 @@ describe('_extractLapsData 分支', () => {
     expect(laps[0].average_pace).toBeUndefined();
     expect(laps[1].cumulative_time).toBe(300);
     expect(laps[1].average_pace).toBeCloseTo(300, 5);
+  });
+
+  /**
+   * lap 配速/速度的时间基数同样是**计时器时间**（`total_timer_time`）。
+   *
+   * 缺陷原状：lap 用 `duration`（= `total_elapsed_time`，含暂停），于是
+   * `598287817` 第 7 段 16 m / 392 s（moving_time）配速显示 **60792 s/km**
+   * —— 16.9 小时/公里。真实库 3082 个 lap 里 `average_pace` **2972/2972**
+   * 严格等于 `duration/distance`，而 `average_moving_pace` **2972/2972**
+   * 等于 `moving_time/distance`；后者才是正确口径（此前从未被 UI 消费）。
+   */
+  test('lap 配速/速度: 用计时器时间 total_timer_time, 不是经过时间', () => {
+    const [lap] = p._extractLapsData({
+      laps: [{ total_distance: 1, total_elapsed_time: 400, total_timer_time: 300 }],
+    });
+    // 1 km / 300 s → 300 s/km、12 km/h
+    expect(lap.average_pace).toBeCloseTo(300, 5);
+    expect(lap.average_speed).toBeCloseTo(12, 5);
+    // 经过时间口径会得到 400 s/km —— 必须**不**是这个值
+    expect(lap.average_pace).not.toBeCloseTo(400, 1);
+    // 两个时间列仍按各自语义落库
+    expect(lap.duration).toBe(400);
+    expect(lap.moving_time).toBe(300);
+  });
+
+  test('lap 配速: 缺 total_timer_time → 回退经过时间', () => {
+    const [lap] = p._extractLapsData({
+      laps: [{ total_distance: 1, total_elapsed_time: 400 }],
+    });
+    expect(lap.average_pace).toBeCloseTo(400, 5);
+  });
+
+  test('lap average_pace 与 average_moving_pace 现在是同一个数 (口径统一后)', () => {
+    // 两列历史上分别是「经过时间口径」与「计时器口径」。统一后它们必须相等 ——
+    // 若哪天有人只改其中一条推导链，这里会立刻变红。
+    const [lap] = p._extractLapsData({
+      laps: [{ total_distance: 2, total_elapsed_time: 700, total_timer_time: 600 }],
+    });
+    expect(lap.average_pace).toBeCloseTo(300, 5);
+    expect(lap.average_moving_pace).toBeCloseTo(300, 5);
+    expect(lap.average_pace).toBe(lap.average_moving_pace);
   });
 
   test('moving_time 缺失 → 不算移动配速', () => {

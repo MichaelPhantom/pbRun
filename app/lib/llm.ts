@@ -12,6 +12,7 @@ import { findPreset, resolvePresets } from '@/app/lib/model-curation';
 import { activityTypeName, isRunningType } from '@/app/lib/sport';
 import { powerIntensity } from '@/app/lib/power';
 import { ascentToSpanRatio, elevationSpan } from '@/app/lib/elevation';
+import { effectiveTimeSec } from '@/app/lib/pace';
 import {
   evaluateWorkoutExecution,
   formatWorkoutExecution,
@@ -476,7 +477,7 @@ export function buildAnalysisMessages(
       cumKm += segKm;
       const parts = running
         ? [seg, formatPace(l.average_pace, false)]
-        : [seg, formatDuration(l.duration)];
+        : [seg, formatDuration(effectiveTimeSec(l) ?? l.duration)];
       if (l.average_heart_rate != null) parts.push(`${Math.round(l.average_heart_rate)}bpm`);
       if (running && l.average_cadence != null) parts.push(`${Math.round(l.average_cadence)}spm`);
       // 分段功率只对跑步输出: 真实库 2827/2827 条跑步 lap 有 `average_power`

@@ -12,6 +12,7 @@ const path = require('path');
 
 const VDOTCalculator = require('../common/vdot-calculator');
 const DatabaseManager = require('../common/db-manager');
+const { effectiveTimeSec } = require('../common/pace');
 const { log, logSection, formatDuration, persistEnvVar } = require('../common/utils');
 
 // Colors for output
@@ -235,30 +236,35 @@ class StravaSync {
     };
 
     // VDOT：仅 Z3+ 代表性强度才计算（与 garmin 侧一致，日常轻松跑跳过）
+    //
+    // 时间基数统一走 `effectiveTimeSec`：Strava 侧 `duration` 本身就等于
+    // `moving_time`（`fetcher.py` 把 moving_time 写进两列），但口径必须**只有
+    // 一个实现** —— 否则哪天 Strava 改了字段映射，VDOT 会与展示的配速分叉。
+    const wholeSec = effectiveTimeSec(data) ?? 0;
     if (this.vdotCalculator && data.average_heart_rate) {
       let seg = null;
       if (Array.isArray(data.laps) && data.laps.length > 0) {
-        const cands = data.laps.filter(l => l.distance > 400 && l.duration > 30 && l.average_heart_rate && l.average_pace);
+        const cands = data.laps.filter(l => l.distance > 400 && (effectiveTimeSec(l) ?? 0) > 30 && l.average_heart_rate && l.average_pace);
         if (cands.length > 0) {
           const best = cands.reduce((a, b) => (a.average_pace < b.average_pace ? a : b));
           if (this.vdotCalculator.isRepresentativeEffort(best.average_heart_rate)) {
-            seg = { d: best.distance, t: best.duration };
+            seg = { d: best.distance, t: effectiveTimeSec(best) ?? best.duration };
           } else if (this.vdotCalculator.isRepresentativeEffort(data.average_heart_rate)) {
-            seg = { d: data.distance * 1000, t: data.duration };
+            seg = { d: data.distance * 1000, t: wholeSec };
           }
         } else if (this.vdotCalculator.isRepresentativeEffort(data.average_heart_rate)) {
-          seg = { d: data.distance * 1000, t: data.duration };
+          seg = { d: data.distance * 1000, t: wholeSec };
         }
       } else if (this.vdotCalculator.isRepresentativeEffort(data.average_heart_rate)) {
-        seg = { d: data.distance * 1000, t: data.duration };
+        seg = { d: data.distance * 1000, t: wholeSec };
       }
       if (seg) {
         activityData.vdot_value = this.vdotCalculator.calculateVdotFromPace(seg.d, seg.t);
       }
     }
     // training_load：Strava 无 FIT 官方值，仍用自定义公式（与 garmin 缺省回退一致）
-    if (activityData.training_load == null && this.vdotCalculator && data.average_heart_rate && data.duration) {
-      activityData.training_load = this.vdotCalculator.calculateTrainingLoad(data.duration, data.average_heart_rate);
+    if (activityData.training_load == null && this.vdotCalculator && data.average_heart_rate && wholeSec > 0) {
+      activityData.training_load = this.vdotCalculator.calculateTrainingLoad(wholeSec, data.average_heart_rate);
     }
 
     return activityData;

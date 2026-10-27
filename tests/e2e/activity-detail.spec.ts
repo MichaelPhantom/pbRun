@@ -22,6 +22,56 @@ test.describe('活动详情页', () => {
     await expect(page.getByRole('table', { name: '每公里分段数据' })).toBeVisible();
   });
 
+  /**
+   * **卡片自洽性**：配速必须按计时器时间（`moving_time`）推导，不是经过时间。
+   *
+   * 缺陷原状（2026-10-27）：配速由 `duration`（FIT `total_elapsed_time`，含暂停）
+   * 推导，而「时长」格显示 `moving_time`（`total_timer_time`）。于是同一个活动卡片
+   * 自相矛盾 —— 真实库 `582132079` 显示「6.63 km / 43.7 分 / 26:19 每公里」，
+   * 而 26:19 × 6.63 = **174.4 分钟**，是显示时长的 4 倍。
+   *
+   * 夹具活动 1 刻意让 `moving_time`（2750s）≠ `duration`（2800s），两个口径给出的
+   * 配速分别是 **343.8 s/km（5:44）** 与 **350 s/km（5:50）**。
+   *
+   * ## 断言方式：判别式，不是写死数值
+   *
+   * 不写死「必须显示 5:44」—— 那等于把夹具**输入**当**期望输出**，夹具一改就误报。
+   * 这里从页面读出真实渲染的配速，然后断言它**离计时器口径更近、离经过时间口径更远**。
+   * 这是一个判别式：只要口径错了，两边距离就必然反转，且不依赖具体数值大小。
+   * （两个口径只差 1.8%，所以不能用「落在 ±x% 容差内」——容差比差值还大就测不出来。）
+   */
+  test('概览配速按计时器时间推导 (离 moving_time 口径更近)', async ({ page }) => {
+    await page.goto('/pbrun/pages/900000001');
+    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(1200);
+
+    // 精确定位「平均配速」那一格（label 的兄弟节点），不要扫整页 —— 整页还有
+    // 分段表/趋势图里的大量 m:ss，容易取到别的值。
+    const cell = page.locator('div', { hasText: '平均配速' }).last();
+    await expect(page.getByText('平均配速')).toBeVisible();
+    const cellText = await cell.innerText();
+
+    const m = /(\d+):(\d{2})/.exec(cellText);
+    expect(m).not.toBeNull();
+    const displayed = Number(m![1]) * 60 + Number(m![2]);
+    // 跑步配速的生理边界，防止把别处的 m:ss（如时长 45:50）误当配速。
+    expect(displayed).toBeGreaterThan(120);
+    expect(displayed).toBeLessThan(900);
+
+    // 夹具活动 1 的输入（8.0 km / moving_time 2750s / duration 2800s）。
+    const distanceKm = 8.0;
+    const timerPace = 2750 / distanceKm; // 343.75
+    const elapsedPace = 2800 / distanceKm; // 350.00
+
+    const distToTimer = Math.abs(displayed - timerPace);
+    const distToElapsed = Math.abs(displayed - elapsedPace);
+
+    // 判别式：必须明显更接近计时器口径。
+    expect(distToTimer).toBeLessThan(distToElapsed);
+    // 且确实落在计时器口径上（±1 秒取整误差）。
+    expect(distToTimer).toBeLessThanOrEqual(1);
+  });
+
   test('应显示趋势图与深度分析区', async ({ page }) => {
     await page.goto('/pbrun/pages/900000001');
     await page.waitForLoadState('networkidle');

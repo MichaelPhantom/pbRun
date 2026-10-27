@@ -19,8 +19,11 @@ export interface Activity {
   elapsed_time: number;                          // 经过时间（秒）
 
   // 配速和速度
-  average_pace?: number;                         // 平均配速（秒/公里）
-  average_speed?: number;                        // 平均速度（公里/小时）
+  // **时间基数 = 计时器时间**（`moving_time` / FIT `total_timer_time`）。
+  // `average_pace` 与 `average_speed` 互为倒数，永远同一口径；缺失 timer time
+  // 时才回退 `duration`。口径唯一实现见 `app/lib/pace.ts`。
+  average_pace?: number;                         // 平均配速（秒/公里，计时器时间口径）
+  average_speed?: number;                        // 平均速度（公里/小时，同上口径）
   max_speed?: number;                            // 最大速度（公里/小时；与 average_speed 同单位）
 
   // 心率数据
@@ -167,11 +170,14 @@ export interface ActivityLap {
 
   // 距离和配速
   distance: number;                              // 分段距离（米）
-  average_pace?: number;                         // 平均配速（秒/公里）
+  // **时间基数 = 计时器时间**（`moving_time`），与活动级同一口径（见 `app/lib/pace.ts`）。
+  // `average_pace` 与 `average_speed` 互为倒数；`average_moving_pace` 是同一
+  // 口径的显式列（历史遗留的冗余列，值恒等于 `average_pace`）。
+  average_pace?: number;                         // 平均配速（秒/公里，计时器时间口径）
   average_pace_gap?: number;                     // 平均坡度调整配速（秒/公里）; 真实库 0/3082, FIT profile 无此字段
   best_pace?: number;                            // 最佳配速（秒/公里）; 真实库 0/3082, FIT 只有 best_lap_index（索引）
-  average_speed?: number;                        // 平均速度（公里/小时）
-  average_moving_pace?: number;                  // 平均移动配速（秒/公里）
+  average_speed?: number;                        // 平均速度（公里/小时，同上口径）
+  average_moving_pace?: number;                  // 平均移动配速（秒/公里）; 与 average_pace 同值（历史冗余列）
 
   // 心率
   average_heart_rate?: number;                   // 平均心率（bpm）

@@ -278,7 +278,7 @@ describe('Database Functions', () => {
   });
 
   describe('getHrZoneStats (纯实时, lap 平均心率口径)', () => {
-    test('按 lap 心率归区并聚合 duration/distance (月维度)', () => {
+    test('按 lap 心率归区并聚合计时器时长/距离 (月维度)', () => {
       mockAll.mockReturnValue([
         // 活动 1: 两个 lap, 分别落入 Z1 (120bpm) 与 Z2 (150bpm)
         { activity_id: 1, start_time: '2024-01-05T08:00:00Z', duration: 300, distance: 1000, average_pace: 300, average_cadence: 170, average_stride_length: 1.1, average_heart_rate: 120 },

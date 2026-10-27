@@ -397,7 +397,11 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
                   ),
                   dist: ((lap.distance ?? 0) / 1000).toFixed(2),
                   pace: <span className={isBest ? 'font-semibold text-[var(--good-text)]' : 'text-fg-secondary'}>{formatPace(lap.average_pace, false)}</span>,
-                  dur: formatDuration(lap.duration),
+                  // 分段「时长」必须与「配速」同一时间基数（计时器时间）。
+                  // 旧实现显示 `lap.duration`（含暂停），配速却由 `moving_time`
+                  // 推出 —— 同一个 lap 里「时长 × 配速」对不上距离。真实库
+                  // `598287817` 第 7 段：时长 983 s、配速 60792 s/km，距离只有 16 m。
+                  dur: formatDuration(lap.moving_time ?? lap.duration),
                   hr: lap.average_heart_rate != null ? Math.round(lap.average_heart_rate) : '--',
                   cad: lap.average_cadence != null ? Math.round(lap.average_cadence) : '--',
                   // 分段功率: 真实库 2827/2827 条跑步 lap 都有 `average_power`

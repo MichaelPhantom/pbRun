@@ -311,12 +311,17 @@ describe('db.ts 洞察查询 (真实 SQL)', () => {
     // 长跑 (解耦分析): 游泳 8.2km 不该被当成「长跑」
     expect(db.getLongRuns(...range, 8).map((r) => r.activityId)).not.toContain(4);
     // 个人纪录: 游泳「8.2km / 13700s」按比例会伪造 5K = 8353s 的「纪录」。
-    // 跑步口径下 5K 由活动 2 (7km / 2520s, 无 lap → 按比例 1800s) 保持;
+    // 跑步口径下 5K 由活动 2 (7km, 计时器时间 2500s, 无 lap → 按比例) 保持;
     // 活动 1 的分段只覆盖 2km, 无法插值出 5K (返回 null, 属既有语义)。
+    //
+    // 时间基数必须是**计时器时间**: 活动 2 的 `moving_time` 是 2500s、`duration`
+    // 是 2520s（含 20s 暂停）。2500 × 5/7 = **1786s**，而按 `duration` 算是 1800s
+    // —— 旧断言写死 1800，等于把「PR 用了经过时间」这个缺陷锁进测试。
+    // 暂停 20 秒看着小，但它会把一次**本应破纪录**的跑判成没破。
     const pr = db.getPersonalRecords('total');
     expect(pr.longestRunMeters).toBe(18600); // 活动 3, 而非 8.2km 游泳
     const fiveK = pr.records.find((r) => r.distanceLabel.includes('5'))!;
-    expect(fiveK.durationSeconds).toBe(1800);
+    expect(fiveK.durationSeconds).toBe(1786);
     expect(fiveK.achievedAt).toBe('2026-09-10T12:00:00.000Z');
   });
 

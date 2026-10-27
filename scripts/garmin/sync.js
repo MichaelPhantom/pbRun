@@ -13,6 +13,7 @@ const { createSource } = require('./sources');
 const GarminFITParser = require('./fit-parser');
 const VDOTCalculator = require('../common/vdot-calculator');
 const DatabaseManager = require('../common/db-manager');
+const { effectiveTimeSec } = require('../common/pace');
 
 /** FIT 缓存目录，避免重复拉取 */
 const FIT_CACHE_DIR = path.join(process.cwd(), '.cache', 'fit');
@@ -374,23 +375,29 @@ class GarminSync {
 
     // VDOT：仅在“代表性强度”时段计算（避免把恢复/有氧慢跑平均强度当成能力值）
     // 取 laps 中最快且为 Z3+ 的段为代表；无合适 lap 且全程也非 Z3+ 则跳过
+    //
+    // **时间基数 = 计时器时间**（与配速同一口径，见 `scripts/common/pace.js`）。
+    // VDOT 是配速的函数，若这里用 `duration`（含暂停）而展示的配速用
+    // `moving_time`，就会出现「页面配速 6:35/km、VDOT 却按 26:19/km 算」的
+    // 自相矛盾 —— 真实库 121 条有 VDOT 的跑步活动里 25 条偏差 >2%。
     const runnableTypes = ['running', 'treadmill_running', 'track_running'];
+    const wholeSec = effectiveTimeSec(activityData) ?? 0;
     if (this.vdotCalculator && runnableTypes.includes(activityData.activity_type) && activityData.average_heart_rate) {
       let seg = null;
       if (Array.isArray(lapsData) && lapsData.length > 0) {
-        const cands = lapsData.filter(l => l.distance > 400 && l.duration > 30 && l.average_heart_rate && l.average_pace);
+        const cands = lapsData.filter(l => l.distance > 400 && (effectiveTimeSec(l) ?? 0) > 30 && l.average_heart_rate && l.average_pace);
         if (cands.length > 0) {
           const best = cands.reduce((a, b) => (a.average_pace < b.average_pace ? a : b));
           if (this.vdotCalculator.isRepresentativeEffort(best.average_heart_rate)) {
-            seg = { d: best.distance, t: best.duration, hr: best.average_heart_rate };
+            seg = { d: best.distance, t: effectiveTimeSec(best) ?? best.duration, hr: best.average_heart_rate };
           } else if (this.vdotCalculator.isRepresentativeEffort(activityData.average_heart_rate)) {
-            seg = { d: (activityData.distance || 0) * 1000, t: activityData.duration || 0, hr: activityData.average_heart_rate };
+            seg = { d: (activityData.distance || 0) * 1000, t: wholeSec, hr: activityData.average_heart_rate };
           }
         } else if (this.vdotCalculator.isRepresentativeEffort(activityData.average_heart_rate)) {
-          seg = { d: (activityData.distance || 0) * 1000, t: activityData.duration || 0, hr: activityData.average_heart_rate };
+          seg = { d: (activityData.distance || 0) * 1000, t: wholeSec, hr: activityData.average_heart_rate };
         }
       } else if (this.vdotCalculator.isRepresentativeEffort(activityData.average_heart_rate)) {
-        seg = { d: (activityData.distance || 0) * 1000, t: activityData.duration || 0, hr: activityData.average_heart_rate };
+        seg = { d: (activityData.distance || 0) * 1000, t: wholeSec, hr: activityData.average_heart_rate };
       }
       if (seg) {
         const vdot = this.vdotCalculator.calculateVdotFromPace(seg.d, seg.t);
@@ -401,11 +408,16 @@ class GarminSync {
     // 不同的 training_load_peak，实测与库内值比值 1.2–2.6 倍浮动、不可换算），
     // 故这里实际上总是走派生分支。保留 `== null` 判断是为了让将来若真有设备
     // 写入（走别的同步源）时仍能优先采用。
-    if (activityData.training_load == null && this.vdotCalculator && activityData.duration && activityData.average_heart_rate) {
+    //
+    // **时间基数 = 计时器时间**：训练负荷是「实际训练了多少分钟」的函数，
+    // 把暂停时间算进去会虚高（真实库 `582132079` 按 `duration` 得 174、
+    // 按 `moving_time` 得 44 —— 4 倍）。与 TSS 的时间基数纪律一致
+    // （`app/lib/power.ts` 早已声明 TSS 用 `moving_time`）。
+    if (activityData.training_load == null && this.vdotCalculator && wholeSec > 0 && activityData.average_heart_rate) {
       const runnableTypes2 = ['running', 'treadmill_running', 'track_running'];
       if (runnableTypes2.includes(activityData.activity_type)) {
         activityData.training_load = this.vdotCalculator.calculateTrainingLoad(
-          activityData.duration,
+          wholeSec,
           activityData.average_heart_rate
         );
       }
