@@ -8,6 +8,8 @@ import {
   computeComparison,
   hrZoneBreakdown,
   dominantZone,
+  isReliableLapPace,
+  MIN_RELIABLE_LAP_SEC,
   type LapInput,
 } from '@/app/lib/activity-insight';
 import type { RecordSample } from '@/app/lib/insight';
@@ -363,7 +365,14 @@ describe('buildActivityInsight', () => {
         id: l.lapIndex,
         activity_id: 99,
         lap_index: l.lapIndex,
-        duration: 0,
+        // 时长必须与 distance/average_pace 自洽 —— 旧夹具写死 `duration: 0`,
+        // 与「1000 m / 278 s/km」互相矛盾。0 秒的段按 `MIN_RELIABLE_LAP_SEC`
+        // 属「配速不可信」, 会让 workLaps 从 3 变成 0（夹具自身构造了假输入）。
+        // 这里由配速与距离反推真实时长。
+        duration:
+          l.paceSecPerKm != null && l.distanceMeters > 0
+            ? Math.round((l.paceSecPerKm * l.distanceMeters) / 1000)
+            : 0,
         cumulative_time: 0,
         distance: l.distanceMeters,
         average_pace: l.paceSecPerKm ?? undefined,
@@ -613,5 +622,107 @@ describe('dominantZone（分段表「主要区间」列的数据源）', () => {
   test('忽略负值与非有限值', () => {
     expect(dominantZone([-100, 50, 0, 0, 0])).toBe(2);
     expect(dominantZone([NaN, 0, 10, 0, 0])).toBe(3);
+  });
+});
+
+/**
+ * 「短到配速不可信」的段必须被排除（`MIN_RELIABLE_LAP_SEC`）。
+ *
+ * ## 真实缺陷（2026-10-27）
+ *
+ * `average_pace = duration / (distance/1000)`。分母很小时，**秒级取整**就把
+ * 结果推得离谱：真实库 `540880879` 的收尾是 `14.32 m / 4 s` → **279 s/km**，
+ * 而同一次跑其余每公里都在 318–331 s/km。于是：
+ *  - 分段表「最快 K」徽章指到那个 4 秒碎片（8/241 条跑步活动如此）；
+ *  - 「快于基准 8%」判 `work`，碎片被当成**主课**，UI 与 AI 都被告知
+ *    「主课 1 段 / 主课均配速 4:39」，而实际是一次匀速 5:18 慢跑
+ *    （真实库 4 条：`540880879` / `545577281` / `555458865` / `586992075`）。
+ *
+ * ## 为什么用时长而不是距离
+ *
+ * 距离门槛会误伤真实短间歇：库里有一批 **15 秒 / 74 m** 的间歇
+ * （`543401371` 等），配速 216 s/km 是真的，用 100/200 m 门槛会把它们整段
+ * 剔除，主课反而识别不出来。误差与**时长**直接相关（4 s ≈ ±25%，15 s ≈ ±7%）。
+ */
+describe('配速可信度门槛 (MIN_RELIABLE_LAP_SEC)', () => {
+  /** 一次匀速慢跑 + 4 秒尾段碎片（复刻真实库 540880879 的形状）。 */
+  const steadyWithTail = (): LapInput[] => [
+    { lapIndex: 0, distanceMeters: 1000, paceSecPerKm: 312, heartRate: 150, cadence: 180, power: 250, durationSec: 312 },
+    { lapIndex: 1, distanceMeters: 1000, paceSecPerKm: 340, heartRate: 152, cadence: 180, power: 248, durationSec: 340 },
+    { lapIndex: 2, distanceMeters: 1000, paceSecPerKm: 301, heartRate: 151, cadence: 181, power: 252, durationSec: 301 },
+    // 14.32 m / 4 s → 279 s/km，比上面任何一段都「快」
+    { lapIndex: 3, distanceMeters: 14.32, paceSecPerKm: 279, heartRate: 150, cadence: 180, power: 250, durationSec: 4 },
+  ];
+
+  test('4 秒尾段不得成为「最快段」', () => {
+    const r = analyzeLaps(steadyWithTail());
+    // 旧实现会选 lapIndex 3（279 s/km），徽章指向一个 4 秒碎片
+    expect(r.bestLapIndex).not.toBe(3);
+    expect(r.bestLapIndex).toBe(2); // 301 s/km 才是真实的可靠最快段
+    expect(r.bestPaceSecPerKm).toBe(301);
+  });
+
+  test('4 秒尾段不得被判成「主课」', () => {
+    const r = analyzeLaps(steadyWithTail());
+    // 旧实现: 279 < mean*0.92 → role 'work'，于是「主课 1 段」
+    expect(r.workLaps).toBe(0);
+    expect(r.workAvgPaceSecPerKm).toBeNull();
+    // 该段仍应出现在分段表里（只是角色为 steady，不是被删掉）
+    expect(r.laps).toHaveLength(4);
+    expect(r.laps[3].role).toBe('steady');
+  });
+
+  test('真实短间歇 (15s / 74m) 不得被误伤', () => {
+    // 复刻 543401371: 1000m 热身 + 一串 15 秒 74 m 间歇（配速 202 s/km 是真的）
+    const intervals: LapInput[] = [
+      { lapIndex: 0, distanceMeters: 1000, paceSecPerKm: 326, heartRate: 140, cadence: 178, power: 240, durationSec: 326 },
+      { lapIndex: 1, distanceMeters: 74, paceSecPerKm: 202, heartRate: 175, cadence: 190, power: 330, durationSec: 15 },
+      { lapIndex: 2, distanceMeters: 69, paceSecPerKm: 217, heartRate: 174, cadence: 189, power: 328, durationSec: 15 },
+      { lapIndex: 3, distanceMeters: 1000, paceSecPerKm: 324, heartRate: 142, cadence: 178, power: 242, durationSec: 324 },
+    ];
+    const r = analyzeLaps(intervals);
+    // 15s ≥ 门槛 → 仍然是 work，仍是「最快段」
+    expect(r.bestLapIndex).toBe(1);
+    expect(r.workLaps).toBe(2);
+  });
+
+  test('时长缺失按「可信」处理 (不因字段没传就判无最快段)', () => {
+    const noDur: LapInput[] = [
+      { lapIndex: 0, distanceMeters: 1000, paceSecPerKm: 300, heartRate: 150, cadence: 180, power: 300 },
+      { lapIndex: 1, distanceMeters: 1000, paceSecPerKm: 290, heartRate: 155, cadence: 180, power: 310 },
+    ];
+    const r = analyzeLaps(noDur);
+    expect(r.bestLapIndex).toBe(1);
+  });
+
+  test('基准不受不可信段拉偏 (否则正常段会被判成「慢」)', () => {
+    // 若把 279 s/km 算进均值, baseline 会被拉低 → 正常段 312 被判成「慢」
+    const r = analyzeLaps(steadyWithTail());
+    expect(r.laps[0].role).toBe('steady');
+    expect(r.laps[2].role).toBe('steady');
+    expect(r.laps[0].role).not.toBe('warmup');
+  });
+
+  test('非跑步口径不受影响 (心率无量化噪声)', () => {
+    // 非跑步按心率判角色, 时长门槛只对跑步生效
+    // 心率基准 151；「hard」需 > 151*1.12 = 169。故 180/182 才算主课。
+    const swim: LapInput[] = [
+      { lapIndex: 0, distanceMeters: 100, paceSecPerKm: 1670, heartRate: 120, cadence: null, power: null, durationSec: 3 },
+      { lapIndex: 1, distanceMeters: 100, paceSecPerKm: 1670, heartRate: 180, cadence: null, power: null, durationSec: 3 },
+      { lapIndex: 2, distanceMeters: 100, paceSecPerKm: 1670, heartRate: 182, cadence: null, power: null, durationSec: 3 },
+    ];
+    const r = analyzeLaps(swim, { running: false });
+    // 3 秒的段仍按心率判角色（不能被跑步门槛剔掉）
+    expect(r.workLaps).toBe(2);
+    expect(r.bestLapIndex).toBeNull(); // 非跑步不出配速口径
+  });
+
+  test('isReliableLapPace 边界: 恰好门槛秒可信, 门槛前一秒不可信', () => {
+    // 门槛本身必须被断言: 若有人把它改成 0/Infinity, 下面两条会立刻红。
+    expect(MIN_RELIABLE_LAP_SEC).toBe(10);
+    expect(isReliableLapPace({ durationSec: MIN_RELIABLE_LAP_SEC })).toBe(true);
+    expect(isReliableLapPace({ durationSec: MIN_RELIABLE_LAP_SEC - 1 })).toBe(false);
+    expect(isReliableLapPace({ durationSec: null })).toBe(true);
+    expect(isReliableLapPace({})).toBe(true);
   });
 });

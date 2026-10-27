@@ -928,3 +928,64 @@ describe('分段表主要区间列', () => {
     expect(within(table).getByText('Z3')).toBeInTheDocument();
   });
 });
+
+/**
+ * 「最快分段」只能有**一个**权威来源（服务端 `lapAnalysis`）。
+ *
+ * ## 缺陷（2026-10-27）
+ *
+ * 页面曾用 `laps.forEach` 自己再算一遍「最小 average_pace」，于是同一页面存在
+ * 两套定义：徽章走本地口径、下方「深度分析」面板走服务端口径。两套今天恰好
+ * 一致，但只要任一侧加了过滤（例如 `MIN_RELIABLE_LAP_SEC` 排除 4 秒尾段）
+ * 就会**同页自相矛盾** —— 徽章说 K3、面板说第 2 段。
+ *
+ * 这里用「服务端给出的最快段与本地重算结果不同」的夹具锁住优先级：
+ * 服务端说 K1（300 s/km），本地重算会选 K2（280 s/km）。徽章必须跟服务端。
+ */
+describe('最快分段以服务端为准 (不重复实现)', () => {
+  test('服务端 bestLapIndex 优先于页面本地重算', async () => {
+    db.getActivityLaps.mockReturnValue([
+      // 本地重算会选 K2（280 < 300）
+      { id: 1, activity_id: 1001, lap_index: 1, duration: 300, cumulative_time: 300, distance: 1000, average_pace: 300 },
+      { id: 2, activity_id: 1001, lap_index: 2, duration: 280, cumulative_time: 580, distance: 1000, average_pace: 280 },
+    ]);
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: {
+          lapAnalysis: {
+            laps: [
+              { lapIndex: 1, role: 'work' },
+              { lapIndex: 2, role: 'steady' },
+            ],
+            workLaps: 1,
+            workDistanceMeters: 1000,
+            workAvgPaceSecPerKm: 300,
+            workHrDrift: null,
+            // 服务端判定 K1 是最快段（因为它知道 K2 不可信 / 或另有口径）
+            bestPaceSecPerKm: 300,
+            bestLapIndex: 1,
+          },
+          comparison: null,
+          decouplingPct: null,
+          hrZoneBreakdown: [],
+        },
+      }),
+    });
+    render(await page('1001'));
+    // 服务端值到位后徽章必须是 K1，而不是本地重算的 K2
+    await waitFor(() => expect(screen.getByText(/最快 K1/)).toBeInTheDocument());
+    expect(screen.queryByText(/最快 K2/)).toBeNull();
+  });
+
+  test('insight 拉取失败 → 退回本地口径, 徽章不消失', async () => {
+    db.getActivityLaps.mockReturnValue([
+      { id: 1, activity_id: 1001, lap_index: 1, duration: 300, cumulative_time: 300, distance: 1000, average_pace: 320 },
+      { id: 2, activity_id: 1001, lap_index: 2, duration: 280, cumulative_time: 580, distance: 1000, average_pace: 280 },
+    ]);
+    fetchMock.mockRejectedValueOnce(new Error('网络断开'));
+    render(await page('1001'));
+    // 渐进增强失败时仍要能看出最快段（本地兜底）
+    expect(screen.getByText(/最快 K2/)).toBeInTheDocument();
+  });
+});

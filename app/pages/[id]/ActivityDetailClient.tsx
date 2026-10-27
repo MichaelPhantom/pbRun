@@ -107,13 +107,27 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
     zoneByLap.set(l.lapIndex, l);
   });
 
-  // 最快分段 (最低 average_pace, 仅有效值)
+  // 最快分段 —— **不在这里重新算一遍**。
+  //
+  // 服务端 `lapAnalysis.bestLapIndex` / `bestPaceSecPerKm` 已经是权威值（含
+  // 「短到配速不可信」的过滤，见 `MIN_RELIABLE_LAP_SEC`）。页面旧实现用
+  // `laps.forEach` 又算了一次「最小 average_pace」，于是同一个页面同时存在
+  // 两套「最快段」定义：徽章走本地口径、下方「深度分析」面板走服务端口径。
+  // 两套今天恰好一致，但只要任一侧加了过滤就会**同页自相矛盾**。
+  // 现在以服务端为准；insight 还没拉到（或请求失败）时退回本地口径，
+  // 保证徽章不因渐进增强失败而消失。
+  const serverBest = insight?.lapAnalysis;
   let bestLapIndex = -1;
   let bestPace = Infinity;
-  laps.forEach((l) => {
-    const p = l.average_pace;
-    if (p != null && p > 0 && p < bestPace) { bestPace = p; bestLapIndex = l.lap_index; }
-  });
+  if (serverBest && serverBest.bestLapIndex != null && serverBest.bestPaceSecPerKm != null) {
+    bestLapIndex = serverBest.bestLapIndex;
+    bestPace = serverBest.bestPaceSecPerKm;
+  } else {
+    laps.forEach((l) => {
+      const p = l.average_pace;
+      if (p != null && p > 0 && p < bestPace) { bestPace = p; bestLapIndex = l.lap_index; }
+    });
+  }
 
   const overviewItems: { value: string; unit?: string; label: string }[] = [
     // 跑步专属: VDOT / 配速 / 步频 / 步幅。非跑步活动这些列语义不同, 直接不渲染

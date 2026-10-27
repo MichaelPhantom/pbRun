@@ -18,6 +18,51 @@ import type {
 } from './types';
 
 /**
+ * 一个 lap 的配速要可信，至少需要多长的时长（秒）。
+ *
+ * ## 为什么需要这条门槛
+ *
+ * `average_pace` 是 `duration / (distance/1000)`。分母很小时，**秒级取整**就把
+ * 结果推得离谱：真实库 `540880879` 的尾段是 `14.32 m / 4 s` → 279 s/km，
+ * 而同一次跑的其余每公里都在 318–331 s/km。这不是「这一段跑得快」，是
+ * `duration` 只有 4 个整数刻度、`distance` 只有 2 位小数带来的量化噪声。
+ *
+ * 后果不止一个数字错：
+ *  - 分段表「最快 K」徽章指到那个 4 秒尾段（真实库 8/241 条跑步活动如此）；
+ *  - `analyzeLaps` 用「快于基准 8%」判 `work`，尾段配速偏低就被判成**主课**，
+ *    于是「主课 1 段 / 主课均配速 4:39」出现在一次匀速 5:18 的慢跑上
+ *    （真实库 4 条：`540880879` / `545577281` / `555458865` / `586992075`），
+ *    而这个结论会被喂给 AI 教练当作事实。
+ *
+ * ## 为什么取 10 秒而不是距离门槛
+ *
+ * 距离门槛会误伤真实的短间歇：真实库有一批 **15 秒 / 74 m** 的间歇跑
+ * （`543401371` 等），它们配速 216 s/km 是**真的**，用 100 m/200 m 门槛会把
+ * 它们整段剔除，主课就识别不出来了。而「时长」与量化误差直接相关：
+ * 4 s 的误差约 ±25%，15 s 约 ±7%，10 s 是两者之间能同时保住「排除尾段碎片」
+ * 和「保留真实短间歇」的位置。
+ *
+ * 实测（241 条跑步活动）：取 10 s 只影响 8 条的最快段、清掉 4 条伪主课，
+ * 且**不产生任何「无徽章」**（即总有可靠段可选）；取 15 s 会开始剔除真实间歇。
+ *
+ * 与 `MIN_MOVING_SPEED_MS` 一样，这是**物理量**，标识符必须带单位。
+ */
+export const MIN_RELIABLE_LAP_SEC = 10;
+
+/**
+ * 该 lap 的配速是否可用于「最快段 / 主课」判定。
+ *
+ * 时长缺失（`undefined`/`null`）时按**可信**处理 —— 宁可保留，不可因为
+ * 字段没传就把整张分段表判成「无最快段」。但真实库里 `duration` 恒有值
+ * （3082/3082），所以这条回退只影响测试夹具与未来的调用方。
+ */
+export function isReliableLapPace(lap: { durationSec?: number | null }): boolean {
+  const d = lap.durationSec;
+  if (d == null || !Number.isFinite(d)) return true;
+  return d >= MIN_RELIABLE_LAP_SEC;
+}
+
+/**
  * 把 lap 级区间秒数收敛成「5 元素数字数组」或 null。
  *
  * 契约是**长度恒为 5**（与活动级 `time_in_hr_zone` / `time_in_power_zone` 同构）。
@@ -75,6 +120,12 @@ export interface LapInput {
   cadence: number | null;
   power: number | null;
   /**
+   * 该 lap 的时长（秒）。用于判定「这一段是否短到配速不可信」——
+   * 见 `MIN_RELIABLE_LAP_SEC`。缺省（undefined）时按「未知」处理：
+   * 不排除，但也不会因此把一段 1 秒的尾段当成最快段。
+   */
+  durationSec?: number | null;
+  /**
    * 该 lap 的心率区间秒数（**app 5 区口径**，长度恒为 5，索引 0=Z1）。
    *
    * 由 fit-parser 从逐秒记录按 lap 时间窗推导（`_assignLapZoneSeconds`）。
@@ -118,12 +169,32 @@ export function analyzeLaps(
     const v = running ? l.paceSecPerKm : l.heartRate;
     return v != null && Number.isFinite(v) && v > 0 ? v : null;
   };
-  const valid = laps.map(metricOf).filter((v): v is number => v != null);
+  // 基准只用**配速可信**的段。若把 4 秒尾段的 279 s/km 也算进均值，基准会被
+  // 拉低，正常段反而被判成「慢」→ 整张表的角色都偏。心率口径不受量化影响，
+  // 故只有跑步需要这条过滤。
+  const baselineLaps = running ? laps.filter(isReliableLapPace) : laps;
+  const valid = baselineLaps.map(metricOf).filter((v): v is number => v != null);
   const baseline = mean(valid);
 
   const roles: ActivityLapAnalysis['laps'] = laps.map((l, i) => {
     let role: ActivityLapAnalysis['laps'][number]['role'] = 'steady';
     const p = metricOf(l);
+    // 配速不可信的段（如 4 秒尾段）不参与「快/慢」判定，一律 steady。
+    // 否则量化噪声会把一段 14 m 的收尾判成「主课」，让一次匀速慢跑
+    // 凭空多出「主课 1 段 / 主课均配速 4:39」—— 而这个结论会喂给 AI。
+    if (running && !isReliableLapPace(l)) {
+      return {
+        lapIndex: l.lapIndex,
+        distanceMeters: l.distanceMeters,
+        paceSecPerKm: l.paceSecPerKm,
+        heartRate: l.heartRate,
+        cadence: l.cadence,
+        power: l.power,
+        hrZoneSeconds: normalizeZoneSeconds(l.hrZoneSeconds),
+        powerZoneSeconds: normalizeZoneSeconds(l.powerZoneSeconds),
+        role,
+      };
+    }
     if (baseline != null && p != null) {
       // 方向: 跑步的配速「越小越费力」, 非跑步的心率「越大越费力」。
       const hard = running ? p < baseline * 0.92 : p > baseline * 1.12;
@@ -161,9 +232,14 @@ export function analyzeLaps(
   if (workHrs.length >= 2) workHrDrift = workHrs[workHrs.length - 1] - workHrs[0];
 
   // 最快段（仅跑步口径输出；非跑步的「每公里时间」语义完全不同，见函数头注释）
+  //
+  // 只在**配速可信**的段里挑：`14.32 m / 4 s` 的尾段算出来 279 s/km，
+  // 会比一次 5:18 匀速跑的任何一公里都「快」，于是徽章指向一个 4 秒碎片。
+  // 真实库 8/241 条跑步活动如此（`540880879` 等）。
   let bestPaceSecPerKm: number | null = null;
   let bestLapIndex: number | null = null;
   for (const l of laps) {
+    if (!isReliableLapPace(l)) continue;
     if (l.paceSecPerKm != null && l.paceSecPerKm > 0 && (bestPaceSecPerKm == null || l.paceSecPerKm < bestPaceSecPerKm)) {
       bestPaceSecPerKm = l.paceSecPerKm;
       bestLapIndex = l.lapIndex;
@@ -429,6 +505,9 @@ export function buildActivityInsight(params: {
       heartRate: l.average_heart_rate ?? null,
       cadence: l.average_cadence ?? null,
       power: l.average_power ?? null,
+      // 时长用于排除「短到配速不可信」的段（见 MIN_RELIABLE_LAP_SEC）。
+      // 真实库 duration 3082/3082 有值，缺失时 isReliableLapPace 按可信处理。
+      durationSec: l.duration ?? null,
       // lap 级区间秒数：解析器已按时间窗推导并落库（`_assignLapZoneSeconds`）。
       // 这里只做 JSON 反序列化，长度校验交给 `normalizeZoneSeconds` ——
       // 设备原始数组（7/8 槽）若因历史脏数据出现在统一列，会被这条校验挡掉。

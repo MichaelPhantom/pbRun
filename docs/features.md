@@ -548,6 +548,38 @@ FTP 缺失不猜 / 海拔比值 / 尖峰过滤）、`tests/unit/pages/activity-d
 - **降级纪律**：任何一步查询失败只丢失对应段落，返回空串也不阻塞 AI 主流程。
 - **不做**：不用跨全历史的宏观趋势替代对当次的解读；趋势只作为解释当次状态的背景。
 
+#### 「最快段 / 主课」只认配速可信的分段（`MIN_RELIABLE_LAP_SEC`，2026-10-27）
+
+`average_pace = duration / (distance/1000)`。分母很小时**秒级取整**就把结果推得离谱：
+真实库 `540880879` 的收尾段是 `14.32 m / 4 s` → **279 s/km**，而同一次跑其余每公里
+都在 318–331 s/km。这不是「这一段跑得快」，是 `duration` 只有 4 个整数刻度、
+`distance` 只有 2 位小数带来的量化噪声。
+
+后果不止一个数字错 —— 它会**污染结论**：
+
+| 表现 | 真实库规模 |
+|------|-----------|
+| 分段表「最快 K」徽章指到一个 4 秒碎片 | 8/241 条跑步活动 |
+| 「快于基准 8%」判 `work`，碎片被当成**主课** → UI/AI 被告知「主课 1 段 / 主课均配速 4:39」，而实际是一次匀速 5:18 慢跑 | 4 条（`540880879` / `545577281` / `555458865` / `586992075`） |
+
+修法是**按时长设门槛**（`MIN_RELIABLE_LAP_SEC = 10` 秒），而不是按距离：
+
+- 距离门槛会误伤真实短间歇 —— 库里有一批 **15 秒 / 74 m** 的间歇（`543401371` 等），
+  配速 216 s/km 是**真的**，用 100 m / 200 m 门槛会把它们整段剔除，主课反而识别不出来。
+- 误差与**时长**直接相关：4 s ≈ ±25%，15 s ≈ ±7%，10 s 正好在「排除尾段碎片」
+  与「保留真实短间歇」之间。
+
+门槛作用于三处（同一常量，避免各写一遍）：`work` 角色判定、最快段挑选、角色基准
+`baseline` 的均值（否则碎片会把基准拉低，正常段反被判成「慢」，整张表角色都偏）。
+实测 241 条跑步活动：8 条最快段修正、8 条主课段数修正、**0 条失去徽章**（总有可靠段
+可选）。时长缺失时按「可信」处理 —— 宁可保留，不因字段没传就把整张表判成无最快段。
+
+**同一概念只能有一份实现**：详情页曾用 `laps.forEach` 自己再算一遍「最小
+`average_pace`」，与 `analyzeLaps` 并存 —— 徽章走本地口径、下方「深度分析」面板走
+服务端口径。两套当时恰好一致，但任一侧加了过滤就会**同页自相矛盾**。现页面以
+`lapAnalysis.bestLapIndex` 为准，仅在 insight 拉取失败时退回本地口径（保证渐进增强
+失败时徽章不消失）。
+
 #### 活动数据块的「缺失」分两类（2026-10-27）
 
 真实库 348 条活动逐字段审计后，两类缺失必须区别处理 —— 统一写成 `--` 会制造噪音：
@@ -755,6 +787,7 @@ GPS 漂移、起终点的静止采样都被判为「有效移动」，混进前�
 | **校验器必须真的能失败** | `scripts/garmin/validate-data.js` 的 `main()` 退出码：`issues`→1、仅 `warnings`→0（设备不写是常态）、`--strict`→1；退出调用写在 `try/catch` 之外 | `tests/unit/scripts/validate-data.test.js` 的 `main() 退出码契约` 5 例（含「仅 warning 不得卡 CI」与「有 issue 必须失败」两个反向断言） |
 | **生产库列集合必须与代码声明一致** | `DatabaseManager.declaredColumns(table)`（内存库走真实建表+迁移路径得到声明列集合）；`_initDatabase` 幂等补 `device_*` 列并清理旧口径 `time_in_speed_zone`/`time_in_cadence_zone`（全 NULL 直接 DROP，有值先 `COALESCE` 搬到 `device_*` 再 DROP） | `tests/unit/common/db-manager-schema-drift.test.js`（声明自洽、旧库遗留列被清理且**有值时不丢数据**、`COALESCE` 不覆盖新值、生产库与声明完全一致）+ `validate-data.js` 的 `validateSchemaDrift`（缺列判错、多列告警，两表独立） |
 | **schema 单位注释必须与解析器一致** | `scripts/common/db-manager.js` 的 `activity_records.speed`/`distance` 注释（公里/小时、公里），真值来源是 `fit-parser` 的 `lengthUnit='km'` / `speedUnit='km/h'` | `tests/unit/common/db-manager-units.test.js`（注释表述 = 解析器配置、旧「米/秒」表述不得回归、模块可加载防模板字符串语法错误） |
+| **「最快段 / 主课」只认配速可信的分段** | `app/lib/activity-insight.ts` 的 `MIN_RELIABLE_LAP_SEC = 10` + `isReliableLapPace()`：`work` 角色、最快段、角色基准均值三处共用同一常量（4 秒碎片 → 279 s/km 是量化噪声，非真实配速）；详情页以服务端 `lapAnalysis.bestLapIndex` 为权威，仅在 insight 失败时本地兜底 | `tests/unit/lib/activity-insight.test.ts`（8 例：4s 尾段不得成最快段 / 不得判主课 / 15s 真实间歇不误伤 / 时长缺失按可信 / 基准不被拉偏 / 非跑步不受影响 / 边界 10s vs 9s）；`tests/unit/pages/activity-detail.test.tsx`（服务端优先于本地重算 / insight 失败退回本地兜底） |
 | **lap 级区间必须有例行校验（两种口径都查）** | `validate-data.js` 的 `validateLapZoneScope()`：lap `time_in_hr_zone`/`time_in_power_zone` 长度恒为 5；lap 求和 vs 活动级偏差 ≤15%（共用 `_checkLapZoneSum`，心率/功率同一实现） | `tests/unit/scripts/validate-data.test.js`（8 例：无分段不判错、干净数据双 ✓、长度非 5→issue、坏 JSON→issue、求和 >15%→warning 带样例、5.06% 天然错位不误报、无可对照不误判、零长 lap 不算缺陷）+ 专锁「功率同样受检」1 例（只查心率会红） |
 | **lap 窗口切分只能有一份实现** | `scripts/common/lap-zones.js`（`lapWindowSamples` / `deriveLapZoneSeconds` / `applyLapZoneSeconds`）；`fit-parser._assignLapZoneSeconds` 与 `backfill-lap-zones.js` 都 require 它 | `tests/unit/common/lap-zones.test.js`（半开区间不重不漏、按 `cumulative_time` 而非 `start_time`、长度恒 5、无 FTP/无心率不造全 0、`cumulative_time` 缺失/倒退/零长跳过、`Number(null)===0` 陷阱） |
 | **回填必须先补列再迁移, 最后才重算** | `scripts/garmin/backfill-lap-zones.js`（4 个 `device_*` 列幂等补上 → 旧设备数组迁 `device_*` → 全量重算；无时间窗的 lap 写 NULL 而非保留陈旧值） | `tests/unit/scripts/backfill-lap-zones.test.js`（15 例：顺序缺陷注入转红、幂等不二次覆盖、损坏 JSON 不迁移、无 FTP/无记录/无时间窗不猜、dry-run 不改 schema、求和偏离告警） |
