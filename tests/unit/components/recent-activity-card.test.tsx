@@ -85,4 +85,20 @@ describe('RecentActivityCard', () => {
     expect(container.textContent).toContain("5'30''");
     expect(screen.queryByText('跑步')).toBeNull();
   });
+
+  /**
+   * `moving_time = 0` 表示「设备没写 timer time」，必须回退 `duration`。
+   * 旧实现 `activity.moving_time ?? activity.duration` 用 `??`：0 非 null，
+   * 于是判定「有值」→ 卡片显示 `0:00`，用户以为这次跑步没跑。
+   * 判别式：`moving_time: 0` / `duration: 3000` → 应显示 50:00。
+   */
+  test('moving_time = 0 (设备未写 timer time) → 回退 duration, 不显示 0:00', () => {
+    const { container } = render(
+      <RecentActivityCard activity={act({ moving_time: 0, duration: 3000 })} />,
+    );
+    expect(container.textContent).toContain('50:00');
+    // 注意不能写 `not.toContain('0:00')` —— 「50:00」本身就含这个子串。
+    // 用「时长前后必须是空白/分隔符」的边界式判别，`??` 实现会是 ` 0:00 ·`。
+    expect(container.textContent).not.toMatch(/\s0:00\s/);
+  });
 });

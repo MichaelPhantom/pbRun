@@ -466,6 +466,21 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
     expect(screen.queryByText('路线地图')).not.toBeInTheDocument();
   });
 
+  test('分段表「时长」列的单位与渲染格式一致 (h:mm:ss, 不是 min)', async () => {
+    render(await page('1001'));
+    const table = screen.getByRole('table', { name: '每公里分段数据' });
+    const headers = within(table).getAllByRole('columnheader').map((h) => h.textContent ?? '');
+    const durHeader = headers.find((h) => h.includes('时长'))!;
+    // 单元格渲染 `formatDuration` = `5:40` / `1:02:30`，故单位必须是 h:mm:ss。
+    // 旧文案写 `min`，与「5:40」并列会被读成 5.67 分钟。
+    expect(durHeader).toContain('h:mm:ss');
+    expect(durHeader).not.toContain('min');
+    // 值确实是分:秒形态（340 s → 5:40），与 h:mm:ss 声明自洽。
+    // 用 getAllByText: 概览的「时长」格也可能恰好渲染同一个字符串（46:40 不同，
+    // 但夹具改动后可能撞车），这里只关心分段表里确实有分:秒形态的值。
+    expect(within(table).getAllByText('5:40').length).toBeGreaterThanOrEqual(1);
+  });
+
   test('分段缺心率/步频/爬升 → 表内 -- 兜底; 最快段仍能识别', async () => {
     db.getActivityLaps.mockReturnValue([
       { id: 1, activity_id: 1001, lap_index: 1, duration: 300, cumulative_time: 300, distance: 1000, average_pace: 300 },
@@ -563,6 +578,29 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
     const overview = screen.getByText('活动概览').closest('section')!;
     expect(within(overview).getByText('10')).toBeInTheDocument();
     expect(within(overview).getByText('60')).toBeInTheDocument();
+  });
+
+  /**
+   * `moving_time = 0` 表示「设备没写 timer time」，必须回退 `duration`。
+   *
+   * 旧实现 `activity.moving_time ?? activity.duration` 用 `??`：0 非 null/undefined，
+   * 于是「有值」判定成立 → 概览「时长」格显示 `--`（因为 0 分钟走 false 侧），
+   * 分段表显示 `0:00`。用户看到一次 50 分钟的跑步「没有时长」。
+   *
+   * 判别式：`moving_time: 0` / `duration: 3000`。正确实现显示 50 分。
+   */
+  test('moving_time = 0 (设备未写 timer time) → 时长回退 duration, 不显示 --', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      distance: 10,
+      moving_time: 0,
+      duration: 3000,
+      average_pace: 300,
+    });
+    render(await page('1007'));
+    const overview = screen.getByText('活动概览').closest('section')!;
+    expect(within(overview).getByText('50')).toBeInTheDocument();
+    expect(within(overview).getByText('分')).toBeInTheDocument();
   });
 
   test('非跑步活动 (泳池游泳): 隐藏配速/步频/步幅/跑力, 保留距离/时长/心率/负荷, 标题带类型徽标', async () => {

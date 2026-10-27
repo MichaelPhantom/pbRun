@@ -40,6 +40,7 @@
  * 纯函数, 便于单测与 UI/AI 共用。
  */
 import type { Activity } from './types';
+import { effectiveTimeSec } from './pace';
 
 /** FTP 合理区间（瓦）。低于 100 更像数据缺失，高于 600 超出业余跑者/骑行者范围。 */
 export const FTP_MIN_W = 100;
@@ -229,8 +230,9 @@ export function powerIntensity(
       : ftp
         ? intensityFactor(activity.normalized_power, ftp.watts)
         : null;
-  // TSS 的时间基数用移动时间；缺失时回退总时长（只有该活动没写 timer time 才会发生）。
-  const seconds = activity.moving_time || activity.duration || null;
+  // TSS 的时间基数用**计时器时间**；缺失时回退总时长（只有该活动没写 timer time 才会发生）。
+  // 唯一实现见 `app/lib/pace.ts` —— 不要在这里写 `moving_time || duration` 的第二份。
+  const seconds = effectiveTimeSec(activity);
   const explicitTss = activity.training_stress_score;
   const explicitWkg = activity.average_power_to_weight;
   return {

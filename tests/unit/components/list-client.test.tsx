@@ -348,6 +348,27 @@ describe('ListClient 活动列表 (交互/筛选/无限滚动)', () => {
     expect(card).toHaveTextContent(/4[67]:/);
   });
 
+  /**
+   * `moving_time = 0` 表示「设备没写 timer time」，必须回退 `duration`。
+   *
+   * 旧实现 `a.moving_time ?? a.duration` 用 `??`：0 不是 null/undefined，
+   * 于是「有值」判定成立，卡片显示 `0:00`。真实库 2 个 lap 就是 `moving_time = 0`
+   * （`550530240`/14 与 `640396097`/7），活动级虽暂无但写入路径允许。
+   *
+   * 判别式：同一个活动 `moving_time: 0` / `duration: 2800`。
+   * 正确实现显示 46:40；`??` 实现显示 0:00。
+   */
+  test('moving_time = 0 (设备未写 timer time) → 回退 duration, 不显示 0:00', () => {
+    renderList({
+      initialActivitiesByMonth: {
+        '2026-09': [act({ moving_time: 0, duration: 2800 } as Partial<Activity>)],
+      },
+    });
+    const card = screen.getByRole('button', { name: /两江新区/ });
+    expect(card).toHaveTextContent(/46:40/);
+    expect(card).not.toHaveTextContent(/^0:00$/);
+  });
+
   test('无已展开月时列表区为空 (expandedMonth 为 null)', () => {
     renderList({ initialExpandedMonth: null });
     // 仅渲染月份导航, 无活动卡片

@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { Activity } from "@/app/lib/types";
 import { formatDistance, formatDuration, formatPaceShort, formatListDateTime } from "@/app/lib/format";
 import { activityTypeLabel, isRunningType } from "@/app/lib/sport";
+import { effectiveTimeSec } from "@/app/lib/pace";
 
 /** 仪表盘「最近活动」紧凑卡 (server component)。 */
 export function RecentActivityCard({ activity }: { activity: Activity }) {
@@ -10,7 +11,9 @@ export function RecentActivityCard({ activity }: { activity: Activity }) {
   const name =
     activity.name ||
     `${activityTypeLabel(activity.activity_type)} ${formatListDateTime(activity.start_time_local ?? activity.start_time)}`;
-  const duration = activity.moving_time ?? activity.duration;
+  // 时长走唯一口径（计时器时间优先，见 `app/lib/pace.ts`）。
+  // `??` 不行：`moving_time = 0`（设备未写 timer time）会被当成有值，显示 `0:00`。
+  const duration = effectiveTimeSec(activity);
   const km = activity.distance != null ? Number(activity.distance) : null;
 
   return (

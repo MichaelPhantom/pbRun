@@ -15,6 +15,7 @@ import { powerIntensity } from '@/app/lib/power';
 import { hrZoneColor } from '@/app/lib/hr-zones';
 import { dominantZone } from '@/app/lib/activity-insight';
 import { elevationSpan } from '@/app/lib/elevation';
+import { effectiveTimeSec } from '@/app/lib/pace';
 import { evaluateWorkoutExecution, formatWorkoutPlan } from '@/app/lib/workout';
 
 // 路线地图纯 SVG 客户端组件 (无 leaflet 依赖); 仅在客户端渲染避免 SSR window 引用。
@@ -58,7 +59,9 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
   // 反而让 77% 的活动显示「通用」。两处统一到同一函数。
   const typeLabel = activityTypeName(activity.activity_type, activity.sub_sport_type, activity.sport_type);
   const distanceKm = activity.distance ?? 0;
-  const durationSec = activity.moving_time ?? activity.duration ?? 0;
+  // 时长走唯一口径（计时器时间优先，见 `app/lib/pace.ts`）。`??` 不行：
+  // `moving_time = 0`（设备未写 timer time）会被当成有值，卡片显示 `0:00`。
+  const durationSec = effectiveTimeSec(activity) ?? 0;
   const durationMinutes = durationSec / 60;
   // 恢复时间单位按量级切换 (分/小时/天), 见 formatRecoveryTime 的注释。
   const recovery = formatRecoveryTime(activity.recovery_time);
@@ -370,7 +373,10 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
                     { key: 'pw', label: '功率', unit: 'W' },
                   ]
                 : []),
-              { key: 'dur', label: '时长', unit: 'min' },
+              // 分段「时长」单位必须与单元格渲染格式一致：`formatDuration` 输出
+              // `5:40` / `1:02:30`，即 `h:mm:ss`（与三个区间表同一写法）。旧文案写
+              // `min`，而值是「分:秒」—— 「5:40 min」会被读成 5.67 分钟。
+              { key: 'dur', label: '时长', unit: 'h:mm:ss' },
               { key: 'hr', label: '心率', unit: 'bpm' },
               // 主要强度区间: 由该 lap 的心率区间秒数（app 5 区口径、按时间窗推导）
               // 取占比最高的区间。没有这一列，lap 级区间数据就是「算了但不展示」。
@@ -401,7 +407,7 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
                   // 旧实现显示 `lap.duration`（含暂停），配速却由 `moving_time`
                   // 推出 —— 同一个 lap 里「时长 × 配速」对不上距离。真实库
                   // `598287817` 第 7 段：时长 983 s、配速 60792 s/km，距离只有 16 m。
-                  dur: formatDuration(lap.moving_time ?? lap.duration),
+                  dur: formatDuration(effectiveTimeSec(lap)),
                   hr: lap.average_heart_rate != null ? Math.round(lap.average_heart_rate) : '--',
                   cad: lap.average_cadence != null ? Math.round(lap.average_cadence) : '--',
                   // 分段功率: 真实库 2827/2827 条跑步 lap 都有 `average_power`

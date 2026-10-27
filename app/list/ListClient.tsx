@@ -12,6 +12,7 @@ import type { Activity } from '@/app/lib/types';
 import type { MonthSummary } from '@/app/lib/types';
 import { monthToRange } from '@/app/lib/date-utils';
 import { activityTypeLabel, activityTypeIcon, isRunningType } from '@/app/lib/sport';
+import { effectiveTimeSec } from '@/app/lib/pace';
 
 const MONTHS_PAGE_SIZE = 6;
 
@@ -300,7 +301,10 @@ function ActivityCard({
   const running = isRunningType(a.activity_type);
   // 无名称时按运动类型兜底 (而不是一律「跑步」—— 篮球/力量训练也被同步进库)
   const name = a.name || `${activityTypeLabel(a.activity_type)} ${formatListDateTime(a.start_time_local ?? a.start_time)}`;
-  const duration = a.moving_time ?? a.duration;
+  // 时长走唯一口径（计时器时间优先，见 `app/lib/pace.ts`）。
+  // 不要写 `a.moving_time ?? a.duration`：真实库有 lap 的 `moving_time = 0`
+  // （未记录 timer time），`??` 会把 0 当成「有值」而显示 `0:00`。
+  const duration = effectiveTimeSec(a);
   return (
     <button
       type="button"
