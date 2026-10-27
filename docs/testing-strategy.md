@@ -910,7 +910,7 @@ node scripts/testing/make-fixture-db.js /tmp/other.db   # 指定输出
       1 个文件，据此统计得出错误结论。权威口径是 `npm run test:ci` 的 `coverage-summary` /
       jest 汇总输出；全量实际未覆盖分支为数百处。评估覆盖请以百分比门槛为准，勿依赖中间产物。）
       **`insight.ts` 内余 8 处为入口约束下的不可达防御分支**(`computeDecouplingPct` 的 `?? 0` / `h>0` 0 侧 /
-      `r1===0` —— 入口已保证 hour_rate>0 与 speed>0.5), 已在源码注释标注理由、**不构造人为输入硬凑**;
+      `r1===0` —— 入口已保证 heart_rate>0 与 `speed > MIN_MOVING_SPEED_KMH` = 1.8 km/h), 已在源码注释标注理由、**不构造人为输入硬凑**;
       至此其余文件零未覆盖分支)
 - [x] CLI 脚本真实单测 ✅ (2026-09-27: 从「导入契约」升级 —— `garmin/client`(401 刷新互斥/
       token 持久化播报)、`common/vdot-calculator`、`common/utils`(.env upsert/备份去重)、

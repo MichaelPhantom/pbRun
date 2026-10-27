@@ -20,12 +20,12 @@
 | 活动详情 | `/pages/[id]` | `getActivityById/Laps/Records/Track` | 单次活动 AI（见 §2） | ✅ |
 | 活动深挖 | `GET /api/activities/[id]/insight` | `activity-insight.ts`：分段角色 / 主课漂移 / 区间 / 解耦 / 同路线对比 / 环境可比性 | 作为活动 AI 的当次指标来源 | ✅ |
 | 活动 AI 对话 | `POST /api/activities/[id]/analysis` | `llm.ts` + `coach-stream.ts` + `runner-profile.ts` + `activity-coach-context.ts` | 当次 + 同路线/同名 + 同距离 ±10% + 同类 | ✅ |
-| 训练分析 | `/analysis?days=` | 心率区间 / 配速区间 / VDOT / CTL-ATL-TSB | 汇总 AI，跟随页面时间窗 | ✅ |
+| 训练分析 | `/analysis?days=` | 心率区间 / 配速区间 / **功率区间** / VDOT / CTL-ATL-TSB | 汇总 AI，跟随页面时间窗 | ✅ |
 | 训练洞察 | `/insight?days=` | `insight.ts` / `insight-compare.ts` 实时聚合 + `findings` | 汇总 AI，跟随页面时间窗 | ✅ |
 | 统计 | `/stats?period=` | `getStats` / `getPersonalRecords`（跑步口径，见 §1.1） | 汇总 AI，周/月/年/全部映射 | ✅ |
 | 汇总 AI 对话 | `POST /api/insight/coach` | `insight-service.ts` → `formatInsightForCoach` | 区间指标 + 跑者画像 + 趋势 | ✅ |
 | 模型目录 | `GET /api/llm/models` | `model-curation.ts` 固定白名单 | — | ✅ |
-| MCP Server | `mcp-server/`（stdio） | 16 个 tools 复用 `app/lib/db.ts` 与活动深挖服务 | `get_activity_comparables` 直接返回当次可比 `contextText` | ✅ |
+| MCP Server | `mcp-server/`（stdio） | 17 个 tools 复用 `app/lib/db.ts` 与活动深挖服务 | `get_activity_comparables` 直接返回当次可比 `contextText` | ✅ |
 | 数据同步 | `scripts/garmin` / `scripts/strava` | FIT/GPX → SQLite，VDOT 计算 | — | ✅ |
 
 ---
@@ -106,6 +106,49 @@ pbRun 是跑步分析工具，但 Garmin 同步会把篮球/游泳/力量训练�
 
 守护：`tests/unit/components/zone-tables-a11y.test.tsx` 断言三列表头存在、时长/距离/次数
 的实际文本（含「30000 米 → 30.0 km」的换算与「无数据显示 `--`」）。
+
+#### 功率区间表：分母是「逐活动不同的 FTP」，必须显式披露参照值
+
+`/analysis` 的第三张区间表（`PowerZoneMetricsTable` + `getPowerZoneStats`）与配速/心率
+区间表**在数学上不同构**，这是设计上最容易出错的地方：
+
+| 区间表 | 分母 | 在用户范围内唯一？ | 跨活动聚合的合法性 |
+|--------|------|-------------------|-------------------|
+| 配速区间 | VDOT | ✅ 单一 VDOT | 直接按区间聚合，配速可直接比较 |
+| 心率区间 | MAX_HR | ✅ 单一 MAX_HR | 直接按区间聚合，BPM 可直接比较 |
+| **功率区间** | **FTP** | ❌ **真实库 241 条活动 14 个不同值（338–379W）** | **只能按 %FTP 归区后聚合** |
+
+若按绝对瓦数分桶（例如「>300W 算高强度」），同一段 320W 在 FTP 338 的活动里是 Z4
+（94.7%），在 FTP 379 的活动里是 Z3（84.4%）—— 跨活动相加得到的「Z3 时长」没有物理
+含义。这与心率区间当年 19 套边界、设备功率数组 16 套边界是**同一个陷阱**。
+
+实现要点：
+
+1. **归区用每个活动自己的 FTP**：`getPowerZoneStats` 逐 lap 调
+   `resolveFtp({functional_threshold_power, power_zone_boundaries})` → `powerZoneOf(lap.average_power, ftp.watts)`。
+   无 FTP 的 lap **不猜默认值**，跳过并计入 `reference.laps_without_ftp`（猜一个分母会让
+   该 lap 的区间归属与 IF/TSS 全错）。
+2. **聚合单位是 lap，不是逐秒**：`activity_laps.average_power` 真实库 **2943/2962** 条跑步
+   lap 有值（241/241 活动），而 `activity_laps.time_in_power_zone` **0/3082 全 NULL**。
+   lap 级聚合回答「Z3 跑了多少公里/多久」，逐秒推导只给占比（已在详情页
+   `powerZoneBreakdown`）—— 两者互补，不重复。
+3. **参照 FTP 必须标成参照**：`reference.ftp_median_watts` 是参与活动 FTP 的中位数，
+   UI 列名写「参照瓦数」，表下明确「这 N 次活动共 M 个不同 FTP，350W 只是参照值」；
+   否则读者会把「Z2 = 228–279W」当成所有活动通用的定义域。
+4. **瓦数范围由参照 FTP 派生**（`powerZoneRanges`，下界 `ceil`）：`ceil(350×65%)=228`，
+   保证「表说 Z2 从 228W 开始」与 `powerZoneOf(228, 350) === 2` 永远一致。
+
+真实库实测（2025-01-01 ~ 2026-12-31）聚合结果生理上自洽 —— 这是「按 %FTP 归区」正确
+的最强证据：平均功率 **174 → 260 → 294 → 330 → 374 W**、平均心率 **130 → 144 → 154 → 170**、
+步频 **147 → 184** 全部随区间单调上升。若按绝对瓦数分桶，这四条曲线都会变平甚至倒挂。
+
+守护：`tests/unit/lib/db-power-zone-stats.test.ts`（真实 SQL，两个 FTP 差 2 倍的活动里
+**同样的 150W 分属 Z2 与 Z1** —— 按绝对瓦数分桶会立刻转红；无 FTP 的 lap 被跳过并计数；
+非跑步排除；时长加权；距离米口径）、`tests/unit/api/power-zones-route.test.ts`
+（缺参/格式错/起止颠倒 → 400；`ranges` 由参照 FTP 派生；参照为 null 时不编造区间表）、
+`tests/unit/components/zone-tables-a11y.test.tsx`（caption/scope/徽章单行 + 参照 FTP 披露 +
+「共 14 个不同 FTP」出现、单套 FTP 时不出现噪音）、`tests/unit/mcp/tool-scope-contract.test.ts`
+（`get_power_zone_analysis` 必须声明「按各活动自身 FTP」「不是任何一次活动的 FTP」）。
 
 跑步类型判定单点定义在纯模块 `app/lib/sport.ts`（`RUNNING_ACTIVITY_TYPES` /
 `isRunningType` / `activityTypeLabel` / `activityTypeIcon` / `activityTypeName`）：
@@ -515,6 +558,45 @@ FTP 缺失不猜 / 海拔比值 / 尖峰过滤）、`tests/unit/pages/activity-d
 8.03 km/h 是挥拍抖动（均速 0.12），羽毛球 4.23 km/h（均速 0.08）。两个 prompt 的分析
 框架都**没有**最大速度这一维度，模型却会主动拿它下「冲刺能力」结论。
 
+**`RecordSample.speed` 的同一陷阱**（2026-10-27）：逐秒 `speed` 的存储单位是 **km/h**
+（`activity_records.speed`，`fit-parser` `lengthUnit='km'`；实测 `average_pace` 313.7 s/km
+的活动，逐秒 speed 落在 9–15），但 `computeDecouplingPct` 的有效样本过滤写的是
+`speed > 0.5`，注释却写 `0.5 m/s`。实际生效的是 **0.5 km/h ≈ 0.14 m/s** —— 等红灯的
+GPS 漂移、起终点的静止采样都被判为「有效移动」，混进前后半段的 Pa:HR 均值。
+
+真实库 241 条跑步活动逐秒 speed 范围 0.806–37.3 km/h，其中落在 0.5–1.8 km/h
+（起跑/步行段）的样本 **335 条**，正是旧阈值会误收的部分。修复：导出
+`MIN_MOVING_SPEED_MS = 0.5` 与 `MIN_MOVING_SPEED_KMH = 0.5 × 3.6 = 1.8`，
+**换算只发生一次**，调用方只用 km/h。守护：`tests/unit/lib/insight.test.ts`
+（静止样本 1.0 km/h 不计入 → 返回 null；1.79 km/h 排除、1.81 km/h 收下；
+两个常量 3.6 同步）。这条与 `max_speed` 同一纪律：**数字必须带单位名**，
+否则「0.5」在两个文件里可以指两种量。
+
+**`pace` 与 `speed` 是两个独立派生量，不是同一数据的两种写法**（2026-10-27 审计确认）：
+
+`activity_records` 同时有 `pace` 与 `speed` 两列，两者对同一秒常不相等（720,901 条
+同时有值的记录里，中位差 **0.40 s/km**、p90 **4.5**、p99 **11.8**，6.2% 超过 5 s/km）。
+这不是数据错误，而是**两条不同的推导链**：
+
+| 列 | 来源 | 公式 | 语义 |
+|----|------|------|------|
+| `pace` | 步频 × 步幅 | `60000 / (cadence × step_length)`，窗口 180–900 s/km | 由**跑姿**反推的「步幅效率配速」 |
+| `speed` | GPS / 加速度计 | `enhanced_speed` 原样（km/h） | **实际地面速度** |
+
+实测 `pace` 与 `60000/(cadence×step_length)` 在 20000/20000 条采样里**完全相等**
+（误差 <0.15 s/km），证明 `pace` 确实只由跑姿派生；而 `speed` 与 `3600/pace` 的差
+正是「步幅推算」与「GPS 实测」的差（GPS 漂移、弯道、坡度、步幅传感器误差）。
+
+因此：**不要「修」这个差异**，也不要拿 `pace` 去校验 `speed`。选择纪律：
+
+- 需要「实际移动速度」→ 用 `speed`（解耦 `computeDecouplingPct`、等价平路 `gradeAdjustedPace`）；
+- 需要「跑姿效率」→ 用 `pace`（趋势图配速曲线、分段配速）；
+- 需要「配速」的人类可读值 → 用活动级 `average_pace`（秒/公里），它不是逐秒 `speed` 的均值。
+
+还有 43,681 条记录只有 `speed` 没有 `pace`（236 条活动，其中 225 条是跑步）——
+原因同上：这些秒里 `cadence` 为 0 或 `step_length` 缺失（走/停/传感器缺项），
+`pace` 的派生前置条件不满足，而 GPS 仍在记录速度。这是**正确的缺失**，不是漏洞。
+
 #### 第三类缺陷：prompt 承诺 ⇒ 数据块必须供给（2026-10-27）
 
 前两类讲的是「数据有值但输出方式不对」。第三类是**数据有值、prompt 也明确要求，
@@ -582,7 +664,7 @@ FTP 缺失不猜 / 海拔比值 / 尖峰过滤）、`tests/unit/pages/activity-d
 | **统计口径：活动日志保留全类型** | `getActivities` / `getMonthSummaries` | `tests/unit/lib/db-insight-integration.test.ts`（月度汇总 count 与列表 total 严格相等） |
 | **统计口径：写入侧也必须筛跑步** | `scripts/garmin/backfill-vdot.js` 的 `isRunningActivity`（VDOT 与 training_load 同口径） | `tests/unit/scripts/backfill-vdot.test.js`（非跑步即便有代表性心率与 >400m lap 也不写 VDOT、旧伪值被清空；缺类型视为跑步；track/treadmill 正常计算） |
 | **跑步类型判定单一来源** | `app/lib/sport.ts`（`RUNNING_ACTIVITY_TYPES` 派生 SQL + 客户端判定） | `tests/unit/lib/sport.test.ts`（类型集合/旧库空值/展示名/图标回落） |
-| **MCP tool description 必须声明统计口径** | `mcp-server/tools.ts`（9 个表现分析工具写「跑步口径」、2 个活动日志工具写「全类型口径」） | `tests/unit/mcp/tool-scope-contract.test.ts`（逐项断言口径措辞、`list_activities` 不再自称「列出跑步活动」、`get_activity_comparables` 声明 `running=false` 时配速派生字段为 `null`、16 个工具均有非空 title/description） |
+| **MCP tool description 必须声明统计口径** | `mcp-server/tools.ts`（10 个表现分析工具写「跑步口径」、2 个活动日志工具写「全类型口径」） | `tests/unit/mcp/tool-scope-contract.test.ts`（逐项断言口径措辞、`list_activities` 不再自称「列出跑步活动」、`get_activity_comparables` 声明 `running=false` 时配速派生字段为 `null`、17 个工具均有非空 title/description） |
 | **UI 不把非跑步指标当跑步指标** | `ListClient` / `ActivityDetailClient` / `RecentActivityCard` / `ActivityInsightPanel` / `ActivityTrendCharts` | `tests/unit/components/list-client.test.tsx` / `tests/unit/pages/activity-detail.test.tsx` / `tests/unit/components/recent-activity-card.test.tsx` / `tests/unit/components/activity-insight-panel.test.tsx`（非跑步不渲染「最快分段/主课均配速」卡片） / `tests/unit/components/activity-trend-charts.test.tsx`（非跑步不渲染配速/步频/步幅图） |
 | **趋势卡标题不得空承诺** | `ActivityTrendCharts.trendChartTitle` / `trendChartKinds`（组件与标题共用同一判定） | `tests/unit/components/activity-trend-charts.test.tsx`（标题只列出真的会渲染的图；无海拔数据不说「海拔 趋势」） |
 | **区块展示条件不得依赖单一罕见字段** | `ActivityDetailClient` 跑步动态卡（三项任一非空 + `running`） | `tests/unit/pages/activity-detail.test.tsx`（`gct_balance` 为 NULL 但触地时间/垂直摆动有值时仍渲染；非跑步即便有值也不渲染）；`tests/e2e/activity-detail.spec.ts` + 夹具按真实分布只写触地时间/垂直摆动 |
@@ -591,6 +673,10 @@ FTP 缺失不猜 / 海拔比值 / 尖峰过滤）、`tests/unit/pages/activity-d
 | **AI prompt 按运动类型分流** | `llm.ts` 的 `SYSTEM_PROMPT` / `NON_RUNNING_SYSTEM_PROMPT` | `tests/unit/lib/llm.test.ts`（非跑步不出现跑步术语与配速行；prompt 不引用非跑步数据里不存在的指标） |
 | **活动数据块的两类缺失** | `llm.ts` 的 `fmtNumIf` / `statRow` | `tests/unit/lib/llm-gateway.test.ts`（「该运动不产出」整项不输出、「该活动没测到」保留 `--`、有值时照常输出、无只剩标签的空行） |
 | **`max_speed` 单位契约：全链路 km/h** | `fit-parser.js`（`speedUnit:'km/h'`，`enhanced_max_speed` 原样落库）/ `fetcher.py`（Strava m/s → km/h `*3.6`）/ `llm.ts`（直接 `toFixed(1)`）/ `validate-data.js`（阈值按 km/h） | `tests/unit/lib/llm.test.ts`（20.76 km/h 渲染为 `20.8 km/h`，且不含 74.7；非跑步分支同样不乘 3.6；缺值为 `--`）；`tests/python/test_fetcher_strava.py`（4.5 m/s → 16.2 km/h，与 `average_speed` 同单位）；`tests/unit/scripts/validate-data.test.js`（`distance` 按公里解释，干净数据零误报；103.5 = 28.8×3.6 被抓） |
+| **逐秒 `speed` 单位契约：库内 km/h，阈值必须换算** | `app/lib/insight.ts` 的 `MIN_MOVING_SPEED_MS` / `MIN_MOVING_SPEED_KMH`（换算只此一处）/ `computeDecouplingPct` | `tests/unit/lib/insight.test.ts`（静止 1.0 km/h 不计入 → `null`；1.79 km/h 排除、1.81 km/h 收下；`MIN_MOVING_SPEED_KMH === MS × 3.6`） |
+| **功率区间聚合必须按 %FTP，不能按绝对瓦数** | `app/lib/db.ts` 的 `getPowerZoneStats`（逐 lap `resolveFtp` → `powerZoneOf`）/ `app/api/analysis/power-zones/route.ts` / `PowerZoneMetricsTable` / `mcp-server/tools.ts` 的 `get_power_zone_analysis` | `tests/unit/lib/db-power-zone-stats.test.ts`（两个 FTP 差 2 倍的活动里同样的 150W 分属 Z2 与 Z1；无 FTP 的 lap 跳过并计入 `laps_without_ftp`；非跑步排除；时长加权；距离米）；`tests/unit/api/power-zones-route.test.ts`（400/200、`ranges` 由参照 FTP 派生）；`tests/unit/components/zone-tables-a11y.test.tsx`（参照 FTP 披露 + 「共 14 个不同 FTP」）；`tests/unit/mcp/tool-scope-contract.test.ts`（声明「按各活动自身 FTP」「不是任何一次活动的 FTP」） |
+| **参照 FTP 是参照值，不是区间定义域** | `PowerZoneReference.ftp_median_watts` + UI 列名「参照瓦数」+ 表下说明 | `tests/unit/components/zone-tables-a11y.test.tsx`（`distinct_ftp_count > 1` 时必须出现「共 N 个不同 FTP」；单套 FTP 时不出现该噪音；无参照 FTP 时不编造 `0W+`）；`tests/unit/pages/analysis-page.test.tsx`（`228-279W` 与「共 14 个不同 FTP」同时出现） |
+| **`pace` 与 `speed` 不得互相校验（两条独立推导链）** | `app/lib/insight.ts` 的 `computeDecouplingPct` / `grade-adjust.ts` 用 `speed`（实际移动）；`ActivityTrendCharts` / 分段表用 `pace`（跑姿效率） | `tests/unit/lib/insight.test.ts`（解耦只用 `speed`）；`tests/unit/components/activity-trend-charts.test.tsx`（趋势图配速轴用 `pace`，缺失时按 `cadence×step_length` 派生） |
 | **字段必须被消费（算出来 ≠ 展示）** | `InsightClient.tsx` / `insight-coach.ts` / `ActivityInsightPanel.tsx` / `llm.ts` | `tests/unit/components/insight-field-consumption.test.ts`（递归展开 `InsightResponse` / `ActivityInsightResponse` / `Activity` 全部叶子字段, 剥离注释后逐个断言被消费; 消费方 = 展示入口的 import 传递闭包, 死代码模块不算; allowlist 反查腐化） |
 | **可推算字段必须真的推算** | `app/lib/power.ts`（FTP 回退 / IF / TSS / W·kg⁻¹ / 峰值过滤）/ `app/lib/elevation.ts`（净高差 / 爬升比） | `tests/unit/lib/power.test.ts`（28 例: 33→241 FTP 回退、TSS 用 moving_time、尖峰过滤、显式值优先）+ `tests/unit/lib/elevation.test.ts`（12 例: 净高差 ≠ 累计爬升、越界拒绝） |
 | **IF/TSS 与 TL 是两套口径** | `llm.ts` 的 `powerNote` | `tests/unit/lib/llm-gateway.test.ts`（TSS 与 TL 并存时必须声明「两套口径」, 否则模型当矛盾） |
@@ -671,9 +757,13 @@ FTP 缺失不猜 / 海拔比值 / 尖峰过滤）、`tests/unit/pages/activity-d
   是一次跨层改动，不在单点修补范围内。
 - **设备原始数组只做追溯**。`device_time_in_power_zone`（33 条）保留在库里但不被任何
   统计/展示读取 —— 它是「设备当时怎么算的」的取证材料，不是指标。
-- **分段级（lap）功率区间为空**。`activity_laps.time_in_power_zone` 真实库
-  **0/3082 全为 NULL**（`time_in_hr_zone` 同样全 NULL），故功率区间只能到活动级；
-  要做分段级需要从逐秒记录按 lap 时间窗切分，属新增能力。
+- **分段级「区间秒数」列仍为空**，但**分段级区间统计已实现**。`activity_laps.time_in_power_zone`
+  真实库 **0/3082 全为 NULL**（`time_in_hr_zone` 同样全 NULL），所以不能靠设备数组做 lap
+  级区间。但 `activity_laps.average_power` **2943/2962** 条跑步 lap 有值 ——
+  `getPowerZoneStats` 用它按「该活动自己的 FTP」归区，得到「Z3 跑了多少公里/多久」的
+  训练量统计（`/analysis` 功率区间表 + MCP `get_power_zone_analysis`）。
+  真正缺的是**逐 lap 的区间秒数分解**（一个 lap 横跨两个区间时如何切分），那需要从逐秒
+  记录按 lap 时间窗切分，属新增能力。
 - **非跑步活动不产出**。逐秒功率在 107 条非跑步活动里 0/107 —— 不是缺陷，而是设备
   不记录；UI 与 AI 都按 `running` 门控整项不渲染，而不是给出「全是 Z1」的假分布。
 

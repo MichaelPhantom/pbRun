@@ -14,6 +14,8 @@ import {
   isoWeekKey,
   linearRegression,
   mean,
+  MIN_MOVING_SPEED_KMH,
+  MIN_MOVING_SPEED_MS,
   pearson,
   type DailyLoad,
   type RecordSample,
@@ -179,6 +181,69 @@ describe('computeDecouplingPct', () => {
     const invalid: RecordSample[] = [{ elapsed_sec: 0, heart_rate: 0, speed: 3, distance: 0 }];
     const pct = computeDecouplingPct([...valid, ...invalid]);
     expect(pct).not.toBeNull();
+  });
+
+  /**
+   * 单位缺陷 (2026-10-27)：`RecordSample.speed` 存的是 **km/h**，而旧实现按
+   * 注释里的 `0.5 m/s` 直接写 `speed > 0.5` —— 实际生效的是 0.5 **km/h**
+   * （≈0.14 m/s），「几乎站着不动」也算有效样本。真实库 241 条跑步活动里
+   * 落在 0.5–1.8 km/h 的样本共 335 条（起跑/步行段），都会被旧阈值误收。
+   */
+  test('静止/步行样本 (0.5–1.8 km/h) 不计入有效样本', () => {
+    // 前半段全部是 1.0 km/h 的静止漂移 + 心率 150 → 旧实现会把它当有效样本
+    const stationary: RecordSample[] = Array.from({ length: 200 }, (_, i) => ({
+      elapsed_sec: i,
+      heart_rate: 150,
+      speed: 1.0, // 1.0 km/h = 0.28 m/s, 低于 0.5 m/s 的移动门槛
+      distance: i,
+    }));
+    // 只剩「静止样本」→ 有效样本 0 → null（而不是算出一个假的 0% 解耦）
+    expect(computeDecouplingPct(stationary)).toBeNull();
+  });
+
+  test('门槛按 km/h 生效: 1.79 km/h 排除, 1.81 km/h 收下', () => {
+    // 阈值 MIN_MOVING_SPEED_KMH = 1.8。若有人把单位写回 m/s (0.5)，这两条
+    // 都会通过；若有人把 0.5 当 km/h，则 1.79 也会通过 —— 两种错法都转红。
+    const make = (speed: number): RecordSample[] =>
+      Array.from({ length: 200 }, (_, i) => ({
+        elapsed_sec: i,
+        heart_rate: 150,
+        speed,
+        distance: i,
+      }));
+    expect(computeDecouplingPct(make(1.79))).toBeNull();
+    expect(computeDecouplingPct(make(1.81))).not.toBeNull();
+  });
+
+  test('MIN_MOVING_SPEED_KMH 与 m/s 常量同步 (3.6 换算只有一处)', () => {
+    expect(MIN_MOVING_SPEED_MS).toBe(0.5);
+    expect(MIN_MOVING_SPEED_KMH).toBeCloseTo(1.8, 10);
+    expect(MIN_MOVING_SPEED_KMH).toBeCloseTo(MIN_MOVING_SPEED_MS * 3.6, 10);
+  });
+
+  /**
+   * `RecordSample` 没有 `pace` 字段 —— 解耦必须只用 `speed`（GPS 实测速度），
+   * 不能用 `pace`（由 cadence×step_length 派生的「步幅效率配速」）。
+   *
+   * 真实库两者常不相等（720,901 条同时有值的记录里 p90 差 4.5 s/km、6.2% 超 5 s/km），
+   * 因为它们是两条独立推导链。若将来有人给 `RecordSample` 加回 `pace` 并在解耦里
+   * 改用它，本测试会转红 —— 提醒「解耦的物理量是速度，不是步幅推算」。
+   */
+  test('解耦只用 speed: 给一个 pace 不同但 speed 相同的输入, 结果不变', () => {
+    const base = (extra: Record<string, unknown>): RecordSample[] =>
+      Array.from({ length: 200 }, (_, i) => ({
+        elapsed_sec: i,
+        heart_rate: 150,
+        speed: 12,
+        distance: i,
+        ...extra,
+      }));
+    // 两个输入 speed 完全相同（都是 12 km/h），只是「如果存在 pace 字段」的值不同。
+    // 若实现误用 pace，两者会给出不同解耦值。这里以 any 注入 pace 模拟误用场景。
+    const a = computeDecouplingPct(base({ pace: 300 }) as RecordSample[]);
+    const b = computeDecouplingPct(base({ pace: 900 }) as RecordSample[]);
+    expect(a).not.toBeNull();
+    expect(a).toBe(b);
   });
 
   test('decouplingTone 分级', () => {

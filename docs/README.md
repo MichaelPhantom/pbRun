@@ -40,7 +40,7 @@
 | [API 接口文档](api-reference.md) | 完整的 RESTful API 参考 |
 | [训练洞察与 AI 教练](insight.md) | 动态洞察指标体系 + AI 教练体系 (活动级/全局) |
 | [VDOT 计算说明](vdot-calculation.md) | VDOT 跑力计算公式和训练建议 |
-| [MCP Server 设计](mcp-design.md) | AI 客户端接入 (16 个 tools, 已实施) |
+| [MCP Server 设计](mcp-design.md) | AI 客户端接入 (17 个 tools, 已实施) |
 | [测试方案](testing-strategy.md) | Jest + Playwright 测试架构 |
 | [Strava 集成设计](strava-integration-design.md) | Strava 数据源集成方案 |
 
@@ -135,7 +135,7 @@ pbRun/
 │       ├── runner-profile.ts          # 跑者画像
 │       ├── llm.ts / coach-stream.ts   # prompt、请求体、SSE 出流与回退
 │       └── components/{ai,charts,map} # AI 对话、图表、路线图
-├── mcp-server/             # MCP Server (stdio, 16 tools)
+├── mcp-server/             # MCP Server (stdio, 17 tools)
 ├── scripts/                # 数据同步与维护
 │   ├── garmin/             # Garmin 同步/解析/校验/回填
 │   ├── strava/             # Strava 同步/OAuth/GPX
@@ -177,6 +177,7 @@ pbRun/
 | `GET /api/vdot` | 获取 VDOT 趋势 | [API 文档](api-reference.md#8-获取-vdot-趋势) |
 | `GET /api/analysis/hr-zones` | 心率区间分析 | [API 文档](api-reference.md#9-心率区间分析) |
 | `GET /api/analysis/pace-zones` | 配速分布分析 | [API 文档](api-reference.md#10-配速区间分析) |
+| `GET /api/analysis/power-zones` | 功率区间分析 (%FTP 五区) | [API 文档](api-reference.md#105-功率区间分析) |
 | `GET /api/insight` | 训练洞察（区间 7/30/90/180/365/0） | [API 文档](api-reference.md#12-训练洞察) |
 | `POST /api/insight/coach` | 汇总 AI 教练/追问（SSE） | [API 文档](api-reference.md#13-全局-ai-综合教练) |
 | `GET /api/activities/{id}/insight` | 活动深挖（分段/漂移/区间/解耦/对比） | [API 文档](api-reference.md#14-活动详情深挖) |

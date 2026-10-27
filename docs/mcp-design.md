@@ -1,7 +1,7 @@
 # pbRun MCP Server 设计方案
 
 > 为 AI 客户端（Claude Desktop / opencode 等）提供结构化跑步数据访问能力
-> 状态: 已实施 (2026-08-08), 16 个 tools (含路线轨迹 + 年度里程 + 当次可比样本)
+> 状态: 已实施 (2026-08-08), 17 个 tools (含路线轨迹 + 年度里程 + 当次可比样本 + 功率区间)
 
 ## 1. 架构
 
@@ -31,7 +31,7 @@
 pbRun/
 ├── mcp-server/
 │   ├── index.ts              # MCP server 入口 (stdio transport)
-│   ├── tools.ts              # 16 个 tool 定义与 handler
+│   ├── tools.ts              # 17 个 tool 定义与 handler
 │   ├── analysis.ts           # 纯逻辑 (降采样/ACWR/跨期对比, 可单测)
 │   ├── tsconfig.json         # 独立编译配置 (module node16, 输出 dist/)
 │   ├── dist/                 # 编译产物 (已 .gitignore)
@@ -44,9 +44,9 @@ pbRun/
 
 > 部署: 无 systemd unit — stdio 进程由 AI 客户端按需拉起 (见 §6.1)。
 
-## 3. Tools 清单 (16 个)
+## 3. Tools 清单 (17 个)
 
-### 3.1 基础数据 (复用 db.ts, 13 个)
+### 3.1 基础数据 (复用 db.ts, 14 个)
 
 > **口径**：除 `list_activities` / `get_month_summaries`（活动日志，全类型）外，
 > 其余统计类工具均为**跑步口径**（只含 `running` / `track_running` / `treadmill_running`），
@@ -58,7 +58,7 @@ pbRun/
 > 解读（例如看到 `totalDistance` 只含跑步，却推断「用户几乎不运动」）。这类缺陷不报错、
 > 不让测试变红，只在模型输出里显形。`tests/unit/mcp/tool-scope-contract.test.ts`
 > 逐项断言：9 个表现分析工具必须含「跑步口径」、2 个活动日志工具必须含「全类型口径」、
-> 且所有 16 个工具都有非空 title/description。
+> 且所有 17 个工具都有非空 title/description。
 
 | Tool | db.ts 函数 | 参数 | 输出 | 说明 |
 |------|-----------|------|------|------|
@@ -72,6 +72,7 @@ pbRun/
 | `get_vdot_trend` | `getVDOTTrend` | `startDate?`, `endDate?`, `groupBy` | `VDOTTrendPoint[]` | 跑力趋势 (周/月聚合) |
 | `get_hr_zone_analysis` | `getHrZoneStats` | `startDate?`, `endDate?`, `groupBy` | `{data, zoneRanges, summary}` | 心率区间分析 (跑步口径) |
 | `get_pace_zone_analysis` | `getPaceZoneStats` | `startDate`, `endDate`, `vdot?`(auto=取最新) | `PaceZoneStat[]` | 配速区间分析 (跑步口径) |
+| `get_power_zone_analysis` | `getPowerZoneStats` | `startDate`, `endDate` | `{zones, reference, ranges, boundsLabel}` | 功率区间分析 (**%FTP 五区**, 按各活动自身 FTP 归区; 跑步口径) |
 | `get_month_summaries` | `getMonthSummaries` | `limit?`, `offset?` | `MonthSummary[]` | 月度汇总 (**全类型口径**) |
 | `get_activity_track` | `getActivityTrack` | `activityId` | `{track: ActivityTrack \| null}` | 路线轨迹 (降采样 GPS+海拔+包围盒); 室内为 null |
 | `get_daily_distances` | `getDailyDistances` | `year?`(默认当前年) | `{date, km}[]` | 年度每日里程 (热力图/连续性, 跑步口径) |
@@ -211,7 +212,7 @@ DB_PATH=/home/ubuntu/project/pbRun/app/data/activities.db MAX_HR=194 \
 | 4 | 实现 compare_periods (db.ts 新增 getPeriodStats) | ✅ |
 | 5 | 实现 get_training_load_analysis (db.ts 新增 getTrainingLoads, ACWR) | ✅ |
 | 6 | opencode 配置 (已写入 ~/.config/opencode); 确认无需 systemd (stdio 由客户端拉起) | ✅ |
-| 7 | 端到端验证 (stdio 客户端逐一调用 16 个 tool) | ✅ 全部通过 |
+| 7 | 端到端验证 (stdio 客户端逐一调用 17 个 tool) | ✅ 全部通过 |
 | 8 | 打磨: 纯逻辑抽离 analysis.ts (可单测)、结构化错误、日期校验、优雅退出 | ✅ |
 | 9 | 单元测试: db 新函数 10 例 + analysis 纯逻辑 18 例 | ✅ 全部通过 |
 | 10 | 修复 format.ts locale 脆弱性 (toLocaleDateString → 确定性 YYYY/MM/DD) | ✅ 全量测试 271 通过 |

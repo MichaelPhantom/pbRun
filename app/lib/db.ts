@@ -22,6 +22,8 @@ import {
   PersonalRecordsResponse,
   PersonalRecordItem,
   PaceZoneStat,
+  PowerZoneStat,
+  PowerZoneReference,
   PeriodStats,
   TrainingLoadPoint,
   ActivityTrack,
@@ -31,6 +33,8 @@ import { getPaceZoneBoundsFromVdot, getPaceZoneCenterFromVdot } from './vdot-pac
 import { periodKeyOf } from './date-utils';
 import { localDateRangeToUtc } from './timezone';
 import { hrZoneOf, resolveMaxHr } from './hr-zones';
+import { POWER_ZONE_NAMES, powerZoneOf } from './power-zones';
+import { resolveFtp } from './power';
 import { RUNNING_ACTIVITY_TYPES } from './sport';
 
 
@@ -594,6 +598,167 @@ export function getPaceZoneStats(
       avg_heart_rate: avg(s.wHrSum, s.wHrDur),
     };
   });
+}
+
+/**
+ * 功率区间统计（按活动各自 FTP 归入 %FTP 五区，聚合 laps）。
+ *
+ * ## 口径与「为什么不能按绝对瓦数聚合」
+ *
+ * 区间判定用 `powerZoneOf(lap.average_power, activityFtp)` —— **每个活动用自己
+ * 的 FTP**。真实库 241 条有功率的跑步活动共 **14 个不同 FTP**（338–379W），
+ * 若直接按瓦数分桶（如「>300W 算高强度」），同一段 320W 在不同 FTP 下分属不同
+ * 区间，跨活动相加得到的「Z3 时长」没有物理含义 —— 与心率区间当年 19 套边界、
+ * 功率区间设备数组 16 套边界是**同一个陷阱**。
+ *
+ * ## 为什么以 lap 为单位而不是逐秒
+ *
+ * `activity_laps.average_power` 在真实库 **2943/2962** 条跑步 lap 有值
+ * （241/241 活动），而 `activity_laps.time_in_power_zone` **0/3082 全为 NULL**。
+ * lap 级聚合能给出「Z3 跑了多少公里 / 多长时间」这类训练量信息，逐秒推导只能
+ * 给占比（那已在活动详情页的 `powerZoneBreakdown` 里）。两者互补，不重复。
+ *
+ * 返回恒为 5 个元素（Z1–Z5），空区间全 0 / null —— 与 `getPaceZoneStats` 同形。
+ */
+export function getPowerZoneStats(
+  startDate: string,
+  endDate: string,
+): { zones: PowerZoneStat[]; reference: PowerZoneReference } {
+  validateRange(startDate, endDate, 'getPowerZoneStats');
+  const db = getDatabase();
+  const start = toInclusiveStart(startDate, 'getPowerZoneStats');
+  const end = toInclusiveEnd(endDate, 'getPowerZoneStats');
+
+  const rows = db.prepare(
+    `SELECT al.activity_id, al.duration, al.distance, al.average_power,
+            al.average_heart_rate, al.average_cadence, al.average_stride_length,
+            a.functional_threshold_power, a.power_zone_boundaries
+     FROM activity_laps al
+     INNER JOIN activities a ON a.activity_id = al.activity_id
+     WHERE a.start_time >= ? AND a.start_time <= ?
+       AND al.average_power IS NOT NULL AND al.average_power > 0 AND al.distance > 0
+       AND ${runningTypeClause('a')}`
+  ).all(start, end) as {
+    activity_id: number;
+    duration: number | null;
+    distance: number | null;
+    average_power: number;
+    average_heart_rate: number | null;
+    average_cadence: number | null;
+    average_stride_length: number | null;
+    functional_threshold_power: number | null;
+    power_zone_boundaries: string | null;
+  }[];
+
+  interface Acc {
+    activityIds: Set<number>;
+    lapCount: number;
+    duration: number;
+    distance: number;
+    wPow: number; wDur: number;
+    wHr: number; wHrDur: number;
+    wCad: number; wCadDur: number;
+    wStride: number; wStrideDur: number;
+  }
+  const acc: Record<number, Acc> = {};
+  for (let z = 1; z <= 5; z++) {
+    acc[z] = {
+      activityIds: new Set<number>(),
+      lapCount: 0,
+      duration: 0,
+      distance: 0,
+      wPow: 0, wDur: 0,
+      wHr: 0, wHrDur: 0,
+      wCad: 0, wCadDur: 0,
+      wStride: 0, wStrideDur: 0,
+    };
+  }
+
+  const ftpValues: number[] = [];
+  const ftpSourceCount = { device: 0, 'zone-boundary': 0 };
+  const countedActivities = new Set<number>();
+  let lapsWithoutFtp = 0;
+
+  for (const lap of rows) {
+    // 每个活动各自的 FTP —— 这是 %FTP 口径的全部意义所在。
+    const ftp = resolveFtp({
+      functional_threshold_power: lap.functional_threshold_power,
+      power_zone_boundaries: lap.power_zone_boundaries,
+    });
+    if (!ftp) {
+      // 没有 FTP 就没有分母, 不猜默认值 (否则 IF/TSS/区间全错)。
+      lapsWithoutFtp += 1;
+      continue;
+    }
+    const zone = powerZoneOf(lap.average_power, ftp.watts);
+    if (zone == null) continue;
+    if (!countedActivities.has(lap.activity_id)) {
+      countedActivities.add(lap.activity_id);
+      ftpValues.push(ftp.watts);
+      ftpSourceCount[ftp.source] += 1;
+    }
+    const s = acc[zone];
+    s.activityIds.add(lap.activity_id);
+    s.lapCount += 1;
+    const dur = lap.duration && lap.duration > 0 ? lap.duration : 0;
+    s.duration += dur;
+    s.distance += lap.distance ?? 0;
+    // 瓦数/心率/步频/步幅按 lap 时长加权; 时长为 0 的 lap 退化为等权 (权重 1)
+    const w = dur > 0 ? dur : 1;
+    s.wPow += lap.average_power * w;
+    s.wDur += w;
+    if (lap.average_heart_rate != null && lap.average_heart_rate > 0) {
+      s.wHr += lap.average_heart_rate * w;
+      s.wHrDur += w;
+    }
+    if (lap.average_cadence != null && lap.average_cadence > 0) {
+      s.wCad += lap.average_cadence * w;
+      s.wCadDur += w;
+    }
+    if (lap.average_stride_length != null && lap.average_stride_length > 0) {
+      s.wStride += lap.average_stride_length * w;
+      s.wStrideDur += w;
+    }
+  }
+
+  const avg = (sum: number, weight: number): number | null => (weight > 0 ? sum / weight : null);
+
+  const zones: PowerZoneStat[] = [1, 2, 3, 4, 5].map((zone) => {
+    const s = acc[zone];
+    return {
+      zone,
+      zone_name: POWER_ZONE_NAMES[zone] ?? `Z${zone}`,
+      activity_count: s.activityIds.size,
+      lap_count: s.lapCount,
+      total_duration: s.duration,
+      total_distance: s.distance,
+      avg_power: avg(s.wPow, s.wDur),
+      avg_heart_rate: avg(s.wHr, s.wHrDur),
+      avg_cadence: avg(s.wCad, s.wCadDur),
+      avg_stride_length: avg(s.wStride, s.wStrideDur),
+    };
+  });
+
+  const sortedFtps = [...ftpValues].sort((a, b) => a - b);
+  const mid = Math.floor(sortedFtps.length / 2);
+  const ftpMedian =
+    sortedFtps.length === 0
+      ? null
+      : sortedFtps.length % 2 === 1
+        ? sortedFtps[mid]
+        : Math.round((sortedFtps[mid - 1] + sortedFtps[mid]) / 2);
+
+  return {
+    zones,
+    reference: {
+      ftp_median_watts: ftpMedian,
+      ftp_device_count: ftpSourceCount.device,
+      ftp_zone_boundary_count: ftpSourceCount['zone-boundary'],
+      activity_count: countedActivities.size,
+      distinct_ftp_count: new Set(ftpValues).size,
+      laps_without_ftp: lapsWithoutFtp,
+    },
+  };
 }
 
 /**

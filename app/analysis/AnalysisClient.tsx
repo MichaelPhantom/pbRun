@@ -7,6 +7,7 @@ import VDOTTrendChart from '@/app/lib/components/charts/VDOTTrendChart';
 import HrZoneDurationBarChart from '@/app/lib/components/charts/HrZoneDurationBarChart';
 import HrZoneMetricsTable from '@/app/lib/components/charts/HrZoneMetricsTable';
 import PaceZoneMetricsTable from '@/app/lib/components/charts/PaceZoneMetricsTable';
+import PowerZoneMetricsTable from '@/app/lib/components/charts/PowerZoneMetricsTable';
 import { TrainingLoadChart, type TrainingLoadPoint } from '@/app/lib/components/charts/TrainingLoadChart';
 import { GlobalCoach } from '@/app/lib/components/ai/GlobalCoach';
 import { SectionCard } from '@/app/components/ui/SectionCard';
@@ -14,7 +15,13 @@ import { StatCard } from '@/app/components/ui/StatCard';
 import { Segmented } from '@/app/components/ui/Segmented';
 import { Badge } from '@/app/components/ui/Badge';
 import { tsbStatus } from '@/app/lib/training-load';
-import type { HrZoneStat, VDOTTrendPoint, PaceZoneStat } from '@/app/lib/types';
+import type {
+  HrZoneStat,
+  VDOTTrendPoint,
+  PaceZoneStat,
+  PowerZoneStat,
+  PowerZoneReference,
+} from '@/app/lib/types';
 import type { TimeRangeDays } from '@/app/lib/date-utils';
 import { TIME_RANGE_DAYS_OPTIONS, TIME_RANGE_LABELS } from '@/app/lib/date-utils';
 
@@ -26,6 +33,8 @@ interface AnalysisClientProps {
   vdotData: VDOTTrendPoint[];
   currentVdot: number | null;
   paceZoneData: PaceZoneStat[];
+  powerZoneData: PowerZoneStat[];
+  powerZoneReference: PowerZoneReference;
   startDate: string;
   endDate: string;
   timeRangeDays: TimeRangeDays;
@@ -41,6 +50,8 @@ export default function AnalysisClient({
   vdotData,
   currentVdot,
   paceZoneData,
+  powerZoneData,
+  powerZoneReference,
   startDate,
   endDate,
   timeRangeDays,
@@ -240,6 +251,16 @@ export default function AnalysisClient({
         ) : (
           <div className="py-8 text-center text-sm text-fg-muted">暂无心率区间数据</div>
         )}
+      </SectionCard>
+
+      {/* 功率区间与详细指标 */}
+      <SectionCard title="功率区间与详细指标" action={<span className="text-xs text-fg-muted">{rangeStartLabel} – {endDate}</span>}>
+        <p className="mb-4 text-xs text-fg-secondary">
+          下表按 <strong>FTP 百分比</strong>划分功率区间（Z1–Z5），并展示各区间内的统计指标。
+          与上面两张表的分母不同：配速区间看 VDOT、心率区间看最大心率、功率区间看 FTP，
+          三者的「Z3」不是同一个强度概念。
+        </p>
+        <PowerZoneMetricsTable data={powerZoneData} reference={powerZoneReference} />
       </SectionCard>
     </div>
   );

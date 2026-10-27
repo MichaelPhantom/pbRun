@@ -375,6 +375,41 @@ export interface PaceZoneStat {
   avg_heart_rate: number | null;
 }
 
+/** 功率区间统计（基于活动各自 FTP 的 %FTP 五区口径，聚合 laps）。 */
+export interface PowerZoneStat {
+  zone: number;                                  // 1-5，对应 Z1-Z5
+  zone_name: string;                             // 语义名（Z1(恢复)…）
+  activity_count: number;                        // 去重活动数
+  lap_count: number;                             // 参与聚合的分段数
+  total_duration: number;                        // 秒
+  total_distance: number;                        // 米
+  avg_power: number | null;                      // 瓦（lap 时长加权）
+  avg_heart_rate: number | null;                 // bpm（lap 时长加权）
+  avg_cadence: number | null;                    // spm
+  avg_stride_length: number | null;              // 米
+}
+
+/**
+ * 功率区间聚合结果的参照系。
+ *
+ * **为什么必须显式给出参照 FTP**：区间判定用的是**每个活动各自的 FTP**
+ * （真实库 241 条跑步活动有 14 个不同值，338–379W），所以跨活动聚合只能在
+ * **%FTP** 上做。但用户要落到具体瓦数时需要一个分母 —— 这里给出参与聚合
+ * 活动的 FTP **中位数**，并明确标注是「参照」而非「本次活动 FTP」。
+ */
+export interface PowerZoneReference {
+  /** 参与聚合活动的 FTP 中位数（瓦）；无可用 FTP 时为 null。 */
+  ftp_median_watts: number | null;
+  /** FTP 来源分布：设备显式 / 由 power_zone_boundaries[3] 回退。 */
+  ftp_device_count: number;
+  ftp_zone_boundary_count: number;
+  /** 参与聚合的活动数与去重 FTP 值个数（说明「为何不能按绝对瓦数聚合」）。 */
+  activity_count: number;
+  distinct_ftp_count: number;
+  /** 因活动无 FTP 而被跳过的 lap 数（不猜默认 FTP，故这些 lap 不计入任何区间）。 */
+  laps_without_ftp: number;
+}
+
 /** 活动路线轨迹 (track 列, JSON)。无 GPS 的室内活动该列为 null。 */
 export interface ActivityTrack {
   coords: [number, number][];                  // [lat, lng] 降采样后的路径点 (十进制度数)

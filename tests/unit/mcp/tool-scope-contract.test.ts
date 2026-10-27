@@ -30,6 +30,7 @@ const RUNNING_SCOPED = [
   'get_vdot_trend',
   'get_hr_zone_analysis',
   'get_pace_zone_analysis',
+  'get_power_zone_analysis',
   'compare_periods',
   'get_training_load_analysis',
   'get_daily_distances',
@@ -144,7 +145,42 @@ describe('MCP tool description 必须声明统计口径', () => {
     }
   });
 
-  test('工具总数与文档一致 (16 个)', () => {
-    expect(configs.size).toBe(16);
+  /**
+   * 功率区间工具的口径契约 —— 与心率/配速区间工具**必须不同**。
+   *
+   * 心率区间的分母是 MAX_HR、配速区间的分母是 VDOT, 两者在用户范围内唯一,
+   * 所以「Z2 心率 140-155」可以直接当定义域讲。功率区间的分母是 **FTP, 且逐活动
+   * 不同**（真实库 241 条活动 14 个不同值, 338–379W）。description 若只说
+   * 「Z2<80%」而不点明「按各活动自身 FTP」+「reference 是参照值」, 模型会拿
+   * 参照 FTP 的瓦数范围去解读所有活动, 得出错误的强度结论。
+   */
+  test('get_power_zone_analysis 声明 %FTP 五区、逐活动 FTP 与参照 FTP 语义', () => {
+    const desc = configs.get('get_power_zone_analysis')!.description ?? '';
+    // 五个边界写全, 模型才知道 Z3 到底是多少 %FTP
+    expect(desc).toMatch(/Z1<65% \/ Z2<80% \/ Z3<90% \/ Z4<100% \/ Z5≥100%/);
+    // 归区口径: 按每次活动自己的 FTP
+    expect(desc).toMatch(/每次活动各自的 FTP/);
+    // 参照值不是定义域
+    expect(desc).toMatch(/不是任何一次活动的 FTP/);
+    // 不可按绝对瓦数跨活动聚合
+    expect(desc).toMatch(/不是绝对瓦数/);
+    // 单位
+    expect(desc).toMatch(/total_distance 为米/);
+    expect(desc).toMatch(/total_duration 为秒/);
+    // 无 FTP 的 lap 被跳过, 不猜默认值
+    expect(desc).toMatch(/laps_without_ftp/);
+  });
+
+  test('get_power_zone_analysis 不与心率区间工具共用措辞 (分母不同)', () => {
+    const desc = configs.get('get_power_zone_analysis')!.description ?? '';
+    // 心率工具的 BPM 区间说明不该出现在功率工具里
+    expect(desc).not.toMatch(/MAX_HR/);
+    expect(desc).not.toMatch(/BPM 区间/);
+    // 配速工具的 VDOT 说明也不该出现
+    expect(desc).not.toMatch(/VDOT/);
+  });
+
+  test('工具总数与文档一致 (17 个)', () => {
+    expect(configs.size).toBe(17);
   });
 });

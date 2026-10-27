@@ -27,7 +27,7 @@ API 分两类口径，**不可混用**（背景与实测数据见 [功能总览 
 
 | 口径 | 接口 | 说明 |
 |------|------|------|
-| **表现分析（只取跑步）** | `/api/stats`、`/api/stats/personal-records`、`/api/analysis/hr-zones`、`/api/analysis/pace-zones`、`/api/analysis/vdot-trend`、`/api/vdot`、`/api/insight`、`/api/insight/coach`、活动详情的可比样本 | 只统计 `running` / `track_running` / `treadmill_running`；配速、步频、心率区间、VDOT、个人纪录、训练负荷、同路线对比只在跑步内部可比 |
+| **表现分析（只取跑步）** | `/api/stats`、`/api/stats/personal-records`、`/api/analysis/hr-zones`、`/api/analysis/pace-zones`、`/api/analysis/power-zones`、`/api/analysis/vdot-trend`、`/api/vdot`、`/api/insight`、`/api/insight/coach`、活动详情的可比样本 | 只统计 `running` / `track_running` / `treadmill_running`；配速、步频、心率区间、VDOT、个人纪录、训练负荷、同路线对比只在跑步内部可比 |
 | **活动日志（全类型）** | `/api/activities`、`/api/activities/months` | 返回库里所有运动类型；列表带 `activity_type` 筛选器，月度「N 公里 / N 次」与展开后的卡片严格一致 |
 
 跑步类型集合由 `db.runningTypeClause` / `db.isRunningType` 单点定义；缺
@@ -630,6 +630,79 @@ GET /api/analysis/pace-zones?startDate=2026-09-01&endDate=2026-10-31&vdot=39.35
 
 ---
 
+### 10.5 功率区间分析
+
+按 **%FTP 五区**（Z1<65% / Z2<80% / Z3<90% / Z4<100% / Z5≥100%）聚合分段（laps）
+的时长/距离/次数/平均功率/心率/步频/步幅（**跑步口径**）。
+
+**请求**
+
+```http
+GET /api/analysis/power-zones?startDate=2026-01-01&endDate=2026-12-31
+```
+
+**查询参数**
+
+| 参数 | 类型 | 必填 | 说明 | 示例 |
+|------|------|------|------|------|
+| `startDate` | string | **是** | 起始本地日期 (YYYY-MM-DD) | `2026-01-01` |
+| `endDate` | string | **是** | 结束本地日期 (YYYY-MM-DD) | `2026-12-31` |
+
+> 与 `/api/analysis/hr-zones` 不同，本端点**不接受空日期**：功率区间聚合要给出参与
+> 活动的 FTP 中位数作为参照，跨多年会把不同阶段的 FTP 混在一起。缺参/格式错/起止
+> 颠倒一律 400。
+
+**响应字段**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `zones` | `PowerZoneStat[]` | 恒为 5 个（Z1–Z5），空区间为 0/null |
+| `zones[].zone` / `zone_name` | number / string | 区间序号与语义名（如 `Z2(耐力)`） |
+| `zones[].activity_count` / `lap_count` | number | 去重活动数 / 参与聚合的 lap 数 |
+| `zones[].total_duration` | number | 秒 |
+| `zones[].total_distance` | number | **米**（lap 距离累加） |
+| `zones[].avg_power` / `avg_heart_rate` / `avg_cadence` / `avg_stride_length` | number \| null | lap **时长加权**均值 |
+| `reference.ftp_median_watts` | number \| null | 参与活动 FTP 的中位数（**参照值，不是任何一次活动的 FTP**） |
+| `reference.ftp_device_count` / `ftp_zone_boundary_count` | number | FTP 来源分布（设备显式 / 由 `power_zone_boundaries[3]` 回退） |
+| `reference.activity_count` / `distinct_ftp_count` | number | 参与活动数 / 去重 FTP 值个数（说明为何不能按绝对瓦数聚合） |
+| `reference.laps_without_ftp` | number | 因活动无 FTP 而被跳过的 lap 数 |
+| `ranges` | array \| null | 由 `ftp_median_watts` 派生的瓦数范围表（下界 `ceil`）；参照为 null 时为 null |
+| `boundsLabel` | string | 由 `POWER_ZONE_BOUNDS` 派生的口径说明（如 `Z1 <65% / Z2 <80% …`） |
+
+**响应示例**（真实生产库，节选）
+
+```json
+{
+  "zones": [
+    { "zone": 1, "zone_name": "Z1(恢复)", "activity_count": 201, "lap_count": 563,
+      "total_duration": 143368, "total_distance": 255082.4, "avg_power": 174.29,
+      "avg_heart_rate": 129.61, "avg_cadence": 146.92, "avg_stride_length": 0.778 },
+    { "zone": 2, "zone_name": "Z2(耐力)", "activity_count": 224, "lap_count": 1187,
+      "total_duration": 361522, "total_distance": 998301.86, "avg_power": 259.59,
+      "avg_heart_rate": 143.76, "avg_cadence": 183.87, "avg_stride_length": 0.906 }
+  ],
+  "reference": {
+    "ftp_median_watts": 350, "ftp_device_count": 33, "ftp_zone_boundary_count": 208,
+    "activity_count": 241, "distinct_ftp_count": 14, "laps_without_ftp": 0
+  },
+  "ranges": [
+    { "zone": 1, "minW": 0, "maxW": 227 },
+    { "zone": 2, "minW": 228, "maxW": 279 },
+    { "zone": 3, "minW": 280, "maxW": 314 },
+    { "zone": 4, "minW": 315, "maxW": 349 },
+    { "zone": 5, "minW": 350, "maxW": null }
+  ],
+  "boundsLabel": "Z1 <65% / Z2 <80% / Z3 <90% / Z4 <100% / Z5 ≥100%"
+}
+```
+
+> **为什么必须按 %FTP 聚合**：区间归属用**每个活动自己的 FTP**（真实库 241 条活动 14 个
+> 不同值，338–379W）。按绝对瓦数分桶会让同一段 320W 在不同活动里落到不同区间，
+> 跨活动相加的「Z3 时长」没有物理含义。`ranges` 是**参照 FTP** 的换算表，
+> 不是所有活动通用的定义域 —— 消费方必须把它当作参照值展示。
+
+---
+
 ### 11. VDOT 趋势分析
 
 按周/月聚合 VDOT（**跑步口径**）。
@@ -977,7 +1050,7 @@ GET /api/llm/models
 |------|------|------|
 | `/api/activities`、`/api/activities/months` 的 `distance` / `totalDistance` | **公里 (km)**（DB 列原样） | `10.0` = 10 公里 |
 | `/api/stats` 的 `totalDistance`、`/api/stats/personal-records` 的 `longestRunMeters` | **米 (m)** | `2140439` = 2140 公里 |
-| `/api/vdot`、`/api/analysis/hr-zones`、`/api/analysis/pace-zones`、`/api/analysis/vdot-trend` 的 `distance` / `total_distance` | **米 (m)** | `10000` = 10 公里 |
+| `/api/vdot`、`/api/analysis/hr-zones`、`/api/analysis/pace-zones`、`/api/analysis/power-zones`、`/api/analysis/vdot-trend` 的 `distance` / `total_distance` | **米 (m)** | `10000` = 10 公里 |
 | `/api/activities/{id}/laps` 的 `distance` | **米 (m)** | `1000` = 1 公里 |
 | `activity_records.distance`（逐秒记录） | **公里 (km)** | `0.005` |
 | `activity_records.speed` | **km/h** | `12.0` |

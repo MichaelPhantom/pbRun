@@ -257,16 +257,38 @@ export interface DecouplingInput {
 }
 
 /**
+ * 解耦「有效移动」的下限速度: **0.5 m/s**（约 1.8 km/h，快走/起跑的门槛）。
+ *
+ * 为什么必须显式换算：`RecordSample.speed` 的存储单位是 **km/h**
+ * （`activity_records.speed`，fit-parser `lengthUnit='km'`）。旧实现直接写
+ * `speed > 0.5` 而注释写的是 `0.5 m/s` —— 实际生效的是 **0.5 km/h ≈ 0.14 m/s**，
+ * 即「几乎站着不动」也会被判为有效样本。等红灯时的 GPS 漂移、起终点的手表
+ * 静止采样因此会被算进前后半段均值，把 Pa:HR 比值往样本更多的那一侧稀释。
+ *
+ * 真实库 241 条跑步活动的逐秒 `speed` 范围 0.806–37.3 km/h，落在
+ * 0.5–1.8 km/h 区间的样本共 335 条（起跑/步行段），正是旧阈值会误收的部分。
+ *
+ * 单位换算集中在这里，调用方只使用 km/h —— 与 `max_speed` 那次
+ * 「库内单位与标签不符」的缺陷同一纪律：数字带单位名，且换算只发生一次。
+ */
+export const MIN_MOVING_SPEED_MS = 0.5;
+export const MIN_MOVING_SPEED_KMH = MIN_MOVING_SPEED_MS * 3.6; // 1.8
+
+/**
  * 计算单次活动的有氧解耦: 前后半段 (速度/心率) 比值的相对变化。
- * 仅使用有效记录 (hr>0 且 speed>0.5m/s), 样本 <120 返回 null。
+ * 仅使用有效记录 (hr>0 且 speed > `MIN_MOVING_SPEED_KMH`), 样本 <120 返回 null。
  * 正值 = 后半段效率下降 (心率漂移), 负值 = 后半段反而更高效。
  */
 export function computeDecouplingPct(records: RecordSample[]): number | null {
-  // 入口已约束 heart_rate > 0 与 speed > 0.5, 因此下方 `?? 0` 的 nullish 兜底、
-  // `h > 0 ? ... : 0` 的 0 侧、以及 `r1 === 0` 均为**防御性分支** (正常数据不可达);
-  // 保留以防御未来 RecordSample 放宽或外部直调, 不为其构造人为输入硬凑覆盖率。
+  // 入口已约束 heart_rate > 0 与 speed > MIN_MOVING_SPEED_KMH, 因此下方 `?? 0` 的
+  // nullish 兜底、`h > 0 ? ... : 0` 的 0 侧、以及 `r1 === 0` 均为**防御性分支**
+  // (正常数据不可达); 保留以防御未来 RecordSample 放宽或外部直调。
   const valid = records.filter(
-    (r) => r.heart_rate != null && r.heart_rate > 0 && r.speed != null && r.speed > 0.5,
+    (r) =>
+      r.heart_rate != null &&
+      r.heart_rate > 0 &&
+      r.speed != null &&
+      r.speed > MIN_MOVING_SPEED_KMH,
   );
   if (valid.length < 120) return null;
   const mid = Math.floor(valid.length / 2);

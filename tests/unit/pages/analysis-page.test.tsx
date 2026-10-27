@@ -13,6 +13,7 @@ jest.mock('@/app/lib/db', () => ({
   getVDOTTrend: jest.fn(),
   getStats: jest.fn(),
   getPaceZoneStats: jest.fn(),
+  getPowerZoneStats: jest.fn(),
   getTrainingLoads: jest.fn(),
 }));
 
@@ -49,16 +50,24 @@ import {
   getVDOTTrend,
   getStats,
   getPaceZoneStats,
+  getPowerZoneStats,
   getTrainingLoads,
 } from '@/app/lib/db';
 import AnalysisPage from '@/app/analysis/page';
-import type { HrZoneStat, VDOTTrendPoint, PaceZoneStat } from '@/app/lib/types';
+import type {
+  HrZoneStat,
+  VDOTTrendPoint,
+  PaceZoneStat,
+  PowerZoneStat,
+  PowerZoneReference,
+} from '@/app/lib/types';
 
 const db = {
   getHrZoneStats: getHrZoneStats as jest.Mock,
   getVDOTTrend: getVDOTTrend as jest.Mock,
   getStats: getStats as jest.Mock,
   getPaceZoneStats: getPaceZoneStats as jest.Mock,
+  getPowerZoneStats: getPowerZoneStats as jest.Mock,
   getTrainingLoads: getTrainingLoads as jest.Mock,
 };
 
@@ -114,6 +123,29 @@ const paceZone = (n: number): PaceZoneStat[] =>
     avg_heart_rate: 150,
   }));
 
+const powerZone = (lapCount: number): PowerZoneStat[] =>
+  [1, 2, 3, 4, 5].map((z) => ({
+    zone: z,
+    zone_name: `Z${z}`,
+    activity_count: lapCount > 0 ? 3 : 0,
+    lap_count: lapCount,
+    total_duration: lapCount > 0 ? 3600 : 0,
+    total_distance: lapCount > 0 ? 10000 : 0,
+    avg_power: lapCount > 0 ? 200 + z * 30 : null,
+    avg_heart_rate: lapCount > 0 ? 130 + z * 8 : null,
+    avg_cadence: lapCount > 0 ? 180 : null,
+    avg_stride_length: lapCount > 0 ? 1.0 : null,
+  }));
+
+const powerRef = (ftp: number | null, distinct = 1): PowerZoneReference => ({
+  ftp_median_watts: ftp,
+  ftp_device_count: distinct > 1 ? 2 : 1,
+  ftp_zone_boundary_count: 0,
+  activity_count: 3,
+  distinct_ftp_count: distinct,
+  laps_without_ftp: 0,
+});
+
 /** 覆盖预热窗口 (130 天) 的负荷点, 越靠后 load 越大 */
 function loadPoints(endDate: string): { date: string; distance: number; load: number; duration: number }[] {
   const end = new Date(endDate + 'T00:00:00Z');
@@ -139,6 +171,7 @@ beforeEach(() => {
   db.getVDOTTrend.mockReturnValue([vdotRow('2026-W37', 45.5), vdotRow('2026-W38', 46.7)]);
   db.getStats.mockReturnValue({ averageVDOT: 46.7 });
   db.getPaceZoneStats.mockReturnValue(paceZone(4));
+  db.getPowerZoneStats.mockReturnValue({ zones: powerZone(4), reference: powerRef(350) });
   db.getTrainingLoads.mockImplementation((start: string, end: string) => {
     void start;
     return loadPoints(end);
@@ -172,6 +205,8 @@ describe('app/analysis/page.tsx 取数编排', () => {
     expect(extEnd).toBe(endDate);
 
     expect(db.getPaceZoneStats).toHaveBeenCalledWith(46.7, startDate, endDate);
+    // 功率区间与心率/配速同一时间窗 (三个区间表并列, 分母各不相同)
+    expect(db.getPowerZoneStats).toHaveBeenCalledWith(startDate, endDate);
 
     // 预热段被裁掉: 序列首日 >= startDate
     await waitFor(() => expect(loadChartProps.length).toBeGreaterThan(0));
@@ -233,12 +268,46 @@ describe('app/analysis/AnalysisClient.tsx 渲染', () => {
     expect(screen.getByText('心率区间跑步时间')).toBeInTheDocument();
     expect(screen.getByText('跑力与详细指标')).toBeInTheDocument();
     expect(screen.getByText('心率区间与详细指标')).toBeInTheDocument();
+    // 功率区间表: 与配速/心率并列的第三张区间表。分母是 FTP (逐活动不同),
+    // 因此必须显式说明「三张表的 Z3 不是同一个强度概念」。
+    expect(screen.getByText('功率区间与详细指标')).toBeInTheDocument();
+    expect(screen.getByRole('table', { name: /功率区间/ })).toBeInTheDocument();
+    expect(screen.getByText(/配速区间看 VDOT、心率区间看最大心率、功率区间看 FTP/)).toBeInTheDocument();
     expect(screen.getByRole('img', { name: /心率/ })).toBeInTheDocument();
     // 行点击跳趋势页 (DataTable 行 role=button + title 携带目标)
     for (const z of ['Z1', 'Z3', 'Z5']) {
       expect(screen.getByTitle(new RegExp(`查看 ${z}`))).toBeInTheDocument();
     }
     expect(db.getPaceZoneStats).toHaveBeenCalled();
+  });
+
+  test('功率区间表披露参照 FTP 与「多套 FTP」事实 (不把中位数当定义域)', async () => {
+    db.getPowerZoneStats.mockReturnValue({
+      zones: powerZone(3),
+      // 真实库实测: 241 条活动 14 个不同 FTP (338–379W) —— 必须写出来,
+      // 否则读者会以为 350W 就是 Z2 的起点定义。
+      reference: powerRef(350, 14),
+    });
+    render(await AnalysisPage({ searchParams: Promise.resolve({}) }));
+
+    const table = screen.getByRole('table', { name: /功率区间/ });
+    expect(table).toBeInTheDocument();
+    // 参照瓦数按中位 FTP 350 换算: Z1 0-227W / Z2 228-279W / Z3 280-314W
+    // (ceil(350*65%)=228, ceil(350*80%)=280, ceil(350*90%)=315)
+    expect(table.textContent).toContain('228-279W');
+    // 必须说明这不是单次活动的 FTP
+    expect(screen.getByText(/共 14 个不同 FTP/)).toBeInTheDocument();
+    expect(screen.getByText(/不是绝对瓦数/)).toBeInTheDocument();
+  });
+
+  test('功率区间无数据 → 空态文案, 不渲染空表', async () => {
+    db.getPowerZoneStats.mockReturnValue({
+      zones: powerZone(0),
+      reference: { ...powerRef(null, 0), activity_count: 0 },
+    });
+    render(await AnalysisPage({ searchParams: Promise.resolve({}) }));
+    expect(screen.getByText('暂无功率区间数据')).toBeInTheDocument();
+    expect(screen.queryByRole('table', { name: /功率区间/ })).toBeNull();
   });
 
   test('Z4 / Z5 单独超标 → 各自产出一条建议 (Z3 不超标时无 Z3 条目)', async () => {

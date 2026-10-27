@@ -1,4 +1,4 @@
-import { getHrZoneStats, getVDOTTrend, getStats, getPaceZoneStats, getTrainingLoads } from '@/app/lib/db';
+import { getHrZoneStats, getVDOTTrend, getStats, getPaceZoneStats, getPowerZoneStats, getTrainingLoads } from '@/app/lib/db';
 import { getDateRangeFromDays, parseTimeRangeDays } from '@/app/lib/date-utils';
 import { computeTrainingLoads, type TrainingLoadSummary } from '@/app/lib/training-load';
 import { hrZoneRangeMap, resolveMaxHr } from '@/app/lib/hr-zones';
@@ -27,11 +27,15 @@ export default async function AnalysisPage({ searchParams }: PageProps) {
 
   // 训练负荷: 扩展取数 (预热) → EWMA → 切片显示区间
   const extStart = subDays(startDate, WARMUP_DAYS);
-  const [hrZoneData, vdotData, weekStats, loadPoints] = await Promise.all([
+  // 功率区间: 按各活动自身 FTP 归区（%FTP 口径），跨活动只在区间上聚合。
+  // 与配速/心率区间同一页面、同一时间窗 —— 三个区间表的分母分别是 VDOT /
+  // MAX_HR / FTP，必须并列呈现，否则用户会以为它们是同一套百分比。
+  const [hrZoneData, vdotData, weekStats, loadPoints, powerZoneStats] = await Promise.all([
     getHrZoneStats({ startDate, endDate, groupBy: GROUP_BY }),
     getVDOTTrend({ startDate, endDate, groupBy: GROUP_BY }),
     getStats('week'),
     getTrainingLoads(extStart, endDate),
+    getPowerZoneStats(startDate, endDate),
   ]);
   const tl: TrainingLoadSummary = computeTrainingLoads(loadPoints);
   const loadSeries = tl.series.filter((p) => p.date >= startDate);
@@ -51,6 +55,8 @@ export default async function AnalysisPage({ searchParams }: PageProps) {
       vdotData={vdotData}
       currentVdot={currentVdot}
       paceZoneData={paceZoneData}
+      powerZoneData={powerZoneStats.zones}
+      powerZoneReference={powerZoneStats.reference}
       startDate={startDate}
       endDate={endDate}
       timeRangeDays={timeRangeDays}

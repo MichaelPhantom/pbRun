@@ -155,4 +155,46 @@ test.describe('分析页 · 区间表', () => {
       expect(joined).toContain(h);
     }
   });
+
+  /**
+   * 功率区间表 —— 与心率/配速区间表**并列的第三张表**，分母是逐活动不同的 FTP。
+   *
+   * 夹具只有活动 900000001 有 lap 数据，4 段平均功率 232/298/305/240W，
+   * FTP 371W（来自 power_zone_boundaries[3]）→ Z1(0-241) 两段、Z3(297-333) 两段。
+   * 断言要点:
+   *  1. 表存在且含「时长/距离/次数/平均功率」列（数据层算好但曾经从不展示）；
+   *  2. 「参照瓦数」列由参照 FTP 派生（242-296W 是 Z2，不硬编码）；
+   *  3. 必须披露「参照值不是定义域」—— 这是功率区间表与另两张表的本质差异。
+   */
+  test('功率区间表存在, 参照瓦数由中位 FTP 派生, 且披露参照值语义', async ({ page }) => {
+    await page.goto('/pbrun/analysis?days=90');
+    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(1500);
+
+    const table = tableByColumn(page, '功率区间');
+    await expect(table).toBeVisible();
+
+    const joined = (await table.locator('thead th').allInnerTexts()).join('|').replace(/\s+/g, '');
+    for (const h of ['功率区间', '参照瓦数', '时长', '距离', '次数', '平均功率']) {
+      expect(joined).toContain(h);
+    }
+
+    // 参照 FTP = 371W（夹具唯一有 lap 的活动）→ ceil(371*65%)=242 → Z2 242-296W。
+    // 若 ranges 被硬编码成「65/80/90/100 %FTP 的固定瓦数」，这里会失败。
+    await expect(table).toContainText('242-296W');
+
+    // 夹具只有 1 套 FTP → 不应出现「共 N 个不同 FTP」噪音，但「参照」语义必须在。
+    await expect(page.getByText(/「参照瓦数」按参与统计活动的/)).toBeVisible();
+    await expect(page.getByText(/不是绝对瓦数/)).toBeVisible();
+  });
+
+  test('功率区间表说明三张区间表分母不同 (VDOT / MAX_HR / FTP)', async ({ page }) => {
+    await page.goto('/pbrun/analysis?days=90');
+    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(1500);
+    // 三张表的「Z3」不是同一个强度概念 —— 不说明的话用户会横向对比百分比。
+    await expect(
+      page.getByText(/配速区间看 VDOT、心率区间看最大心率、功率区间看 FTP/),
+    ).toBeVisible();
+  });
 });

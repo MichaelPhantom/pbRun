@@ -1,5 +1,5 @@
 /**
- * pbRun MCP Server — 16 个 tool 的定义与 handler。
+ * pbRun MCP Server — 17 个 tool 的定义与 handler。
  * 直接复用 app/lib/db.ts 的查询函数（只读访问 activities.db）；
  * 纯计算逻辑 (降采样/ACWR/跨期对比) 在 ./analysis.ts, 可单测。
  */
@@ -17,6 +17,7 @@ import {
   getVDOTTrend,
   getHrZoneStats,
   getPaceZoneStats,
+  getPowerZoneStats,
   getMonthSummaries,
   getPeriodStats,
   getTrainingLoads,
@@ -36,6 +37,7 @@ import {
   offsetToPage,
 } from './analysis';
 import { resolveMaxHr } from '../app/lib/hr-zones';
+import { powerZoneBoundsLabel, powerZoneRanges } from '../app/lib/power-zones';
 
 /** 统一成功输出 (JSON) */
 function ok(data: unknown) {
@@ -377,6 +379,47 @@ export async function registerTools(server: McpServer): Promise<void> {
         }
         const data = getPaceZoneStats(vdot, args.startDate, args.endDate);
         return { vdot, data };
+      })
+  );
+
+  /**
+   * 功率区间分析 —— 与 get_pace_zone_analysis / get_hr_zone_analysis 并列的第三张区间表。
+   *
+   * **为什么必须显式声明「按各活动自身 FTP 归区」**：真实库 241 条有功率的跑步活动
+   * 共 14 个不同 FTP（338–379W）。若模型以为 `ranges` 是所有活动通用的定义域，
+   * 它会用「Z2 = 228–279W」去解读一条 FTP 338 的活动（实际 Z2 = 220–270W），
+   * 结论就错了。因此 description 必须同时给出「%FTP 归一」与「参照 FTP 是参照值」。
+   */
+  await server.registerTool(
+    'get_power_zone_analysis',
+    {
+      title: '功率区间分析',
+      description:
+        '按 **%FTP 五区** (Z1<65% / Z2<80% / Z3<90% / Z4<100% / Z5≥100%) 聚合分段 (laps) 的' +
+        '时长/距离/次数/平均功率/心率/步频/步幅。**跑步口径**：非跑步活动不计入。' +
+        '区间归属按**每次活动各自的 FTP** 计算（真实库 14 个不同 FTP），故跨活动可比的是区间' +
+        '占比与训练量，**不是绝对瓦数**；`reference.ftp_median_watts` 是参与活动的中位 FTP，' +
+        '仅作瓦数换算的参照值，不是任何一次活动的 FTP。`ranges` 由该参照 FTP 派生（下界 ceil）。' +
+        'total_distance 为米, total_duration 为秒。无 FTP 的 lap 被跳过并计入 reference.laps_without_ftp。',
+      inputSchema: {
+        startDate: z.string().describe('开始日期 YYYY-MM-DD'),
+        endDate: z.string().describe('结束日期 YYYY-MM-DD'),
+      },
+    },
+    (args) =>
+      run(() => {
+        assertDateRange(args.startDate, args.endDate, 'get_power_zone_analysis');
+        const { zones, reference } = getPowerZoneStats(args.startDate, args.endDate);
+        const ranges =
+          reference.ftp_median_watts != null
+            ? powerZoneRanges(reference.ftp_median_watts)
+            : null;
+        return {
+          zones,
+          reference,
+          ranges,
+          boundsLabel: powerZoneBoundsLabel(),
+        };
       })
   );
 

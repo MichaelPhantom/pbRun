@@ -137,6 +137,13 @@ activities / activity_laps / activity_records (SQLite)
   逐秒推导，逐秒记录缺失时回退落库的 `time_in_power_zone`（同一模型）。真实库覆盖
   **241/241** 条有功率的活动，而设备原始数组只有 33/348 且是绝对瓦数边界
   （存在 `device_time_in_power_zone`，不参与展示）。非跑步恒为空数组。
+  **活动级看占比，跨活动看训练量**：`/analysis` 的功率区间表与 MCP
+  `get_power_zone_analysis` 走另一条路径 —— 用 `activity_laps.average_power`
+  （2943/2962 条跑步 lap 有值）按**各活动自身 FTP** 归区，得到「Z3 跑了多少公里/多久」。
+  两条路径同源同一套 5 区 %FTP 模型（`app/lib/power-zones.ts`），但聚合单位不同：
+  活动内逐秒只能给占比，跨活动只能给区间训练量 + 参照 FTP（`ftp_median_watts`，
+  真实库 241 条活动 14 个不同 FTP）。**参照 FTP 不是区间定义域**，UI 与 MCP 都必须
+  显式说明这一点，否则读者会把「Z2 = 228–279W」当成所有活动通用。
 - **逐秒有氧解耦**：复用 `computeDecouplingPct`。
 - **同路线对比**（`db.getPeerActivities` + `computeComparison`）：优先按路线指纹找同行历史，否则按距离分档回退；输出配速排名与相对均值的差值。
 - **同位置对比**（`getLocationPeerActivities` / `getRouteShapePeerActivities` + `route-shape.ts`）：
