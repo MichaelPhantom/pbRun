@@ -479,6 +479,98 @@ FTP 缺失不猜 / 海拔比值 / 尖峰过滤）、`tests/unit/pages/activity-d
 - 反例已排除：`start_tz_offset_min` 等 6 个聚类/记账列确实不在 `Activity` 里，
   但仍在 schema 里 —— 它们留在账本里是对的。
 
+#### `ActivityLap` 的 44 个字段也要机器审计（2026-10-27 补齐）
+
+`Activity` 有完整守卫，但 `ActivityLap`（44 字段）**一直没有** —— lap 层可以安静地积累
+同类缺陷。补守卫时一次审计就找出 **14 个零消费字段**，其中三个有真实数据：
+
+| 字段 | 真实库 | 缺陷性质 |
+|------|--------|----------|
+| `cumulative_time` | 3082/3082 | 只被 `scripts/common/lap-zones.js` 用于切时间窗，UI/AI 零消费 |
+| `lap_trigger` | 3082/3082 | 完全零消费（`distance` 1706 / `time` 870 / `session_end` 279 / `manual` 224 / `'15'` 3） |
+| `average_moving_pace` | 2972/3082 | 零消费；**且修复时间基数后与 `average_pace` 逐条相等（2972/2972）** |
+
+`average_moving_pace` 那条最值得记：它原本是**正确口径**（计时器时间）却从未被读，
+而 `average_pace` 是**错误口径**（经过时间）却到处被读。修好 `average_pace` 之后两列
+完全等价 —— 一个「正确但没人用」的列，正是「口径读错了」的化石证据。故账本写明
+「历史冗余列，展示重复值无增量信息」，并有一条断言守护两条推导链仍走同一时间基数
+（若哪天有人只改回其中一条，两列会重新分叉，账本里那句话就成了谎话）。
+
+判据与 `Activity` 那份**完全一致**（同一个概念不写两套实现）：字段数精确 `toBe(44)`、
+未消费必须进账本、账本必须保持真实、账本键必须是真实列、schema 每列三头必须落一头。
+四个方向都做过缺陷注入验证（删账本条目 / 塞已消费字段 / 塞幻影列 / 改字段数）。
+
+#### 配速与统计的时间基数：计时器时间，不是经过时间（2026-10-27）
+
+这是本仓库最典型的一类缺陷：**数据都在，只是读错了列**。
+
+`average_pace` / `average_speed` 一直由 `duration` 推导，而 `duration` 存的是 FIT
+`total_elapsed_time`（**含暂停**）。于是同一个活动卡片会自相矛盾：
+
+| 活动 | 距离 | 卡片「时长」(`moving_time`) | 卡片「平均配速」 | 配速×距离 |
+|------|------|------------------------------|------------------|-----------|
+| `582132079` | 6.63 km | 43.7 分 | **26:19/km** | 174.4 分 |
+| `632595826` | 7.17 km | 45.8 分 | **11:17/km** | 80.8 分 |
+| `621669611` | 5.24 km | 35.5 分 | **9:14/km** | 48.4 分 |
+| `598287817` | 6.10 km | 45.8 分 | **9:07/km** | 55.6 分 |
+
+**规模**：活动级 251 条有配速的里 `average_pace` **251/251 严格等于
+`duration/distance`**，只有 158 条同时等于 `moving_time/distance` —— 跑步子集 19 条
+偏差 >10%、4 条 >25%、2 条 >50%。lap 级更彻底：3082 个 lap 里 `average_pace`
+**2972/2972** 等于经过时间口径，而 `average_moving_pace` **2972/2972** 等于计时器口径。
+
+**证据不是「两种口径都行」**：
+
+- 设备自己算的 `enhanced_avg_speed`（345/348 活动、3079/3082 lap 有值）是计时器口径：
+  251 条里 **248 条**与 `distance/moving_time` 偏差 <2%（另 3 条是游泳，设备按划水时段
+  加权）；
+- Strava / Garmin Connect 展示的配速同样是计时器口径；
+- 详情页「时长」格本身显示的就是 `moving_time` —— 同一张卡片里两个数必须自洽。
+
+**修法**：口径唯一实现 `app/lib/pace.ts`（CJS 镜像 `scripts/common/pace.js`，与
+`hr-zones` / `power-zones` 同一模式，一致性由 `tests/unit/scripts/pace-parity.test.ts`
+逐值比对守护）。`effectiveTimeSec()` = `moving_time` 若 > 0，否则回退 `duration`
+（只有没写 timer time 才发生）。同一个模块同时给出 `paceSecPerKm` 与 `speedKmh`，
+两者**永远互为倒数**，不会再出现「配速按经过时间、速度按计时器」的分叉。
+
+写入口（`fit-parser` 活动级 + lap 级、`backfill-vdot`、`sync.js`、`scripts/strava/sync.js`）
+与读取侧（`db.ts` 的个人纪录 / 长跑解耦 / 配速-心率回归、`validate-data.js`）全部改走它。
+
+**顺带修掉的同源缺陷**（同一批查询里还在用经过时间）：
+
+| 位置 | 旧口径 | 症状 |
+|------|--------|------|
+| `getStats().totalDuration` | `SUM(duration)` | 「生涯总时长」把等人的时间算成训练 |
+| `getPeriodStats().totalDuration` | `SUM(duration)` | 周期对比虚高 |
+| `getPaceZoneStats().total_duration` + 加权权重 | `Σ lap.duration` | 同一行里区间秒数按 `moving_time` 推、总时长按经过时间累 |
+| `getPowerZoneStats().total_duration` + 加权权重 | 同上 | 同上 |
+| `getHrZoneStats().total_duration` | 同上 | 同上 |
+| `getVDOTTrend().total_duration` | `Σ activity.duration` | 同上 |
+| `getPersonalRecords` 的 5K/10K 插值 | `lap.duration` | 带暂停的跑会「跑出」假的慢成绩，**本该破纪录判成没破** |
+| VDOT 代表段 / `training_load` | `duration` | `582132079` 按经过时间得 TL 174、按计时器得 44（4 倍） |
+
+最硬的一条证据：`validate-data.js` 校验「区间秒数之和」时用的基准**本来就是
+`moving_time`**（348 条里仅 1 条偏差 >10%）。也就是说同一行数据里「区间秒数」与
+「total_duration」用的**不是同一个时间基数** —— 真实库 2958 个 lap 里 **88 个偏差
+>10%**，任何「Z4 占比 = Z4 秒 / total_duration」式的内部分析都会算出 >100% 或 <0%。
+
+**校验器本身也是缺陷的一部分**：旧 `validate-data.js` 断言
+`average_pace === duration/distance` 且 `average_speed === distance/duration` —— 它把
+错误口径**锁死**了，每次运行都报「251/251 正确」。**一个不可能失败的校验器比没有校验器
+更糟**：它让人相信已经验证过。这与 §4.3.4 的退出码契约是同一纪律。
+
+**回填**：`npm run backfill:pace`（`scripts/garmin/backfill-pace.js`）纯 DB 重算，
+不依赖 `.cache/fit`，幂等、可 `--dry-run`。生产实测变更活动 **93** 行、lap **162** 行；
+回填后跑步活动 `|配速×距离 − moving_time| / moving_time` 最大偏差 **0.0000%**
+（此前 19 条 >10%），跑步 lap 的 `average_pace` 与 `average_moving_pace` **2957/2957
+逐条相等**。
+
+**夹具纪律**：`make-fixture-db.js` 原来把 `average_pace` 写成
+`duration / distance`（活动 1 = 350），等于让 e2e **绕过被测代码** —— 夹具自己复刻了
+那个缺陷，端到端测试永远暴露不了「读错列」。现在夹具只给输入
+（`distance` / `moving_time` / `duration`），派生值一律用真实实现现场算；并刻意让
+活动 1 与 lap 2 的 `moving_time ≠ duration`，否则「读哪一列」在 e2e 里测不出来。
+
 ---
 
 ## 2. AI 上下文口径（核心契约）
@@ -550,10 +642,10 @@ FTP 缺失不猜 / 海拔比值 / 尖峰过滤）、`tests/unit/pages/activity-d
 
 #### 「最快段 / 主课」只认配速可信的分段（`MIN_RELIABLE_LAP_SEC`，2026-10-27）
 
-`average_pace = duration / (distance/1000)`。分母很小时**秒级取整**就把结果推得离谱：
-真实库 `540880879` 的收尾段是 `14.32 m / 4 s` → **279 s/km**，而同一次跑其余每公里
-都在 318–331 s/km。这不是「这一段跑得快」，是 `duration` 只有 4 个整数刻度、
-`distance` 只有 2 位小数带来的量化噪声。
+`average_pace = 计时器时间 / (distance/1000)`（口径见 §1.6「配速的时间基数」）。分母很小时
+**秒级取整**就把结果推得离谱：真实库 `540880879` 的收尾段是 `14.32 m / 4 s` →
+**279 s/km**，而同一次跑其余每公里都在 318–331 s/km。这不是「这一段跑得快」，是
+`duration` 只有 4 个整数刻度、`distance` 只有 2 位小数带来的量化噪声。
 
 后果不止一个数字错 —— 它会**污染结论**：
 
@@ -807,6 +899,10 @@ GPS 漂移、起终点的静止采样都被判为「有效移动」，混进前�
 | **旧库 / 坏数据一律降级不崩页** | `db.ts` 的列探测与 `getActivityTracks` / `getActivityStartGeo` / 网格通道 | `tests/unit/lib/db-degradation.test.ts`（缺列、畸形 JSON、非法坐标、非法 id 全部返回空/`null`） |
 | **AI 出流回退契约头** | `coach-stream.ts`（`X-Model-Fallback` / `-Requested` / `-Used`） | `tests/unit/api/coach-stream-gaps.test.ts`（回退成功、两个断开时机、错误体读取失败） |
 | **覆盖率门槛留有余量** | `jest.config.js` + `threshold-margin.test.ts` | `tests/unit/ci/threshold-margin.test.ts`（每组每项 ≥1.5pt，且不可用降门槛来满足） |
+| **配速/速度的时间基数 = 计时器时间 `moving_time`** | `app/lib/pace.ts`（`effectiveTimeSec` / `paceSecPerKm` / `speedKmh`）+ CJS 镜像 `scripts/common/pace.js`；写入侧 `fit-parser.js`（活动级 + lap 级）、`backfill-vdot.js`、`sync.js`、`scripts/strava/sync.js`；读取侧 `db.ts`、`validate-data.js` | `tests/unit/scripts/pace-parity.test.ts`（14 种时间形态逐值比对 + 真实库锚点：`582132079` 6:35 而非 26:19、`598287817` lap 7 从 60792 降到 24500）+ `tests/unit/garmin/fit-parser-branches.test.js`（活动级与 lap 级都断言 `average_pace` 更接近计时器口径、`average_speed × average_pace = 3600`）+ `tests/unit/scripts/backfill-pace.test.js`（18 例：单位差、幂等、dry-run、极端段、退出码 1）+ `tests/e2e/activity-detail.spec.ts`（判别式：`distToTimer < distToElapsed`） |
+| **所有时长聚合与配速同基数** | `db.ts` 的 `getStats` / `getPeriodStats` 的 `totalDuration`、`getPaceZoneStats` / `getPowerZoneStats` / `getHrZoneStats` 的 `total_duration` 与加权权重、`getVDOTTrend().total_duration`、`getPersonalRecords` 插值 | `tests/unit/lib/db-time-base.test.ts`（11 例真实 SQL：每条聚合路径都断言具体数字 3900 而非 5100 / 2200 而非 2900；四条注入路径逐一验证转红）+ `tests/unit/lib/db-insight-integration.test.ts`（5K PR 1786 而非 1800） |
+| **`ActivityLap` 的 44 个字段必须被消费或记账** | 账本 `LAP_FIELD_ALLOWLIST`（`tests/unit/components/lap-field-consumption.test.ts`）+ 两条推导链同基数断言 | 字段数精确 `toBe(44)`、正向未消费为空、反向账本无已消费项、账本键必须是真实列、schema 每列三头必须落一头；四个方向均做过缺陷注入 |
+| **校验器必须能失败（时间基数）** | `validate-data.js` 的活动级/lap 级配速断言改用 `effectiveTimeSec` / `speedKmh` / `paceSecPerKm` | `tests/unit/scripts/validate-data.test.js`（旧断言 `average_pace === duration/distance` 已删除 —— 它把错误口径锁死；问题数据用例必须命中） |
 
 ---
 

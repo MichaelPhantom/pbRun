@@ -97,9 +97,9 @@ GET /api/activities
 | `start_time` | string | 开始时间（UTC 绝对时刻） | - |
 | `start_time_local` | string | 开始时间（本地墙钟，无时区标记） | - |
 | `distance` | number | 总距离（**公里**，注意不是米） | km |
-| `duration` | number | 总用时 | 秒 |
-| `moving_time` | number | 移动时间 | 秒 |
-| `average_pace` | number \| null | 平均配速（**非跑步类型不可作为跑步配速解读**） | 秒/公里 |
+| `duration` | number | **经过时间**（FIT `total_elapsed_time`，含暂停） | 秒 |
+| `moving_time` | number | **计时器时间**（FIT `total_timer_time`；配速/统计的时间基数） | 秒 |
+| `average_pace` | number \| null | 平均配速（时间基数 = `moving_time`；**非跑步类型不可作为跑步配速解读**） | 秒/公里 |
 | `average_heart_rate` | number \| null | 平均心率 | bpm |
 | `average_cadence` | number \| null | 平均步频（非跑步类型语义不同，如篮球 16） | spm |
 | `vdot_value` | number \| null | VDOT 跑力值（仅跑步类型，Z3+ 代表性强度段才计） | - |
@@ -286,6 +286,7 @@ GET /api/activities/{id}/laps
       "lap_index": 1,
       "duration": 300,
       "cumulative_time": 300,
+      "moving_time": 300,
       "distance": 1000,
       "average_pace": 300,
       "average_speed": 12.0,
@@ -299,8 +300,9 @@ GET /api/activities/{id}/laps
 }
 ```
 
-> `distance` 为**米**。活动不存在返回 404；`id` 非法返回 400。分段也可能为空数组
-> （非跑步活动或数据源未提供 laps）。
+> `distance` 为**米**；`duration` 是经过时间（含暂停），`moving_time` 是计时器时间，
+> **`average_pace` 的时间基数是 `moving_time`**。活动不存在返回 404；`id` 非法返回 400。
+> 分段也可能为空数组（非跑步活动或数据源未提供 laps）。
 
 ---
 
@@ -402,7 +404,7 @@ GET /api/stats?period=week
 |------|------|------|------|
 | `totalActivities` | number | 跑步次数 | 次 |
 | `totalDistance` | number | 总距离（**米**；DB 存公里，接口 ×1000） | m |
-| `totalDuration` | number | 总时长 | 秒 |
+| `totalDuration` | number | 总时长（**计时器时间** `moving_time` 累加，不是经过时间） | 秒 |
 | `averagePace` | number? | 平均配速（逐活动 `AVG`，非时长加权） | 秒/公里 |
 | `averageHeartRate` | number? | 平均心率 | bpm |
 | `totalAscent` | number? | 总爬升 | m |
@@ -1056,6 +1058,7 @@ GET /api/llm/models
 | `activity_records.speed` | **km/h** | `12.0` |
 | `activities.average_speed` / `activities.max_speed` | **km/h**（同单位，别再乘 3.6） | `20.76` = 20.76 km/h |
 | 时长 / 配速 | 秒 (s) / 秒每公里 (s/km) | `3000` / `300` = 5:00/km |
+| 时长的时间基数 | **计时器时间 `moving_time`**（配速、`totalDuration`、区间表 `total_duration`、TSS、`training_load` 全部同基数） | `582132079` 的 `duration` 10465s / `moving_time` 2621s → 配速按 2621s 算 |
 | 心率 / 步频 / 卡路里 | bpm / spm / kcal | `150` / `170` / `500` |
 
 换算速记：DB 的 `activities.distance` 是公里，`activity_laps.distance` 是米，

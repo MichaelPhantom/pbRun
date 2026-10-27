@@ -351,6 +351,10 @@ describe('CLI 脚本导入契约', () => {
 | `tests/unit/common/db-manager-schema-drift.test.js` | 生产库缺代码声明的列（`device_time_in_speed_zone`/`_cadence_zone`）、多出旧口径列；`upsertActivity` 按对象键拼 SQL、读用 `SELECT *`，两侧都不报错 | 漂移只在「用 raw sqlite 打开库的路径」上出现，`DatabaseManager` 一打开就自动补列 —— 所以本机单测永远绿，只有真库才漂 |
 | `tests/unit/common/db-manager-schema-drift.test.js`（搬运分支） | 清理遗留列时无条件 `DROP COLUMN`：本库恰好 100% NULL，但用户从备份恢复的旧库有值时会被静默丢弃 | 「本库为空」不等于「所有库为空」；迁移不报错，丢数据无声无息 |
 | `tests/unit/mcp/tool-scope-contract.test.ts` | MCP tool description 不声明统计口径/单位 | 文案是字符串常量，没有分支 |
+| `tests/unit/scripts/pace-parity.test.ts` | TS `app/lib/pace.ts` 与 CJS `scripts/common/pace.js` 两份实现漂移 —— 写入侧按一套口径落库、UI/AI 按另一套理解 | 两套实现各自 100% 覆盖、各自「算得对」；只有**逐值比对**才发现分歧。这类漂移不报错，只让数字悄悄错开 |
+| `tests/unit/components/lap-field-consumption.test.ts` | `ActivityLap` 的 44 个字段里有值却零消费（`lap_trigger` 3082/3082、`average_moving_pace` 2972/3082） | 与 `Activity` 那份同理：字段有值即「存在」，没人读不产生未覆盖分支 |
+| `tests/unit/lib/db-time-base.test.ts` | 时长聚合（`totalDuration` / 区间表 `total_duration` / 加权权重 / VDOT 趋势）用经过时间，而配速用计时器时间 —— 同一行数据两个基数 | 两列都有值、SQL 都执行成功、类型都对；只有**同一行内对账**（区间秒数之和 vs `total_duration`）才暴露 |
+| `tests/unit/scripts/backfill-pace.test.js` | 回填脚本按错误时间基数重算（等于把旧缺陷刷成新数据）、失败却返回 0 | 正常路径下两种基数都产出「合法数字」；退出码只在异常路径分叉 |
 | `tests/unit/docs/api-route-coverage.test.ts` | 新增 API 路由未写进 README/API 文档 | 文档与代码是两棵树 |
 
 纪律：**同一类缺陷第二次出现时，必须把「人眼审计」升级成机器守卫**。本节第一个
@@ -772,7 +776,8 @@ node scripts/testing/make-fixture-db.js /tmp/other.db   # 指定输出
 （`%FTP` 5 区），窗口错了同样静默，而且它没有活动级那种兜底。实测生产库心率
 286 条对照最大偏差 5.06%、功率 241 条最大 0.99%，故共用一套 15% 容差。
 
-另修「配速可信度」：`average_pace = duration/(distance/1000)`，分母很小时秒级取整就
+另修「配速可信度」：`average_pace = 计时器时间/(distance/1000)`（时间基数见
+`docs/features.md` §1.6），分母很小时秒级取整就
 把结果推得离谱（真实库 `14.32 m / 4 s` → 279 s/km，而同一次跑其余每公里 318–331）。
 它污染的不止一个数字 —— 「最快 K」徽章指到 4 秒碎片（8/241 条跑步活动），
 「快于基准 8%」还把碎片判成**主课**（4 条活动被告知「主课 1 段 / 主课均配速 4:39」，
@@ -784,6 +789,45 @@ node scripts/testing/make-fixture-db.js /tmp/other.db   # 指定输出
 任一侧加过滤就会同页自相矛盾。现以服务端 `bestLapIndex` 为权威，仅在 insight 拉取
 失败时本地兜底。这类缺陷的判据不是「结果对不对」，而是**「同页两处是否走同一份
 计算」** —— 今天一致不代表明天一致。
+
+### 6.4 时间基数测试：用「判别式」而不是「容差」
+
+2026-10-27 的配速时间基数缺陷（`docs/features.md` §1.6）暴露了一整类**测试写法本身
+的缺陷**：断言用容差、而两个口径的差值比容差还小，于是测试无论怎么跑都是绿的。
+
+具体例子：夹具活动 1 是 8 km / `moving_time` 2750s / `duration` 2800s。
+正确口径配速 343.75 s/km、错误口径 350 s/km，**只差 1.8%**。若断言写成
+「配速 × 距离 ≈ 时长（±3%）」，错误口径也落在容差内 —— 测试**永远抓不到**这个 bug。
+后来改成判别式：
+
+```ts
+const distToTimer   = Math.abs(displayed - timerPace);    // 343.75
+const distToElapsed = Math.abs(displayed - elapsedPace);  // 350.00
+expect(distToTimer).toBeLessThan(distToElapsed);
+expect(distToTimer).toBeLessThanOrEqual(1);              // ±1s 取整误差
+```
+
+正确实现给出 `0.25 vs 6.00`，错误实现直接反转成 `6.25 vs 0.00`。**判别式与数值大小
+无关，只与「哪个更近」有关** —— 夹具改数值也不会误报。
+
+三条纪律：
+
+1. **两个候选口径的差值必须大于容差**。写断言前先算一遍：若 `|a−b| / a < 容差`，
+   这条断言在原理上就不可能失败。要么收紧容差，要么改判别式。
+2. **夹具必须让两条路径产出不同结果**。夹具若把 `moving_time` 和 `duration` 写成同一个值，
+   「读哪一列」在测试里**无法区分** —— 这是「测试全绿但缺陷仍在」的最常见来源。
+   故 `make-fixture-db.js` 现在刻意让活动 1（2750 vs 2800）与 lap 2（245 vs 275）两者不等。
+3. **夹具只给输入，派生值一律走真实实现**。夹具自己写 `average_pace = duration/distance`
+   等于**复刻缺陷**：端到端测试绕过被测代码，永远暴露不了「读错列」。
+
+同一纪律也用于 `tests/unit/lib/db-time-base.test.ts`：夹具里 `moving_time` 与 `duration`
+相差 1200 秒（2400 vs 3600），断言写的是**具体数字**（3900 而不是 5100）而不是容差 ——
+用错列会直接差 1200，一眼可见。
+
+> **`validate-data.js` 是这条纪律的反例**：它曾断言 `average_pace === duration/distance`，
+> 把错误口径**锁进校验器**，于是每次运行都报「251/251 正确」。**一个不可能失败的校验器
+> 比没有校验器更糟** —— 它让人相信已经验证过。校验器必须与被校验实现**独立推导**，
+> 且必须先在缺陷数据上验证它会变红。
 
 ---
 

@@ -82,8 +82,9 @@ FIT (Flexible and Interoperable Data Transfer) 是 Garmin 设备使用的二进�
 | `sport` | 运动类型 | `跑步` |
 | `sub_sport` | 子类型 | `路跑` / `跑步机` / `越野` |
 | `total_distance` | 总距离 (米) | `10000` |
-| `total_timer_time` | 总用时 (秒) | `3000` |
-| `total_elapsed_time` | 总经过时间 (秒) | `3010` |
+| `total_timer_time` | **计时器时间**（秒）→ `moving_time`，配速/统计的时间基数 | `3000` |
+| `total_elapsed_time` | 经过时间（秒，含暂停）→ `duration` / `elapsed_time` | `3010` |
+| `enhanced_avg_speed` | 设备自算平均速度 (m/s，计时器口径) | `3.33` |
 | `avg_speed` | 平均速度 (m/s) | `3.33` |
 | `max_speed` | 最大速度 (km/h，与 `average_speed` 同单位) | `16.5` |
 | `avg_heart_rate` | 平均心率 (bpm) | `150` |
@@ -104,11 +105,13 @@ FIT (Flexible and Interoperable Data Transfer) 是 Garmin 设备使用的二进�
 | `lap_index` | 分段索引 | `1` |
 | `start_time` | 分段开始时间 | `2026-02-13 06:30:00` |
 | `total_distance` | 分段距离 (米) | `1000` |
-| `total_timer_time` | 分段用时 (秒) | `300` |
+| `total_timer_time` | **计时器时间**（秒）→ `moving_time`，lap 配速的时间基数 | `300` |
+| `total_elapsed_time` | 经过时间（秒，含暂停）→ `duration` | `310` |
 | `avg_speed` | 平均速度 (m/s) | `3.33` |
 | `avg_heart_rate` | 平均心率 (bpm) | `150` |
 | `avg_cadence` | 平均步频 (spm) | `170` |
 | `total_ascent` | 分段爬升 (米) | `15` |
+| `lap_trigger` | 设备切段方式（`distance` / `time` / `session_end` / `manual`） | `distance` |
 
 ### VDOT 计算
 
@@ -327,10 +330,11 @@ CREATE TABLE activities (
   start_tz_offset_min INTEGER,            -- 本地相对 UTC 的分钟偏移 (Asia/Shanghai = 480)
 
   distance REAL NOT NULL,                 -- 距离 (公里, 注意不是米)
-  duration INTEGER NOT NULL,
-  moving_time INTEGER NOT NULL,
-  elapsed_time INTEGER NOT NULL,
-  average_pace REAL,                      -- 配速 (秒/公里)
+  duration INTEGER NOT NULL,              -- 经过时间 = FIT total_elapsed_time (含暂停)
+  moving_time INTEGER NOT NULL,           -- 计时器时间 = FIT total_timer_time (0 = 缺失)
+  elapsed_time INTEGER NOT NULL,          -- 与 duration 同值 (348/348), 见 §时间基数
+  average_pace REAL,                      -- 配速 (秒/公里), 时间基数 = moving_time
+  average_speed REAL,                     -- 速度 (公里/小时), 与 average_pace 严格互为倒数
   average_heart_rate INTEGER,
   max_heart_rate INTEGER,
   average_cadence INTEGER,
@@ -443,27 +447,93 @@ CREATE TABLE activities (
 > ```
 > 幂等：重复运行 `变更 0`；失败回退出码 1，供 CI/cron 察觉。
 
+#### 时间基数约定 (`moving_time` vs `duration`, 2026-10-27 修复)
+
+库里有三个时间列，**语义不同、不可混用**：
+
+| 列 | FIT 来源 | 含义 | 真实库 |
+| --- | --- | --- | --- |
+| `moving_time` | `total_timer_time` | **计时器时间**（暂停时停表） | 348/348 有值；活动级 NOT NULL（0 = 缺失） |
+| `duration` | `total_elapsed_time` | **经过时间**（含暂停，墙钟跨度） | 348/348 有值 |
+| `elapsed_time` | 同 `total_elapsed_time` | 与 `duration` **同值**（348/348） | 内部记账用 |
+
+**配速 / 速度 / 所有时长聚合的时间基数 = `moving_time`**：
+
+- `average_pace` = `moving_time / (distance/1000)`（秒/公里）
+- `average_speed` = `distance / (moving_time/3600)`（公里/小时），与 `average_pace` 严格互为倒数
+- `getStats()` / `getPeriodStats()` 的 `totalDuration`、区间表 `total_duration` 与加权均值权重、
+  `getVDOTTrend().total_duration`、TSS、`training_load` 全部同基数
+
+口径唯一实现是 `app/lib/pace.ts`（`effectiveTimeSec` / `paceSecPerKm` / `speedKmh`），
+写入侧用 CJS 镜像 `scripts/common/pace.js`，两者由
+`tests/unit/scripts/pace-parity.test.ts` 逐值比对守护。
+
+> **历史缺陷（已修复）**：`fit-parser.js` 曾用 `duration` 推导配速，于是同一个活动卡片
+> 自相矛盾 —— `582132079` 6.63 km、卡片「时长」43.7 分（`moving_time`）、
+> 「平均配速」却显示 **26:19/km**（配速×距离 = 174.4 分）。真实库 251 条有配速的活动里
+> `average_pace` **251/251 严格等于 `duration/distance`**，跑步子集 19 条偏差 >10%。
+> 回填：
+> ```bash
+> node scripts/garmin/backfill-pace.js --dry-run   # 预览
+> node scripts/garmin/backfill-pace.js             # 执行 (纯 DB 重算, 不读 FIT)
+> ```
+> 生产实测变更活动 **93** 行、lap **162** 行；回填后跑步活动配速×距离与 `moving_time`
+> 最大偏差 **0.0000%**，跑步 lap 的 `average_pace` 与 `average_moving_pace` **2957/2957**
+> 逐条相等。幂等：重复运行 `变更 0`；失败退出码 1。
+
 #### laps 表
 
-存储分段数据。
+存储分段数据（真实 schema 为 `activity_laps`，44 列；完整列集合见
+`scripts/common/db-manager.js` 的 `declaredColumns('activity_laps')`）。
 
 ```sql
-CREATE TABLE laps (
+CREATE TABLE activity_laps (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  activity_id INTEGER,
-  lap_index INTEGER,
-  start_time TEXT,
-  total_distance REAL,
-  total_timer_time REAL,
-  avg_speed REAL,
-  avg_heart_rate INTEGER,
-  avg_cadence INTEGER,
-  max_cadence INTEGER,
+  activity_id INTEGER NOT NULL,
+  lap_index INTEGER NOT NULL,
+  duration INTEGER NOT NULL,          -- 经过时间 = FIT total_elapsed_time (含暂停)
+  cumulative_time INTEGER NOT NULL,   -- 累计秒数; lap 区间切片用 [prevCum, cum)
+  moving_time INTEGER,                -- 计时器时间 = FIT total_timer_time (可空)
+  distance REAL NOT NULL,             -- 距离 (米, 注意不是公里)
+  average_pace REAL,                  -- 配速 (秒/公里), 时间基数 = moving_time
+  average_moving_pace REAL,           -- 历史冗余列, 修复时间基数后与 average_pace 逐条相等
+  average_speed REAL,                 -- 速度 (公里/小时)
+  average_heart_rate INTEGER,
+  max_heart_rate INTEGER,
   total_ascent REAL,
   total_descent REAL,
+  average_power INTEGER,
+  max_power INTEGER,                  -- 逐秒瞬时峰值, 不参与任何派生
+  average_cadence INTEGER,
+  max_cadence INTEGER,                -- 设备钳制在 250 spm, 不是传感器尖峰
+  average_stride_length REAL,
+  average_ground_contact_time REAL,
+  average_gct_balance REAL,
+  average_vertical_oscillation REAL,
+  average_vertical_ratio REAL,
+  avg_grade REAL,
+  time_in_hr_zone TEXT,               -- 本地 5 区心率秒数 JSON, 长度恒为 5
+  time_in_power_zone TEXT,            -- 本地 5 区 %FTP 功率秒数 JSON, 长度恒为 5
+  device_time_in_hr_zone TEXT,        -- 设备原始数组, 仅追溯
+  device_time_in_power_zone TEXT,     -- 设备原始数组, 仅追溯
+  device_time_in_speed_zone TEXT,     -- 设备原始数组; app 无速度 5 区模型
+  device_time_in_cadence_zone TEXT,   -- 设备原始数组; app 无步频 5 区模型
+  lap_trigger TEXT,                   -- 设备切段方式 (distance/time/session_end/manual)
+  start_time TEXT,
+  calories INTEGER,
+  average_temperature REAL,
+  -- 以下 10 列真实库 0/3082 全 NULL (设备不写或 profile 无对应字段, 见
+  -- docs/features.md §4.3.1)。保留在 schema 里是为了「列集合 = 代码声明」的一致性,
+  -- 不是在等实现:
+  --   average_pace_gap, best_pace, average_power_to_weight, max_power_to_weight,
+  --   average_step_rate_loss, average_step_rate_loss_percent,
+  --   avg_pos_grade, avg_neg_grade, max_pos_grade, max_neg_grade
   FOREIGN KEY (activity_id) REFERENCES activities(activity_id)
 );
 ```
+
+> **配速与统计的时间基数 = `moving_time`（计时器时间）**，不是 `duration`（经过时间）。
+> 详见下节「时间基数约定」。
 
 #### records 表
 
