@@ -44,6 +44,10 @@ function wireDb(overrides = {}) {
     outOfRange: 0,
     orphanedLaps: 0,
     lapStats: [],
+    // 心率区间口径: 本地 5 区模型 (长度恒为 5), 秒数贴近 moving_time
+    hrZoneRows: [
+      { activity_id: 1, moving_time: 3600, duration: 3700, time_in_hr_zone: JSON.stringify([600, 1800, 900, 300, 0]) },
+    ],
   };
   const cfg = { ...def, ...overrides };
 
@@ -59,11 +63,14 @@ function wireDb(overrides = {}) {
     if (/SELECT DISTINCT activity_id/.test(q)) return make(cfg.activitiesWithLaps);
     if (/WHERE activity_id = \?\s+ORDER BY lap_index/s.test(q)) return make(cfg.lapsOfActivity);
     if (/SELECT distance as total_distance FROM activities WHERE activity_id = \?/.test(q)) return make(cfg.activityTotal);
-    if (/IS NULL/.test(q)) return make({ count: cfg.nullCounts });
+    // 顺序敏感: 范围检查的 SQL 里也含 `activity_type IS NULL`（跑步类型集合的旧库
+    // 兼容分支），所以必须先匹配「MIN(...) + COUNT(*)」再匹配泛化的 IS NULL。
     if (/MIN\(/.test(q) && /COUNT\(\*\) as count/.test(q)) return make(cfg.rangeStats);
+    if (/IS NULL/.test(q)) return make({ count: cfg.nullCounts });
     if (/< \? OR .* > \?/.test(q)) return make({ count: cfg.outOfRange });
     if (/NOT IN/.test(q)) return make({ count: cfg.orphanedLaps });
     if (/GROUP BY activity_id/.test(q)) return make(cfg.lapStats);
+    if (/SELECT activity_id, moving_time, duration, time_in_hr_zone/.test(q)) return make(cfg.hrZoneRows);
     return make({ count: 0 });
   });
   return cfg;
@@ -98,6 +105,9 @@ describe('干净数据 → 全通过', () => {
     expect(out).toContain('分段距离总和: 与活动总距离一致');
     expect(out).toContain('外键完整性');
     expect(out).toContain('分段数量: 合理范围');
+    // 心率区间口径 (本地 5 区模型)
+    expect(out).toContain('区间数组口径: 长度恒为 5');
+    expect(out).toContain('区间秒数与 moving_time 一致');
   });
 
   test('空分段数据 → 跳过并给提示 (不崩)', async () => {
@@ -216,5 +226,65 @@ describe('close', () => {
     const v = new DataValidator();
     v.close();
     expect(mockDb.close).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('心率区间口径校验 (validateHrZoneScope)', () => {
+  test('无任何区间数据 → 提示后返回 (不判错)', () => {
+    wireDb({ hrZoneRows: [] });
+    const v = new DataValidator();
+    v.validateHrZoneScope();
+    const out = mockLog.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(out).toContain('无任何心率区间数据');
+    expect(v.issues).toEqual([]);
+    expect(v.warnings).toEqual([]);
+  });
+
+  test('长度非 5 (设备 7 槽数组残留) → issue', () => {
+    // 这正是 2026-10-27 修复前的生产状态: time_in_hr_zone 存的是设备原始数组
+    wireDb({
+      hrZoneRows: [
+        { activity_id: 1, moving_time: 3600, duration: 3700, time_in_hr_zone: JSON.stringify([1, 2, 3, 4, 5, 6, 7]) },
+      ],
+    });
+    const v = new DataValidator();
+    v.validateHrZoneScope();
+    expect(v.issues.some((i) => /必须是本地 5 区模型/.test(i.message))).toBe(true);
+    const out = mockLog.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(out).toContain('长度非 5 1 条');
+  });
+
+  test('坏 JSON → issue', () => {
+    wireDb({
+      hrZoneRows: [{ activity_id: 1, moving_time: 3600, duration: 3700, time_in_hr_zone: '{broken' }],
+    });
+    const v = new DataValidator();
+    v.validateHrZoneScope();
+    expect(v.issues.some((i) => /坏 JSON 1/.test(i.message))).toBe(true);
+  });
+
+  test('秒数与 moving_time 偏离 >10% → warning 并给出样例 (不判 issue)', () => {
+    wireDb({
+      hrZoneRows: [
+        // 139s 推导 vs 122s 期望 = 真实库唯一的离群活动 537220961
+        { activity_id: 537220961, moving_time: 122, duration: 130, time_in_hr_zone: JSON.stringify([139, 0, 0, 0, 0]) },
+      ],
+    });
+    const v = new DataValidator();
+    v.validateHrZoneScope();
+    expect(v.issues).toEqual([]);
+    const warn = v.warnings.map((w) => w.message).join(' | ');
+    expect(warn).toMatch(/偏离 >10%/);
+    const out = mockLog.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(out).toContain('537220961(139s vs 122s)');
+  });
+
+  test('短活动 (<=60s) 不参与偏差判定 (基数太小, 比值无意义)', () => {
+    wireDb({
+      hrZoneRows: [{ activity_id: 1, moving_time: 30, duration: 30, time_in_hr_zone: JSON.stringify([60, 0, 0, 0, 0]) }],
+    });
+    const v = new DataValidator();
+    v.validateHrZoneScope();
+    expect(v.warnings).toEqual([]);
   });
 });

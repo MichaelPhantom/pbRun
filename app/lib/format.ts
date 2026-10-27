@@ -116,3 +116,26 @@ export function formatTemp(c: number | null | undefined): string {
   if (c == null || Number.isNaN(c)) return '--';
   return `${c.toFixed(1)} °C`;
 }
+
+/** 恢复时间（Garmin 官方 `recovery_time`，单位**分钟**）拆成「数值 + 单位」。 */
+export interface RecoveryDisplay {
+  value: string;
+  unit: '分' | '小时' | '天';
+}
+
+/**
+ * 恢复时间 → 可读的「数值 + 单位」。
+ *
+ * 真实库 348 条活动的 `recovery_time` 分布：`0` 13 条、`1–59 分钟` 3 条、
+ * `1–23 小时` 152 条、`≥24 小时` 180 条（最长 5020 分钟 ≈ 3.5 天）。因此三档都必须
+ * 支持 —— 只用「小时」会把 3.5 天渲染成「84 小时」，只用「分钟」会出现「5020 分钟」。
+ *
+ * 为什么不写进 `llm.ts`：AI 数据块用分钟（便于模型做跨活动算术），UI 用可读单位，
+ * 两者共用同一份阈值判定，避免「UI 说 3.5 天、prompt 说 84 小时」的口径漂移。
+ */
+export function formatRecoveryTime(minutes: number | null | undefined): RecoveryDisplay | null {
+  if (minutes == null || Number.isNaN(minutes) || minutes < 0) return null;
+  if (minutes < 60) return { value: String(Math.round(minutes)), unit: '分' };
+  if (minutes < 1440) return { value: String(Math.round(minutes / 60)), unit: '小时' };
+  return { value: (minutes / 1440).toFixed(1), unit: '天' };
+}

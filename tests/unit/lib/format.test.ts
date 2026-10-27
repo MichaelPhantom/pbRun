@@ -12,6 +12,7 @@ import {
   formatInt,
   formatCadence,
   formatTemp,
+  formatRecoveryTime,
 } from '@/app/lib/format';
 
 describe('format', () => {
@@ -229,6 +230,37 @@ describe('format', () => {
     test('null或NaN应返回--', () => {
       expect(formatTemp(null)).toBe('--');
       expect(formatTemp(undefined)).toBe('--');
+    });
+  });
+
+  describe('formatRecoveryTime', () => {
+    // 真实库 348 条 recovery_time 分布: 0 分 13 条 / 1-59 分 3 条 /
+    // 1-23 小时 152 条 / >=24 小时 180 条 (最长 5020 分 ≈ 3.5 天)。
+    test('0 分钟照常输出「0 分」(0 = 无需恢复, 是有效结论而非缺失)', () => {
+      expect(formatRecoveryTime(0)).toEqual({ value: '0', unit: '分' });
+    });
+
+    test('<60 分钟用「分」', () => {
+      expect(formatRecoveryTime(45)).toEqual({ value: '45', unit: '分' });
+      expect(formatRecoveryTime(59)).toEqual({ value: '59', unit: '分' });
+    });
+
+    test('60-1439 分钟用「小时」(四舍五入)', () => {
+      expect(formatRecoveryTime(60)).toEqual({ value: '1', unit: '小时' });
+      expect(formatRecoveryTime(1400)).toEqual({ value: '23', unit: '小时' });
+      expect(formatRecoveryTime(119)).toEqual({ value: '2', unit: '小时' });
+    });
+
+    test('>=24 小时用「天」, 避免把 3.5 天写成「84 小时」', () => {
+      expect(formatRecoveryTime(1440)).toEqual({ value: '1.0', unit: '天' });
+      expect(formatRecoveryTime(5020)).toEqual({ value: '3.5', unit: '天' });
+    });
+
+    test('null / undefined / NaN / 负数 → null (整项不渲染)', () => {
+      expect(formatRecoveryTime(null)).toBeNull();
+      expect(formatRecoveryTime(undefined)).toBeNull();
+      expect(formatRecoveryTime(Number.NaN)).toBeNull();
+      expect(formatRecoveryTime(-5)).toBeNull();
     });
   });
 });

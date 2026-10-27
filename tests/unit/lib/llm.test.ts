@@ -86,6 +86,47 @@ describe('buildAnalysisMessages', () => {
     expect(user.content).toContain('平均配速: 6:37');
   });
 
+  /**
+   * 恢复时间 / 训练收益：Garmin 官方字段，真实库 **348/348** 全有值
+   * （recovery_time 0–5020 分钟、primary_benefit 8 类，含全部 107 条非跑步活动）。
+   *
+   * SYSTEM_PROMPT §5 明确要求「本次后需要多少恢复时间？」—— 但数据块此前**从不**
+   * 提供该字段，模型只能凭空估算。这是「prompt 承诺、数据缺席」的缺陷：不是模型
+   * 不会答，是它拿不到。Garmin VO2max（235/348）同理：只在跑步产出（非跑步 0/107）。
+   */
+  test('恢复时间 / 训练收益 / Garmin VO2max 进入数据块 (prompt 要求的字段必须有数据)', () => {
+    const [, user] = buildAnalysisMessages(
+      fakeActivity({ recovery_time: 1454, primary_benefit: '有氧阈值', garmin_vo2max: 54.1 }),
+      [],
+    );
+    // 1454 分钟 ≈ 1.0 天 —— 与详情页同一份单位判定 (formatRecoveryTime)
+    expect(user.content).toContain('建议恢复: 1.0天');
+    expect(user.content).toContain('训练收益: 有氧阈值');
+    expect(user.content).toContain('Garmin VO2max: 54.1ml/kg/min');
+  });
+
+  test('恢复时间为 0 时照常输出 (0 = 无需恢复, 是有效结论而非缺失)', () => {
+    const [, user] = buildAnalysisMessages(fakeActivity({ recovery_time: 0 }), []);
+    expect(user.content).toContain('建议恢复: 0分');
+  });
+
+  test('Garmin VO2max 对非跑步整项不输出 (非跑步 0/107 从不产出)', () => {
+    const [, user] = buildAnalysisMessages(
+      fakeActivity({ activity_type: 'table_tennis', garmin_vo2max: 54.1, recovery_time: 66 }),
+      [],
+    );
+    expect(user.content).not.toContain('Garmin VO2max');
+    // 恢复/收益不属于跑步专属, 非跑步照常输出
+    expect(user.content).toContain('建议恢复: 1小时');
+  });
+
+  test('三个字段全缺时整行不输出 (不留 -- 噪音)', () => {
+    const [, user] = buildAnalysisMessages(fakeActivity(), []);
+    expect(user.content).not.toContain('建议恢复');
+    expect(user.content).not.toContain('训练收益');
+    expect(user.content).not.toContain('Garmin VO2max');
+  });
+
   test('缺失距离时显示0.00 km而非NaN', () => {
     const a = fakeActivity();
     delete (a as Partial<Activity>).distance;

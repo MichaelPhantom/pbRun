@@ -7,7 +7,7 @@
  * model-curation 里的固定白名单, 默认 deepseek-v4.1-flash-wb。
  */
 import type { Activity, ActivityLap } from '@/app/lib/types';
-import { formatPace, formatDuration } from '@/app/lib/format';
+import { formatPace, formatDuration, formatRecoveryTime } from '@/app/lib/format';
 import { findPreset, resolvePresets } from '@/app/lib/model-curation';
 import { activityTypeLabel, isRunningType } from '@/app/lib/sport';
 
@@ -315,6 +315,19 @@ function fmtZoneTimes(json?: string | null): string {
 }
 
 /**
+ * 恢复时间 → prompt 用文案。**与详情页同源** (`formatRecoveryTime`)。
+ *
+ * 真实库 348 条 `recovery_time`：0 分 13 条 / 1–59 分 3 条 / 1–23 小时 152 条 /
+ * ≥24 小时 **180 条**（最长 5020 分钟 ≈ 3.5 天）。此前 prompt 里写「分钟」，模型
+ * 会说「建议恢复 5020 分钟」，而详情页说「3.5 天」—— 同一字段两个答案。
+ * 单位切换是**展示层**问题，但 AI 与 UI 必须用同一份判定，故下沉到 `format.ts`。
+ */
+function recoveryLabel(minutes?: number | null): string | null {
+  const r = formatRecoveryTime(minutes);
+  return r ? `${r.value}${r.unit}` : null;
+}
+
+/**
  * 思考模型判定 —— 白名单内以 model-curation 的实测结论为准, 白名单外退回启发式。
  *
  * 背景：思考模型的 reasoning 与正文共用 max_tokens 预算；本任务是格式固定的
@@ -546,13 +559,28 @@ export function buildAnalysisMessages(
       ['平均坡度', fmtNumIf(activity.avg_grade, 1, '%')],
     ]),
     statRow([['训练负荷', fmtNumIf(activity.training_load, 0)]]),
+    // 恢复时间 / 训练收益: Garmin 官方字段, 真实库 348/348 全有值（recovery_time
+    // 0–5020 分钟, primary_benefit 8 类）。SYSTEM_PROMPT §5 明确要求回答「本次后
+    // 需要多少恢复时间」—— 但数据块此前从不提供该字段, 模型只能凭空估算。
+    // 两者都不属于「跑步专属」: 力量训练/爬楼同样有官方恢复建议。
+    //
+    // 单位与 UI 同源 (`formatRecoveryTime`): 真实库 180/348 条 ≥24 小时、最长
+    // 5020 分钟 —— 统一写「分钟」会让模型输出「5020 分钟」, 与详情页的「3.5 天」
+    // 成为同一指标的两个答案。
+    statRow([
+      ['建议恢复', recoveryLabel(activity.recovery_time)],
+      ['训练收益', activity.primary_benefit || null],
+    ]),
+    // Garmin 官方 VO2max（区别于本地推算的 vdot_value）。真实库 235/348 有值,
+    // 但**仅跑步**产出（非跑步 0/107）; treadmill_running 6/6 全为空。
+    statRow([['Garmin VO2max', running ? fmtNumIf(activity.garmin_vo2max, 1, 'ml/kg/min') : null]]),
     statRow([
       ['平均海拔', fmtNumIf(activity.avg_altitude, 0, 'm')],
       ['热量', fmtNum(activity.calories, 0, 'kcal')],
       ['温度', fmtNumIf(activity.average_temperature, 1, '°C')],
     ]),
-    // 区间时间即使全空也保留标签: 「没记录心率区间」本身是模型该知道的信息
-    // （它会据此避免谈区间分布），且 140/348 的活动确实有值。
+    // 区间时间现在 348/348 全覆盖（本地 5 区口径由逐秒心率推导），标签恒有值；
+    // 保留 `fmtZoneTimes` 的 `--` 兜底只为旧库/异常活动（无心率记录时写入侧不落值）。
     `心率区间时间: ${fmtZoneTimes(activity.time_in_hr_zone)}`,
   ]
     .filter((line): line is string => line != null)

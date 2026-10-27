@@ -74,6 +74,7 @@ class DataValidator {
     this.validateNullValues();
     this.validateDataRanges();
     this.validateRelationships();
+    this.validateHrZoneScope();
 
     // Summary
     this.printSummary();
@@ -354,17 +355,27 @@ class DataValidator {
   validateDataRanges() {
     log('\n6. 数据范围验证', 'cyan');
 
+    // 这些范围全部是**跑步口径**的合理区间（步频 150-220 spm、触地 150-350ms、
+    // 心率 100-200bpm 等）。真实库含 107 条非跑步活动：篮球步频 16、力量训练
+    // 平均心率 68、乒乓最大心率 98 —— 全部落在「合理范围」之外，但它们本来就是
+    // 另一种运动，不是异常数据。旧实现不筛运动类型，每次校验都报 83 条假警
+    // （cadence 13 + avgHR 53 + maxHR 17），真正需要看的 3 条跑步异常被埋掉。
     const ranges = {
-      average_cadence: { min: 150, max: 220, unit: '步/分钟' },
-      average_vertical_oscillation: { min: 5, max: 15, unit: '厘米' },
-      average_ground_contact_time: { min: 150, max: 350, unit: '毫秒' },
-      average_gct_balance: { min: 45, max: 55, unit: '%' },
-      average_vertical_ratio: { min: 5, max: 15, unit: '%' },
-      average_heart_rate: { min: 100, max: 200, unit: 'bpm' },
-      max_heart_rate: { min: 120, max: 220, unit: 'bpm' }
+      average_cadence: { min: 150, max: 220, unit: '步/分钟', runningOnly: true },
+      average_vertical_oscillation: { min: 5, max: 15, unit: '厘米', runningOnly: true },
+      average_ground_contact_time: { min: 150, max: 350, unit: '毫秒', runningOnly: true },
+      average_gct_balance: { min: 45, max: 55, unit: '%', runningOnly: true },
+      average_vertical_ratio: { min: 5, max: 15, unit: '%', runningOnly: true },
+      average_heart_rate: { min: 100, max: 200, unit: 'bpm', runningOnly: true },
+      max_heart_rate: { min: 120, max: 220, unit: 'bpm', runningOnly: true },
     };
 
+    // 跑步类型集合与 app/lib/sport.ts 一致（缺 activity_type 视为跑步，兼容旧库）
+    const RUNNING_ONLY = `(activity_type IS NULL OR activity_type = ''
+      OR activity_type IN ('running', 'track_running', 'treadmill_running'))`;
+
     Object.entries(ranges).forEach(([field, range]) => {
+      const scope = range.runningOnly ? ` AND ${RUNNING_ONLY}` : '';
       const stats = this.db.prepare(`
         SELECT
           MIN(${field}) as min_val,
@@ -372,7 +383,7 @@ class DataValidator {
           AVG(${field}) as avg_val,
           COUNT(*) as count
         FROM activities
-        WHERE ${field} IS NOT NULL
+        WHERE ${field} IS NOT NULL${scope}
       `).get();
 
       if (stats.count === 0) {
@@ -383,7 +394,7 @@ class DataValidator {
         SELECT COUNT(*) as count
         FROM activities
         WHERE ${field} IS NOT NULL
-          AND (${field} < ? OR ${field} > ?)
+          AND (${field} < ? OR ${field} > ?)${scope}
       `).get(range.min, range.max).count;
 
       if (outOfRange === 0) {
@@ -428,6 +439,81 @@ class DataValidator {
     } else {
       log(`  ⚠ ${lapStats.length} 个活动的分段数量异常`, 'yellow');
       this.addWarning('数据范围', `${lapStats.length} 个活动的分段数量异常`);
+    }
+  }
+
+  /**
+   * 心率区间口径验证（2026-10-27 新增）。
+   *
+   * `activities.time_in_hr_zone` 的唯一合法口径是**本地 5 区模型**：JSON 数组长度
+   * 恒为 5，由 `activity_records` 的逐秒心率推导。设备原始数组（长度 6–8、边界方案
+   * 随固件而变）只允许出现在 `device_time_in_hr_zone`。
+   *
+   * 为什么要专门校验：该列历史上直接存设备数组，导致 `/insight` 与 `/analysis`
+   * 同一指标两个答案（Z1–Z2 轻松占比 4.7% vs 72.5%）。回填脚本首版还有一个静默
+   * 数据丢失缺陷（顺序错误让 140 条设备数组被覆盖）。这两个缺陷都不会抛异常，
+   * 只会在页面数字里显形 —— 必须让例行校验能自动抓出来。
+   */
+  validateHrZoneScope() {
+    log('\n8. 心率区间口径验证', 'cyan');
+
+    const rows = this.db.prepare(`
+      SELECT activity_id, moving_time, duration, time_in_hr_zone
+      FROM activities
+      WHERE time_in_hr_zone IS NOT NULL
+    `).all();
+
+    if (rows.length === 0) {
+      log('  ⚠ 无任何心率区间数据', 'yellow');
+      return;
+    }
+
+    let badJson = 0;
+    let badLength = 0;
+    let badSum = 0;
+    const sumOutliers = [];
+
+    for (const row of rows) {
+      let arr;
+      try {
+        arr = JSON.parse(row.time_in_hr_zone);
+      } catch {
+        badJson++;
+        continue;
+      }
+      if (!Array.isArray(arr) || arr.length !== 5) {
+        badLength++;
+        continue;
+      }
+      // 推导秒数应贴近 moving_time（暂停空档按 5s 截断）。实测 348 条中仅
+      // 1 条偏离 >10%（短活动 122s 期望 / 139s 推导），故只告警不判错。
+      const base = row.moving_time || row.duration || 0;
+      if (base > 60) {
+        const sum = arr.reduce((a, b) => a + (Number(b) || 0), 0);
+        if (Math.abs(sum - base) / base > 0.1) {
+          badSum++;
+          if (sumOutliers.length < 5) {
+            sumOutliers.push(`${row.activity_id}(${sum}s vs ${base}s)`);
+          }
+        }
+      }
+    }
+
+    if (badJson === 0 && badLength === 0) {
+      log(`  ✓ 区间数组口径: 长度恒为 5 (本地 5 区模型, ${rows.length} 条)`, 'green');
+    } else {
+      log(`  ✗ 区间数组口径异常: 坏 JSON ${badJson} 条 / 长度非 5 ${badLength} 条`, 'red');
+      this.addIssue(
+        '区间口径',
+        `time_in_hr_zone 必须是本地 5 区模型（长度 5）: 坏 JSON ${badJson} / 长度异常 ${badLength}`,
+      );
+    }
+
+    if (badSum === 0) {
+      log('  ✓ 区间秒数与 moving_time 一致 (偏差 ≤10%)', 'green');
+    } else {
+      log(`  ⚠ 区间秒数与 moving_time 偏离 >10%: ${badSum} 条 (${sumOutliers.join(', ')})`, 'yellow');
+      this.addWarning('区间口径', `${badSum} 条活动的区间秒数与 moving_time 偏离 >10%`);
     }
   }
 

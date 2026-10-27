@@ -2,7 +2,7 @@
 
 import dynamic from 'next/dynamic';
 import { useEffect, useState } from 'react';
-import { formatPace, formatDuration, formatDateTime, formatListDateTime } from '@/app/lib/format';
+import { formatPace, formatDuration, formatDateTime, formatListDateTime, formatRecoveryTime } from '@/app/lib/format';
 import type { Activity, ActivityLap, ActivityRecord, ActivityTrack, ActivityInsightResponse } from '@/app/lib/types';
 import { SectionCard } from '@/app/components/ui/SectionCard';
 import { Badge } from '@/app/components/ui/Badge';
@@ -51,6 +51,8 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
   const distanceKm = activity.distance ?? 0;
   const durationSec = activity.moving_time ?? activity.duration ?? 0;
   const durationMinutes = durationSec / 60;
+  // 恢复时间单位按量级切换 (分/小时/天), 见 formatRecoveryTime 的注释。
+  const recovery = formatRecoveryTime(activity.recovery_time);
 
   // 深挖数据 (分段角色/主课漂移/区间/解耦/同路线对比): 详情页统一拉取一次, 供
   // 「分段数据」表的角色列与「深度分析」面板共用, 避免重复请求。失败时静默降级。
@@ -112,6 +114,15 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
     // 以为数据缺失/同步失败, 而不是「这项运动没有功率」。
     ...(activity.average_power != null
       ? [{ value: String(Math.round(activity.average_power)), unit: 'W', label: '平均功率' }]
+      : []),
+    // 恢复时间 / 训练收益: Garmin 官方字段, 真实库 348/348 全有值（含全部 107 条
+    // 非跑步活动 —— 力量训练/爬楼同样有官方恢复建议）。此前库里有值、AI prompt
+    // 也明确要求回答「本次后需要多少恢复时间」, 但 UI 与 prompt 都没拿到。
+    // 单位按量级切换 (分/小时/天): 真实库分布 0 分钟 13 条、1–59 分 3 条、
+    // 1–23 小时 152 条、≥24 小时 180 条 (最长 5020 分钟 ≈ 3.5 天) ——
+    // 只用小时会把 3.5 天写成「84 小时」。
+    ...(recovery
+      ? [{ value: recovery.value, unit: recovery.unit, label: '建议恢复' }]
       : []),
   ];
 

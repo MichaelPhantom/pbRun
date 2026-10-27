@@ -4,7 +4,7 @@
  *
  * 页面: 非法 id 兜底、活动缺失 notFound、四路并行取数、逐秒记录降采样、
  *      画像信号构建 (成功/异常双分支)。
- * 客户端: 概览 10 项指标、GPS 路线卡、趋势图、跑步动态、分段表 (最快徽章/
+ * 客户端: 概览 11 项指标 (含建议恢复)、GPS 路线卡、趋势图、跑步动态、分段表 (最快徽章/
  *      角色徽章/空态)、insight 拉取降级。
  */
 import { render, screen, waitFor, within } from '@testing-library/react';
@@ -105,6 +105,10 @@ const activity = {
   average_ground_contact_time: 231,
   average_vertical_oscillation: 7.4,
   average_vertical_ratio: 8.1,
+  // Garmin 官方字段: 真实库 348/348 全有值（含 107 条非跑步活动）。
+  // 此前库里有值、prompt 也要求回答「本次后需要多少恢复时间」, 但 UI/prompt 都没拿到。
+  recovery_time: 1454,
+  primary_benefit: '有氧阈值',
 };
 
 const laps = [
@@ -233,7 +237,7 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
     expect(screen.getByText('#1001')).toBeInTheDocument();
     expect(screen.getByText('路跑')).toBeInTheDocument();
 
-    // 概览 10 项
+    // 概览 11 项 (含「建议恢复」)
     const overview = screen.getByText('活动概览').closest('section')!;
     for (const label of [
       '即时跑力',
@@ -246,9 +250,13 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
       '步频',
       '步幅',
       '平均功率',
+      '建议恢复',
     ]) {
       expect(within(overview).getByText(label)).toBeInTheDocument();
     }
+    // 1454 分钟 ≈ 1.0 天 (>=1440 走「天」, 避免写成「24 小时」)
+    expect(within(overview).getByText('1.0')).toBeInTheDocument();
+    expect(within(overview).getByText('天')).toBeInTheDocument();
     expect(screen.getByText('46.2')).toBeInTheDocument();
     expect(screen.getByText('8')).toBeInTheDocument();
     expect(screen.getByText('158')).toBeInTheDocument();
