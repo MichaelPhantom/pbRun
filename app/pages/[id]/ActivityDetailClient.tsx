@@ -11,6 +11,8 @@ import ActivityTrendCharts, { trendChartTitle } from '@/app/lib/components/chart
 import { ActivityInsightPanel, ROLE_LABEL, ROLE_TONE } from '@/app/lib/components/charts/ActivityInsightPanel';
 import { AiAnalysis } from '@/app/lib/components/ai/AiAnalysis';
 import { activityTypeIcon, activityTypeName, isInformativeTypeValue, isRunningType } from '@/app/lib/sport';
+import { powerIntensity } from '@/app/lib/power';
+import { elevationSpan } from '@/app/lib/elevation';
 import { evaluateWorkoutExecution, formatWorkoutPlan } from '@/app/lib/workout';
 
 // 路线地图纯 SVG 客户端组件 (无 leaflet 依赖); 仅在客户端渲染避免 SSR window 引用。
@@ -58,6 +60,15 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
   const durationMinutes = durationSec / 60;
   // 恢复时间单位按量级切换 (分/小时/天), 见 formatRecoveryTime 的注释。
   const recovery = formatRecoveryTime(activity.recovery_time);
+  // 功率强度（FTP / IF / TSS / W·kg⁻¹ / 瞬时峰值功率）全部由 `app/lib/power.ts` 推算。
+  // 真实库 `intensity_factor` / `training_stress_score` / `average_power_to_weight`
+  // 三列 **0/348** 有值（TSS/IF 是 Garmin Connect 云端算的, 不写进 FIT），但输入齐全:
+  // NP 241/241、`power_zone_boundaries[3]`=FTP 241/241、体重 241/241。
+  // 旧实现把这三项当成「设备从不产出」直接不展示 —— 用户与 AI 都看不到强度因子。
+  const power = powerIntensity(activity);
+  // 海拔净高差（max-min）。注意**不是**累计爬升: 真实库 191/234 条活动的净高差
+  // 小于累计爬升（环形路线回到起点, 净高差只有几十米而累计爬升上百米）, 两者必须分开展示。
+  const span = elevationSpan(activity);
   // 课表（FIT workout_step）: 唯一能回答「这堂课本来该怎么跑」的数据源。
   // 解析层的三层缺陷（多步被压成最后一步 / 毫秒当秒 / mm/s 当秒每公里）都在
   // app/lib/workout.ts 里统一处理; 这里只决定呈现。
@@ -116,6 +127,14 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
     { value: activity.average_heart_rate != null ? String(Math.round(activity.average_heart_rate)) : '--', unit: activity.average_heart_rate != null ? 'bpm' : undefined, label: '平均心率' },
     { value: activity.training_load != null ? activity.training_load.toFixed(1) : '--', label: '训练负荷' },
     { value: activity.total_ascent != null ? String(Math.round(activity.total_ascent)) : '--', unit: activity.total_ascent != null ? 'm' : undefined, label: '累计爬升' },
+    // 海拔净高差 (max - min)。真实库 234/348 条有值（228 跑步 + 6 田径场）, 三列
+    // NULL 模式完全一致。此前只有 `avg_altitude` 被 AI 用过一次, `max_altitude` /
+    // `min_altitude` **零消费** —— 「这趟起伏有多大」在 UI 与 prompt 里都不存在。
+    // 注意这是**净高差不是累计爬升**: 191/234 条活动净高差小于累计爬升（环形路线
+    // 回到起点只有几十米, 而累计爬升上百米）, 两者语义不同必须分开, 标签也不许互换。
+    ...(span
+      ? [{ value: String(span.spanM), unit: 'm', label: '海拔净高差' }]
+      : []),
     ...(running
       ? [
           { value: activity.average_cadence != null ? String(Math.round(activity.average_cadence)) : '--', unit: activity.average_cadence != null ? 'spm' : undefined, label: '步频' },
@@ -128,6 +147,25 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
     // 以为数据缺失/同步失败, 而不是「这项运动没有功率」。
     ...(activity.average_power != null
       ? [{ value: String(Math.round(activity.average_power)), unit: 'W', label: '平均功率' }]
+      : []),
+    // 功率体重比 / 强度因子 IF / TSS: 三项 DB 列 **0/348** 有值, 但全部可推算
+    // （见 app/lib/power.ts 的实证）。旧实现按「设备从不产出」整项略去 —— 于是
+    // 用户看不到「这次跑得多用力」，而 AI prompt §5 明确要求用训练负荷评估强度。
+    ...(power.powerToWeight != null
+      ? [{ value: power.powerToWeight.toFixed(2), unit: 'W/kg', label: '功率体重比' }]
+      : []),
+    ...(power.intensityFactor != null
+      ? [{ value: power.intensityFactor.toFixed(2), label: '强度因子 IF' }]
+      : []),
+    ...(power.trainingStressScore != null
+      ? [{ value: String(power.trainingStressScore), label: 'TSS' }]
+      : []),
+    // 瞬时峰值功率。`max_power` 真实库 241/241（跑步）有值, 但它是**逐秒瞬时峰值**:
+    // 548397123 平均 306W、峰值 3866W（12.6 倍）, 67kg 体重即 57.7 W/kg —— 世界级
+    // 场地车手冲刺也只有 20–25 W/kg, 该值是传感器尖峰。`peakPower` 已过滤 >3 倍
+    // 均值的脏数据（7/241 条被剔除）, 标签必须带「瞬时」, 与 `max_speed` 同一纪律。
+    ...(power.peakPowerW != null
+      ? [{ value: String(power.peakPowerW), unit: 'W', label: '瞬时峰值功率' }]
       : []),
     // 恢复时间 / 训练收益: Garmin 官方字段, 真实库 348/348 全有值（含全部 107 条
     // 非跑步活动 —— 力量训练/爬楼同样有官方恢复建议）。此前库里有值、AI prompt
@@ -205,9 +243,22 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
         (activity.average_gct_balance != null ||
           activity.average_ground_contact_time != null ||
           activity.average_vertical_oscillation != null ||
-          activity.average_vertical_ratio != null)) && (
+          activity.average_vertical_ratio != null ||
+          activity.max_cadence != null)) && (
         <SectionCard title="跑步动态">
           <div className="flex flex-wrap gap-3">
+            {/* 最大步频。真实库 241/241 条跑步活动有值（186–250）, 但此前**零消费**。
+                与 `max_power` 不同, 它**不是**传感器尖峰: 逐秒记录的峰值与 5 秒平滑
+                峰值几乎一致（605107962: 248 vs 247）, 说明是真实持续的高步频段。
+                唯一限制是设备把步频钳在 250 spm（6 条活动恰为 250, 全库 records
+                只有 34 秒达到 250）—— 故标签写「最高」而不是「能力上限」。
+                与平均步频并列时能看出冲刺段与巡航段的差距（实测比值中位数 1.10）。 */}
+            {activity.max_cadence != null && (
+              <div className="rounded-lg bg-surface-2 px-3 py-2">
+                <div className="text-[11px] text-fg-secondary">最高步频</div>
+                <div className="tnum mt-0.5 font-medium text-fg">{Math.round(activity.max_cadence)} spm</div>
+              </div>
+            )}
             {activity.average_gct_balance != null && (
               <div className="rounded-lg bg-surface-2 px-3 py-2">
                 <div className="text-[11px] text-fg-secondary">触地平衡</div>

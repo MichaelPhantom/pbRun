@@ -605,6 +605,122 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
   });
 
   /**
+   * **可推算却从未推算** 缺陷族在详情页的呈现（2026-10-27）。
+   *
+   * `intensity_factor` / `training_stress_score` / `average_power_to_weight`
+   * 三列真实库 **0/348** 有值（TSS/IF 是 Garmin Connect 云端算的，不写进 FIT），
+   * 旧实现因此整项不渲染 —— 用户看不到「这次跑得多用力」。输入其实全在：
+   * NP 241/241、`power_zone_boundaries[3]`=FTP 241/241、体重 241/241。
+   */
+  test('跑步概览展示推算的 FTP/IF/TSS/功率体重比', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      // 真实样本 536178521
+      power_zone_boundaries: '[241,297,334,371,427,4000,null,null]',
+      normalized_power: 303,
+      average_power: 292,
+      max_power: 437,
+      moving_time: 2201,
+      duration: 5000,
+      user_weight: 68.5,
+      intensity_factor: null,
+      training_stress_score: null,
+      average_power_to_weight: null,
+    });
+    render(await page('3001'));
+
+    const overview = screen.getByText('活动概览').closest('section')!;
+    expect(within(overview).getByText('强度因子 IF')).toBeInTheDocument();
+    expect(within(overview).getByText('0.82')).toBeInTheDocument();
+    expect(within(overview).getByText('TSS')).toBeInTheDocument();
+    expect(within(overview).getByText('41')).toBeInTheDocument();
+    expect(within(overview).getByText('功率体重比')).toBeInTheDocument();
+    expect(within(overview).getByText('4.26')).toBeInTheDocument();
+    expect(within(overview).getByText('W/kg')).toBeInTheDocument();
+    // 瞬时峰值功率: 437 / 292 = 1.5 倍 → 合理, 展示且标签带「瞬时」
+    expect(within(overview).getByText('瞬时峰值功率')).toBeInTheDocument();
+    expect(within(overview).getByText('437')).toBeInTheDocument();
+  });
+
+  test('传感器尖峰 (max_power 12.6 倍均值) 不展示, 不给模型/用户怪物数据', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      average_power: 306,
+      max_power: 3866, // 548397123: 67kg 即 57.7 W/kg
+      user_weight: 67,
+    });
+    render(await page('3002'));
+    const overview = screen.getByText('活动概览').closest('section')!;
+    expect(within(overview).queryByText('瞬时峰值功率')).toBeNull();
+    expect(within(overview).queryByText('3866')).toBeNull();
+  });
+
+  test('海拔净高差与累计爬升分开呈现 (191/234 条净高差 < 累计爬升)', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      min_altitude: 435,
+      max_altitude: 511,
+      avg_altitude: 470,
+      total_ascent: 194,
+      total_descent: 203,
+    });
+    render(await page('3003'));
+    const overview = screen.getByText('活动概览').closest('section')!;
+    // 累计爬升 194 与净高差 76 同时出现 —— 标签必须能区分, 否则用户以为数据矛盾。
+    expect(within(overview).getByText('累计爬升')).toBeInTheDocument();
+    expect(within(overview).getByText('194')).toBeInTheDocument();
+    expect(within(overview).getByText('海拔净高差')).toBeInTheDocument();
+    expect(within(overview).getByText('76')).toBeInTheDocument();
+  });
+
+  test('缺 max_altitude/min_altitude 时不渲染海拔净高差 (234/348 有值)', async () => {
+    db.getActivityById.mockReturnValue({ ...activity, avg_altitude: 300, total_ascent: 50, max_altitude: null, min_altitude: null });
+    render(await page('3004'));
+    const overview = screen.getByText('活动概览').closest('section')!;
+    expect(within(overview).getByText('累计爬升')).toBeInTheDocument();
+    expect(within(overview).queryByText('海拔净高差')).toBeNull();
+  });
+
+  test('最高步频进「跑步动态」卡 (241/241 跑步活动有值, 此前零消费)', async () => {
+    db.getActivityById.mockReturnValue({ ...activity, average_cadence: 180, max_cadence: 188 });
+    render(await page('3005'));
+    const card = screen.getByText('跑步动态').closest('section')!;
+    expect(within(card).getByText('最高步频')).toBeInTheDocument();
+    expect(within(card).getByText('188 spm')).toBeInTheDocument();
+  });
+
+  test('只有 max_cadence 无跑姿三项时, 跑步动态卡仍渲染 (渲染条件不能只靠单一罕见字段)', async () => {
+    // 真实库 average_gct_balance 348/348 全为 NULL; 若渲染条件只判它就永远不渲染。
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      average_gct_balance: null,
+      average_ground_contact_time: null,
+      average_vertical_oscillation: null,
+      average_vertical_ratio: null,
+      max_cadence: 192,
+    });
+    render(await page('3006'));
+    const card = screen.getByText('跑步动态').closest('section')!;
+    expect(within(card).getByText('最高步频')).toBeInTheDocument();
+  });
+
+  test('非跑步活动不展示最高步频 (球类步频语义不同)', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'basketball',
+      average_power: null,
+      max_cadence: 250,
+      average_gct_balance: null,
+      average_ground_contact_time: null,
+      average_vertical_oscillation: null,
+      average_vertical_ratio: null,
+    });
+    render(await page('3007'));
+    expect(screen.queryByText('最高步频')).toBeNull();
+    expect(screen.queryByText('跑步动态')).toBeNull();
+  });
+
+  /**
    * 分段功率列。真实库 **2827/2827** 条跑步 lap 都有 `average_power`
    * （track/treadmill 也 100%），非跑步 lap **0/255** —— 不是「这次没测到」，
    * 是这类运动不产出。旧实现只有活动级「平均功率」一个数，逐段功率从未展示，

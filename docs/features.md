@@ -273,6 +273,103 @@ Z1 19.5% / Z2 53.0% / Z3 16.1% / Z4 9.2% / Z5 2.2%（低 72.5% / 高 11.4%）。
 `tests/unit/pages/activity-detail.test.tsx`（分段功率列 + 非跑步不展示功率）、
 `tests/unit/lib/llm.test.ts`（分段功率进 AI 数据块 + 非跑步不输出）。
 
+### 1.5 「可推算却从未推算」缺陷族（2026-10-27）
+
+与 1.4 是同一族缺陷的更隐蔽变体：字段**不仅没展示，连计算都没做**。库里那一列
+**0/348 全为 NULL**，于是代码按「数据源从不产出」把它整项略去（这是 1.2 那条
+`fmtNumIf` 纪律的正确用法）—— 但**输入其实全都在**，一算就有值。
+
+| 字段 | DB 覆盖 | 推算依据（真实库实测） |
+|------|---------|----------------------|
+| `intensity_factor` | **0/348** | `normalized_power ÷ FTP`，NP **241/241**、FTP **241/241** |
+| `training_stress_score` | **0/348** | `秒/3600 × IF² × 100` |
+| `average_power_to_weight` | **0/348** | `average_power ÷ user_weight`，体重 **241/241** |
+| `functional_threshold_power` | 33/348 | `power_zone_boundaries[3]` **恒等于** FTP（33/33 逐条相等） |
+| `max_altitude` / `min_altitude` | 234/348 | 直接有值，但**零消费** |
+| `max_cadence` | 247/348 | 直接有值，但**零消费** |
+| `max_power` | 241/241 | 直接有值，但**零消费**（且是瞬时尖峰，需过滤） |
+
+#### FTP 覆盖率 33 → 241 的依据
+
+Garmin 功率区间数组形如 `[218,267,307,338,390,4000,null,null]`。实测 **241 条**活动的
+前 5 个上界归一为 %FTP 后**只有一套方案**：`64–65 / 79–80 / 90–91 / 100 / 115`（差异
+全在整数取整），索引 3 **恒为 1.000** —— 即 Z4 上界就是阈值功率本身。33 条同时有
+`functional_threshold_power` 的活动里两者**逐条完全相等**。故缺失时回退索引 3，并把
+来源标记为 `zone-boundary`（展示时不得声称「设备口径」）。
+
+#### 三条不得越界的纪律
+
+1. **`max_power` 不参与任何派生**。它是**逐秒瞬时峰值**：`548397123` 平均 306W、峰值
+   3866W（**12.6 倍**），67kg 体重即 **57.7 W/kg** —— 世界级场地车手冲刺也只有
+   20–25 W/kg。拿它算「最大功率体重比」会直接产出一个不存在的怪物数据。展示时
+   `peakPower()` 过滤 >3 倍均值的传感器尖峰（241 条里 7 条被剔除），标签必须带「瞬时」。
+   同一陷阱已在 `max_speed` 上踩过一次（见 §2.1）。
+2. **TSS 的时间基数是 `moving_time`（timer time），不是 `duration`**。库里 `duration`
+   存的是 FIT `total_elapsed_time`（含暂停），`moving_time` 才是 `total_timer_time`；
+   110/348 条活动两者最多差 7845 秒。用 `duration` 会把暂停算成训练负荷。
+3. **推算值必须落在生理合理区间，越界宁可不给**。241 条跑步活动实测 IF 0.42–1.06、
+   TSS 5–138、W/kg 1.42–5.41，全部符合训练学常识；一旦越界说明 FTP 取错或 NP 异常，
+   此时返回 `null`（`IF_MIN 0.3 / IF_MAX 1.5 / TSS_MAX 500 / W_PER_KG 0.5–15`）。
+
+#### TSS 与 TL 是两套口径，必须同时声明
+
+`training_load`（Garmin 官方负荷分，241/241）与派生的 `TSS` 并存时会出现
+「TSS 41 但 TL 65」—— 不解释的话模型会当成数据矛盾并浪费篇幅核对。故数据块在
+IF/TSS 行后追加固定说明：「与训练负荷 TL 是两套口径：TL 是 Garmin 官方负荷分,
+TSS 是阈值功率派生量」。
+
+#### 海拔净高差 ≠ 累计爬升
+
+真实库 **191/234** 条活动的 `max_altitude - min_altitude` **小于** `total_ascent`。
+这不是数据错误：
+
+- `max - min` = **净高差**（最高点减最低点；环形路线回到起点就只有几十米）
+- `total_ascent` = **累计爬升**（每次上坡都累加；折返路线远大于净高差）
+
+实测 `538279608`：min 435m / max 511m（净高差 **76m**）而累计爬升 **194m** —— 一条在
+435–511m 之间反复上下的小环路，两个数都对。UI 用「累计爬升」+「海拔净高差」两个
+**不同标签**分格展示；AI 数据块输出 `累计爬升 ÷ 净高差` 比值（实测 0.07–5.95），
+≥2 判为「短坡反复上下」，否则「单向爬升」—— 否则模型会判定数据自相矛盾。
+
+同一字段在同一个数据块里**只能出现一次**：海拔跨度行（`海拔跨度: 最低 … / 最高 … /
+净高差 …`）刻意**不写平均海拔**，平均值由下方公共行的 `平均海拔:` 单独提供。此前
+两处都写「均 470m」，模型会以为存在两个不同的平均值。守护：
+`tests/unit/lib/llm-gateway.test.ts` 断言 `平均海拔` 在整块里恰好出现 1 次。
+
+实现：`app/lib/power.ts`（`resolveFtp` / `intensityFactor` / `trainingStressScore` /
+`powerToWeight` / `peakPower` / `powerIntensity`）、`app/lib/elevation.ts`
+（`elevationSpan` / `ascentToSpanRatio`）。两者都是**纯函数**，详情页与 AI 数据块
+共用同一份数字 —— 避免「UI 一个 TSS、模型另一个 TSS」。
+
+守护：`tests/unit/lib/power.test.ts`（28 例）、`tests/unit/lib/elevation.test.ts`（12 例）、
+`tests/unit/lib/llm-gateway.test.ts`（推算进数据块 / 两套口径声明 / 非跑步不输出 /
+FTP 缺失不猜 / 海拔比值 / 尖峰过滤）、`tests/unit/pages/activity-detail.test.tsx`
+（概览 IF·TSS·W/kg·瞬时峰值 / 尖峰不展示 / 净高差与累计爬升分开 / 最高步频 /
+渲染条件不依赖单一罕见字段 / 非跑步不展示）。
+
+#### 守卫升级：`Activity` 的 70 个字段也要机器审计
+
+`Activity` 是数据库原始行，比 `InsightResponse` 更容易藏「有值但从不展示」。守卫扩展
+到它时踩到三个真实的坑，都已写进测试注释：
+
+1. **裸标识符匹配会互相误伤** —— `power` 会被 `power.powerToWeight`（另一个对象的
+   变量名）命中。正向（必须被消费）用宽松谓词避免假红，反向（allowlist 必须保持真实）
+   必须用严格谓词 `isFieldAccessed`（`.field` / `field:` / `'field'`）。
+2. **反向断言必须排除 `db.ts`** —— 它把 `route_cells` / `start_lat` 写进 SQL（查询用途），
+   若计入则「仅用于聚类的索引列」全被误判为「已消费」，allowlist 立刻失效。
+3. **「被引用」≠「被展示」** —— `app/lib/elevation.ts` 里有 `activity.max_altitude`，
+   若没人 import 它就是死代码。故消费方 = 从**展示入口**（页面/接口/组件/MCP）出发、
+   沿 `@/app/...` import 做**传递闭包**能到达的文件；`types.ts` 必须排除（否则每个
+   字段都自动「已消费」）。前两版守卫正是被这一点骗过（缺陷注入删掉 import 后仍全绿）。
+
+`ACTIVITY_FIELD_ALLOWLIST` 是显式技术债账本（20 条），每条写明理由，分四类：内部记账列
+（`created_at` / `updated_at` / `start_tz_offset_min` / `elapsed_time` 恒等于 duration）、
+聚类索引列（`route_cells` / `route_bounds` / `route_km` / `start_lat` / `start_lng`）、
+语义陷阱（`max_heart_rate_fit` 是**设备配置值**不是本次峰值；`devices` 已脱敏）、
+真实库 0/348 从不产出（`average_step_rate_loss*` / `max_power_to_weight` /
+`avg_pos_grade` 等 4 项 / `time_in_speed_zone` / `time_in_cadence_zone`）、
+以及待归一后再展示（`time_in_power_zone`，见 §4 待办）。
+
 ---
 
 ## 2. AI 上下文口径（核心契约）
@@ -449,7 +546,10 @@ Z1 19.5% / Z2 53.0% / Z3 16.1% / Z4 9.2% / Z5 2.2%（低 72.5% / 高 11.4%）。
 | **AI prompt 按运动类型分流** | `llm.ts` 的 `SYSTEM_PROMPT` / `NON_RUNNING_SYSTEM_PROMPT` | `tests/unit/lib/llm.test.ts`（非跑步不出现跑步术语与配速行；prompt 不引用非跑步数据里不存在的指标） |
 | **活动数据块的两类缺失** | `llm.ts` 的 `fmtNumIf` / `statRow` | `tests/unit/lib/llm-gateway.test.ts`（「该运动不产出」整项不输出、「该活动没测到」保留 `--`、有值时照常输出、无只剩标签的空行） |
 | **`max_speed` 单位契约：全链路 km/h** | `fit-parser.js`（`speedUnit:'km/h'`，`enhanced_max_speed` 原样落库）/ `fetcher.py`（Strava m/s → km/h `*3.6`）/ `llm.ts`（直接 `toFixed(1)`）/ `validate-data.js`（阈值按 km/h） | `tests/unit/lib/llm.test.ts`（20.76 km/h 渲染为 `20.8 km/h`，且不含 74.7；非跑步分支同样不乘 3.6；缺值为 `--`）；`tests/python/test_fetcher_strava.py`（4.5 m/s → 16.2 km/h，与 `average_speed` 同单位）；`tests/unit/scripts/validate-data.test.js`（`distance` 按公里解释，干净数据零误报；103.5 = 28.8×3.6 被抓） |
-| **字段必须被消费（算出来 ≠ 展示）** | `InsightClient.tsx` / `insight-coach.ts` / `ActivityInsightPanel.tsx` / `llm.ts` | `tests/unit/components/insight-field-consumption.test.ts`（递归展开 `InsightResponse` / `ActivityInsightResponse` 全部叶子字段, 剥离注释后逐个断言被消费; allowlist 反查腐化） |
+| **字段必须被消费（算出来 ≠ 展示）** | `InsightClient.tsx` / `insight-coach.ts` / `ActivityInsightPanel.tsx` / `llm.ts` | `tests/unit/components/insight-field-consumption.test.ts`（递归展开 `InsightResponse` / `ActivityInsightResponse` / `Activity` 全部叶子字段, 剥离注释后逐个断言被消费; 消费方 = 展示入口的 import 传递闭包, 死代码模块不算; allowlist 反查腐化） |
+| **可推算字段必须真的推算** | `app/lib/power.ts`（FTP 回退 / IF / TSS / W·kg⁻¹ / 峰值过滤）/ `app/lib/elevation.ts`（净高差 / 爬升比） | `tests/unit/lib/power.test.ts`（28 例: 33→241 FTP 回退、TSS 用 moving_time、尖峰过滤、显式值优先）+ `tests/unit/lib/elevation.test.ts`（12 例: 净高差 ≠ 累计爬升、越界拒绝） |
+| **IF/TSS 与 TL 是两套口径** | `llm.ts` 的 `powerNote` | `tests/unit/lib/llm-gateway.test.ts`（TSS 与 TL 并存时必须声明「两套口径」, 否则模型当矛盾） |
+| **海拔净高差 ≠ 累计爬升** | `ActivityDetailClient` 概览「累计爬升」+「海拔净高差」分格 / `llm.ts` 的 `elevationLine` | `tests/unit/pages/activity-detail.test.tsx`（两个不同标签同时出现）+ `tests/unit/lib/llm-gateway.test.ts`（输出 `累计爬升 ÷ 净高差` 比值与「短坡反复 / 单向爬升」判定） |
 | **课表单位与步数完整性** | `scripts/garmin/fit-workout.js`（重扫原始字节 + 毫秒/mm-s 归一）/ `fit-parser._extractWorkout(fitData, rawBuffer)` / `app/lib/workout.ts`（读取端代际判别 + 加权区间） | `tests/unit/scripts/fit-workout.test.js`（多步重扫、单位换算、占位步过滤）+ `tests/unit/garmin/fit-parser-branches.test.js`（调用点确实传 buffer 的完整 `parseFitFile` 链路）+ `tests/unit/lib/workout.test.ts`（旧/新格式、加权区间、三态判定）+ `tests/unit/lib/llm.test.ts` + `tests/unit/pages/activity-detail.test.tsx` |
 | **AI 可比样本块按运动口径收敛** | `activity-coach-context.ts` 的 `performanceLines`（按 `insight.running` 二次把关） | `tests/unit/lib/activity-coach-context.test.ts`（非跑步不出现配速/等价平路行，口径说明改非跑步语义） |
 | **同路径几何质量只统计可校验的同伴** | `activity-insight-service.ts` 的 `summarizeRouteQuality` | `tests/unit/lib/insight-services.test.ts`（无轨迹同伴不计入 `verifiedPeers`；未校验时 `routeQuality` 显式 `null`） |
@@ -513,7 +613,25 @@ Z1 19.5% / Z2 53.0% / Z3 16.1% / Z4 9.2% / Z5 2.2%（低 72.5% / 高 11.4%）。
 - **MCP 不提供 AI 工具**：MCP 只暴露结构化数据，AI 对话在 Web 端完成；若要让 AI 客户端
   直接调用教练，需要新增 tool 并把 LLM 凭证放在服务端，会改变当前「MCP 只读数据」的安全边界。
 
-### 4.3 文档与工程
+### 4.3 功率区间（`time_in_power_zone`）待归一
+
+`time_in_power_zone` 真实库 **33/348** 有值（全部跑步），8 槽设备原始数组。它**尚未
+展示**，原因是必须先把边界归一成 %FTP，而不是按索引直接读：
+
+- 设备数组的**绝对值随 FTP 变化**（实测 16 套不同瓦数方案，如
+  `[218,267,307,338,390,4000,null,null]` 与 `[229,282,318,353,406,...]`），按索引
+  跨活动相加得到的「Z3 秒数」没有物理含义 —— 与心率区间当年的 19 套边界是**同一个
+  陷阱**（见 §1.2）；
+- 但归一之后**只有一套方案**：241 条活动的 `boundaries[i] / FTP` 恒为
+  `64–65 / 79–80 / 90–91 / 100 / 115`（Garmin 默认 65/80/90/100/115 %FTP）。
+  故归一本身是可行的，只是还没接；
+- 逐秒功率**241/241 全有**（`activity_records.power`），可像心率那样从原始秒数据
+  推导统一口径的 5 区（实测推导总秒数与 `moving_time` 偏差 ≤10% 的占 **235/241**），
+  从而摆脱 33/348 的覆盖率限制。这是下一步的实现路径。
+
+在此之前不得在 UI/AI 里按索引展示或聚合该数组。
+
+### 4.4 文档与工程
 
 - `docs/README.md` 的历史项目结构章节曾长期滞后；现已按当前目录更新，后续新增模块需同步本表。
 - `docs/faq.md` 的部分日期化经验条目保留（用于复盘），但**功能契约以本文档为准**。

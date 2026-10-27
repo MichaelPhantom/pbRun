@@ -168,8 +168,171 @@ describe('buildAnalysisMessages 的空值/坏数据兜底', () => {
     const content = user.content as string;
     expect(content).toContain('TSS: 78');
     expect(content).toContain('IF: 0.86');
-    expect(content).toContain('功率体重比: 3.7W/kg');
+    // 功率体重比取 2 位小数: 真实库值域 1.42–5.41 W/kg, 1 位小数会把 1.42/1.45
+    // 压成同一个数 (与「步幅 2 位、垂直摆动 1 位」同一套量纲判断)。
+    expect(content).toContain('功率体重比: 3.70W/kg');
     expect(content).toContain('平均坡度: 1.4%');
+  });
+
+  /**
+   * **可推算却从未推算** 缺陷族（2026-10-27）。
+   *
+   * `intensity_factor` / `training_stress_score` / `average_power_to_weight` 三列
+   * 真实库 **0/348** 有值（TSS/IF 是 Garmin Connect 云端算的，不写进 FIT），旧实现
+   * 因此按「数据源从不产出」整项略去 —— 但输入全都在：NP 241/241、
+   * `power_zone_boundaries[3]`=FTP 241/241、体重 241/241。结果是模型永远看不到
+   * 强度因子，只能靠配速猜强度，而 SYSTEM_PROMPT §5 明确要求「用训练负荷评估强度」。
+   */
+  test('显式 IF/TSS 列为空时，由 NP ÷ FTP 推算并输出', () => {
+    const [, user] = buildAnalysisMessages(
+      {
+        ...sparse,
+        // 真实样本 536178521 的数值
+        power_zone_boundaries: '[241,297,334,371,427,4000,null,null]',
+        normalized_power: 303,
+        average_power: 292,
+        max_power: 437,
+        moving_time: 2201,
+        duration: 5000,
+        user_weight: 68.5,
+        training_stress_score: null,
+        intensity_factor: null,
+        average_power_to_weight: null,
+      } as Activity,
+      [],
+    );
+    const content = user.content as string;
+    expect(content).toContain('FTP: 371W');
+    expect(content).toContain('强度因子 IF: 0.82');
+    // TSS 必须用 moving_time(2201s) 而不是 duration(5000s)：后者会算出 93。
+    expect(content).toContain('TSS: 41');
+    expect(content).toContain('功率体重比: 4.26W/kg');
+  });
+
+  test('推算口径必须显式声明「与 TL 是两套口径」, 防止模型把两个数当矛盾', () => {
+    const [, user] = buildAnalysisMessages(
+      {
+        ...sparse,
+        power_zone_boundaries: '[241,297,334,371,427]',
+        normalized_power: 303,
+        training_load: 65,
+        moving_time: 2201,
+      } as Activity,
+      [],
+    );
+    const content = user.content as string;
+    // 同一行里 TSS 41 与 TL 65 并存 —— 不解释的话模型会当成数据矛盾。
+    expect(content).toContain('训练负荷: 65');
+    expect(content).toContain('TSS: 41');
+    expect(content).toContain('两套口径');
+    expect(content).toMatch(/Garmin 官方负荷分/);
+  });
+
+  test('非跑步活动不输出 FTP/IF/TSS（写入口限定跑步类型, 0/107）', () => {
+    const [, user] = buildAnalysisMessages(
+      {
+        ...sparse,
+        activity_type: 'lap_swimming',
+        power_zone_boundaries: '[241,297,334,371,427]',
+        normalized_power: 303,
+        average_power: 292,
+        user_weight: 68.5,
+      } as Activity,
+      [],
+    );
+    const content = user.content as string;
+    expect(content).not.toContain('FTP:');
+    expect(content).not.toContain('强度因子 IF');
+    expect(content).not.toContain('TSS');
+    expect(content).not.toContain('功率体重比');
+  });
+
+  test('FTP 缺失且无区间边界时不输出 IF/TSS（不猜默认值）', () => {
+    const [, user] = buildAnalysisMessages(
+      { ...sparse, normalized_power: 303, moving_time: 2201 } as Activity,
+      [],
+    );
+    const content = user.content as string;
+    expect(content).toContain('标准化功率: 303W');
+    expect(content).not.toContain('FTP:');
+    expect(content).not.toContain('强度因子 IF');
+    expect(content).not.toContain('TSS');
+  });
+
+  test('最大步频进 prompt（真实库 241/241 有值, 此前零消费）', () => {
+    const [, user] = buildAnalysisMessages({ ...sparse, average_cadence: 180, max_cadence: 188 } as Activity, []);
+    expect(user.content as string).toContain('最大步频: 188spm');
+  });
+
+  /**
+   * 海拔净高差 vs 累计爬升 —— 两个语义不同的量，文案必须分开。
+   *
+   * 真实库 **191/234** 条活动的净高差**小于**累计爬升（环形路线回到起点只有几十米，
+   * 而累计爬升上百米）。若数据块只给「海拔 76m」而另给「累计爬升 194m」，
+   * 模型会判定数据矛盾并要求核对设备。
+   */
+  test('海拔行同时给净高差与「累计爬升 ÷ 净高差」比值, 消除表面矛盾', () => {
+    const [, user] = buildAnalysisMessages(
+      {
+        ...sparse,
+        min_altitude: 435,
+        max_altitude: 511,
+        avg_altitude: 470,
+        total_ascent: 194,
+        total_descent: 203,
+      } as Activity,
+      [],
+    );
+    const content = user.content as string;
+    expect(content).toContain('海拔跨度:');
+    expect(content).toContain('最低 435m');
+    expect(content).toContain('最高 511m');
+    expect(content).toContain('净高差 76m');
+    // 194 / 76 = 2.55 → 判定为短坡反复上下
+    expect(content).toContain('2.55');
+    expect(content).toContain('短坡反复上下');
+    // 平均海拔只出现一次（下方公共行的「平均海拔: 470m」）。海拔跨度行
+    // 曾经也写一遍「均 470m」—— 同一字段在同一个数据块里出现两次，是
+    // 「数据块内部冗余」这一类缺陷（模型会以为有两个不同的平均值）。
+    expect(content.match(/平均海拔/g) ?? []).toHaveLength(1);
+    expect(content).not.toContain('均 470m');
+  });
+
+  test('净高差 ≈ 累计爬升时判定为单向爬升', () => {
+    const [, user] = buildAnalysisMessages(
+      {
+        ...sparse,
+        min_altitude: 277,
+        max_altitude: 320.4,
+        total_ascent: 42,
+      } as Activity,
+      [],
+    );
+    const content = user.content as string;
+    expect(content).toContain('净高差 43.4m');
+    expect(content).toContain('单向爬升');
+  });
+
+  test('缺 max_altitude/min_altitude 时整行不输出 (234/348 有值)', () => {
+    const [, user] = buildAnalysisMessages({ ...sparse, avg_altitude: 300, total_ascent: 50 } as Activity, []);
+    const content = user.content as string;
+    expect(content).toContain('平均海拔: 300m');
+    expect(content).not.toContain('净高差');
+  });
+
+  test('瞬时峰值功率进 prompt 且带「瞬时」限定语, 尖峰值被过滤', () => {
+    // 正常峰值（≤3 倍均值）: 437 / 292 = 1.5
+    const [, normal] = buildAnalysisMessages(
+      { ...sparse, average_power: 292, max_power: 437, user_weight: 68.5 } as Activity,
+      [],
+    );
+    expect(normal.content as string).toContain('瞬时峰值功率');
+    // 传感器尖峰（3866 / 306 = 12.6 倍）: 不输出
+    const [, spike] = buildAnalysisMessages(
+      { ...sparse, average_power: 306, max_power: 3866 } as Activity,
+      [],
+    );
+    expect(spike.content as string).not.toContain('瞬时峰值功率');
   });
 
   test('不存在「只剩标签」的空行 (值为空时不留下悬空冒号)', () => {

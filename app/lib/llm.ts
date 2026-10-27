@@ -10,6 +10,8 @@ import type { Activity, ActivityLap } from '@/app/lib/types';
 import { formatPace, formatDuration, formatRecoveryTime } from '@/app/lib/format';
 import { findPreset, resolvePresets } from '@/app/lib/model-curation';
 import { activityTypeName, isRunningType } from '@/app/lib/sport';
+import { powerIntensity } from '@/app/lib/power';
+import { ascentToSpanRatio, elevationSpan } from '@/app/lib/elevation';
 import {
   evaluateWorkoutExecution,
   formatWorkoutExecution,
@@ -499,22 +501,62 @@ export function buildAnalysisMessages(
   // 跑步专属行（配速/步频/步幅/触地/VDOT）对非跑步活动整行不输出:
   // 宁可让模型看到「没有这一项」，也不要给它一个语义错误的值去解读。
   //
-  // `max_speed` 库里存的已经是 **km/h**（与 average_speed 同单位）—— FIT 解析器
-  // 以 speedUnit:'km/h' 解析，enhanced_max_speed 原样落库（实测 16.49 → DB 16.49）。
-  // 旧代码按「Garmin 原始 m/s」乘了 3.6，把 16.5km/h 报成 59.4km/h（真实库最大
-  // 28.75 → 103.5km/h，等于 2:53/km 的世界纪录配速），模型据此判定「冲刺能力惊人」。
+  // 功率强度三项（FTP / IF / TSS / W·kg⁻¹）全部由 `app/lib/power.ts` **推算**：
+  // 真实库里 `intensity_factor` / `training_stress_score` / `average_power_to_weight`
+  // 三列 **0/348** 有值（TSS/IF 是 Garmin Connect 云端算的，不写进 FIT），但输入
+  // 全都在：NP 241/241、`power_zone_boundaries[3]`=FTP 241/241、体重 241/241。
+  // 旧实现把这三项按「数据源从不产出」整项略去 —— 于是模型永远看不到强度因子，
+  // 只能靠配速猜强度；而 prompt §5 明确要求「用训练负荷评估本次强度」。
   //
-  // 单位修对之后还有第二层问题：它是**设备记录的瞬时峰值**，不是可持续速度。
-  // 实测 653862644 峰值 20.8 km/h（2:53/km）那一刻心率只有 102bpm、前两秒
-  // cadence=0（人在停步）—— GPS 重捕抖动。33 条有 max_speed 的跑步活动里 9 条
-  // 超过最快分段速度 1.5 倍（最高 2.6 倍）。而两个 prompt 的分析框架都**没有**
-  // 提到最大速度，模型却会主动拿它下「冲刺能力」结论。
-  // 故：跑步分支保留（附「瞬时峰值」限定语），缺值整行不输出（86% 的活动没有）；
-  // 非跑步分支整项不输出 —— 乒乓球的 8.03 km/h 是挥拍抖动，均速只有 0.12。
+  // 与 `training_load`（Garmin 官方 TL，241/241）**不是同一个东西**：TL 是无量纲
+  // 的官方负荷分，TSS 是 NP/FTP 派生的自行车式训练压力。两者都输出时必须让模型
+  // 能区分，否则会出现「TSS 48 但 TL 65」这种看起来自相矛盾的数字。
+  const power = powerIntensity(activity);
+  const powerLines = running
+    ? [
+        statRow([
+          ['平均功率', fmtNumIf(activity.average_power, 0, 'W')],
+          ['标准化功率', fmtNumIf(activity.normalized_power, 0, 'W')],
+          ['功率体重比', fmtNumIf(power.powerToWeight, 2, 'W/kg')],
+        ]),
+        statRow([
+          ['FTP', fmtNumIf(power.ftpW, 0, 'W')],
+          ['强度因子 IF', fmtNumIf(power.intensityFactor, 2)],
+          ['TSS', fmtNumIf(power.trainingStressScore, 0)],
+          // 瞬时峰值功率: 与 `max_speed` 同一纪律 —— 库里是设备逐秒尖峰
+          // （548397123 均 306W / 峰 3866W = 12.6 倍，67kg 即 57.7 W/kg，
+          // 世界级场地车手冲刺也只有 20–25）。`peakPower` 已过滤 >3 倍均值
+          // 的脏数据，标签必须带「瞬时」，否则模型会当可持续冲刺能力解读。
+          ['瞬时峰值功率', fmtNumIf(power.peakPowerW, 0, 'W（瞬时峰值, 不代表持续能力）')],
+        ]),
+      ]
+    : [];
+  const powerNote =
+    running && power.intensityFactor != null
+      ? `（IF/TSS 由 标准化功率÷FTP 推算${power.ftpSource === 'zone-boundary' ? ', FTP 取自功率区间边界' : ''}；` +
+        '与「训练负荷 TL」是两套口径：TL 是 Garmin 官方负荷分, TSS 是阈值功率派生量）'
+      : null;
+
   const maxSpeedLine =
     running && activity.max_speed != null
       ? `最大速度: ${activity.max_speed.toFixed(1)} km/h（设备瞬时峰值, 不代表持续能力）`
       : null;
+
+  // 海拔: 这里只补**净高差**（max-min）与它的成因判定; 平均海拔已在下方
+  // 公共行（`平均海拔`）输出 —— 同一行再写一次「均 281m」就是重复。
+  // 真实库 191/234 条活动的净高差**小于**累计爬升 —— 不是数据错误: 净高差是
+  // 「最高点-最低点」（环形路线回到起点只有几十米），累计爬升是「每次上坡都累加」
+  // （折返路线远大于净高差）。两者语义不同, 文案必须分开, 否则模型会判定数据矛盾。
+  const span = elevationSpan(activity);
+  const spanRatio = ascentToSpanRatio(activity.total_ascent, span);
+  const elevationLine =
+    span != null
+      ? `海拔跨度: 最低 ${span.minM}m / 最高 ${span.maxM}m / 净高差 ${span.spanM}m` +
+        (spanRatio != null
+          ? `（累计爬升 ÷ 净高差 = ${spanRatio}${spanRatio >= 2 ? ', 属短坡反复上下' : ', 属单向爬升'}）`
+          : '')
+      : null;
+
   const runningLines = (
     running
       ? [
@@ -522,6 +564,7 @@ export function buildAnalysisMessages(
           maxSpeedLine,
           statRow([
             ['平均步频', fmtNum(activity.average_cadence, 0, 'spm')],
+            ['最大步频', fmtNumIf(activity.max_cadence, 0, 'spm')],
             ['步幅', fmtNum(activity.average_stride_length, 2, 'm')],
           ]),
           statRow([
@@ -535,10 +578,8 @@ export function buildAnalysisMessages(
             ['有氧训练效果', fmtNum(activity.total_training_effect, 1)],
             ['无氧', fmtNum(activity.total_anaerobic_training_effect, 1)],
           ]),
-          statRow([
-            ['TSS', fmtNumIf(activity.training_stress_score, 0)],
-            ['IF', fmtNumIf(activity.intensity_factor, 2)],
-          ]),
+          ...powerLines,
+          powerNote,
         ]
       : [
           `平均速度: ${activity.average_speed != null ? activity.average_speed.toFixed(2) : '--'} km/h`,
@@ -563,16 +604,14 @@ export function buildAnalysisMessages(
       ['平均心率', fmtNum(activity.average_heart_rate, 0, 'bpm')],
       ['最大心率', fmtNum(activity.max_heart_rate, 0, 'bpm')],
     ]),
-    statRow([
-      ['平均功率', fmtNumIf(activity.average_power, 0, 'W')],
-      ['标准化功率', fmtNumIf(activity.normalized_power, 0, 'W')],
-      ['功率体重比', fmtNumIf(activity.average_power_to_weight, 1, 'W/kg')],
-    ]),
+    // 平均功率/标准化功率/功率体重比已移到 `powerLines`（跑步专属 + 推算）。
+    // 非跑步活动这三项 **0/107**（写入口限定跑步类型），在这里输出只是空行。
     statRow([
       ['累计爬升', fmtNumIf(activity.total_ascent, 0, 'm')],
       ['累计下降', fmtNumIf(activity.total_descent, 0, 'm')],
       ['平均坡度', fmtNumIf(activity.avg_grade, 1, '%')],
     ]),
+    elevationLine,
     statRow([['训练负荷', fmtNumIf(activity.training_load, 0)]]),
     // 恢复时间 / 训练收益: Garmin 官方字段, 真实库 348/348 全有值（recovery_time
     // 0–5020 分钟, primary_benefit 8 类）。SYSTEM_PROMPT §5 明确要求回答「本次后

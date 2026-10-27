@@ -46,6 +46,43 @@ test.describe('活动详情页', () => {
     await expect(page.getByText('触地平衡')).toHaveCount(0);
   });
 
+  test('概览应显示推算的 IF/TSS/功率体重比/瞬时峰值功率 (设备从不写入, 但可推算)', async ({ page }) => {
+    await page.goto('/pbrun/pages/900000001');
+    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(1000);
+    // 夹具只给输入（NP 303 / 平均功率 292 / 峰值 437 / 区间边界 / 体重 68.5）,
+    // 派生值必须由 app/lib/power.ts 现场算出 —— 写死的话就绕过了被测代码。
+    // 期望: FTP 371(区间边界[3]) → IF 0.82 → TSS 51(moving_time 2750s) → 4.26 W/kg
+    await expect(page.getByText('强度因子 IF')).toBeVisible();
+    await expect(page.getByText('0.82', { exact: true })).toBeVisible();
+    await expect(page.getByText('TSS', { exact: true })).toBeVisible();
+    await expect(page.getByText('51', { exact: true })).toBeVisible();
+    await expect(page.getByText('功率体重比')).toBeVisible();
+    await expect(page.getByText('4.26', { exact: true })).toBeVisible();
+    // 437 / 292 = 1.5 倍 → 合理, 展示且标签带「瞬时」
+    await expect(page.getByText('瞬时峰值功率')).toBeVisible();
+  });
+
+  test('概览应把「累计爬升」与「海拔净高差」分开显示 (191/234 条净高差 < 累计爬升)', async ({ page }) => {
+    await page.goto('/pbrun/pages/900000001');
+    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(1000);
+    // 夹具: total_ascent 25m / min 284m / max 312m → 净高差 28m。
+    // 两个数是不同语义, 标签必须能区分, 否则用户以为数据矛盾。
+    await expect(page.getByText('累计爬升')).toBeVisible();
+    await expect(page.getByText('25', { exact: true })).toBeVisible();
+    await expect(page.getByText('海拔净高差')).toBeVisible();
+    await expect(page.getByText('28', { exact: true })).toBeVisible();
+  });
+
+  test('跑步动态应显示最高步频 (241/241 跑步活动有值)', async ({ page }) => {
+    await page.goto('/pbrun/pages/900000001');
+    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(1200);
+    await expect(page.getByText('最高步频')).toBeVisible();
+    await expect(page.getByText('188 spm')).toBeVisible();
+  });
+
   test('应显示 AI 教练分析区', async ({ page }) => {
     await page.goto('/pbrun/pages/900000001');
     await page.waitForLoadState('networkidle');

@@ -81,8 +81,28 @@ const samples = [
     average_ground_contact_time: 241.5,
     average_vertical_oscillation: 7.4,
     average_vertical_ratio: 8.1,
+    // 最大步频: 真实库 241/241 条跑步活动有值（186–250）, 此前零消费。
+    // 与 average_cadence(182) 并列才能看出冲刺段与巡航段的差距。
+    max_cadence: 188,
     total_ascent: 25,
     total_descent: 20,
+    // 海拔三列: 真实库 234/348 有值且 NULL 模式一致（要么全有要么全无）。
+    // 夹具必须给全, 否则「海拔净高差」格在 e2e 里永远测不到。
+    avg_altitude: 292,
+    min_altitude: 284,
+    max_altitude: 312,
+    // 功率强度: 真实库 intensity_factor/training_stress_score/
+    // average_power_to_weight 三列 **0/348**（设备不写）, 但可由
+    // normalized_power ÷ FTP、时长 × IF²、平均功率 ÷ 体重推算。
+    // 夹具照真实分布: 只给输入（NP/平均功率/峰值/区间边界/体重）, 派生值必须由
+    // app/lib/power.ts 现场算出来 —— 若夹具直接写死 IF/TSS, 就等于绕过了被测代码,
+    // 「推算链路断了」这类缺陷在 e2e 里永远暴露不了。
+    average_power: 292,
+    normalized_power: 303,
+    max_power: 437,
+    power_zone_boundaries: JSON.stringify([241, 297, 334, 371, 427, 4000, null, null]),
+    user_weight: 68.5,
+    user_height: 1.75,
     average_temperature: 26,
     calories: 520,
     vdot_value: 42.0,

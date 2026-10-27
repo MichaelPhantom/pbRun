@@ -59,6 +59,61 @@ const ACTIVITY_ALLOWLIST: Record<string, string> = {
   cadence: '与 activity_laps.average_cadence 同源, 分段表步频列已直接展示该值',
 };
 
+/**
+ * `Activity` 的 allowlist —— 活动表 70 个字段里**确实不该被 UI/AI 展示**的那些。
+ *
+ * 与前两张表不同，`Activity` 是数据库原始行，里面混着三类非展示字段：
+ *  1. 内部记账列（时间戳/时区偏移）；
+ *  2. 仅用于查询/聚类、由其他字段派生的索引列；
+ *  3. 语义与同名但不同口径的字段，误展示会造成错误结论（`max_heart_rate_fit`）。
+ *
+ * 每条都必须写明**为什么**不该展示，而不是「还没做」。
+ */
+const ACTIVITY_FIELD_ALLOWLIST: Record<string, string> = {
+  // ---- 内部记账列 ----
+  created_at: 'DB 写入时间戳, 与训练无关',
+  updated_at: 'DB 更新时间戳, 与训练无关',
+  // 时区偏移由 start_time_local 的语义承载, 用户看的是本地时间本身。
+  start_tz_offset_min: '派生自 start_time_local, 展示分钟偏移对用户无意义',
+  // elapsed_time 恒等于 duration（真实库 348/348 相等, 因为 FIT 的
+  // total_elapsed_time 就是写进 duration 的那一列）—— 展示两个相同的数只会让人困惑。
+  elapsed_time: '真实库 348/348 恒等于 duration, 展示重复值无增量信息',
+
+  // ---- 仅用于查询/聚类的索引列 ----
+  // 路线签名的三个派生列: 供 routeShapeSimilarity 粗筛/相似度计算, 不是用户指标。
+  route_cells: 'geohash 网格签名, 仅用于路线聚类粗筛',
+  route_bounds: '抗尖峰包围盒, 仅用于路线聚类',
+  route_km: '清洗后轨迹长度, 仅用于路线聚类长度比',
+  start_lat: '轨迹首点纬度, 仅用于同起点召回',
+  start_lng: '轨迹首点经度, 仅用于同起点召回',
+
+  // ---- 语义陷阱：同名不同口径 ----
+  // 这是本表最重要的一条。`max_heart_rate_fit` 是**手表里的用户配置值**,
+  // 不是本次实测峰值: 真实库 140/140 都等于 hr_zone_boundaries 的最后一个元素,
+  // 且从不小于 max_heart_rate（后者最高 192）。展示成「最大心率」会直接撒谎。
+  max_heart_rate_fit:
+    '设备设置的最大心率(配置值), 不是本次实测峰值; 140/140 等于区间边界末项, 展示会与 max_heart_rate 冲突',
+  // `devices` 是已脱敏的设备列表 JSON, 对训练解读无用（且已从 API 剥离序列号）。
+  devices: '已脱敏设备列表 JSON, 与训练表现无关',
+
+  // ---- 真实库 0/348 全空, 写入口从不产出 ----
+  // 这些字段属于「设备/平台根本不写」类, 展示只会是永久 `--` 噪音。
+  // 与 `fmtNumIf` 的整项略去纪律一致（见 docs/features.md §1.2 缺失两类）。
+  average_step_rate_loss: '真实库 0/348, 设备从不写入',
+  average_step_rate_loss_percent: '真实库 0/348, 设备从不写入',
+  max_power_to_weight: '真实库 0/348; 且 max_power 是瞬时尖峰, 用它算 W/kg 会产出怪物数据',
+  avg_pos_grade: '真实库 0/348, 设备从不写入',
+  avg_neg_grade: '真实库 0/348, 设备从不写入',
+  max_pos_grade: '真实库 0/348, 设备从不写入',
+  max_neg_grade: '真实库 0/348, 设备从不写入',
+  time_in_speed_zone: '真实库 0/348, 设备从不写入',
+  time_in_cadence_zone: '真实库 0/348, 设备从不写入',
+  // 功率区间**不能按索引跨活动聚合**: 17 套边界方案（实测 241 条里 16 种不同
+  // 百分比方案, 且都落在 %FTP 上）, 与 HR 区间的 19 套是同一个陷阱。
+  // 单条活动展示需先把边界归一成 %FTP, 尚未接入（下一步）。
+  time_in_power_zone: '设备原始功率区间秒数, 边界方案随固件而变(17 套), 需归一后才能展示',
+};
+
 /** 从 `types.ts` 里解析出 interface 名 → 字段名 + 引用的 interface 名。 */
 function parseInterfaces(src: string): Map<string, { fields: string[]; refs: string[] }> {
   const out = new Map<string, { fields: string[]; refs: string[] }>();
@@ -113,6 +168,23 @@ function isConsumed(src: string, key: string): boolean {
   return new RegExp(`\\b${key}\\b`).test(stripComments(src));
 }
 
+/**
+ * 字段是否被**当作那个字段**访问（属性取值 / 对象字面量键 / 带引号的列名）。
+ *
+ * 与 `isConsumed` 的区别很实在：`isConsumed` 匹配裸标识符，`power` 会被
+ * `power.powerToWeight`（另一个对象的变量名）误命中 —— 正反两个方向不能共用一个
+ * 谓词。正向（「必须被消费」）用宽松谓词避免假红，反向（「allowlist 必须保持
+ * 真实」）必须用严格谓词，否则账本一放进 `power` 就会被误判为「已消费」。
+ */
+function isFieldAccessed(src: string, key: string): boolean {
+  const s = stripComments(src);
+  return (
+    new RegExp(`\\.${key}\\b`).test(s) || // obj.field / obj?.field
+    new RegExp(`(^|[{,\\s])${key}\\s*:`).test(s) || // { field: ... } / field: ...
+    new RegExp(`['"]${key}['"]`).test(s) // SQL 列名 / 字符串键
+  );
+}
+
 describe('InsightResponse 的每个字段都必须被消费', () => {
   const typesSrc = fs.readFileSync(path.join(ROOT, 'app', 'lib', 'types.ts'), 'utf8');
   const interfaces = parseInterfaces(typesSrc);
@@ -141,7 +213,7 @@ describe('InsightResponse 的每个字段都必须被消费', () => {
   });
 
   test('allowlist 不得包含已经被消费的字段 (账本必须保持真实)', () => {
-    const stale = Object.keys(ALLOWLIST).filter((k) => isConsumed(consumers, k));
+    const stale = Object.keys(ALLOWLIST).filter((k) => isFieldAccessed(consumers, k));
     expect(stale).toEqual([]);
   });
 });
@@ -177,7 +249,150 @@ describe('ActivityInsightResponse 的每个字段都必须被消费', () => {
   });
 
   test('allowlist 不得包含已经被消费的字段', () => {
-    const stale = Object.keys(ACTIVITY_ALLOWLIST).filter((k) => isConsumed(consumers, k));
+    const stale = Object.keys(ACTIVITY_ALLOWLIST).filter((k) => isFieldAccessed(consumers, k));
     expect(stale).toEqual([]);
+  });
+});
+
+/**
+ * `Activity` 是数据库原始行（70 个字段），比 `InsightResponse` 更容易藏
+ * 「有值但从不展示」。2026-10-27 一次审计就找出 8 个：
+ *
+ * | 字段 | 真实库 | 缺陷性质 |
+ * |------|--------|----------|
+ * | `intensity_factor` | 0/348 有值 | **可推算却从未推算**（NP/FTP 全在） |
+ * | `training_stress_score` | 0/348 | 同上 |
+ * | `average_power_to_weight` | 0/348 | 同上（体重 241/241） |
+ * | `functional_threshold_power` | 33/348 | 缺失可回退 `power_zone_boundaries[3]` |
+ * | `max_altitude` / `min_altitude` | 234/348 | 完全零消费 |
+ * | `max_cadence` | 247/348 | 完全零消费 |
+ * | `max_power` | 241/241 | 零消费（且是瞬时尖峰, 需过滤后才能展示） |
+ *
+ * 消费方定义：所有渲染/序列化/喂给模型的代码 —— `app/**` + `mcp-server/**`。
+ * 不包含 `types.ts` 自身（那是声明不是消费）。
+ */
+describe('Activity 的每个字段都必须被消费或显式记账', () => {
+  const ROOT_DIR = path.join(__dirname, '..', '..', '..');
+
+  /** 递归收集 app/ 与 mcp-server/ 的 TS 源码（排除类型声明自身与构建产物）。 */
+  function collectSources(dir: string, acc: string[] = []): string[] {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (['node_modules', '.next', 'dist', 'coverage'].includes(entry.name)) continue;
+        collectSources(p, acc);
+      } else if (/\.(ts|tsx)$/.test(entry.name)) {
+        acc.push(p);
+      }
+    }
+    return acc;
+  }
+
+  /**
+   * 消费方 = 从**真正的展示入口**出发、沿 `@/app/...` import 做传递闭包能到达的文件。
+   *
+   * 为什么必须做闭包，而不是「扫一遍全仓文本」：`app/lib/elevation.ts` 里有
+   * `activity.max_altitude` 一行 —— 若它被 `ActivityDetailClient` / `llm.ts` import，
+   * 字段就真的到了用户与模型手上；一旦没人 import，它就是死代码，字段实际从未展示。
+   * 第一版守卫正是被这一点骗过（缺陷注入：删掉两处 elevation import 后仍然全绿）。
+   *
+   * 展示入口只取页面/接口/组件/MCP —— 这些才是「最终交付物」。`app/lib/**` 里
+   * 无人引用的模块因此不计入消费，正如 `scripts/**` 不计入（回填脚本不是展示）。
+   *
+   * `types.ts` 必须排除：它被所有文件 import，若计入就等于把「类型声明」当成
+   * 「消费」，每个字段都会自动「已消费」，守卫彻底失效。
+   */
+  const ENTRY_DIRS = ['app/pages', 'app/api', 'app/insight', 'app/components', 'app/lib/components', 'mcp-server'];
+
+  function collectSources(dir: string, acc: string[] = []): string[] {
+    if (!fs.existsSync(dir)) return acc;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (['node_modules', '.next', 'dist', 'coverage'].includes(entry.name)) continue;
+        collectSources(p, acc);
+      } else if (/\.(ts|tsx)$/.test(entry.name)) {
+        acc.push(p);
+      }
+    }
+    return acc;
+  }
+
+  const read = (f: string) => fs.readFileSync(f, 'utf8');
+  const TYPES_FILE = path.join(ROOT_DIR, 'app', 'lib', 'types.ts');
+
+  /** 沿 `@/app/...` 相对 import 做传递闭包。 */
+  function reachableFrom(entries: string[]): string[] {
+    const seen = new Set(entries);
+    const queue = [...entries];
+    const re = /from\s+['"]@\/app\/([a-z0-9\-/]+)['"]/g;
+    while (queue.length > 0) {
+      const src = read(queue.pop()!);
+      re.lastIndex = 0;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(src))) {
+        for (const ext of ['.ts', '.tsx']) {
+          const target = path.join(ROOT_DIR, 'app', m[1] + ext);
+          if (fs.existsSync(target) && !seen.has(target)) {
+            seen.add(target);
+            queue.push(target);
+          }
+        }
+      }
+    }
+    return [...seen];
+  }
+
+  const entryFiles = ENTRY_DIRS.flatMap((d) => collectSources(path.join(ROOT_DIR, d)));
+  const consumerFiles = reachableFrom(entryFiles).filter((f) => f !== TYPES_FILE);
+  const consumers = consumerFiles.map(read).join('\n');
+
+  /**
+   * 反向断言（「allowlist 里的字段不得已被展示」）必须**排除数据访问层**。
+   *
+   * `db.ts` 会把 `route_cells` / `start_lat` 这类列名写进 SQL —— 那是查询用途，
+   * 不是「展示给用户或模型」。若反向断言也看 db.ts，凡是「仅用于聚类的索引列」
+   * 都会被误判成「已消费」，allowlist 立刻失效。
+   */
+  const presenters = consumerFiles
+    .filter((f) => !f.endsWith(path.join('app', 'lib', 'db.ts')))
+    .map(read)
+    .join('\n');
+
+  const typesSrc = fs.readFileSync(path.join(ROOT_DIR, 'app', 'lib', 'types.ts'), 'utf8');
+  const interfaces = parseInterfaces(typesSrc);
+  const leaves = collectLeaves(interfaces, 'Activity');
+
+  test('解析器确实覆盖到 Activity 的全部字段 (防假绿)', () => {
+    // 70 个字段（2026-10-27 补齐 power_zone_boundaries / threshold_heart_rate /
+    // max_heart_rate_fit / functional_threshold_power 后）。
+    expect(leaves.size).toBeGreaterThanOrEqual(70);
+    // 抽查四个不同区块：基础/跑姿/功率/区间
+    expect(leaves.has('activity_id')).toBe(true);
+    expect(leaves.has('average_vertical_ratio')).toBe(true);
+    expect(leaves.has('functional_threshold_power')).toBe(true);
+    expect(leaves.has('time_in_power_zone')).toBe(true);
+  });
+
+  test('没有「库里有值但从不消费」的字段', () => {
+    const unconsumed = [...leaves]
+      .filter((k) => !(k in ACTIVITY_FIELD_ALLOWLIST))
+      .filter((k) => !isConsumed(consumers, k))
+      .sort();
+    expect(unconsumed).toEqual([]);
+  });
+
+  test('allowlist 不得包含已经被消费的字段 (账本必须保持真实)', () => {
+    const stale = Object.keys(ACTIVITY_FIELD_ALLOWLIST).filter((k) => isFieldAccessed(presenters, k));
+    expect(stale).toEqual([]);
+  });
+
+  test('allowlist 的每条理由都必须非空 (禁止静默豁免)', () => {
+    for (const reason of Object.values(ACTIVITY_FIELD_ALLOWLIST)) {
+      expect(reason.trim().length).toBeGreaterThan(10);
+      // 理由必须说明「为什么」而不是只写「暂不支持」这类空话。
+      expect(reason).not.toBe('暂不支持');
+      expect(reason).toMatch(/真实库|设备|派生|语义|仅用于|配置值|同源|恒等于|方案|无关/);
+    }
   });
 });

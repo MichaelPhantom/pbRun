@@ -78,6 +78,45 @@ describe('MCP tool description 必须声明统计口径', () => {
     expect(desc).toMatch(/target_low\/high 是设备原始 mm\/s 仅供追溯/);
   });
 
+  /**
+   * 功率强度字段的口径契约（2026-10-27）。
+   *
+   * 三个字段设备**从不写入**（`intensity_factor` / `training_stress_score` /
+   * `average_power_to_weight` 真实库 0/348），但可由 NP ÷ FTP、时长 × IF²、
+   * 平均功率 ÷ 体重推算。MCP 若不说明，模型会以为「字段为空 = 该活动没功率数据」，
+   * 或把派生的 TSS 与官方 TL 当同一指标。
+   */
+  test('get_activity 声明 IF/TSS/W·kg⁻¹ 可由其他字段推算, 且与 TL 是两套口径', () => {
+    const desc = configs.get('get_activity')!.description ?? '';
+    expect(desc).toMatch(/intensity_factor/);
+    expect(desc).toMatch(/training_stress_score/);
+    expect(desc).toMatch(/average_power_to_weight/);
+    expect(desc).toMatch(/推算/);
+    expect(desc).toMatch(/与 training_load 是两套口径/);
+  });
+
+  test('get_activity 声明 FTP 缺省回退 power_zone_boundaries[3]', () => {
+    const desc = configs.get('get_activity')!.description ?? '';
+    expect(desc).toMatch(/functional_threshold_power/);
+    expect(desc).toMatch(/power_zone_boundaries\[3\]/);
+    expect(desc).toMatch(/恒等/);
+  });
+
+  test('get_activity 声明 max_power 是瞬时峰值且尖峰不可信', () => {
+    const desc = configs.get('get_activity')!.description ?? '';
+    expect(desc).toMatch(/max_power/);
+    expect(desc).toMatch(/瞬时峰值/);
+    // 「3 倍」是 peakPower 的过滤阈值, 不说明的话模型会拿 3866W 当冲刺能力
+    expect(desc).toMatch(/3 倍/);
+  });
+
+  test('get_activity 声明 time_in_power_zone 不可按索引跨活动聚合', () => {
+    // 与 device_time_in_hr_zone 同一纪律: 边界方案随固件而变。
+    const desc = configs.get('get_activity')!.description ?? '';
+    expect(desc).toMatch(/time_in_power_zone/);
+    expect(desc).toMatch(/不要按索引跨活动聚合/);
+  });
+
   test('所有 tool 都有非空 description 与 title', () => {
     for (const [name, cfg] of configs) {
       expect({ name, hasDesc: !!cfg.description?.trim() }).toEqual({ name, hasDesc: true });

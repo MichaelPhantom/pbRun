@@ -91,7 +91,33 @@ export interface Activity {
 
   // 区间边界（FIT time_in_zone 消息，JSON 数组字符串）
   hr_zone_boundaries?: string | null;            // 心率区间上限边界（bpm），如 "[97,117,136,155,175,194]"
-  power_zone_boundaries?: string | null;         // 功率区间上限边界（瓦）
+  /**
+   * 功率区间上限边界（瓦），JSON 数组字符串，如 `"[218,267,307,338,390,4000,null,null]"`。
+   *
+   * **索引 3 恒等于 FTP**：实测 16 套方案（241/241 条跑步活动）的第 4 个上界都等于
+   * 阈值功率，33 条同时有 `functional_threshold_power` 的活动逐条相等（33/33）。
+   * 这是 `app/lib/power.ts` 把 FTP 覆盖率从 33/348 提到 241/348 的依据。
+   * 尾部 `null` 是未使用的槽位；`4000` 这类值是 Z5 上界哨兵。
+   */
+  power_zone_boundaries?: string | null;
+
+  // 阈值与静息心率（FIT time_in_zone / user_profile 消息）
+  threshold_heart_rate?: number | null;           // 乳酸阈心率（bpm，140/348 有值）
+  /**
+   * 设备设置的**最大心率**（bpm，140/348 有值，188–197）。
+   *
+   * **不要当作「本次最大心率」展示** —— 它是手表里的用户配置值，实测 140/140 条
+   * 都等于 `hr_zone_boundaries` 的最后一个元素，且**从不小于** `max_heart_rate`
+   * （后者才是本次实测峰值，最高 192）。两者语义完全不同。
+   */
+  max_heart_rate_fit?: number | null;
+  /**
+   * FTP 功能性阈值功率（瓦，仅 33/348 有值，338–345）。
+   *
+   * 多数活动设备不写该字段，但 `power_zone_boundaries[3]` 是同一数值 —— 缺失时
+   * 由 `app/lib/power.ts` 的 `resolveFtp` 回退，并把来源标记为 `zone-boundary`。
+   */
+  functional_threshold_power?: number | null;
 
   // 设备与用户档案（FIT device_infos / user_profile，设备已脱敏无序列号）
   devices?: string | null;                       // 设备列表 JSON [{device_type,manufacturer,product,firmware}]

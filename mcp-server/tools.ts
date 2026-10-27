@@ -104,6 +104,13 @@ export async function registerTools(server: McpServer): Promise<void> {
         'hr_zone_boundaries/power_zone_boundaries(设备区间边界 bpm/瓦, JSON 数组字符串)、' +
         'time_in_hr_zone(心率区间秒数, 本地 5 区口径, 长度恒为 5, 可直接按索引跨活动聚合)、' +
         'device_time_in_hr_zone(设备原始区间秒数, 边界方案随固件而变, 仅追溯用, 不要跨活动相加)、' +
+        'time_in_power_zone(设备原始功率区间秒数, 边界方案随固件而变, 仅追溯用, 不要按索引跨活动聚合)、' +
+        'functional_threshold_power(设备显式 FTP 瓦, 仅 33/348 有值; 缺省时可用 ' +
+        'power_zone_boundaries[3] 回退, 二者恒等)、' +
+        'intensity_factor/training_stress_score/average_power_to_weight(设备从不写入, ' +
+        '可由 normalized_power÷FTP、时长×IF²、average_power÷user_weight 推算, ' +
+        '与 training_load 是两套口径)、' +
+        'max_power(逐秒瞬时峰值, 非可持续功率; 超过平均功率 3 倍的传感器尖峰不可信)、' +
         'devices(设备列表 JSON, 已脱敏)、user_weight/user_height/resting_heart_rate_fit(用户档案)、' +
         'workout_name/workout_steps(课表; 多步课表完整, duration_sec 单位秒、' +
         'target_pace_sec_per_km 单位秒/公里, 均可直接使用; target_low/high 是设备原始 mm/s 仅供追溯)、' +
