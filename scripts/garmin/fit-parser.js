@@ -18,6 +18,7 @@ const fs = require('fs').promises;
 const { deriveRouteSignature } = require('../common/route-signature');
 const { hrZoneSecondsFromRecords, resolveMaxHr } = require('../common/hr-zones');
 const { powerZoneSecondsFromRecords, resolveFtp } = require('../common/power-zones');
+const { deriveLapZoneSeconds, applyLapZoneSeconds } = require('../common/lap-zones');
 const {
   normalizeWorkoutStep,
   normalizeWorkoutSteps,
@@ -250,6 +251,17 @@ class GarminFITParser {
         }
       }
 
+      // lap 级区间秒数: 从逐秒记录按 lap 时间窗切分, 用**同一套** 5 区模型推导。
+      //
+      // 为什么必须推导而不能读设备值: 实测 348 个 FIT 的 3082 个 lap **全都不写**
+      // 区间数组 (session 级也 0/348), 所以 lap 级统一列历来为空。而 lap 级区间
+      // 是「某一段的强度分布」, 有真实分析价值 (例如「Z4 那 3 个 lap 配速掉了吗」)。
+      //
+      // 口径一致性: 与活动级用同一个 `hrZoneSecondsFromRecords` /
+      // `powerZoneSecondsFromRecords`, 只是把 records 先按 `cumulative_time`
+      // 切成 `[前一段累计, 本段累计)` 半开窗口 —— 否则 lap 行与活动行不可加总。
+      this._assignLapZoneSeconds(lapsData, recordsData, activityData, resolveMaxHr());
+
       // 路线轨迹 (JSON 字符串; 无 GPS 为 null, 室内/跑步机自动跳过)
       activityData.track = trackData ? JSON.stringify(trackData) : null;
       // 首点坐标落列 (索引化), 供「同起点」对比快速查询; 无 GPS 为 null。
@@ -456,8 +468,13 @@ class GarminFITParser {
     // session 级同名字段实测 348/348 个 FIT 全为空，故它只是 device 列的兜底来源。
     const sessionHrZone = this._safeGetZoneJson(session, 'time_in_hr_zone');
     if (sessionHrZone) activityData.device_time_in_hr_zone = sessionHrZone;
-    activityData.time_in_speed_zone = this._safeGetZoneJson(session, 'time_in_speed_zone');
-    activityData.time_in_cadence_zone = this._safeGetZoneJson(session, 'time_in_cadence_zone');
+    // 速度/步频区间：app **没有**对应的 5 区模型（无 UI/统计消费方），设备有值就
+    // 直接留作追溯 —— 但列名必须带 `device_` 前缀，否则将来有人把它当统一口径
+    // 聚合（同一陷阱：边界方案随固件而变）。实测 348/348 设备都不写。
+    const sessionSpeedZone = this._safeGetZoneJson(session, 'time_in_speed_zone');
+    if (sessionSpeedZone) activityData.device_time_in_speed_zone = sessionSpeedZone;
+    const sessionCadenceZone = this._safeGetZoneJson(session, 'time_in_cadence_zone');
+    if (sessionCadenceZone) activityData.device_time_in_cadence_zone = sessionCadenceZone;
     // 设备原始功率区间 → device_time_in_power_zone (统一口径列由逐秒功率推导)。
     const sessionPowerZone = this._safeGetZoneJson(session, 'time_in_power_zone');
     if (sessionPowerZone) activityData.device_time_in_power_zone = sessionPowerZone;
@@ -477,6 +494,36 @@ class GarminFITParser {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * 给每个 lap 填 `time_in_hr_zone` / `time_in_power_zone`（app 5 区口径）。
+   *
+   * **为什么需要这一步**：lap 级统一列此前从来没有值 —— 设备不写（实测 3082/3082
+   * 空），而解析器又把仅有的设备数组写错了地方（见 `_extractLapsData` 的口径注释）。
+   * lap 级区间是「这段强度分布如何」的唯一数据源，跨 lap 可比的前提是**同一套
+   * 5 区模型 + 按时间窗切分**。
+   *
+   * **实现在 `scripts/common/lap-zones.js`**（纯函数），因为回填脚本
+   * `backfill-lap-zones.js` 需要**同一套**窗口语义。窗口逻辑若在这里和回填脚本里
+   * 各写一份，同步写入的 lap 行与回填写入的 lap 行就会不可加总 —— 而且不报错，
+   * 只是「Z4 那几段配速掉了没」这类判断悄悄失真。
+   *
+   * @param {Array<object>} lapsData `_extractLapsData` 的输出（原地修改）
+   * @param {Array<object>} recordsData `_extractRecordsData` 的输出
+   * @param {object} activityData 活动级数据（用于取 FTP）
+   * @param {number} maxHr 最大心率
+   */
+  _assignLapZoneSeconds(lapsData, recordsData, activityData, maxHr) {
+    if (!Array.isArray(lapsData) || lapsData.length === 0) return;
+    if (!Array.isArray(recordsData) || recordsData.length === 0) return;
+
+    const ftp = resolveFtp(activityData);
+    const derived = deriveLapZoneSeconds(lapsData, recordsData, {
+      maxHr,
+      ftpWatts: ftp ? ftp.watts : null,
+    });
+    applyLapZoneSeconds(lapsData, derived);
   }
 
   _extractLapsData(fitData) {
@@ -583,11 +630,29 @@ class GarminFITParser {
       lapData.max_pos_grade = this._safeGetFloat(lap, 'max_pos_grade');
       lapData.max_neg_grade = this._safeGetFloat(lap, 'max_neg_grade');
 
-      // 区间时间（秒），存为 JSON 字符串
-      lapData.time_in_hr_zone = this._safeGetZoneJson(lap, 'time_in_hr_zone');
-      lapData.time_in_speed_zone = this._safeGetZoneJson(lap, 'time_in_speed_zone');
-      lapData.time_in_cadence_zone = this._safeGetZoneJson(lap, 'time_in_cadence_zone');
-      lapData.time_in_power_zone = this._safeGetZoneJson(lap, 'time_in_power_zone');
+      // 区间时间（秒），存为 JSON 字符串。
+      //
+      // **口径纪律（与活动级同一条）**：`time_in_hr_zone` / `time_in_power_zone`
+      // 是「可按索引跨活动/lap 聚合」的统计列，只能装 **app 自己的 5 区模型**结果。
+      // 设备原始数组（长度随固件 7/8 槽、心率边界方案随固件变、功率是绝对瓦数）
+      // 一旦漏进这里，同一索引在不同活动/lap 之间就没有可比性 —— 活动级因此把
+      // 设备数组单独放进 `device_time_in_hr_zone` / `device_time_in_power_zone`。
+      // lap 级此前**漏做了这一步**：直接把设备数组写进统一列（潜伏缺陷，实测
+      // 348 个 FIT 的 3082 个 lap 都不写区间数组，故生产库暂未出现脏数据；
+      // 但任何写了 lap 级区间的固件都会立刻污染统一列）。现改为同样的分流。
+      //
+      // 统一列的 lap 级数值由 `parseFitFile` 从逐秒记录按 lap 时间窗推导
+      // （见 `_assignLapZoneSeconds`），与本函数无关。
+      const lapHrZone = this._safeGetZoneJson(lap, 'time_in_hr_zone');
+      if (lapHrZone) lapData.device_time_in_hr_zone = lapHrZone;
+      const lapPowerZone = this._safeGetZoneJson(lap, 'time_in_power_zone');
+      if (lapPowerZone) lapData.device_time_in_power_zone = lapPowerZone;
+      // 速度/步频区间：app 没有对应的 5 区模型（无 UI/统计消费方），设备有值就
+      // 直接留作追溯 —— 列名带 device_ 前缀，避免将来被误当成统一口径。
+      const lapSpeedZone = this._safeGetZoneJson(lap, 'time_in_speed_zone');
+      if (lapSpeedZone) lapData.device_time_in_speed_zone = lapSpeedZone;
+      const lapCadenceZone = this._safeGetZoneJson(lap, 'time_in_cadence_zone');
+      if (lapCadenceZone) lapData.device_time_in_cadence_zone = lapCadenceZone;
 
       // 触发方式与时间戳
       const trigger = lap.lap_trigger;

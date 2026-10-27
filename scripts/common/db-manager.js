@@ -95,9 +95,9 @@ class DatabaseManager {
         -- device_time_in_hr_zone 是设备原始 time_in_zone（边界方案随固件而变，仅供追溯）。
         time_in_hr_zone TEXT,                          -- 心率区间秒数（本地 5 区口径，全活动覆盖）
         device_time_in_hr_zone TEXT,                   -- 设备原始心率区间秒数（不可跨活动聚合）
-        time_in_speed_zone TEXT,                       -- 速度区间时间
-        time_in_cadence_zone TEXT,                     -- 步频区间时间
-        time_in_power_zone TEXT,                       -- 功率区间时间
+        device_time_in_speed_zone TEXT,                -- 设备原始速度区间秒数（app 无对应模型，仅追溯）
+        device_time_in_cadence_zone TEXT,              -- 设备原始步频区间秒数（app 无对应模型，仅追溯）
+        time_in_power_zone TEXT,                       -- 功率区间秒数（app 5 区 %FTP 口径，由逐秒功率推导）
 
         -- 其他
         calories INTEGER,                             -- 热量消耗（卡路里）
@@ -158,6 +158,8 @@ class DatabaseManager {
       ['time_in_power_zone', 'TEXT'],                // 各功率区间停留秒数（app 5 区 %FTP 口径，由逐秒功率推导）
       ['device_time_in_power_zone', 'TEXT'],         // 设备原始功率区间秒数（绝对瓦数边界，16 套方案，跨活动不可比；仅供追溯）
       ['device_time_in_hr_zone', 'TEXT'],            // 设备原始心率区间秒数（边界方案随固件而变，跨活动不可比；仅供追溯）
+      ['device_time_in_speed_zone', 'TEXT'],         // 设备原始速度区间秒数（app 无对应模型，仅追溯）
+      ['device_time_in_cadence_zone', 'TEXT'],       // 设备原始步频区间秒数（app 无对应模型，仅追溯）
       // 阈值元数据（FIT time_in_zone 消息，用于区间与强度分析）
       ['threshold_heart_rate', 'INTEGER'],           // 乳酸阈心率（bpm）
       ['max_heart_rate_fit', 'INTEGER'],             // 设备设置的最大心率（bpm）
@@ -263,10 +265,20 @@ class DatabaseManager {
         max_neg_grade REAL,                            -- 最大负坡度
 
         -- 区间时间（秒），JSON 数组
-        time_in_hr_zone TEXT,                         -- 心率区间时间
-        time_in_speed_zone TEXT,                       -- 速度区间时间
-        time_in_cadence_zone TEXT,                     -- 步频区间时间
-        time_in_power_zone TEXT,                       -- 功率区间时间
+        -- **口径纪律（与 activities 表同一条）**：不带前缀的列只装 app 的 5 区模型结果，
+        -- 可按索引跨活动/lap 聚合；设备原始数组一律进 device_* 列，仅供追溯。
+        --   time_in_hr_zone    = 本地 5 区（Z1<70%/Z2<80%/Z3<87%/Z4<93%/Z5>=93% MAX_HR），
+        --                        由逐秒心率按 lap 时间窗推导，长度恒为 5。
+        --   time_in_power_zone = app 5 区 %FTP（Z1<65/Z2<80/Z3<90/Z4<100/Z5>=100），
+        --                        由逐秒功率按 lap 时间窗推导，长度恒为 5。
+        -- 设备从不写 lap 级区间数组（实测 3082/3082 lap 为空），device_* 列只为
+        -- 将来真有固件写入时留出正确的落点 —— 绝不能落进上面的统一列。
+        time_in_hr_zone TEXT,                          -- 心率区间秒数（本地 5 区口径，长度恒 5）
+        time_in_power_zone TEXT,                       -- 功率区间秒数（app 5 区 %FTP 口径，长度恒 5）
+        device_time_in_hr_zone TEXT,                   -- 设备原始心率区间秒数（不可跨 lap 聚合）
+        device_time_in_power_zone TEXT,                -- 设备原始功率区间秒数（绝对瓦数边界，不可聚合）
+        device_time_in_speed_zone TEXT,                -- 设备原始速度区间秒数（app 无对应模型，仅追溯）
+        device_time_in_cadence_zone TEXT,              -- 设备原始步频区间秒数（app 无对应模型，仅追溯）
 
         -- 触发方式与时间戳
         lap_trigger TEXT,                              -- 分段触发方式（如 manual、distance、time）
@@ -283,7 +295,9 @@ class DatabaseManager {
     // 为已存在的 activity_laps 表添加新列（兼容旧库）
     const newLapColumns = [
       ['avg_grade', 'REAL'], ['avg_pos_grade', 'REAL'], ['avg_neg_grade', 'REAL'], ['max_pos_grade', 'REAL'], ['max_neg_grade', 'REAL'],
-      ['time_in_hr_zone', 'TEXT'], ['time_in_speed_zone', 'TEXT'], ['time_in_cadence_zone', 'TEXT'], ['time_in_power_zone', 'TEXT'],
+      ['time_in_hr_zone', 'TEXT'], ['time_in_power_zone', 'TEXT'],
+      ['device_time_in_hr_zone', 'TEXT'], ['device_time_in_power_zone', 'TEXT'],
+      ['device_time_in_speed_zone', 'TEXT'], ['device_time_in_cadence_zone', 'TEXT'],
       ['lap_trigger', 'TEXT'], ['start_time', 'DATETIME']
     ];
     for (const [name, type] of newLapColumns) {
@@ -318,8 +332,12 @@ class DatabaseManager {
         power INTEGER,                                -- 功率（瓦）
         altitude REAL,                                -- 海拔（米）
         temperature REAL,                             -- 逐秒温度（°C，部分设备/传感器才有）
-        speed REAL,                                   -- 速度（米/秒）
-        distance REAL,                                -- 累计距离（米）
+        -- **单位必须与 fit-parser 的写入口径一致**（lengthUnit='km' /
+        -- speedUnit='km/h'）：speed 是 km/h、distance 是公里。
+        -- 旧注释写「米/秒」「米」，与真实数据差 3.6× / 1000× —— 这类注释错位会
+        -- 让下一位读者按 m/s 写过滤条件（解耦曾因此把 0.5 km/h 当 0.5 m/s）。
+        speed REAL,                                   -- 速度（公里/小时）
+        distance REAL,                                -- 累计距离（公里）
         FOREIGN KEY (activity_id) REFERENCES activities(activity_id) ON DELETE CASCADE
       )
     `);
@@ -409,8 +427,27 @@ class DatabaseManager {
       return;
     }
 
-    // Insert new laps
-    const columns = Object.keys(lapsData[0]);
+    // 列集合必须取**所有** lap 的键并集, 不能只看 lapsData[0]。
+    //
+    // 真实缺陷 (2026-10-27): 解析器对每个 lap 只写「该 lap 有值的字段」, 所以
+    // 首个 lap 常常缺键 —— 例如 `599287904` / `614598589` 的 lap 0 是 26/28 秒的
+    // 起步碎片 (`avg_cadence: 0` → `average_cadence` 不写、`total_distance: 0` →
+    // `average_speed`/`average_pace` 不写), 而 lap 1..27 全都有。旧实现取
+    // `Object.keys(lapsData[0])` 拼 INSERT 列, 于是**后面 14 个 lap 的配速/速度/
+    // 步频被静默丢弃** (实测这两条活动在库里这些列 100% NULL)。
+    //
+    // 反向不会出问题: lap 0 有、后面 lap 没有的键在 bind 时得到 `undefined`,
+    // better-sqlite3 把 `undefined` 绑成 NULL —— 语义正确 (「该 lap 没有这个值」)。
+    const columns = [];
+    const seen = new Set();
+    for (const lap of lapsData) {
+      for (const key of Object.keys(lap)) {
+        if (!seen.has(key)) {
+          seen.add(key);
+          columns.push(key);
+        }
+      }
+    }
     const placeholders = columns.map(() => '?').join(', ');
 
     const insertStmt = this.db.prepare(`
