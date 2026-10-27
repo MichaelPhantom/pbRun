@@ -155,7 +155,8 @@ class DatabaseManager {
       // 区间数据（FIT time_in_zone 消息，JSON 数组）
       ['hr_zone_boundaries', 'TEXT'],                // 心率区间上限边界（bpm）
       ['power_zone_boundaries', 'TEXT'],             // 功率区间上限边界（瓦）
-      ['time_in_power_zone', 'TEXT'],                // 各功率区间停留秒数（session 级）
+      ['time_in_power_zone', 'TEXT'],                // 各功率区间停留秒数（app 5 区 %FTP 口径，由逐秒功率推导）
+      ['device_time_in_power_zone', 'TEXT'],         // 设备原始功率区间秒数（绝对瓦数边界，16 套方案，跨活动不可比；仅供追溯）
       ['device_time_in_hr_zone', 'TEXT'],            // 设备原始心率区间秒数（边界方案随固件而变，跨活动不可比；仅供追溯）
       // 阈值元数据（FIT time_in_zone 消息，用于区间与强度分析）
       ['threshold_heart_rate', 'INTEGER'],           // 乳酸阈心率（bpm）

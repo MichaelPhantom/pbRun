@@ -132,7 +132,7 @@ pbRun 是跑步分析工具，但 Garmin 同步会把篮球/游泳/力量训练�
 `tests/unit/lib/llm.test.ts`（7 种类型的数据块断言 + 「不含『类型: 通用』」）+
 `tests/unit/pages/activity-detail.test.tsx`（徽标过滤退化值 + 保留「田径场」）。
 
-### 1.2 心率区间只有一个口径（`activities.time_in_hr_zone`）
+### 1.2 区间只有一个口径（心率 `time_in_hr_zone` / 功率 `time_in_power_zone`）
 
 `time_in_hr_zone` 存**本地 5 区模型**（`app/lib/hr-zones.ts`：Z1<70% / Z2<80% /
 Z3<87% / Z4<93% / Z5≥93% × `MAX_HR`）下各区间停留秒数，JSON 数组长度恒为 **5**，
@@ -166,6 +166,49 @@ Z1 19.5% / Z2 53.0% / Z3 16.1% / Z4 9.2% / Z5 2.2%（低 72.5% / 高 11.4%）。
 > 19.5% —— 差异来自「一段配速不均的 lap 只能落一个区间」vs「每秒各归其区」，
 > 两者都建立在同一套 `HR_ZONE_BOUNDS` 之上。不要把这两个数字「对齐」成同一个值，
 > 那会牺牲区间表的 lap 级明细。
+
+#### 功率区间同构修复（`activities.time_in_power_zone`）
+
+功率区间是**同一个缺陷族**，数值更隐蔽：`time_in_power_zone` 原先直接存 FIT
+`time_in_zone` 的原始数组，真实库只有 **33/348** 条有值（全部跑步），且数组是
+**绝对瓦数**上限 —— 实测 16 套方案随 FTP 变化（`[218,267,307,338,390,4000,…]` 与
+`[229,282,318,353,406,…]`），按索引跨活动相加得到的「Z3 秒数」没有物理含义。
+而 `activity_records.power` 的逐秒功率在 **241/241** 条跑步活动里全有。
+
+统一口径：`app/lib/power-zones.ts` 的 **5 区 %FTP 模型**（Z1<65% / Z2<80% /
+Z3<90% / Z4<100% / Z5≥100%），JSON 数组长度恒为 **5**，由逐秒功率推导，覆盖
+**241/241** 有功率的活动。写入侧 `fit-parser.js` 调
+`scripts/common/power-zones.js`（TS 的 CJS 镜像，parity 由
+`tests/unit/scripts/power-zones-parity.test.ts` 逐值守护）；历史数据用
+`npm run backfill:power-zones` 回填（顺序纪律同心率：**先 `ALTER` 再迁移再重算**，
+否则设备原始数组会被直接覆盖）。
+
+**为什么 5 区而不是 6 区**：归一后的设备方案是 `65/80/90/100/115 %FTP`，第 5 个上界
+即设备 Z6 的下界。设备 Z5（100–115%）与 Z6（>115%）都属于「阈值以上」，合并进 app
+Z5；这样与 `--z1..--z5` 五个配色 token 一一对应，不引入没有颜色的第 6 区。实测 33 条
+同时有设备数组的活动，按本口径推导的 5 区占比与设备数组（Z5+Z6 合并）**逐槽偏差
+<5 个百分点的有 32/33** —— 即推导不是另一套语义。
+
+**区间范围表与判定函数必须同源**：`powerZoneRanges` 的下界用 **`ceil`** 而非 `round`。
+FTP 371 的 65% 是 241.15，若 round 会得到 241W，而判定函数 `powerZoneOf(241, 371)`
+算出 64.96% < 65% 仍属 Z1 —— 范围表与判定函数就会自相矛盾。`ceil` 使两者恒等，
+测试逐边界瓦数反查。
+
+**读路径与写路径同源**：`powerZoneBreakdown` 首选从 `activity_records.power` 现场推导
+（原始输入最新），逐秒记录缺失时才回退到落库的 `time_in_power_zone` —— 两者是同一
+模型、同一长度，不会出现「库里的列」与「界面上的图」两个答案。这个回退是必要的：
+同步时已经算好的结果，不该因为旧库未迁移或记录被清理就让整块从页面上消失。
+设备原始数组保留在 `activities.device_time_in_power_zone`（33 条）仅供追溯，任何
+统计/展示都不读它 —— 与 `device_time_in_hr_zone` 同一纪律。
+
+推导可靠性：推导总秒数与 `moving_time` 的比值实测 min 0.86 / p50 1.00 / max 1.00；
+暂停空档按 `POWER_SAMPLE_MAX_GAP_SEC = 5s` 截断（实测样本间隔 p90 158s、最大 7847s）。
+真实库回填后全区间分布为 Z1 7.5% / Z2 32.0% / Z3 44.2% / Z4 13.4% / Z5 3.0%。
+
+**展示侧两条纪律**（与心率区间同构）：标题由**实际非零区间**派生
+（`powerZoneRangeLabelOfZones`，缺 Z1 的活动不写「Z1–Z5」）；FTP 必须同时可见 ——
+「Z3 44%」没有分母时读者无法换算成瓦数。AI 数据块同样带 FTP
+（`功率区间（FTP 371W）: …`），且非跑步按 `running` 二次把关整项吞掉。
 
 ---
 
@@ -347,7 +390,7 @@ FTP 缺失不猜 / 海拔比值 / 尖峰过滤）、`tests/unit/pages/activity-d
 （概览 IF·TSS·W/kg·瞬时峰值 / 尖峰不展示 / 净高差与累计爬升分开 / 最高步频 /
 渲染条件不依赖单一罕见字段 / 非跑步不展示）。
 
-#### 守卫升级：`Activity` 的 70 个字段也要机器审计
+#### 守卫升级：`Activity` 的 71 个字段也要机器审计
 
 `Activity` 是数据库原始行，比 `InsightResponse` 更容易藏「有值但从不展示」。守卫扩展
 到它时踩到三个真实的坑，都已写进测试注释：
@@ -362,13 +405,15 @@ FTP 缺失不猜 / 海拔比值 / 尖峰过滤）、`tests/unit/pages/activity-d
    沿 `@/app/...` import 做**传递闭包**能到达的文件；`types.ts` 必须排除（否则每个
    字段都自动「已消费」）。前两版守卫正是被这一点骗过（缺陷注入删掉 import 后仍全绿）。
 
-`ACTIVITY_FIELD_ALLOWLIST` 是显式技术债账本（20 条），每条写明理由，分四类：内部记账列
+`ACTIVITY_FIELD_ALLOWLIST` 是显式技术债账本，每条写明理由，分四类：内部记账列
 （`created_at` / `updated_at` / `start_tz_offset_min` / `elapsed_time` 恒等于 duration）、
 聚类索引列（`route_cells` / `route_bounds` / `route_km` / `start_lat` / `start_lng`）、
 语义陷阱（`max_heart_rate_fit` 是**设备配置值**不是本次峰值；`devices` 已脱敏）、
 真实库 0/348 从不产出（`average_step_rate_loss*` / `max_power_to_weight` /
 `avg_pos_grade` 等 4 项 / `time_in_speed_zone` / `time_in_cadence_zone`）、
-以及待归一后再展示（`time_in_power_zone`，见 §4 待办）。
+以及仅追溯用的设备原始区间数组（`device_time_in_hr_zone` / `device_time_in_power_zone`
+—— 统一口径列 `time_in_hr_zone` / `time_in_power_zone` 已分别被
+`hrZoneBreakdown` / `powerZoneBreakdown` 消费，见 §1.2）。
 
 ---
 
@@ -549,6 +594,8 @@ FTP 缺失不猜 / 海拔比值 / 尖峰过滤）、`tests/unit/pages/activity-d
 | **字段必须被消费（算出来 ≠ 展示）** | `InsightClient.tsx` / `insight-coach.ts` / `ActivityInsightPanel.tsx` / `llm.ts` | `tests/unit/components/insight-field-consumption.test.ts`（递归展开 `InsightResponse` / `ActivityInsightResponse` / `Activity` 全部叶子字段, 剥离注释后逐个断言被消费; 消费方 = 展示入口的 import 传递闭包, 死代码模块不算; allowlist 反查腐化） |
 | **可推算字段必须真的推算** | `app/lib/power.ts`（FTP 回退 / IF / TSS / W·kg⁻¹ / 峰值过滤）/ `app/lib/elevation.ts`（净高差 / 爬升比） | `tests/unit/lib/power.test.ts`（28 例: 33→241 FTP 回退、TSS 用 moving_time、尖峰过滤、显式值优先）+ `tests/unit/lib/elevation.test.ts`（12 例: 净高差 ≠ 累计爬升、越界拒绝） |
 | **IF/TSS 与 TL 是两套口径** | `llm.ts` 的 `powerNote` | `tests/unit/lib/llm-gateway.test.ts`（TSS 与 TL 并存时必须声明「两套口径」, 否则模型当矛盾） |
+| **功率区间只有一个口径** | `app/lib/power-zones.ts`（5 区 %FTP 判定 / 逐秒累加 / 区间范围 `ceil` 同源）+ `scripts/common/power-zones.js` CJS 镜像 + `ActivityInsightPanel` 的 `powerZoneTitle`（标题由实际非零区间派生） | `tests/unit/lib/power-zones.test.ts`（22 例: 边界瓦数逐瓦、暂停空档截断、乱序自排、无 FTP 返回全 0、范围表与判定函数逐边界一致、Z6 落到 Z5 配色）+ `tests/unit/scripts/power-zones-parity.test.ts`（5 例: 常量/逐瓦/样本/FTP 解析逐值比对）+ `tests/unit/components/insight-components.test.tsx`（标题派生、FTP 可见、空数组不渲染、非跑步吞掉）+ `tests/unit/lib/activity-insight.test.ts`（`powerZoneBreakdown` 由逐秒功率推导、设备显式 FTP 优先、无 FTP 不猜、非跑步为空） |
+| **区间回填必须先迁移再重算** | `scripts/garmin/backfill-power-zones.js`（`hasDeviceCol` 在 `ALTER TABLE` 之后重新赋值） | `tests/unit/scripts/backfill-power-zones.test.js`（10 例: 顺序缺陷注入转红、幂等不二次覆盖、损坏 JSON 不迁移、无 FTP/无功率不写库、dry-run 不写库、偏离 >10% 告警） |
 | **海拔净高差 ≠ 累计爬升** | `ActivityDetailClient` 概览「累计爬升」+「海拔净高差」分格 / `llm.ts` 的 `elevationLine` | `tests/unit/pages/activity-detail.test.tsx`（两个不同标签同时出现）+ `tests/unit/lib/llm-gateway.test.ts`（输出 `累计爬升 ÷ 净高差` 比值与「短坡反复 / 单向爬升」判定） |
 | **课表单位与步数完整性** | `scripts/garmin/fit-workout.js`（重扫原始字节 + 毫秒/mm-s 归一）/ `fit-parser._extractWorkout(fitData, rawBuffer)` / `app/lib/workout.ts`（读取端代际判别 + 加权区间） | `tests/unit/scripts/fit-workout.test.js`（多步重扫、单位换算、占位步过滤）+ `tests/unit/garmin/fit-parser-branches.test.js`（调用点确实传 buffer 的完整 `parseFitFile` 链路）+ `tests/unit/lib/workout.test.ts`（旧/新格式、加权区间、三态判定）+ `tests/unit/lib/llm.test.ts` + `tests/unit/pages/activity-detail.test.tsx` |
 | **AI 可比样本块按运动口径收敛** | `activity-coach-context.ts` 的 `performanceLines`（按 `insight.running` 二次把关） | `tests/unit/lib/activity-coach-context.test.ts`（非跑步不出现配速/等价平路行，口径说明改非跑步语义） |
@@ -613,23 +660,22 @@ FTP 缺失不猜 / 海拔比值 / 尖峰过滤）、`tests/unit/pages/activity-d
 - **MCP 不提供 AI 工具**：MCP 只暴露结构化数据，AI 对话在 Web 端完成；若要让 AI 客户端
   直接调用教练，需要新增 tool 并把 LLM 凭证放在服务端，会改变当前「MCP 只读数据」的安全边界。
 
-### 4.3 功率区间（`time_in_power_zone`）待归一
+### 4.3 功率区间的剩余边界
 
-`time_in_power_zone` 真实库 **33/348** 有值（全部跑步），8 槽设备原始数组。它**尚未
-展示**，原因是必须先把边界归一成 %FTP，而不是按索引直接读：
+口径本身已在 §1.2 解决（`time_in_power_zone` = app 5 区 %FTP、由逐秒功率推导、
+241/241 覆盖）。仍存在的边界：
 
-- 设备数组的**绝对值随 FTP 变化**（实测 16 套不同瓦数方案，如
-  `[218,267,307,338,390,4000,null,null]` 与 `[229,282,318,353,406,...]`），按索引
-  跨活动相加得到的「Z3 秒数」没有物理含义 —— 与心率区间当年的 19 套边界是**同一个
-  陷阱**（见 §1.2）；
-- 但归一之后**只有一套方案**：241 条活动的 `boundaries[i] / FTP` 恒为
-  `64–65 / 79–80 / 90–91 / 100 / 115`（Garmin 默认 65/80/90/100/115 %FTP）。
-  故归一本身是可行的，只是还没接；
-- 逐秒功率**241/241 全有**（`activity_records.power`），可像心率那样从原始秒数据
-  推导统一口径的 5 区（实测推导总秒数与 `moving_time` 偏差 ≤10% 的占 **235/241**），
-  从而摆脱 33/348 的覆盖率限制。这是下一步的实现路径。
-
-在此之前不得在 UI/AI 里按索引展示或聚合该数组。
+- **只有 5 区，没有第 6 区**。设备方案是 `65/80/90/100/115 %FTP`（Z6 = >115%），
+  app 把设备 Z5+Z6 合并进 Z5，因为 UI 只有 `--z1..--z5` 五个配色 token。若将来要
+  区分「阈值以上」与「无氧冲刺」，需要同时新增配色 token、改 5 处区间表与 AI 数据块，
+  是一次跨层改动，不在单点修补范围内。
+- **设备原始数组只做追溯**。`device_time_in_power_zone`（33 条）保留在库里但不被任何
+  统计/展示读取 —— 它是「设备当时怎么算的」的取证材料，不是指标。
+- **分段级（lap）功率区间为空**。`activity_laps.time_in_power_zone` 真实库
+  **0/3082 全为 NULL**（`time_in_hr_zone` 同样全 NULL），故功率区间只能到活动级；
+  要做分段级需要从逐秒记录按 lap 时间窗切分，属新增能力。
+- **非跑步活动不产出**。逐秒功率在 107 条非跑步活动里 0/107 —— 不是缺陷，而是设备
+  不记录；UI 与 AI 都按 `running` 门控整项不渲染，而不是给出「全是 Z1」的假分布。
 
 ### 4.4 文档与工程
 

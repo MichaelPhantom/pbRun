@@ -241,6 +241,11 @@ export interface RecordSample {
   distance: number | null; // km（逐秒记录原单位）
   altitude?: number | null; // m
   temperature?: number | null; // °C
+  /**
+   * 逐秒功率（瓦）。**仅**用于推导功率区间占比（`powerZoneBreakdown`）。
+   * 真实库 241/241 条跑步活动有值、0/107 非跑步 —— 缺失时不产出区间。
+   */
+  power?: number | null;
 }
 
 export interface DecouplingInput {

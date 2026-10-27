@@ -34,6 +34,7 @@
     "backfill:temp": "node scripts/garmin/backfill-record-temperature.js",
     "backfill:routes": "node scripts/garmin/backfill-route-signatures.js",
     "backfill:hr-zones": "node scripts/garmin/backfill-hr-zones.js",
+    "backfill:power-zones": "node scripts/garmin/backfill-power-zones.js",
     "backfill:workout": "node scripts/garmin/backfill-workout.js"
   },
   "dependencies": {

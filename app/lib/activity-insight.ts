@@ -3,6 +3,8 @@
  */
 
 import { computeDecouplingPct, decouplingTone, mean, type RecordSample } from './insight';
+import { powerZoneSecondsFromSamples } from './power-zones';
+import { resolveFtp } from './power';
 import { classifyActivity } from './insight-compare';
 import type {
   ActivityComparison,
@@ -231,6 +233,79 @@ export function computeComparison(
   };
 }
 
+/**
+ * 把「各区间秒数」转成占比数组（只保留非零区间）。
+ *
+ * 心率与功率共用同一形状 —— 两者都是「5 元素秒数 → 非零区间占比」，
+ * 只是来源不同（心率取库列、功率从逐秒记录推导）。共用避免两份取整逻辑漂移。
+ */
+function zoneBreakdownFromSeconds(
+  seconds: readonly number[],
+): { zone: number; seconds: number; pct: number }[] {
+  const total = seconds.reduce<number>((a, b) => a + (Number.isFinite(b) && b > 0 ? b : 0), 0);
+  return seconds
+    .map((sec, i) => ({
+      zone: i + 1,
+      seconds: Number.isFinite(sec) && sec > 0 ? sec : 0,
+      pct: total > 0 && Number.isFinite(sec) && sec > 0 ? (sec / total) * 100 : 0,
+    }))
+    .filter((z) => z.seconds > 0);
+}
+
+/**
+ * 功率区间占比（**app 5 区 %FTP 口径**）。
+ *
+ * 两条来源，**优先级明确**：
+ *
+ *  1. **逐秒功率推导**（首选）。`activity_records.power` 是原始输入，
+ *     真实库 241/241 条跑步活动全有；推导链路与 UI 图表/AI 数据块共用同一份
+ *     `powerZoneSecondsFromSamples`，不会出现「库里的列」与「界面上的图」两个答案。
+ *  2. **落库列 `activities.time_in_power_zone`**（回退）。逐秒记录可能因旧库未迁移
+ *     或记录清理而缺失，此时用同步时算好的同一口径结果，而不是让整块消失。
+ *
+ * 为什么不用设备的 `device_time_in_power_zone`：真实库只有 33/348 有值，且数组是
+ * **绝对瓦数**上限（16 套方案随 FTP 变化），按索引跨活动不可聚合 —— 与心率区间
+ * 当年的 19 套边界是同一个陷阱。
+ *
+ * FTP 由 `resolveFtp` 解析（设备显式优先、缺失回退 `power_zone_boundaries[3]`）；
+ * 解析不到时返回空数组 —— 没有阈值就没有区间可言，不猜。
+ */
+export function powerZoneBreakdown(
+  records: readonly RecordSample[],
+  activity: Parameters<typeof resolveFtp>[0],
+  storedZoneJson?: string | null,
+): { zones: { zone: number; seconds: number; pct: number }[]; ftpWatts: number | null } {
+  const ftp = resolveFtp(activity);
+  const derived = powerZoneSecondsFromSamples(
+    (records ?? []).map((r) => ({ elapsedSec: Number(r.elapsed_sec), power: r.power ?? null })),
+    ftp?.watts ?? 0,
+  );
+  if (derived.some((v) => v > 0)) {
+    return { zones: zoneBreakdownFromSeconds(derived), ftpWatts: ftp?.watts ?? null };
+  }
+  // 回退到落库列：同一口径、同一长度（5），只是省去了重算。FTP 仍以 `resolveFtp`
+  // 为准（落库列不含分母），解析不到时不给 FTP —— 否则「Z3 44%」会被换算错。
+  const stored = parseZoneSeconds(storedZoneJson);
+  if (stored.some((v) => v > 0)) {
+    return { zones: zoneBreakdownFromSeconds(stored), ftpWatts: ftp?.watts ?? null };
+  }
+  // 一条区间数据都没有，但 FTP 本身可能仍可解析 —— 照实给出分母，
+  // 由调用方按「无区间数据」决定是否渲染（而不是在这里把 FTP 一起抹掉）。
+  return { zones: [], ftpWatts: ftp?.watts ?? null };
+}
+
+/** 解析落库的区间秒数 JSON（非法/非数组返回空数组，不抛）。 */
+function parseZoneSeconds(rawJson: string | null | undefined): number[] {
+  if (!rawJson) return [];
+  try {
+    const arr = JSON.parse(rawJson) as unknown;
+    if (!Array.isArray(arr)) return [];
+    return arr.map((v) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0));
+  } catch {
+    return [];
+  }
+}
+
 /** 由活动的 time_in_hr_zone JSON 生成区间占比。 */
 export function hrZoneBreakdown(rawJson: string | null | undefined): ActivityInsightResponse['hrZoneBreakdown'] {
   if (!rawJson) return [];
@@ -268,6 +343,16 @@ export function buildActivityInsight(params: {
    * 对泳池/球类/力量训练没有可比语义（见 `analyzeLaps` 头注释）。
    */
   running?: boolean;
+  /**
+   * 功率区间所需的 FTP 来源（`functional_threshold_power` / `power_zone_boundaries`）。
+   * 缺省时按「无 FTP」处理，`powerZoneBreakdown` 为空数组。
+   */
+  activity?: Parameters<typeof resolveFtp>[0];
+  /**
+   * 落库的 `activities.time_in_power_zone`（本地 5 区 %FTP，由同步时逐秒推导）。
+   * 逐秒记录缺失时作为回退来源 —— 否则「同步算好了、页面却空着」。
+   */
+  powerZoneJson?: string | null;
 }): ActivityInsightResponse {
   const running = params.running !== false;
   const lapInputs: LapInput[] = params.laps
@@ -292,6 +377,18 @@ export function buildActivityInsight(params: {
     locationComparison: params.locationComparison ?? null,
     decouplingPct: dc,
     hrZoneBreakdown: hrZoneBreakdown(params.hrZoneJson),
+    // 功率区间: 非跑步活动逐秒功率 0/107, 且配速/功率语义不同 —— 整项为空数组
+    // 而不是给出一个「全是 Z1」的假分布（那会被读成「本次几乎没用力」）。
+    ...(running
+      ? (() => {
+          const pz = powerZoneBreakdown(
+            params.records,
+            params.activity ?? {},
+            params.powerZoneJson,
+          );
+          return { powerZoneBreakdown: pz.zones, ftpWatts: pz.ftpWatts };
+        })()
+      : { powerZoneBreakdown: [], ftpWatts: null }),
     environment: params.environment ?? null,
     // 非跑步不输出等价平路配速: 输入是「每公里游泳时间」，Minetti 模型只对
     // 跑步步态的能量成本成立，套在泳池/球类上会产出看似精确的伪数值。

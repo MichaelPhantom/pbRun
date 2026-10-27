@@ -110,7 +110,9 @@ GET /api/activities
 | `hr_zone_boundaries` | string \| null | **设备**心率区间上限边界 (JSON 数组，边界方案随固件而变，仅追溯用) | bpm |
 | `time_in_hr_zone` | string \| null | 心率区间秒数 (JSON 数组，长度恒为 5，本地 5 区口径，覆盖全部活动) | 秒 |
 | `device_time_in_hr_zone` | string \| null | **设备原始**心率区间秒数 (JSON 数组，跨活动不可聚合，仅追溯用) | 秒 |
-| `power_zone_boundaries` | string \| null | 功率区间上限边界 (JSON 数组) | 瓦 |
+| `power_zone_boundaries` | string \| null | **设备**功率区间上限边界 (JSON 数组；`[3]` 恒等于 FTP，是 FTP 覆盖率 33→241 的回退依据) | 瓦 |
+| `time_in_power_zone` | string \| null | 功率区间秒数 (JSON 数组，长度恒为 5，本地 5 区 **%FTP** 口径，由逐秒功率推导，真实库 241/241) | 秒 |
+| `device_time_in_power_zone` | string \| null | **设备原始**功率区间秒数 (JSON 数组，绝对瓦数边界随 FTP 变化，跨活动不可聚合，仅追溯用) | 秒 |
 | `devices` | string \| null | 设备列表 (JSON 数组) | - |
 | `user_weight` | number \| null | 体重 | kg |
 | `user_height` | number \| null | 身高 | m |
@@ -246,8 +248,11 @@ GET /api/activities/{id}
   旧库（回填前）的 `duration_sec` 仍是毫秒、没有 `target_pace_sec_per_km` ——
   读取端请走 `app/lib/workout.ts`（`parseWorkoutSteps` / `workoutTargetRange`），
   它按「是否有 `duration_type_label`」判别代际并自行换算。
-- `time_in_hr_zone` 是**唯一可用于统计**的区间数组（5 元素，见 §9「区间时长的唯一口径」）；
+- `time_in_hr_zone` 是**唯一可用于统计**的心率区间数组（5 元素，见 §9「区间时长的唯一口径」）；
   `device_time_in_hr_zone` 是设备原始数组，**不要跨活动相加**。
+- `time_in_power_zone` 同理是**唯一可用于统计**的功率区间数组（5 元素，本地 %FTP 口径，
+  由逐秒功率推导，真实库 241/241 覆盖）；`device_time_in_power_zone` 是设备原始数组
+  （绝对瓦数边界，实测 16 套方案随 FTP 变化），**不要跨活动相加**。
 - `track`（约 40KB 的降采样多段线）**不在此接口返回**，见下文说明。
 - 不存在的活动返回 404，`id` 非法返回 400。
 
@@ -552,7 +557,7 @@ GET /api/analysis/hr-zones?startDate=2026-09-01&endDate=2026-10-31&groupBy=month
 | Zone 4 | 87–93% | 无氧耐力，间歇跑 |
 | Zone 5 | > 93% | 最大摄氧量，冲刺 |
 
-### 区间时长的唯一口径（`activities.time_in_hr_zone`）
+### 区间时长的唯一口径（`activities.time_in_hr_zone` / `time_in_power_zone`）
 
 `time_in_hr_zone` 存的是**上述 5 区模型**下各区间停留秒数（JSON 数组，长度恒为 5），
 由 `activity_records` 的**逐秒心率**推导，覆盖全部活动（真实库 348/348）。
@@ -568,6 +573,20 @@ GET /api/analysis/hr-zones?startDate=2026-09-01&endDate=2026-10-31&groupBy=month
 > 107/107（非跑步）；暂停空档按 `HR_SAMPLE_MAX_GAP_SEC = 5s` 截断，避免暂停时间
 > 被算进最后一个区间。历史活动用 `npm run backfill:hr-zones` 回填（幂等，只重算
 > `time_in_hr_zone`，并把旧设备数组迁入 `device_time_in_hr_zone`）。
+
+**功率区间是同一个缺陷族的同构修复**。`time_in_power_zone` 同样存**本地 5 区
+%FTP 模型**（`app/lib/power-zones.ts`：Z1<65% / Z2<80% / Z3<90% / Z4<100% /
+Z5≥100%），JSON 数组长度恒为 5，由 `activity_records` 的**逐秒功率**推导，
+覆盖 **241/241** 条有功率的活动（全部跑步；107 条非跑步逐秒功率 0/107）。
+
+> 设备原始数组只有 **33/348** 有值，且是**绝对瓦数**上限 —— 实测 **16 套**方案随 FTP
+> 变化（`[218,267,307,338,390,4000,…]` 与 `[229,282,318,353,406,…]`），按索引相加的
+> 「Z3 秒数」没有物理含义。归一成 %FTP 后 **241/241 只有一套**：65/80/90/100/115，
+> 第 4 个上界即 100% = FTP。app 的 5 区取前 4 个边界，**把设备 Z5(100–115%) 与
+> Z6(>115%) 合并进 Z5**（UI 只有 `--z1..--z5` 五个配色 token）；实测 33 条有设备数组的
+> 活动里 **32/33** 逐槽偏差 <5 个百分点。设备原始数组保留在
+> `device_time_in_power_zone` 仅供追溯。历史活动用 `npm run backfill:power-zones`
+> 回填（幂等，先 `ALTER` 再迁移再重算，避免设备数组被覆盖）。
 
 ---
 
@@ -754,7 +773,9 @@ GET /api/activities/{id}/insight
 | `lapAnalysis` | 分段角色（`warmup`/`work`/`recovery`/`cooldown`/`steady`）、主课段数/距离/均配速/心率漂移、最快段。跑步按**配速**识别强度段，非跑步改按**相对心率**（游泳 lap 常无 `average_pace`，用配速会让所有段落进 `steady`、永远识别不出主课） |
 | `comparison` | 同路线（或同距离）对比：`basis`、`peers`、`rank` 配速排名、`paceDeltaSecPerKm`、`hrDeltaBpm` |
 | `decouplingPct` | 逐秒有氧解耦（%） |
-| `hrZoneBreakdown` | 心率区间占比 `{zone, seconds, pct}[]` |
+| `hrZoneBreakdown` | 心率区间占比 `{zone, seconds, pct}[]`（本地 5 区 × `MAX_HR`，由逐秒心率推导） |
+| `powerZoneBreakdown` | 功率区间占比 `{zone, seconds, pct}[]`（本地 5 区 **%FTP**：Z1<65% / Z2<80% / Z3<90% / Z4<100% / Z5≥100%，由逐秒功率推导，覆盖 241/241 条有功率的活动）。只含非零区间；非跑步恒为 `[]` |
+| `ftpWatts` | 功率区间的分母（瓦）。设备显式 `functional_threshold_power` 优先，缺失回退 `power_zone_boundaries[3]`；都取不到时为 `null`（此时 `powerZoneBreakdown` 为空，**不猜默认 FTP**） |
 | `environment` | 环境可比性：本次/样本均温、爬升、同温档排名与配速/心率差（无数据时为 `null`） |
 | `locationComparison` | 跨名称同位置对比：GPS 首点 ≤1.5km + 距离分档 + 轨迹形状校验；无 GPS/未迁移时为 `null` |
 | `locationComparison.routeQuality` | 同路径几何质量：`verifiedPeers`（**有轨迹、真正参与校验**的同伴数，无轨迹的候选不计入）、`roadKm`（路面偏差中位数）、`maxRoadKm`（最差同伴）、`gridJaccard`（网格重合中位数）。未做形状校验时**显式返回 `null`**（不是缺键），客户端可直接按 `null` 分支渲染 |

@@ -83,6 +83,19 @@ test.describe('活动详情页', () => {
     await expect(page.getByText('188 spm')).toBeVisible();
   });
 
+  test('应显示功率区间占比 (本地 5 区 %FTP 口径, 由逐秒功率推导)', async ({ page }) => {
+    await page.goto('/pbrun/pages/900000001');
+    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(1200);
+    // 夹具逐秒功率在五个区间里循环 (200/270/320/350/400W, FTP 371) → 每区 20%。
+    // 设备 time_in_power_zone 只有 33/348 有值且是绝对瓦数边界, 故本区块只能来自
+    // 逐秒功率推导 —— 若推导链路断开, 这里会整块消失。
+    await expect(page.getByText('功率区间占比（Z1–Z5）')).toBeVisible();
+    // FTP 是分母, 不显示的话「Z3 20%」无法换算成瓦数
+    await expect(page.getByText('FTP 371W')).toBeVisible();
+    await expect(page.getByRole('img', { name: '功率区间占比（Z1–Z5）柱状图' })).toBeVisible();
+  });
+
   test('应显示 AI 教练分析区', async ({ page }) => {
     await page.goto('/pbrun/pages/900000001');
     await page.waitForLoadState('networkidle');

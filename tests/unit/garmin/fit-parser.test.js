@@ -146,15 +146,18 @@ describe('fit-parser: _extractZoneBoundaries（区间边界 + 停留时间 + 阈
     expect(JSON.parse(out.power_zone_boundaries)).toEqual([221, 272, 311, 343, 395, 4000, null, null]);
   });
 
-  test('设备原始区间时长存 device_time_in_hr_zone (不再直接当 time_in_hr_zone)', () => {
+  test('设备原始区间时长存 device_* 列 (不再直接当统一口径列)', () => {
     const out = p._extractZoneBoundaries({ time_in_zone: [sessionZone] });
-    // 关键: 设备数组的边界方案随固件/用户设置变化（实测 19 套），
+    // 关键: 设备数组的边界方案随固件/用户设置变化（心率实测 19 套、功率 16 套），
     // 索引含义跨活动不可比，故只能作为追溯数据留档。
     expect(out.time_in_hr_zone).toBeUndefined();
     expect(out.device_time_in_hr_zone).toBeDefined();
     // 浮点噪声收敛到 1 位小数
     expect(JSON.parse(out.device_time_in_hr_zone)).toEqual([0, 18.3, 431.5, 1043.2, 348.9, 795.9, 0]);
-    expect(JSON.parse(out.time_in_power_zone)).toEqual([656.1, 552, 273, 612.8, 544, 0, 0, 0]);
+    // 功率同理: 设备数组是**绝对瓦数**边界（随 FTP 变化, 实测 16 套），
+    // 统一口径列由逐秒功率推导（见 parseFitFile 的 powerZoneSecondsFromRecords）。
+    expect(out.time_in_power_zone).toBeUndefined();
+    expect(JSON.parse(out.device_time_in_power_zone)).toEqual([656.1, 552, 273, 612.8, 544, 0, 0, 0]);
   });
 
   test('补齐阈值元数据（此前被丢弃）', () => {

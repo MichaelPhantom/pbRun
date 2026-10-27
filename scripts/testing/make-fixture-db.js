@@ -244,7 +244,12 @@ function makeFixtureDb(outPath = process.argv[2] || DEFAULT_OUT_PATH) {
     }),
   );
 
-  // 少量逐秒记录 (供 record 趋势图 / 解耦)
+  // 少量逐秒记录 (供 record 趋势图 / 解耦 / 功率区间)
+  //
+  // 功率必须**跨区间变化**: 若 200 个点全写同一个瓦数, 功率区间图只会有一根
+  // 柱子, 「标题由实际非零区间派生」「五区色 token」这些缺陷在 e2e 里测不到。
+  // FTP = 371（来自 power_zone_boundaries[3]）→ 五区边界 241/297/334/371W。
+  const POWER_BY_ZONE = [200, 270, 320, 350, 400]; // Z1 / Z2 / Z3 / Z4 / Z5
   const records = [];
   for (let i = 0; i < 200; i++) {
     records.push({
@@ -255,7 +260,7 @@ function makeFixtureDb(outPath = process.argv[2] || DEFAULT_OUT_PATH) {
       cadence: 182,
       step_length: 0.95,
       pace: 350,
-      power: 270,
+      power: POWER_BY_ZONE[i % POWER_BY_ZONE.length],
       altitude: 300,
       speed: 2.85,
       distance: i * 2.85,

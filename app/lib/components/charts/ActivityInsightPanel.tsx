@@ -6,6 +6,13 @@ import { Badge } from '@/app/components/ui/Badge';
 import { DataTable } from '@/app/components/ui/DataTable';
 import { InsightBarChart } from './InsightBarChart';
 import { CATEGORY_LABELS } from '@/app/lib/insight-compare';
+import {
+  POWER_ZONE_NAMES,
+  powerZoneBoundsLabel,
+  powerZoneColor,
+  powerZoneRangeLabel,
+  powerZoneRangeLabelOfZones,
+} from '@/app/lib/power-zones';
 import type { ActivityComparison, ActivityInsightResponse, TrainingCategory } from '@/app/lib/types';
 
 export const ROLE_LABEL: Record<string, string> = {
@@ -157,7 +164,17 @@ function ComparisonBlock({
 export function ActivityInsightPanel({ data }: { data: ActivityInsightResponse | null }) {
   if (!data) return null;
 
-  const { lapAnalysis, comparison, locationComparison, decouplingPct, hrZoneBreakdown, environment, running } = data;
+  const {
+    lapAnalysis,
+    comparison,
+    locationComparison,
+    decouplingPct,
+    hrZoneBreakdown,
+    powerZoneBreakdown,
+    ftpWatts,
+    environment,
+    running,
+  } = data;
   const isRunning = running !== false;
   const showLocation = !!locationComparison && locationComparison.peers.length > 0;
   const showPrimary = !!comparison && comparison.peers.length > 0 && !(showLocation && samePeerSet(locationComparison, comparison));
@@ -167,6 +184,29 @@ export function ActivityInsightPanel({ data }: { data: ActivityInsightResponse |
     value: Math.round(z.pct * 10) / 10,
     color: `var(--z${Math.min(Math.max(z.zone, 1), 5)})`,
   }));
+
+  // 功率区间: 由逐秒功率按 app 5 区 %FTP 模型推导（不是设备原始数组）。
+  // 标题与色 token 都由**实际非零区间**派生 —— 与心率区间同一纪律,
+  // 不许写死「Z1–Z5」（缺 Z1 的活动会让标题承诺一个画不出来的柱子）。
+  const powerZoneBars = (powerZoneBreakdown ?? []).map((z) => ({
+    label: `Z${z.zone}`,
+    value: Math.round(z.pct * 10) / 10,
+    color: powerZoneColor(z.zone),
+  }));
+  const powerZones = (powerZoneBreakdown ?? []).filter((z) => z.seconds > 0).map((z) => z.zone);
+  const powerZoneTitle =
+    powerZones.length > 0 ? `功率区间占比（${powerZoneRangeLabelOfZones(powerZones)}）` : '功率区间占比';
+  // 每个**实际出现**的区间对应的瓦数范围 —— 「Z3 44%」没有瓦数就无法落到训练安排上。
+  // 只列实际非零区间（与标题同一纪律）, 并用 `POWER_ZONE_NAMES` 的语义名,
+  // 否则读者只知道 Z3 不知道它是「节奏」。
+  const powerZoneLegend =
+    ftpWatts != null
+      ? powerZones.map(
+          (zone) =>
+            `Z${zone}${POWER_ZONE_NAMES[zone]?.replace(/^Z\d/, '') ?? ''} ` +
+            `${powerZoneRangeLabel(zone, ftpWatts)}`,
+        )
+      : [];
 
   const decouplingTone =
     decouplingPct == null
@@ -253,6 +293,38 @@ export function ActivityInsightPanel({ data }: { data: ActivityInsightResponse |
           )}
         </div>
       </div>
+
+      {/* 功率区间占比。只有跑步 + 有逐秒功率 + 能解析 FTP 才渲染:
+          真实库逐秒功率 241/241 跑步有值、0/107 非跑步, 非跑步渲染出来
+          只会是空图。FTP 缺失时不渲染「全是 Z1」的假分布 —— 那会被读成
+          「本次几乎没用力」。 */}
+      {isRunning && powerZoneBars.length > 0 && (
+        <div className="mt-4 border-t border-border pt-3">
+          <div className="mb-2 flex flex-wrap items-baseline gap-2">
+            <p className="text-xs font-medium text-fg-secondary">{powerZoneTitle}</p>
+            {ftpWatts != null && (
+              // FTP 是区间的分母, 不显示的话用户无法判断「Z3 占比 44%」意味着多少瓦。
+              // 真实库 FTP 只有 33/348 是设备显式值, 其余由 power_zone_boundaries[3]
+              // 回退 —— 故文案只写「FTP」而不声称「设备阈值」。
+              <span className="text-[11px] text-fg-muted">FTP {ftpWatts}W</span>
+            )}
+          </div>
+          <InsightBarChart
+            data={powerZoneBars}
+            valueSuffix="%"
+            ariaLabel={`${powerZoneTitle}柱状图`}
+            height={170}
+          />
+          {powerZoneLegend.length > 0 && (
+            <p className="mt-2 text-[11px] leading-relaxed text-fg-muted">
+              {powerZoneLegend.join(' · ')}
+            </p>
+          )}
+          <p className="mt-1 text-[11px] leading-relaxed text-fg-muted">
+            按 FTP 百分比五区（{powerZoneBoundsLabel()}），由逐秒功率推导，可按索引跨活动比较。
+          </p>
+        </div>
+      )}
 
       {/* 环境可比性: 温度 / 爬升 / 同温档 (让用户看到 AI 使用的可比样本) */}
       {environment &&

@@ -60,7 +60,7 @@ const ACTIVITY_ALLOWLIST: Record<string, string> = {
 };
 
 /**
- * `Activity` 的 allowlist —— 活动表 70 个字段里**确实不该被 UI/AI 展示**的那些。
+ * `Activity` 的 allowlist —— 活动表 71 个字段里**确实不该被 UI/AI 展示**的那些。
  *
  * 与前两张表不同，`Activity` 是数据库原始行，里面混着三类非展示字段：
  *  1. 内部记账列（时间戳/时区偏移）；
@@ -108,10 +108,12 @@ const ACTIVITY_FIELD_ALLOWLIST: Record<string, string> = {
   max_neg_grade: '真实库 0/348, 设备从不写入',
   time_in_speed_zone: '真实库 0/348, 设备从不写入',
   time_in_cadence_zone: '真实库 0/348, 设备从不写入',
-  // 功率区间**不能按索引跨活动聚合**: 17 套边界方案（实测 241 条里 16 种不同
-  // 百分比方案, 且都落在 %FTP 上）, 与 HR 区间的 19 套是同一个陷阱。
-  // 单条活动展示需先把边界归一成 %FTP, 尚未接入（下一步）。
-  time_in_power_zone: '设备原始功率区间秒数, 边界方案随固件而变(17 套), 需归一后才能展示',
+  // 功率区间: 已由逐秒功率按 app 5 区 %FTP 模型统一到 `time_in_power_zone`
+  // （241/241 覆盖, 长度恒为 5, 可按索引跨活动聚合）。设备原始数组另存
+  // `device_time_in_power_zone`（绝对瓦数边界, 16 套方案）—— 与
+  // `device_time_in_hr_zone` 同一纪律: 仅供追溯, 不进 UI/AI。
+  device_time_in_power_zone: '设备原始功率区间秒数(绝对瓦数边界随 FTP 而变, 16 套方案), 仅供追溯',
+  device_time_in_hr_zone: '设备原始心率区间秒数(边界方案随固件而变, 19 套方案), 仅供追溯',
 };
 
 /** 从 `types.ts` 里解析出 interface 名 → 字段名 + 引用的 interface 名。 */
@@ -255,7 +257,7 @@ describe('ActivityInsightResponse 的每个字段都必须被消费', () => {
 });
 
 /**
- * `Activity` 是数据库原始行（70 个字段），比 `InsightResponse` 更容易藏
+ * `Activity` 是数据库原始行（71 个字段），比 `InsightResponse` 更容易藏
  * 「有值但从不展示」。2026-10-27 一次审计就找出 8 个：
  *
  * | 字段 | 真实库 | 缺陷性质 |
@@ -364,9 +366,13 @@ describe('Activity 的每个字段都必须被消费或显式记账', () => {
   const leaves = collectLeaves(interfaces, 'Activity');
 
   test('解析器确实覆盖到 Activity 的全部字段 (防假绿)', () => {
-    // 70 个字段（2026-10-27 补齐 power_zone_boundaries / threshold_heart_rate /
-    // max_heart_rate_fit / functional_threshold_power 后）。
-    expect(leaves.size).toBeGreaterThanOrEqual(70);
+    // **精确** 71 个字段（2026-10-27 补齐 power_zone_boundaries /
+    // threshold_heart_rate / max_heart_rate_fit / functional_threshold_power /
+    // device_time_in_power_zone 后）。用等号而不是 >=: 新增一列就必须在这里显式
+    // 确认「它要么被消费、要么进 allowlist 并写明理由」, 否则守卫会随着
+    // types.ts 的扩张而悄悄放宽（>= 的旧写法正是这样埋下假绿的）。
+    // 同步修改: docs/features.md §1.5「守卫升级」标题里的字段数。
+    expect(leaves.size).toBe(71);
     // 抽查四个不同区块：基础/跑姿/功率/区间
     expect(leaves.has('activity_id')).toBe(true);
     expect(leaves.has('average_vertical_ratio')).toBe(true);

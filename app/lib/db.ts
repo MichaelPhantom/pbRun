@@ -1217,14 +1217,20 @@ export function getActivityRecordSamples(activityId: number): {
   distance: number | null;
   altitude: number | null;
   temperature: number | null;
+  power: number | null;
 }[] {
   const db = getDatabase();
   const hasAltitude = hasRecordColumn('altitude');
   const hasTemperature = hasRecordColumn('temperature');
+  // 逐秒功率: 功率区间 (`powerZoneBreakdown`) 的唯一推导来源。真实库
+  // `activity_records.power` 在 241/241 条跑步活动里全有, 而设备
+  // `time_in_power_zone` 只有 33/348 —— 不读这一列就只能依赖设备数组。
+  const hasPower = hasRecordColumn('power');
   const altitudeExpr = hasAltitude ? 'altitude' : 'NULL AS altitude';
   const temperatureExpr = hasTemperature ? 'temperature' : 'NULL AS temperature';
+  const powerExpr = hasPower ? 'power' : 'NULL AS power';
   const rows = db.prepare(
-    `SELECT elapsed_sec, heart_rate, speed, distance, ${altitudeExpr}, ${temperatureExpr}
+    `SELECT elapsed_sec, heart_rate, speed, distance, ${altitudeExpr}, ${temperatureExpr}, ${powerExpr}
      FROM activity_records
      WHERE activity_id = ?
      ORDER BY record_index`
@@ -1235,6 +1241,7 @@ export function getActivityRecordSamples(activityId: number): {
     distance: number | null;
     altitude: number | null;
     temperature: number | null;
+    power: number | null;
   }[];
   return rows;
 }

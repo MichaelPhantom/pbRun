@@ -6,6 +6,7 @@ const FitParser = require('fit-file-parser').default;
 const fs = require('fs').promises;
 const { deriveRouteSignature } = require('../common/route-signature');
 const { hrZoneSecondsFromRecords, resolveMaxHr } = require('../common/hr-zones');
+const { powerZoneSecondsFromRecords, resolveFtp } = require('../common/power-zones');
 const {
   normalizeWorkoutStep,
   normalizeWorkoutSteps,
@@ -218,6 +219,26 @@ class GarminFITParser {
         activityData.time_in_hr_zone = JSON.stringify(zoneSecs);
       }
 
+      // 功率区间时长: **同样由逐秒功率按 app 5 区 %FTP 模型推导**。
+      //
+      // 设备原始 `time_in_power_zone` 只有 33/348 条活动有值, 且数组是**绝对瓦数**
+      // 上限 (实测 16 套方案随 FTP 变化: [218,267,307,338,390,…] vs
+      // [229,282,318,353,406,…]) —— 按索引跨活动聚合得到的「Z3 秒数」没有物理含义,
+      // 与心率区间当年的 19 套边界是同一个陷阱。
+      //
+      // 归一成 %FTP 后 241/241 只有一套方案 65/80/90/100/115, 故可从逐秒功率
+      // 推导出统一口径的 5 区 (设备 Z5 100–115% 与 Z6 >115% 合并进 app Z5)。
+      // 实测 33 条同时有设备数组的活动: 逐槽偏差 <5 个百分点的有 32/33。
+      //
+      // 设备原始数组保留在 `device_time_in_power_zone`, 仅供追溯。
+      const ftp = resolveFtp(activityData);
+      if (ftp) {
+        const powerSecs = powerZoneSecondsFromRecords(recordsData, ftp.watts);
+        if (powerSecs.some((v) => v > 0)) {
+          activityData.time_in_power_zone = JSON.stringify(powerSecs);
+        }
+      }
+
       // 路线轨迹 (JSON 字符串; 无 GPS 为 null, 室内/跑步机自动跳过)
       activityData.track = trackData ? JSON.stringify(trackData) : null;
       // 首点坐标落列 (索引化), 供「同起点」对比快速查询; 无 GPS 为 null。
@@ -409,7 +430,9 @@ class GarminFITParser {
     if (sessionHrZone) activityData.device_time_in_hr_zone = sessionHrZone;
     activityData.time_in_speed_zone = this._safeGetZoneJson(session, 'time_in_speed_zone');
     activityData.time_in_cadence_zone = this._safeGetZoneJson(session, 'time_in_cadence_zone');
-    activityData.time_in_power_zone = this._safeGetZoneJson(session, 'time_in_power_zone');
+    // 设备原始功率区间 → device_time_in_power_zone (统一口径列由逐秒功率推导)。
+    const sessionPowerZone = this._safeGetZoneJson(session, 'time_in_power_zone');
+    if (sessionPowerZone) activityData.device_time_in_power_zone = sessionPowerZone;
 
     // Other
     activityData.calories = this._safeGetInt(session, 'total_calories');
@@ -819,7 +842,7 @@ class GarminFITParser {
    *
    * 除区间边界外，这里还落库 session 级各区间停留时间与阈值元数据：
    *   - hr_zone_boundaries / power_zone_boundaries：区间上限边界
-   *   - device_time_in_hr_zone / time_in_power_zone：**设备原始**区间秒数（JSON 数组）
+   *   - device_time_in_hr_zone / device_time_in_power_zone：**设备原始**区间秒数（JSON 数组）
    *   - threshold_heart_rate / resting_heart_rate / max_heart_rate_fit
    *   - functional_threshold_power：FTP（瓦）
    *
@@ -856,8 +879,11 @@ class GarminFITParser {
     // 59/73/82/87/92% of maxHR），索引含义跨活动不可比，且只有 140/348 条有值。
     const deviceHrZoneTime = zoneSeconds(sessionZone.time_in_hr_zone);
     if (deviceHrZoneTime) result.device_time_in_hr_zone = deviceHrZoneTime;
+    // 设备原始功率区间时长 → device_time_in_power_zone。**不能直接当
+    // time_in_power_zone 用**: 实测 16 套不同绝对瓦数边界 (随 FTP 变化), 索引含义
+    // 跨活动不可比, 且只有 33/348 条有值。统一口径列由逐秒功率推导 (见 parseFitFile)。
     const powerZoneTime = zoneSeconds(sessionZone.time_in_power_zone);
-    if (powerZoneTime) result.time_in_power_zone = powerZoneTime;
+    if (powerZoneTime) result.device_time_in_power_zone = powerZoneTime;
 
     // 阈值元数据
     const thresholdHr = this._safeGetInt(sessionZone, 'threshold_heart_rate');

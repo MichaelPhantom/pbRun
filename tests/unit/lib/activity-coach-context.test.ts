@@ -47,6 +47,12 @@ function insight(over: Partial<ActivityInsightResponse> = {}): ActivityInsightRe
       { zone: 2, seconds: 400, pct: 40 },
       { zone: 3, seconds: 500, pct: 50 },
     ],
+    powerZoneBreakdown: [
+      { zone: 2, seconds: 300, pct: 30 },
+      { zone: 3, seconds: 500, pct: 50 },
+      { zone: 4, seconds: 200, pct: 20 },
+    ],
+    ftpWatts: 371,
     ...over,
   };
 }
@@ -138,6 +144,8 @@ describe('formatActivityContext', () => {
     expect(text).toContain('主课心率漂移 +4bpm');
     expect(text).toContain('最快分段 4:35/km（第 3 段）');
     expect(text).toContain('Z1 10.0% / Z2 40.0% / Z3 50.0%');
+    // 功率区间必须带 FTP: 「Z3 50%」没有分母时无法换算成瓦数。
+    expect(text).toContain('功率区间（FTP 371W）: Z2 30.0% / Z3 50.0% / Z4 20.0%');
     expect(text).toContain('有氧解耦: 4.2%（优秀）');
     expect(text).toContain('海拔修正: 实际 5:00/km → 等价平路 4:50/km（快 10s/km；爬升 12.0m/km，Minetti 估算）');
     expect(text).toContain('温度漂移: 24.0°C → 26.5°C（+2.5°C）');
@@ -168,12 +176,15 @@ describe('formatActivityContext', () => {
         },
         decouplingPct: null,
         hrZoneBreakdown: [],
+        powerZoneBreakdown: [],
+        ftpWatts: null,
       }),
       routeComparison: null,
       distanceComparison: null,
     });
     expect(text).toContain('未识别出明显主课段');
     expect(text).not.toContain('心率区间');
+    expect(text).not.toContain('功率区间');
     expect(text).not.toContain('有氧解耦');
     expect(text).not.toContain('最快分段');
   });
@@ -223,8 +234,25 @@ describe('formatActivityContext', () => {
     expect(text).not.toContain('主课配速');
     expect(text).not.toContain('海拔修正');
     expect(text).not.toContain('等价平路');
+    // 功率区间同样不外泄: 泳池/球类的「功率」不是跑步的功率, 且逐秒功率
+    // 在 107 条非跑步活动里 0/107 —— 若上游误传, 这里按 running 吞掉。
+    expect(text).not.toContain('功率区间');
     // 口径说明明确告知模型不要比配速
     expect(text).toContain('不比较配速/步频/跑力');
+  });
+
+  test('功率区间有占比但 FTP 缺失 → 不写括号（不猜分母）', () => {
+    const text = formatActivityContext({
+      insight: insight({
+        ftpWatts: null,
+        powerZoneBreakdown: [{ zone: 3, seconds: 600, pct: 100 }],
+      }),
+      routeComparison: null,
+      distanceComparison: null,
+    });
+    expect(text).toContain('功率区间: Z3 100.0%');
+    expect(text).not.toContain('FTP');
+    expect(text).not.toContain('FTP null');
   });
 
   test('非跑步无强度分段 → 用中性文案, 不说「整体配速均匀」', () => {

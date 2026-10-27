@@ -4,6 +4,7 @@
 import {
   analyzeLaps,
   buildActivityInsight,
+  powerZoneBreakdown,
   computeComparison,
   hrZoneBreakdown,
   type LapInput,
@@ -259,6 +260,96 @@ describe('hrZoneBreakdown', () => {
   });
 });
 
+describe('powerZoneBreakdown', () => {
+  const ftp371 = { power_zone_boundaries: '[241,297,334,371,427,4000,null,null]' };
+
+  test('由逐秒功率按 %FTP 五区推导占比 (FTP 取区间边界 [3])', () => {
+    // FTP 371: 65%=241.15 / 80%=296.8 / 90%=333.9 / 100%=371
+    const records: RecordSample[] = [
+      { elapsed_sec: 0, heart_rate: null, speed: null, distance: null, power: 200 }, // Z1
+      { elapsed_sec: 1, heart_rate: null, speed: null, distance: null, power: 280 }, // Z2
+      { elapsed_sec: 2, heart_rate: null, speed: null, distance: null, power: 320 }, // Z3
+      { elapsed_sec: 3, heart_rate: null, speed: null, distance: null, power: 350 }, // Z4
+      { elapsed_sec: 4, heart_rate: null, speed: null, distance: null, power: 400 }, // Z5
+    ];
+    const { zones, ftpWatts } = powerZoneBreakdown(records, ftp371);
+    expect(ftpWatts).toBe(371);
+    expect(zones.map((z) => z.zone)).toEqual([1, 2, 3, 4, 5]);
+    expect(zones.every((z) => z.pct === 20)).toBe(true);
+  });
+
+  test('设备显式 FTP 优先于区间边界', () => {
+    const { ftpWatts } = powerZoneBreakdown(
+      [{ elapsed_sec: 0, heart_rate: null, speed: null, distance: null, power: 300 }],
+      { functional_threshold_power: 300, power_zone_boundaries: '[241,297,334,371,427]' },
+    );
+    expect(ftpWatts).toBe(300);
+  });
+
+  test('无 FTP (既无显式也无区间边界) → 空区间且 ftpWatts=null (不猜)', () => {
+    const { zones, ftpWatts } = powerZoneBreakdown(
+      [{ elapsed_sec: 0, heart_rate: null, speed: null, distance: null, power: 300 }],
+      {},
+    );
+    expect(zones).toEqual([]);
+    expect(ftpWatts).toBeNull();
+  });
+
+  test('无逐秒功率 → 空区间 (但 FTP 仍可解析)', () => {
+    const { zones, ftpWatts } = powerZoneBreakdown([], ftp371);
+    expect(zones).toEqual([]);
+    expect(ftpWatts).toBe(371);
+  });
+
+  test('逐秒功率缺失时回退到落库的 time_in_power_zone (同一口径)', () => {
+    // 同步时已按同一模型算好; 记录被清理/旧库未迁移时不该让整块消失。
+    const { zones, ftpWatts } = powerZoneBreakdown(
+      [],
+      ftp371,
+      JSON.stringify([600, 1800, 2400, 1200, 0]),
+    );
+    expect(ftpWatts).toBe(371);
+    expect(zones).toEqual([
+      { zone: 1, seconds: 600, pct: 10 },
+      { zone: 2, seconds: 1800, pct: 30 },
+      { zone: 3, seconds: 2400, pct: 40 },
+      { zone: 4, seconds: 1200, pct: 20 },
+    ]);
+  });
+
+  test('逐秒功率优先于落库列 (两者都是同一口径, 但原始输入更新)', () => {
+    const records: RecordSample[] = [
+      { elapsed_sec: 0, heart_rate: null, speed: null, distance: null, power: 400 },
+    ];
+    const { zones } = powerZoneBreakdown(records, ftp371, JSON.stringify([100, 0, 0, 0, 0]));
+    // 若误用落库列, 结果会是 Z1 100%; 正确结果是 Z5
+    expect(zones).toEqual([{ zone: 5, seconds: 1, pct: 100 }]);
+  });
+
+  test('落库列非法 JSON / 非数组 → 忽略, 返回空 (不抛)', () => {
+    expect(powerZoneBreakdown([], ftp371, 'not json').zones).toEqual([]);
+    expect(powerZoneBreakdown([], ftp371, JSON.stringify({ a: 1 })).zones).toEqual([]);
+    expect(powerZoneBreakdown([], ftp371, null).zones).toEqual([]);
+  });
+
+  test('落库列全 0 → 视为无数据 (不回退出一个空分布)', () => {
+    const { zones, ftpWatts } = powerZoneBreakdown([], ftp371, JSON.stringify([0, 0, 0, 0, 0]));
+    // 区间为空, 但 FTP 仍可解析 —— 分母照实给出, 由调用方按「无区间数据」不渲染。
+    expect(zones).toEqual([]);
+    expect(ftpWatts).toBe(371);
+  });
+
+  test('功率 0/null 的秒不计入任何区间', () => {
+    const records: RecordSample[] = [
+      { elapsed_sec: 0, heart_rate: null, speed: null, distance: null, power: 0 },
+      { elapsed_sec: 1, heart_rate: null, speed: null, distance: null, power: null },
+      { elapsed_sec: 2, heart_rate: null, speed: null, distance: null, power: 400 },
+    ];
+    const { zones } = powerZoneBreakdown(records, ftp371);
+    expect(zones).toEqual([{ zone: 5, seconds: 1, pct: 100 }]);
+  });
+});
+
 describe('buildActivityInsight', () => {
   test('汇总所有子分析', () => {
     const recs: RecordSample[] = [
@@ -279,8 +370,9 @@ describe('buildActivityInsight', () => {
         average_cadence: l.cadence ?? undefined,
         average_power: l.power ?? undefined,
       })),
-      records: recs,
+      records: recs.map((x, i) => ({ ...x, power: 300 + (i % 3) * 60 })),
       hrZoneJson: '[0,0,1800,1800,0,0,0]',
+      activity: { power_zone_boundaries: '[241,297,334,371,427]' },
       current: { activityId: 99, date: '2026-09-22', distanceKm: 4.7, paceSecPerKm: 340, heartRate: 170 },
       comparison: null,
       environment: {
@@ -299,6 +391,9 @@ describe('buildActivityInsight', () => {
     expect(r.lapAnalysis.workLaps).toBe(3);
     expect(r.decouplingPct).not.toBeNull();
     expect(r.hrZoneBreakdown.length).toBe(2);
+    // 功率区间: 由逐秒功率推导, FTP 取区间边界 [3] = 371
+    expect(r.ftpWatts).toBe(371);
+    expect(r.powerZoneBreakdown.length).toBeGreaterThan(0);
     expect(r.comparison).toBeNull();
     expect(r.environment?.currentTempC).toBe(26);
   });
@@ -319,8 +414,18 @@ describe('buildActivityInsight', () => {
           average_heart_rate: 76,
         },
       ],
-      records: [],
+      // 逐秒记录里**故意**放功率: 非跑步活动真实库 0/107 有功率, 但若上游
+      // 误传（或未来某类非跑步设备开始记录功率）, 这里也必须吞掉 —— 球类的
+      // 「功率」与跑步的「功率」不是同一个量, 渲染成区间图会误导。
+      records: [
+        { elapsed_sec: 0, heart_rate: 100, speed: 0, distance: 0, power: 300 },
+        { elapsed_sec: 1, heart_rate: 101, speed: 0, distance: 0, power: 300 },
+      ],
       hrZoneJson: '[30,0,0,0,0,0,0]',
+      // 落库列同样给值 —— 两条来源都必须被 running 门控拦住。
+      powerZoneJson: JSON.stringify([0, 0, 0, 0, 600]),
+      // FTP 也给了, 排除「因为没 FTP 才为空」的假通过。
+      activity: { power_zone_boundaries: '[241,297,334,371,427]' },
       current: { activityId: 100, date: '2026-01-24', distanceKm: 0.011, paceSecPerKm: 47197.9, heartRate: 76 },
       comparison: null,
       // 即使上游误算了 GAP, 非跑步口径也必须吞掉 —— Minetti 是跑步步态模型
@@ -341,5 +446,9 @@ describe('buildActivityInsight', () => {
     expect(r.gradeAdjusted).toBeNull();
     // 心率区间与解耦等纯个人指标不受影响
     expect(r.hrZoneBreakdown).toEqual([{ zone: 1, seconds: 30, pct: 100 }]);
+    // 功率区间: 非跑步活动逐秒功率 0/107, 且功率语义不同 —— 整项为空数组,
+    // 而不是「全是 Z1」的假分布（会被读成「本次几乎没用力」）。
+    expect(r.powerZoneBreakdown).toEqual([]);
+    expect(r.ftpWatts).toBeNull();
   });
 });

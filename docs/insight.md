@@ -132,6 +132,11 @@ activities / activity_laps / activity_records (SQLite)
   热身/主课/恢复/冷身/匀速；主课段（明显快于基准）聚合出段数、距离、时长加权配速、心率漂移。
 - **心率区间占比**（`hrZoneBreakdown`）：解析活动 `time_in_hr_zone` JSON（本地 5 区口径，
   与 `/analysis` 区间表同源；设备原始数组存在 `device_time_in_hr_zone`，不参与展示）。
+- **功率区间占比**（`powerZoneBreakdown` + `ftpWatts`）：本地 5 区 **%FTP** 口径
+  （Z1<65% / Z2<80% / Z3<90% / Z4<100% / Z5≥100%），由 `activity_records.power`
+  逐秒推导，逐秒记录缺失时回退落库的 `time_in_power_zone`（同一模型）。真实库覆盖
+  **241/241** 条有功率的活动，而设备原始数组只有 33/348 且是绝对瓦数边界
+  （存在 `device_time_in_power_zone`，不参与展示）。非跑步恒为空数组。
 - **逐秒有氧解耦**：复用 `computeDecouplingPct`。
 - **同路线对比**（`db.getPeerActivities` + `computeComparison`）：优先按路线指纹找同行历史，否则按距离分档回退；输出配速排名与相对均值的差值。
 - **同位置对比**（`getLocationPeerActivities` / `getRouteShapePeerActivities` + `route-shape.ts`）：

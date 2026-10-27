@@ -110,11 +110,31 @@ describe('MCP tool description 必须声明统计口径', () => {
     expect(desc).toMatch(/3 倍/);
   });
 
-  test('get_activity 声明 time_in_power_zone 不可按索引跨活动聚合', () => {
-    // 与 device_time_in_hr_zone 同一纪律: 边界方案随固件而变。
+  /**
+   * 区间列现在是**两套**：统一口径列（本地 5 区，可聚合）与设备原始列（仅追溯）。
+   *
+   * 曾经的描述把 `time_in_power_zone` 写成「设备原始数组, 不要按索引跨活动聚合」——
+   * 口径统一后这句话对**统一列**就是错的（它长度恒为 5、%FTP 归一、正是为了可聚合）。
+   * 若不同步改描述，AI 客户端会拒绝做本来合法的跨活动聚合。
+   */
+  test('get_activity 声明 time_in_power_zone 是本地 5 区口径且可跨活动聚合', () => {
     const desc = configs.get('get_activity')!.description ?? '';
     expect(desc).toMatch(/time_in_power_zone/);
+    expect(desc).toMatch(/本地 5 区 %FTP 口径/);
+    expect(desc).toMatch(/长度恒为 5/);
+    expect(desc).toMatch(/可直接按索引跨活动聚合/);
+    // 五个边界必须写全, 否则模型不知道 Z3 到底是多少 %FTP
+    expect(desc).toMatch(/Z1<65%\/Z2<80%\/Z3<90%\/Z4<100%\/Z5≥100%/);
+  });
+
+  test('get_activity 声明 device_time_in_power_zone 才是不可聚合的设备原始列', () => {
+    const desc = configs.get('get_activity')!.description ?? '';
+    expect(desc).toMatch(/device_time_in_power_zone/);
+    expect(desc).toMatch(/绝对瓦数边界随 FTP 而变/);
     expect(desc).toMatch(/不要按索引跨活动聚合/);
+    // 旧描述把「设备原始」贴给统一列, 且理由写成「边界方案随固件而变」——
+    // 那是心率列的措辞。功率列的理由是「绝对瓦数边界随 FTP 而变」。
+    expect(desc).not.toMatch(/设备原始功率区间秒数, 边界方案随固件而变/);
   });
 
   test('所有 tool 都有非空 description 与 title', () => {

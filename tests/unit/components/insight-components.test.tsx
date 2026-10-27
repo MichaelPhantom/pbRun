@@ -455,6 +455,15 @@ describe('ActivityInsightPanel', () => {
     },
     decouplingPct: 12.3,
     hrZoneBreakdown: [{ zone: 4, seconds: 1800, pct: 60 }, { zone: 3, seconds: 1200, pct: 40 }],
+    // 功率区间: 真实库 241/241 条跑步活动可由逐秒功率推导（设备数组只有 33/348）。
+    powerZoneBreakdown: [
+      { zone: 1, seconds: 180, pct: 6 },
+      { zone: 2, seconds: 900, pct: 30 },
+      { zone: 3, seconds: 1200, pct: 40 },
+      { zone: 4, seconds: 600, pct: 20 },
+      { zone: 5, seconds: 120, pct: 4 },
+    ],
+    ftpWatts: 371,
   };
 
   test('有数据时渲染主课摘要/区间/对比', () => {
@@ -480,6 +489,91 @@ describe('ActivityInsightPanel', () => {
     expect(screen.getByText('轻松/基础')).toBeInTheDocument();
     // 相对本次差值列存在
     expect(screen.getByText('vs 本次')).toBeInTheDocument();
+  });
+
+  /**
+   * 功率区间占比（2026-10-27）。
+   *
+   * 设备 `time_in_power_zone` 只有 **33/348** 有值且是绝对瓦数边界（16 套方案，
+   * 跨活动不可聚合）；改由逐秒功率按 %FTP 推导后覆盖 241/241。这里守住
+   * 「标题由实际非零区间派生 + FTP 必须可见」两条纪律。
+   */
+  test('功率区间占比: 标题由实际非零区间派生, 并显示 FTP', () => {
+    const { container } = render(<ActivityInsightPanel data={data} />);
+    expect(screen.getByText('功率区间占比（Z1–Z5）')).toBeInTheDocument();
+    // FTP 是区间的分母 —— 不显示的话用户无法判断「Z3 40%」是多少瓦。
+    expect(screen.getByText('FTP 371W')).toBeInTheDocument();
+    // 口径说明必须写清五区边界, 否则读者以为与心率同一套百分比
+    expect(screen.getByText(/Z1 <65% \/ Z2 <80% \/ Z3 <90% \/ Z4 <100% \/ Z5 ≥100%/)).toBeInTheDocument();
+    // 每个实际出现的区间都要给出瓦数范围与语义名 ——「Z3 40%」单独存在时
+    // 用户无法落到训练安排上（多少瓦？节奏还是阈值？）。
+    const legend = container.textContent ?? '';
+    expect(legend).toContain('Z1(恢复) 0-241W');
+    expect(legend).toContain('Z2(耐力) 242-296W');
+    expect(legend).toContain('Z3(节奏) 297-333W');
+    expect(legend).toContain('Z4(阈值) 334-370W');
+    expect(legend).toContain('Z5(无氧) 371W+');
+  });
+
+  test('功率区间: 只有部分区间非零时标题不写死 Z1–Z5', () => {
+    render(
+      <ActivityInsightPanel
+        data={{
+          ...data,
+          powerZoneBreakdown: [
+            { zone: 2, seconds: 600, pct: 60 },
+            { zone: 3, seconds: 400, pct: 40 },
+          ],
+        }}
+      />,
+    );
+    expect(screen.getByText('功率区间占比（Z2–Z3）')).toBeInTheDocument();
+    expect(screen.queryByText('功率区间占比（Z1–Z5）')).toBeNull();
+  });
+
+  test('功率区间图例只列实际出现的区间 (不承诺没画出来的柱子)', () => {
+    const { container } = render(
+      <ActivityInsightPanel
+        data={{
+          ...data,
+          powerZoneBreakdown: [
+            { zone: 2, seconds: 600, pct: 60 },
+            { zone: 4, seconds: 400, pct: 40 },
+          ],
+        }}
+      />,
+    );
+    const legend = container.textContent ?? '';
+    expect(legend).toContain('Z2(耐力) 242-296W');
+    expect(legend).toContain('Z4(阈值) 334-370W');
+    // 非零区间是 Z2/Z4, 图例不得出现 Z1/Z3/Z5 的瓦数范围
+    expect(legend).not.toContain('Z1(恢复)');
+    expect(legend).not.toContain('Z3(节奏)');
+    expect(legend).not.toContain('Z5(无氧)');
+  });
+
+  test('功率区间为空数组时不渲染该区块 (无功率的活动不显示空图)', () => {
+    const { container } = render(
+      <ActivityInsightPanel data={{ ...data, powerZoneBreakdown: [], ftpWatts: null }} />,
+    );
+    expect(screen.queryByText(/功率区间占比/)).toBeNull();
+    expect(container.querySelector('[aria-label*="功率区间"]')).toBeNull();
+  });
+
+  test('非跑步活动不渲染功率区间 (逐秒功率 0/107)', () => {
+    render(
+      <ActivityInsightPanel
+        data={{
+          ...data,
+          running: false,
+          // 即使上游误传了功率区间, 非跑步口径也必须吞掉 —— 球类的「功率」
+          // 与跑步的「功率」不是同一个量。
+          powerZoneBreakdown: [{ zone: 5, seconds: 600, pct: 100 }],
+          ftpWatts: 371,
+        }}
+      />,
+    );
+    expect(screen.queryByText(/功率区间占比/)).toBeNull();
   });
 
   test('data 为 null 时静默隐藏 (不渲染 section)', () => {

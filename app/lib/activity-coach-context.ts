@@ -269,6 +269,18 @@ function performanceLines(insight: ActivityInsightResponse | null): string[] {
     );
   }
 
+  // 功率区间: 与心率区间同一形状, 但分母是 FTP 而非 MAX_HR —— 必须把 FTP 一起
+  // 告诉模型, 否则「Z3 44%」无法换算成瓦数。非跑步逐秒功率 0/107, 即便上游误传
+  // 也在此按 `running` 吞掉（球类的「功率」与跑步不是同一个量）。
+  const powerZones = running ? (insight.powerZoneBreakdown ?? []).filter((z) => z.pct > 0) : [];
+  if (powerZones.length > 0) {
+    const ftp = insight.ftpWatts;
+    lines.push(
+      `功率区间${ftp != null ? `（FTP ${ftp}W）` : ''}: ` +
+        powerZones.map((z) => `Z${z.zone} ${z.pct.toFixed(1)}%`).join(' / '),
+    );
+  }
+
   if (insight.decouplingPct != null && Number.isFinite(insight.decouplingPct)) {
     const pct = insight.decouplingPct;
     const tone =

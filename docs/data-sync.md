@@ -351,9 +351,11 @@ CREATE TABLE activities (
   route_bounds TEXT,                      -- 抗尖峰包围盒 JSON (p2–p98); 无轨迹为 NULL
   route_km REAL,                          -- 清洗后轨迹长度 (公里); 无轨迹为 NULL
 
-  -- 心率区间 (见下节「区间口径」)
-  time_in_hr_zone TEXT,                   -- 本地 5 区秒数 JSON, 长度恒为 5; 由逐秒心率推导
-  device_time_in_hr_zone TEXT,            -- 设备原始区间秒数 JSON; 边界方案随固件而变, 仅追溯
+  -- 区间时长 (见下节「区间口径」)
+  time_in_hr_zone TEXT,                   -- 本地 5 区心率秒数 JSON, 长度恒为 5; 由逐秒心率推导
+  device_time_in_hr_zone TEXT,            -- 设备原始心率区间秒数 JSON; 边界方案随固件而变, 仅追溯
+  time_in_power_zone TEXT,                -- 本地 5 区 %FTP 功率秒数 JSON, 长度恒为 5; 由逐秒功率推导
+  device_time_in_power_zone TEXT,         -- 设备原始功率区间秒数 JSON; 绝对瓦数边界随 FTP 变, 仅追溯
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
@@ -372,6 +374,17 @@ CREATE TABLE activities (
 > 不同边界方案，按索引跨活动相加没有物理含义。历史活动用 `npm run backfill:hr-zones`
 > 回填（幂等，备份 DB）。写入侧口径由 `scripts/common/hr-zones.js`（TS 的 CJS 镜像，
 > parity 测试守护）与 `fit-parser.js` 共同保证。
+>
+> **功率区间同一口径**：`activities.time_in_power_zone` 存**本地 5 区 %FTP 模型**
+> （`app/lib/power-zones.ts`：Z1<65% / Z2<80% / Z3<90% / Z4<100% / Z5≥100%）的各区间
+> 秒数，JSON 数组长度恒为 5，由 `activity_records` 的**逐秒功率**推导，覆盖真实库
+> **241/241** 条有功率的活动。设备原始数组另存 `device_time_in_power_zone` 仅供追溯 ——
+> 它只有 33/348 条有值，且是**绝对瓦数**上限（实测 16 套方案随 FTP 变化），按索引跨活动
+> 相加没有物理含义。归一后 241/241 只有一套 `65/80/90/100/115 %FTP`，app 的 5 区取前
+> 4 个边界，把设备 Z5(100–115%) 与 Z6(>115%) 合并进 Z5。历史活动用
+> `npm run backfill:power-zones` 回填（幂等；**先 `ALTER` 再迁移再重算**，否则 33 条设备
+> 原始数组会被重算直接覆盖）。写入侧口径由 `scripts/common/power-zones.js`（TS 的 CJS
+> 镜像，parity 测试守护）与 `fit-parser.js` 共同保证。
 >
 > **课表列** (`workout_name` / `workout_steps`): `workout_steps` 是 FIT `workout_step`
 > 消息的 JSON 数组，**多步课表不会被截断**（真实库 120/285 条 > 1 步，最多 21 步）。

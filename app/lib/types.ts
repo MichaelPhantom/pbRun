@@ -74,7 +74,15 @@ export interface Activity {
   device_time_in_hr_zone?: string;                // 设备原始区间秒数（仅供追溯）
   time_in_speed_zone?: string;                   // 速度区间时间
   time_in_cadence_zone?: string;                // 步频区间时间
-  time_in_power_zone?: string;                   // 功率区间时间
+  /**
+   * 功率区间秒数（**app 5 区 %FTP 口径**，由逐秒功率推导，长度恒为 5）。
+   *
+   * 与 `time_in_hr_zone` 同构：可按索引跨活动聚合。设备原始数组（绝对瓦数边界，
+   * 16 套方案）另存 `device_time_in_power_zone`，仅供追溯。
+   */
+  time_in_power_zone?: string;
+  /** 设备原始功率区间秒数（绝对瓦数边界随 FTP 变化，跨活动不可比；仅追溯用）。 */
+  device_time_in_power_zone?: string | null;
 
   // 其他
   calories?: number;                             // 热量消耗（卡路里）
@@ -730,6 +738,17 @@ export interface ActivityInsightResponse {
   comparison: ActivityComparison | null;
   decouplingPct: number | null;                   // 逐秒解耦
   hrZoneBreakdown: { zone: number; seconds: number; pct: number }[];
+  /**
+   * 功率区间占比（**app 5 区 %FTP 口径**，由逐秒功率推导）。
+   *
+   * 与 `hrZoneBreakdown` 同构：长度不固定（只含非零区间），索引即 `zone-1`。
+   * 覆盖率 **241/241** 条有功率的跑步活动 —— 而设备 `time_in_power_zone` 只有
+   * 33/348 有值且是**绝对瓦数**边界（16 套方案，按索引不可跨活动聚合）。
+   * 非跑步活动恒为空数组（逐秒功率 0/107）。
+   */
+  powerZoneBreakdown: { zone: number; seconds: number; pct: number }[];
+  /** 本次功率区间所依据的 FTP（瓦）；`resolveFtp` 解析不到时为 null（此时区间必为空）。 */
+  ftpWatts: number | null;
   /** 跨名称的「同位置」对比（GPS 首点 ≤1.5km + 距离分档）；未迁移/无 GPS 时为 null/缺省。 */
   locationComparison?: ActivityComparison | null;
   /** 同路线/同距离样本的温度与爬升可比性；无环境数据时为 null/缺省。 */
