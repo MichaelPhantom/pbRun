@@ -88,7 +88,10 @@ const samples = [
     vdot_value: 42.0,
     training_load: 65,
     total_training_effect: 3.8,
-    time_in_hr_zone: JSON.stringify([10, 30, 1200, 250, 800, 300, 0]),
+    // 心率区间: 本地 5 区口径 (长度恒为 5), 与 scripts/common/hr-zones.js 一致。
+    // 旧夹具写 7 槽设备原始数组, 与生产库回填后的真实分布相反 —— 会让
+    // 「Z6/Z7 永不为零」的缺陷在 e2e 里无法暴露。
+    time_in_hr_zone: JSON.stringify([10, 30, 1200, 250, 800]),
     hr_zone_boundaries: JSON.stringify([101, 121, 141, 160, 180, 196]),
     threshold_heart_rate: 178,
     max_heart_rate_fit: 196,
@@ -118,7 +121,7 @@ const samples = [
     vdot_value: 40.0,
     training_load: 150,
     total_training_effect: 4.2,
-    time_in_hr_zone: JSON.stringify([20, 60, 2400, 2600, 1200, 200, 0]),
+    time_in_hr_zone: JSON.stringify([20, 60, 2400, 2600, 1200]),
   },
   // 第 3/4 条: 与活动 1 同路线 (两江新区) → 触发详情页「同路线对比」表 (需 >=2 同行)
   {
@@ -141,7 +144,7 @@ const samples = [
     calories: 470,
     vdot_value: 41.0,
     training_load: 55,
-    time_in_hr_zone: JSON.stringify([10, 60, 1400, 600, 400, 100, 0]),
+    time_in_hr_zone: JSON.stringify([10, 60, 1400, 600, 400]),
   },
   {
     activity_id: 900000004,
@@ -163,7 +166,7 @@ const samples = [
     calories: 500,
     vdot_value: 41.5,
     training_load: 62,
-    time_in_hr_zone: JSON.stringify([10, 30, 1100, 700, 700, 160, 0]),
+    time_in_hr_zone: JSON.stringify([10, 30, 1100, 700, 700]),
   },
   // 第 5 条: 恢复跑 (轻松类), 丰富类别/占比
   {
@@ -186,7 +189,7 @@ const samples = [
     calories: 340,
     vdot_value: null,
     training_load: 38,
-    time_in_hr_zone: JSON.stringify([100, 900, 800, 300, 0, 0, 0]),
+    time_in_hr_zone: JSON.stringify([100, 900, 800, 300, 0]),
   },
 ];
 

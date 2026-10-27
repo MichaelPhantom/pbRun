@@ -97,9 +97,10 @@ export default function InsightClient({
       value: Math.round(z.pct * 10) / 10,
       color: hrZoneColor(z.zone),
     }));
-  // 标题只承诺真的画出来的区间。旧文案写死「Z1–Z6」, 而真实库 140 条活动的
-  // time_in_hr_zone 索引 6/7(Z6/Z7) **0/140 全为 0** —— 与「趋势卡标题写死」
-  // 是同一类空承诺。
+  // 标题只承诺真的画出来的区间。旧文案写死「Z1–Z6」—— 那时 time_in_hr_zone 存的是
+  // 设备原始 7 槽数组（140 条活动，索引 6/7 全为 0）；现在该列口径统一为 app 的
+  // 5 区模型（见 app/lib/hr-zones.ts），长度恒为 5，但标题仍按实际非零区间派生，
+  // 不写死任何区间数 —— 与「趋势卡标题写死」是同一类空承诺的防线。
   const zoneTitle = zoneRangeLabel(zoneBars.map((b) => Number(b.label.slice(1))));
 
   // 解耦趋势
@@ -275,9 +276,8 @@ export default function InsightClient({
         )}
 
         <div className="mt-4">
-          {/* 标题由实际非零区间派生 (zoneRangeLabel): 配色只有 --z1..--z5, 且真实库
-              140 条活动的 time_in_hr_zone 索引 6(Z6)/7(Z7) 全为 0 ——
-              旧标题写死「Z1–Z6」是空承诺。 */}
+          {/* 标题由实际非零区间派生 (zoneRangeLabel), 不写死区间数 —— 配色只有
+              --z1..--z5, 旧文案写死「Z1–Z6」是空承诺。 */}
           <p className="mb-2 text-xs font-medium text-fg-secondary">强度分布（{zoneTitle}）</p>
           {zoneBars.length > 0 ? (
             <InsightBarChart data={zoneBars} valueSuffix="%" ariaLabel="强度分布柱状图" height={180} />

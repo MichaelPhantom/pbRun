@@ -4,7 +4,7 @@
  *   duration=0 时权重退化为 1; average_heart_rate/cadence/stride 为 null 不计入。
  * - getHrZoneStats: startDate/endDate 单独给/都不给 (dateFilter 四种组合);
  *   某区间无样本时 avg_* 为 null。
- * - getHrZoneTotals: 损坏 JSON 跳过; 数组短于 7 补 0。
+ * - getHrZoneTotals: 损坏 JSON 跳过; 数组短于 5 补 0; 只取前 5 槽（本地 5 区口径）。
  * - getPaceHrSamples: distance=0 → 过滤掉。
  * - validateRange / toInclusiveEnd: 格式与先后顺序抛错。
  */
@@ -126,13 +126,23 @@ describe('getHrZoneStats', () => {
 });
 
 describe('getHrZoneTotals', () => {
-  test('损坏 JSON 跳过, 短数组补 0, 正常行累加', () => {
+  test('损坏 JSON 跳过, 短数组补 0, 正常行累加 (5 元素 = 本地 5 区口径)', () => {
     mockAll.mockReturnValue([
       { time_in_hr_zone: '{not json' },
       { time_in_hr_zone: JSON.stringify([10, 20]) },
-      { time_in_hr_zone: JSON.stringify([1, 2, 3, 4, 5, 6, 7]) },
+      { time_in_hr_zone: JSON.stringify([1, 2, 3, 4, 5]) },
     ]);
-    expect(getHrZoneTotals('2026-01-01', '2026-12-31')).toEqual([11, 22, 3, 4, 5, 6, 7]);
+    expect(getHrZoneTotals('2026-01-01', '2026-12-31')).toEqual([11, 22, 3, 4, 5]);
+  });
+
+  test('长度 >5 的历史设备数组只累加前 5 槽 (Z6/Z7 属另一套边界方案)', () => {
+    mockAll.mockReturnValue([
+      { time_in_hr_zone: JSON.stringify([1, 2, 3, 4, 5, 6, 7]) },
+      { time_in_hr_zone: JSON.stringify([10, 20, 30, 40, 50]) },
+    ]);
+    const out = getHrZoneTotals('2026-01-01', '2026-12-31');
+    expect(out).toEqual([11, 22, 33, 44, 55]);
+    expect(out.length).toBe(5);
   });
 });
 

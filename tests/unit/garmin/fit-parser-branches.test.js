@@ -153,12 +153,16 @@ describe('_extractActivityData 分支', () => {
     expect(out.avg_altitude).toBeNull();
   });
 
-  test('区间时间为非数组 → null; 数组 → JSON 字符串', () => {
-    expect(p._extractActivityData({ sessions: [{ time_in_hr_zone: 'oops' }] }).time_in_hr_zone).toBeNull();
-    expect(p._extractActivityData({ sessions: [{ time_in_hr_zone: [1, 2, 3] }] }).time_in_hr_zone).toBe(
-      JSON.stringify([1, 2, 3]),
-    );
-    expect(p._extractActivityData({ sessions: [{}] }).time_in_hr_zone).toBeNull();
+  test('session 级心率区间只进 device 列, 不进统计列 time_in_hr_zone', () => {
+    // 关键回归: 统计列 time_in_hr_zone 的口径固定为本地 5 区推导。session 级
+    // 同名字段是**设备原始数组**（边界方案随固件而变），若漏进统计列，跨活动
+    // 按索引相加就失去物理含义。实测 348/348 个 FIT 的该字段全为空。
+    expect(p._extractActivityData({ sessions: [{ time_in_hr_zone: 'oops' }] }).time_in_hr_zone).toBeUndefined();
+    expect(
+      p._extractActivityData({ sessions: [{ time_in_hr_zone: [1, 2, 3] }] }).device_time_in_hr_zone,
+    ).toBe(JSON.stringify([1, 2, 3]));
+    expect(p._extractActivityData({ sessions: [{}] }).time_in_hr_zone).toBeUndefined();
+    expect(p._extractActivityData({ sessions: [{}] }).device_time_in_hr_zone).toBeUndefined();
   });
 
   test('enhanced_* 优先于旧字段 (最大速度/海拔)', () => {

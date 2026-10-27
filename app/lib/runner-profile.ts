@@ -256,15 +256,18 @@ function recentVolume(exclude: Activity, day: string) {
 }
 
 /**
- * 近 28 天训练强度分布: 按每个活动的心率区间时长 (time_in_hr_zone JSON) 汇总
- * Z1-Z5 的占比 (%)。缺失区间数据的活动跳过。用于判断训练结构 (80/20 原则等)。
+ * 近 28 天训练强度分布: 按每个活动的心率区间秒数 (`time_in_hr_zone` JSON) 汇总
+ * Z1-Z5 的占比 (%)。用于判断训练结构 (80/20 原则等)。
+ *
+ * 口径 = app 的 5 区模型: `time_in_hr_zone` 由逐秒心率推导、长度恒为 5、覆盖全部
+ * 活动（真实库 348/348），因此「缺失就跳过」在现网已不会触发，保留只是防御旧数据。
  */
 function computeIntensityDist(exclude: Activity, day: string): { zone: number; pct: number }[] {
   try {
     const base = new Date(`${day}T00:00:00Z`);
     const from28 = ymd(addDays(base, -28));
-    // 心率区间强度分布同样只取跑步: 力量训练/爬楼/游泳的区间时长会占满 Z1,
-    // 实测近 28 天 Z1 占比 7.0% (全类型) vs 0.6% (跑步), Z3 48.3% vs 52.8%。
+    // 心率区间强度分布同样只取跑步: 力量训练/爬楼/游泳的区间时长会压低强度占比,
+    // 实测近 28 天 Z1 占比 39.4% (全类型) vs 34.3% (跑步), Z3 8.7% vs 9.6%。
     const res = getActivities({
       page: 1,
       limit: 300,

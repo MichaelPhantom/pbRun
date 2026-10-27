@@ -5,6 +5,8 @@
 import {
   hrZoneRanges,
   hrZoneOf,
+  hrZoneSecondsFromSamples,
+  HR_SAMPLE_MAX_GAP_SEC,
   hrZoneRangeMap,
   hrZoneRangeBpmLabel,
   hrZoneBadgeStyle,
@@ -144,5 +146,112 @@ describe('hr-zones', () => {
     expect(zoneRangeLabel([1, 2, 3, 4, 5, 6])).toBe('Z1–Z6');
     // 但只要 Z6 没有非零秒数, 就不会传入 → 标题自然退回 Z1–Z5
     expect(zoneRangeLabel([1, 2, 3, 4, 5])).not.toBe('Z1–Z6');
+  });
+
+  /**
+   * `hrZoneSecondsFromSamples` 是「补齐 208 条缺失区间数据」的核心：真实库
+   * `activities.time_in_hr_zone` 原先只有 140/348 条有值（设备 time_in_zone 消息
+   * 缺失），而 `activity_records` 的逐秒心率 348/348 全有。推导秒数与 moving_time
+   * 偏差 <10% 的占 241/241（跑步）/ 107/107（非跑步），故可安全补齐。
+   */
+  describe('hrZoneSecondsFromSamples', () => {
+    test('1s 采样逐条累加, 总秒数=样本数', () => {
+      // MAX_HR=190: Z1<133, Z2<152, Z3<165.3, Z4<176.7, Z5>=176.7
+      const out = hrZoneSecondsFromSamples(
+        [
+          { elapsedSec: 0, heartRate: 120 }, // Z1
+          { elapsedSec: 1, heartRate: 120 }, // Z1
+          { elapsedSec: 2, heartRate: 140 }, // Z2
+          { elapsedSec: 3, heartRate: 160 }, // Z3
+          { elapsedSec: 4, heartRate: 180 }, // Z5
+        ],
+        190,
+      );
+      // 前 4 条各代表 1s, 最后一条按 1s 兜底
+      expect(out).toEqual([2, 1, 1, 0, 1]);
+      expect(out.reduce((a, b) => a + b, 0)).toBe(5);
+    });
+
+    test('返回 5 元素 (索引 0=Z1), 即使只有 Z3 有值也不塌缩', () => {
+      const out = hrZoneSecondsFromSamples(
+        [
+          { elapsedSec: 0, heartRate: 160 },
+          { elapsedSec: 1, heartRate: 160 },
+        ],
+        190,
+      );
+      expect(out.length).toBe(5);
+      expect(out).toEqual([0, 0, 2, 0, 0]);
+    });
+
+    test('暂停空档按 HR_SAMPLE_MAX_GAP_SEC 截断 (否则暂停时间全算进一个区间)', () => {
+      // 两条样本相隔 600s: 若照抄会把 600s 全算进 Z1
+      const out = hrZoneSecondsFromSamples(
+        [
+          { elapsedSec: 0, heartRate: 120 },
+          { elapsedSec: 600, heartRate: 120 },
+        ],
+        190,
+      );
+      expect(out[0]).toBe(HR_SAMPLE_MAX_GAP_SEC + 1); // 首条 5s + 末条 1s
+      expect(out[0]).toBeLessThan(600);
+    });
+
+    test('乱序样本按时间排序后再算 (下一条必须是时间上的下一条)', () => {
+      const sorted = hrZoneSecondsFromSamples(
+        [
+          { elapsedSec: 0, heartRate: 120 },
+          { elapsedSec: 1, heartRate: 120 },
+          { elapsedSec: 2, heartRate: 180 },
+        ],
+        190,
+      );
+      const shuffled = hrZoneSecondsFromSamples(
+        [
+          { elapsedSec: 2, heartRate: 180 },
+          { elapsedSec: 0, heartRate: 120 },
+          { elapsedSec: 1, heartRate: 120 },
+        ],
+        190,
+      );
+      expect(shuffled).toEqual(sorted);
+    });
+
+    test('无效心率 (null/0/NaN) 被跳过, 不污染区间', () => {
+      const out = hrZoneSecondsFromSamples(
+        [
+          { elapsedSec: 0, heartRate: null },
+          { elapsedSec: 1, heartRate: 0 },
+          { elapsedSec: 2, heartRate: Number.NaN },
+          { elapsedSec: 3, heartRate: 160 },
+        ],
+        190,
+      );
+      expect(out).toEqual([0, 0, 1, 0, 0]);
+    });
+
+    test('同一秒多条样本按 1s 计 (时间回退不产生负时长)', () => {
+      const out = hrZoneSecondsFromSamples(
+        [
+          { elapsedSec: 5, heartRate: 160 },
+          { elapsedSec: 5, heartRate: 160 },
+          { elapsedSec: 5, heartRate: 160 },
+        ],
+        190,
+      );
+      expect(out.every((v) => v >= 0)).toBe(true);
+      expect(out[2]).toBe(3);
+    });
+
+    test('空输入返回全零 5 元素', () => {
+      expect(hrZoneSecondsFromSamples([], 190)).toEqual([0, 0, 0, 0, 0]);
+    });
+
+    test('口径与 hrZoneOf 严格一致 (同一 bpm 归同一区间)', () => {
+      for (const hr of [100, 132, 133, 151, 152, 164, 165, 176, 177, 200]) {
+        const out = hrZoneSecondsFromSamples([{ elapsedSec: 0, heartRate: hr }], 190);
+        expect(out[hrZoneOf(hr, 190) - 1]).toBe(1);
+      }
+    });
   });
 });

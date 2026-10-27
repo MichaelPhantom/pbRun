@@ -212,16 +212,20 @@ export function computeLoadInsight(
   else if (acwr <= 1.5) acwrTone = 'caution';
   else acwrTone = 'risk';
 
-  // 强度分布
-  const totalZ = zSeconds.reduce((a, b) => a + (b > 0 ? b : 0), 0);
-  const zDistribution = zSeconds.map((sec, i) => ({
+  // 强度分布 (5 区口径)
+  // `zSeconds` 由 `getHrZoneTotals` 保证为 5 元素；这里再 slice 一次作为防御：
+  // 若上游误传更长的设备原始数组 (Z6/Z7 属另一套边界方案)，混进分母会让占比失真。
+  const five = zSeconds.slice(0, 5);
+  const totalZ = five.reduce((a, b) => a + (b > 0 ? b : 0), 0);
+  const zDistribution = five.map((sec, i) => ({
     zone: i + 1,
     seconds: sec,
     pct: totalZ > 0 ? (sec / totalZ) * 100 : 0,
   }));
-  const lowIntensityPct = totalZ > 0 ? ((zSeconds[0] ?? 0) + (zSeconds[1] ?? 0)) / totalZ * 100 : 0;
-  const highIntensityPct =
-    totalZ > 0 ? ((zSeconds[3] ?? 0) + (zSeconds[4] ?? 0) + (zSeconds[5] ?? 0) + (zSeconds[6] ?? 0)) / totalZ * 100 : 0;
+  // 口径 = app 的 5 区模型 (Z1-Z5), 故低强度取 Z1+Z2、高强度取 Z4+Z5。
+  // 旧实现把索引 5/6 也算进高强度, 那是设备原始 7 槽数组的 Z6/Z7。
+  const lowIntensityPct = totalZ > 0 ? ((five[0] ?? 0) + (five[1] ?? 0)) / totalZ * 100 : 0;
+  const highIntensityPct = totalZ > 0 ? ((five[3] ?? 0) + (five[4] ?? 0)) / totalZ * 100 : 0;
 
   return { weekly, acute, chronic: chronicWeekly, acwr, acwrTone, zDistribution, lowIntensityPct, highIntensityPct };
 }

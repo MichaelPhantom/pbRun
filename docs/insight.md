@@ -30,7 +30,7 @@
 |------|------|-------------|
 | 跑力 | VDOT 趋势 | 每次活动的 `vdot_value`；按月聚合 + 最小二乘线性拟合（`slopePer30d`）；近 60 天斜率 \|·\|<0.15 判定平台期 |
 | 负荷 | ACWR | 急性(近 7 天负荷) / 慢性(近 28 天周均负荷)；`optimal` 0.8–1.3、`caution` 1.3–1.5、`risk` >1.5 |
-| 负荷 | 强度分布 | 各活动 `time_in_hr_zone` 汇总各区间秒数占比（数组长度 7，真实库 Z6/Z7 恒为 0）；`lowIntensityPct` = Z1+Z2。页面标题由**实际非零区间**派生（`zoneRangeLabel`），不写死区间范围 |
+| 负荷 | 强度分布 | 各活动 `time_in_hr_zone` 汇总各区间秒数占比（**本地 5 区口径，数组长度恒为 5**，由逐秒心率推导、覆盖 348/348 活动）；`lowIntensityPct` = Z1+Z2、`highIntensityPct` = Z4+Z5。页面标题由**实际非零区间**派生（`zoneRangeLabel`），不写死区间范围 |
 | 周期 | 周 CTL/ATL/TSB | 由逐日负荷经 Banister EWMA（τ=42 / 7）计算，取每周期末值 |
 | 有氧 | 解耦 Pa:HR | 对 ≥10km 活动，用逐秒记录比较前后半段「速度/心率」比值相对变化；越低越强（优秀 <5%） |
 | 跑姿 | 步频/触地/垂直比 | 按月均值 |
@@ -130,7 +130,8 @@ activities / activity_laps / activity_records (SQLite)
 
 - **分段角色识别**（`analyzeLaps`）：跑步以整体**配速**为基准，将每段标记为
   热身/主课/恢复/冷身/匀速；主课段（明显快于基准）聚合出段数、距离、时长加权配速、心率漂移。
-- **心率区间占比**（`hrZoneBreakdown`）：解析活动 `time_in_hr_zone` JSON。
+- **心率区间占比**（`hrZoneBreakdown`）：解析活动 `time_in_hr_zone` JSON（本地 5 区口径，
+  与 `/analysis` 区间表同源；设备原始数组存在 `device_time_in_hr_zone`，不参与展示）。
 - **逐秒有氧解耦**：复用 `computeDecouplingPct`。
 - **同路线对比**（`db.getPeerActivities` + `computeComparison`）：优先按路线指纹找同行历史，否则按距离分档回退；输出配速排名与相对均值的差值。
 - **同位置对比**（`getLocationPeerActivities` / `getRouteShapePeerActivities` + `route-shape.ts`）：

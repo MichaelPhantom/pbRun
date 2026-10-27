@@ -90,7 +90,11 @@ class DatabaseManager {
         min_altitude REAL,                             -- 最低海拔
 
         -- 区间时间（秒），JSON 数组，如 [z0,z1,z2,...]
-        time_in_hr_zone TEXT,                          -- 心率区间时间
+        -- time_in_hr_zone 口径 = app 的 5 区模型（Z1<70%/Z2<80%/Z3<87%/Z4<93%/Z5>=93% MAX_HR），
+        -- 由逐秒心率推导，覆盖全部活动；跨活动可按索引聚合。
+        -- device_time_in_hr_zone 是设备原始 time_in_zone（边界方案随固件而变，仅供追溯）。
+        time_in_hr_zone TEXT,                          -- 心率区间秒数（本地 5 区口径，全活动覆盖）
+        device_time_in_hr_zone TEXT,                   -- 设备原始心率区间秒数（不可跨活动聚合）
         time_in_speed_zone TEXT,                       -- 速度区间时间
         time_in_cadence_zone TEXT,                     -- 步频区间时间
         time_in_power_zone TEXT,                       -- 功率区间时间
@@ -152,6 +156,7 @@ class DatabaseManager {
       ['hr_zone_boundaries', 'TEXT'],                // 心率区间上限边界（bpm）
       ['power_zone_boundaries', 'TEXT'],             // 功率区间上限边界（瓦）
       ['time_in_power_zone', 'TEXT'],                // 各功率区间停留秒数（session 级）
+      ['device_time_in_hr_zone', 'TEXT'],            // 设备原始心率区间秒数（边界方案随固件而变，跨活动不可比；仅供追溯）
       // 阈值元数据（FIT time_in_zone 消息，用于区间与强度分析）
       ['threshold_heart_rate', 'INTEGER'],           // 乳酸阈心率（bpm）
       ['max_heart_rate_fit', 'INTEGER'],             // 设备设置的最大心率（bpm）

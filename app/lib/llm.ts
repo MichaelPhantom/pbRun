@@ -273,7 +273,7 @@ function fmtNum(v?: number | null, digits = 0, unit = ''): string {
  * 与 `fmtNum` 相同, 但**值为空时返回 null**（表示「这一项不存在, 连标签都别输出」）。
  *
  * 两种缺失必须分开处理, 否则 prompt 会常年带着一行行 `--`:
- * - **该活动没记录**（真实库偶有值, 如 `max_speed` 43/348、`time_in_hr_zone` 140/348）→
+ * - **该活动没记录**（真实库偶有值, 如 `max_speed` 43/348）→
  *   输出 `--`，模型据此知道「这次没测到」；
  * - **真实库 348/348 全为空**（`training_stress_score` / `intensity_factor` /
  *   `average_power_to_weight` / `avg_grade`）→ 整项不输出。

@@ -21,6 +21,7 @@ const rel = (p) => path.join(ROOT, p);
 const CONTRACTS = [
   ['scripts/garmin/backfill-vdot.js', ['main']],
   ['scripts/garmin/backfill-fit-fields.js', ['main']],
+  ['scripts/garmin/backfill-hr-zones.js', ['main']],
   ['scripts/garmin/backfill-tracks.js', ['main']],
   ['scripts/garmin/init-garmin-data.js', ['main', 'checkEnvVars', 'clearDatabaseData']],
   ['scripts/garmin/sync.js', ['main', 'GarminSync']],

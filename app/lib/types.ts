@@ -68,7 +68,10 @@ export interface Activity {
   min_altitude?: number;                         // 最低海拔
 
   // 区间时间（秒），JSON 字符串，如 "[0,120,300,600]"
-  time_in_hr_zone?: string;                      // 心率区间时间
+  // time_in_hr_zone 口径固定为 app 5 区模型（见 app/lib/hr-zones.ts），长度恒为 5，
+  // 由逐秒心率推导、覆盖全部活动；device_time_in_hr_zone 才是设备原始数组（不可跨活动聚合）。
+  time_in_hr_zone?: string;                      // 心率区间秒数（本地 5 区口径）
+  device_time_in_hr_zone?: string;                // 设备原始区间秒数（仅供追溯）
   time_in_speed_zone?: string;                   // 速度区间时间
   time_in_cadence_zone?: string;                // 步频区间时间
   time_in_power_zone?: string;                   // 功率区间时间

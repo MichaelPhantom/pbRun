@@ -1053,7 +1053,13 @@ export function getDailyLoads(startDate: string, endDate: string): TrainingLoadP
   return getTrainingLoads(startDate, endDate);
 }
 
-/** 全区间 (不限日期) 各心率区间累计秒数, 7 元素 (索引 0=Z1)。 */
+/**
+ * 指定区间内各心率区间累计秒数, **5 元素 (索引 0=Z1)**。
+ *
+ * 口径 = app 的 5 区模型 (`app/lib/hr-zones.ts`)。`activities.time_in_hr_zone` 由
+ * 逐秒心率推导、长度恒为 5，故这里也固定 5 —— 旧实现按 7 元素累加，是因为当时
+ * 该列存的是设备原始 7 槽数组（且 140/348 缺失、跨活动边界方案不一致）。
+ */
 export function getHrZoneTotals(startDate: string, endDate: string): number[] {
   const db = getDatabase();
   validateRange(startDate, endDate, 'getHrZoneTotals');
@@ -1064,10 +1070,12 @@ export function getHrZoneTotals(startDate: string, endDate: string): number[] {
      WHERE time_in_hr_zone IS NOT NULL AND start_time >= ? AND start_time <= ?
        AND ${runningTypeClause('activities')}`
   ).all(start, end) as { time_in_hr_zone: string }[];
-  const totals = [0, 0, 0, 0, 0, 0, 0];
+  const totals = [0, 0, 0, 0, 0];
   for (const row of rows) {
     try {
       const arr = JSON.parse(row.time_in_hr_zone) as number[];
+      // 只累加前 5 槽: 长度恒为 5, 但历史上可能残留更长的设备数组, 多出的槽
+      // (Z6/Z7) 属于另一套边界方案, 混进来会让占比失真。
       for (let i = 0; i < totals.length; i++) totals[i] += arr[i] ?? 0;
     } catch {
       // 忽略损坏的 JSON

@@ -107,7 +107,9 @@ GET /api/activities
 | `garmin_vo2max` | number \| null | Garmin 官方 VO2max | ml/kg/min |
 | `recovery_time` | number \| null | 恢复时间 | 分钟 |
 | `primary_benefit` | string \| null | 训练主要收益 | - |
-| `hr_zone_boundaries` | string \| null | 心率区间上限边界 (JSON 数组) | bpm |
+| `hr_zone_boundaries` | string \| null | **设备**心率区间上限边界 (JSON 数组，边界方案随固件而变，仅追溯用) | bpm |
+| `time_in_hr_zone` | string \| null | 心率区间秒数 (JSON 数组，长度恒为 5，本地 5 区口径，覆盖全部活动) | 秒 |
+| `device_time_in_hr_zone` | string \| null | **设备原始**心率区间秒数 (JSON 数组，跨活动不可聚合，仅追溯用) | 秒 |
 | `power_zone_boundaries` | string \| null | 功率区间上限边界 (JSON 数组) | 瓦 |
 | `devices` | string \| null | 设备列表 (JSON 数组) | - |
 | `user_weight` | number \| null | 体重 | kg |
@@ -237,6 +239,8 @@ GET /api/activities/{id}
 - `training_load` 优先 FIT 官方值，缺省按时长 × 心率档回退。
 - `hr_zone_boundaries` / `power_zone_boundaries` / `devices` / `workout_steps` /
   `route_cells` / `route_bounds` 均为 **JSON 字符串**，需自行 `JSON.parse`。
+- `time_in_hr_zone` 是**唯一可用于统计**的区间数组（5 元素，见 §9「区间时长的唯一口径」）；
+  `device_time_in_hr_zone` 是设备原始数组，**不要跨活动相加**。
 - `track`（约 40KB 的降采样多段线）**不在此接口返回**，见下文说明。
 - 不存在的活动返回 404，`id` 非法返回 400。
 
@@ -540,6 +544,23 @@ GET /api/analysis/hr-zones?startDate=2026-09-01&endDate=2026-10-31&groupBy=month
 | Zone 3 | 80–87% | 乳酸阈值，节奏跑 |
 | Zone 4 | 87–93% | 无氧耐力，间歇跑 |
 | Zone 5 | > 93% | 最大摄氧量，冲刺 |
+
+### 区间时长的唯一口径（`activities.time_in_hr_zone`）
+
+`time_in_hr_zone` 存的是**上述 5 区模型**下各区间停留秒数（JSON 数组，长度恒为 5），
+由 `activity_records` 的**逐秒心率**推导，覆盖全部活动（真实库 348/348）。
+
+> **为什么不用设备原始数组**：FIT `time_in_zone` 消息里的 `time_in_hr_zone` 只有
+> 140/348 条活动有值，且区间边界随固件/用户设置变化 —— 实测生产库出现 **19 套**
+> 不同方案（`50/60/70/80/90/100%`、`52/62/72/82/92%`、`59/73/82/87/92%` of maxHR）。
+> 数组索引 2 在一套里是「70–80%」在另一套里是「73–82%」，**按索引跨活动相加得到的
+> 「Z3 占比」没有物理含义**。设备原始数组保留在 `device_time_in_hr_zone` 仅供追溯，
+> 任何统计/展示都不应读取它。
+>
+> 推导的可靠性：推导总秒数与 `moving_time` 偏差 <10% 的活动占 241/241（跑步）与
+> 107/107（非跑步）；暂停空档按 `HR_SAMPLE_MAX_GAP_SEC = 5s` 截断，避免暂停时间
+> 被算进最后一个区间。历史活动用 `npm run backfill:hr-zones` 回填（幂等，只重算
+> `time_in_hr_zone`，并把旧设备数组迁入 `device_time_in_hr_zone`）。
 
 ---
 

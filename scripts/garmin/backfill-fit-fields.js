@@ -70,6 +70,9 @@ async function main() {
         'workout_name', 'workout_steps', 'hrv_rmssd',
         // 海拔（km→m 换算修复后需重刷）
         'avg_altitude', 'max_altitude', 'min_altitude',
+        // 心率区间：time_in_hr_zone 是本地 5 区口径（由逐秒心率推导），
+        // device_time_in_hr_zone 是设备原始数组（仅供追溯）。两者都幂等。
+        'time_in_hr_zone', 'device_time_in_hr_zone',
       ];
       for (const f of fields) {
         if (a[f] != null) patch[f] = a[f];

@@ -146,11 +146,14 @@ describe('fit-parser: _extractZoneBoundaries（区间边界 + 停留时间 + 阈
     expect(JSON.parse(out.power_zone_boundaries)).toEqual([221, 272, 311, 343, 395, 4000, null, null]);
   });
 
-  test('补齐各区间停留时间（此前被丢弃）', () => {
+  test('设备原始区间时长存 device_time_in_hr_zone (不再直接当 time_in_hr_zone)', () => {
     const out = p._extractZoneBoundaries({ time_in_zone: [sessionZone] });
-    expect(out.time_in_hr_zone).toBeDefined();
+    // 关键: 设备数组的边界方案随固件/用户设置变化（实测 19 套），
+    // 索引含义跨活动不可比，故只能作为追溯数据留档。
+    expect(out.time_in_hr_zone).toBeUndefined();
+    expect(out.device_time_in_hr_zone).toBeDefined();
     // 浮点噪声收敛到 1 位小数
-    expect(JSON.parse(out.time_in_hr_zone)).toEqual([0, 18.3, 431.5, 1043.2, 348.9, 795.9, 0]);
+    expect(JSON.parse(out.device_time_in_hr_zone)).toEqual([0, 18.3, 431.5, 1043.2, 348.9, 795.9, 0]);
     expect(JSON.parse(out.time_in_power_zone)).toEqual([656.1, 552, 273, 612.8, 544, 0, 0, 0]);
   });
 
@@ -190,17 +193,18 @@ describe('fit-parser: _extractZoneBoundaries（区间边界 + 停留时间 + 阈
         },
       ],
     });
-    const arr = JSON.parse(out.time_in_hr_zone);
+    const arr = JSON.parse(out.device_time_in_hr_zone);
     // 尾部两个 null 被去除; 中间 null 保留
     expect(arr).toEqual([100, null, 300, 400, 500]);
     expect(arr[1]).toBeNull();
     expect(arr[2]).toBe(300);
   });
 
-  test('全 null → 不输出该字段', () => {
+  test('全 null → 不输出 device_time_in_hr_zone', () => {
     const out = p._extractZoneBoundaries({
       time_in_zone: [{ reference_mesg: 18, time_in_hr_zone: [null, null, null] }],
     });
+    expect(out.device_time_in_hr_zone).toBeUndefined();
     expect(out.time_in_hr_zone).toBeUndefined();
   });
 
@@ -264,12 +268,22 @@ describe('fit-parser: 端到端（真实 FIT 文件，若存在）', () => {
     expect(new Set(indexes).size).toBe(indexes.length);
     expect(devices.length).toBeGreaterThan(0);
 
-    // 区间停留时间已补齐且和为正当活动时长
+    // 区间秒数: 本地 5 区口径 (由逐秒心率推导), 长度恒为 5
     expect(activity.time_in_hr_zone).toBeTruthy();
     const hrZones = JSON.parse(activity.time_in_hr_zone);
+    expect(hrZones.length).toBe(5);
     const zoneSum = hrZones.reduce((a, b) => a + b, 0);
     expect(zoneSum).toBeGreaterThan(0);
     expect(zoneSum).toBeLessThanOrEqual(activity.duration + 60);
+    // 推导秒数应贴近 moving_time (逐秒心率覆盖整段移动时间)
+    expect(Math.abs(zoneSum - activity.moving_time) / activity.moving_time).toBeLessThan(0.1);
+
+    // 设备原始数组另行留档 (边界方案随固件而变, 不可跨活动聚合)
+    expect(activity.device_time_in_hr_zone).toBeTruthy();
+    const deviceZones = JSON.parse(activity.device_time_in_hr_zone);
+    expect(deviceZones.length).toBeGreaterThanOrEqual(6); // 设备是 6-7 槽模型
+    // 两者是不同的口径 —— 绝不能相等, 否则说明仍在校验同一套数据
+    expect(deviceZones.length).not.toBe(hrZones.length);
 
     expect(laps.length).toBeGreaterThan(0);
     expect(records.length).toBeGreaterThan(0);

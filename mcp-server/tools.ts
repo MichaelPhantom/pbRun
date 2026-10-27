@@ -101,7 +101,9 @@ export async function registerTools(server: McpServer): Promise<void> {
         '按 activity_id 返回单条活动的完整指标。distance 为公里, 时长/配速分别为秒/秒每公里。' +
         '含 Garmin 官方指标: garmin_vo2max(官方VO2max, 区别于本地推算的 vdot_value)、' +
         'recovery_time(恢复分钟)、primary_benefit(训练收益)、' +
-        'hr_zone_boundaries/power_zone_boundaries(区间边界 bpm/瓦, JSON 数组字符串)、' +
+        'hr_zone_boundaries/power_zone_boundaries(设备区间边界 bpm/瓦, JSON 数组字符串)、' +
+        'time_in_hr_zone(心率区间秒数, 本地 5 区口径, 长度恒为 5, 可直接按索引跨活动聚合)、' +
+        'device_time_in_hr_zone(设备原始区间秒数, 边界方案随固件而变, 仅追溯用, 不要跨活动相加)、' +
         'devices(设备列表 JSON, 已脱敏)、user_weight/user_height/resting_heart_rate_fit(用户档案)、' +
         'workout_name/workout_steps(课表)、hrv_rmssd(HRV 毫秒, 仅部分活动有)。' +
         'vdot_value 仅在 Z3+ 代表性强度段计算（取最快 Z3+ lap，否则全程 Z3+），日常轻松/恢复跑为 null；' +

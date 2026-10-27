@@ -350,6 +350,10 @@ CREATE TABLE activities (
   route_cells TEXT,                       -- geohash-7 网格签名 JSON 数组; 无轨迹为 NULL
   route_bounds TEXT,                      -- 抗尖峰包围盒 JSON (p2–p98); 无轨迹为 NULL
   route_km REAL,                          -- 清洗后轨迹长度 (公里); 无轨迹为 NULL
+
+  -- 心率区间 (见下节「区间口径」)
+  time_in_hr_zone TEXT,                   -- 本地 5 区秒数 JSON, 长度恒为 5; 由逐秒心率推导
+  device_time_in_hr_zone TEXT,            -- 设备原始区间秒数 JSON; 边界方案随固件而变, 仅追溯
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
@@ -359,6 +363,15 @@ CREATE TABLE activities (
 > `speedUnit=km/h`）；`altitude` 为米，`temperature` 为 °C。聚合/图表计算前按需换算为米/秒。
 > 历史逐秒温度用 `npm run backfill:temp` 从 `.cache/fit` 回填（备份 DB、仅补 NULL、幂等）；
 > 新活动随每日同步自动写入。
+>
+> **区间口径** (2026-10-27 修复): `activities.time_in_hr_zone` 存**本地 5 区模型**
+> （`app/lib/hr-zones.ts`：Z1<70% / Z2<80% / Z3<87% / Z4<93% / Z5≥93% × `MAX_HR`）
+> 的各区间秒数，JSON 数组长度恒为 5，由 `activity_records` 的**逐秒心率**推导，
+> 覆盖全部活动（真实库 348/348）。设备原始 `time_in_zone` 数组另存
+> `device_time_in_hr_zone` 仅供追溯 —— 它只有 140/348 条有值，且生产库实测 **19 套**
+> 不同边界方案，按索引跨活动相加没有物理含义。历史活动用 `npm run backfill:hr-zones`
+> 回填（幂等，备份 DB）。写入侧口径由 `scripts/common/hr-zones.js`（TS 的 CJS 镜像，
+> parity 测试守护）与 `fit-parser.js` 共同保证。
 >
 > **track 列** (路线轨迹): 存降采样后的 GPS 多段线 + 海拔剖面 + 包围盒 (JSON, ~≤40KB/条)。
 > 由 `scripts/garmin/fit-parser.js` 的 `_extractTrack` 在 FIT 解析时生成, 经 `upsertActivity` 动态列写入。

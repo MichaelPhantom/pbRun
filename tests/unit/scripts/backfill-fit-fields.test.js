@@ -82,6 +82,9 @@ describe('字段回填', () => {
         primary_benefit: 'VO2MAX',
         hrv_rmssd: undefined,
         avg_altitude: 300,
+        // 心率区间: 本地 5 区口径 + 设备原始数组都必须能回填
+        time_in_hr_zone: '[1,2,3,4,5]',
+        device_time_in_hr_zone: '[1,2,3,4,5,6,7]',
         // 核心指标不应出现在 patch 里
         distance: 10,
         average_heart_rate: 150,
@@ -94,6 +97,8 @@ describe('字段回填', () => {
       garmin_vo2max: 52.1,
       primary_benefit: 'VO2MAX',
       avg_altitude: 300,
+      time_in_hr_zone: '[1,2,3,4,5]',
+      device_time_in_hr_zone: '[1,2,3,4,5,6,7]',
     });
     const out = logSpy.mock.calls.map((c) => String(c[0])).join('\n');
     expect(out).toMatch(/回填 2 \/ 跳过 0 \/ 失败 0/);

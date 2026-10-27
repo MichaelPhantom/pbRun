@@ -66,11 +66,18 @@ describe('computeLoadInsight', () => {
     expect(out.highIntensityPct).toBe(0);
   });
 
-  test('强度分布: Z1/Z2 合计为轻松占比, Z4–Z7 合计为高强度占比', () => {
+  test('强度分布: Z1/Z2 合计为轻松占比, Z4+Z5 合计为高强度占比 (5 区口径)', () => {
     const out = run(secs({ 0: 40, 1: 40, 2: 0, 3: 10, 4: 10 }), []);
     expect(out.lowIntensityPct).toBeCloseTo(80, 5);
     expect(out.highIntensityPct).toBeCloseTo(20, 5);
     expect(out.zDistribution.reduce((s, z) => s + z.pct, 0)).toBeCloseTo(100, 5);
+  });
+
+  test('高强度不再计入 Z6/Z7 (那是设备原始 7 槽数组的旧口径)', () => {
+    // 传入 7 元素: Z6/Z7 有大量秒数, 但本地 5 区模型只认 Z1-Z5
+    const out = run([10, 10, 10, 10, 10, 500, 500], []);
+    expect(out.highIntensityPct).toBeCloseTo(40, 5); // (Z4+Z5)/Z1..Z5 = 20/50
+    expect(out.zDistribution).toHaveLength(5);       // 分布也裁到 5 区, 不画 Z6/Z7
   });
 
   test('负值只影响总量分母 (分布 pct 不 clamp, 属现状)', () => {
@@ -248,14 +255,14 @@ describe('buildFindings 各条件', () => {
 });
 
 describe('insight 边角: 短数组 / 短日期串 / 非有限 VDOT / r1=0', () => {
-  test('zSeconds 仅 1 段 → zSeconds[1] 为 undefined 走 ?? 0 兜底', () => {
+  test('zSeconds 仅 1 段 → five[1] 为 undefined 走 ?? 0 兜底', () => {
     const r = computeLoadInsight(daily(), [300]);
     expect(r.lowIntensityPct).toBeCloseTo(100, 3); // (300 + 0)/300
     expect(r.highIntensityPct).toBe(0);            // 高段全缺
     expect(r.zDistribution).toHaveLength(1);
   });
 
-  test('zSeconds 少于 7 段 → 高/低强度占比按缺失补 0 (不越界)', () => {
+  test('zSeconds 少于 5 段 → 高/低强度占比按缺失补 0 (不越界)', () => {
     const r = computeLoadInsight(daily(), [120, 60]);
     // low = (120+60) / 180 = 100%; high 段全缺 → 0
     expect(r.lowIntensityPct).toBeCloseTo(100, 3);

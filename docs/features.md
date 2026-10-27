@@ -80,7 +80,7 @@ pbRun 是跑步分析工具，但 Garmin 同步会把篮球/游泳/力量训练�
 | 仪表盘「本月概览」 | 「跑步天数」而非「活动天数」—— 数据源 `getTrainingLoads` 是跑步口径，真实库 2026-10 有 16 个活动日但只有 15 个跑步日（多出力量训练/爬楼）；旧标签会让人以为漏了一天 |
 | 仪表盘「VDOT 趋势」 | 副标题「近 N 次跑步」而非「次活动」—— `getVDOTHistory` 只含跑步（`vdot_value` 只对跑步计算） |
 | `/insight` 类别分布图 | aria-label「训练类别跑步次数分布」而非「活动数分布」—— `getInsightActivityRows` 是跑步口径，分类里的 `count` 是跑步次数 |
-| `/insight` 强度分布标题 | 由**实际非零区间**派生（`zoneRangeLabel`：Z1–Z5 / Z3–Z4 / Z1, Z2, Z4），旧文案写死「Z1–Z6」—— 真实库 140 条活动 `time_in_hr_zone` 的 Z6/Z7 **0/140 全为 0**，配色也只有 `--z1..--z5`，标题承诺了永远画不出来的区间 |
+| `/insight` 强度分布标题 | 由**实际非零区间**派生（`zoneRangeLabel`：Z1–Z5 / Z3–Z4 / Z1, Z2, Z4），旧文案写死「Z1–Z6」是空承诺；配色只有 `--z1..--z5` |
 | 分析页「当前跑力」副标题 | 「近一周跑步平均」而非「近一周活动平均」—— `currentVdot` 来自 `getStats('week').averageVDOT`，是跑步口径 |
 | 丹尼尔斯页「当前跑力」说明 | 「近一周跑步活动的 VDOT 平均值」并注明「只含跑步，游泳/球类不参与」—— 同源 `getStats('week')` |
 | `/stats` 个人纪录「单次最长距离」 | 「单次跑步最长距离」而非「单次训练最长距离」—— `getPersonalRecords` 带 `runningTypeClause`，游泳/球类不计入 |
@@ -109,6 +109,41 @@ pbRun 是跑步分析工具，但 Garmin 同步会把篮球/游泳/力量训练�
 跑步类型判定单点定义在纯模块 `app/lib/sport.ts`（`RUNNING_ACTIVITY_TYPES` /
 `isRunningType` / `activityTypeLabel` / `activityTypeIcon`）：`db.ts` 的 SQL 片段由该
 常量派生，客户端组件直接用同一份判定，因此不存在「SQL 与 UI 两套列表漂移」。
+
+### 1.2 心率区间只有一个口径（`activities.time_in_hr_zone`）
+
+`time_in_hr_zone` 存**本地 5 区模型**（`app/lib/hr-zones.ts`：Z1<70% / Z2<80% /
+Z3<87% / Z4<93% / Z5≥93% × `MAX_HR`）下各区间停留秒数，JSON 数组长度恒为 **5**，
+由 `activity_records` 的**逐秒心率**推导（`hrZoneSecondsFromSamples`），覆盖全部活动
+（真实库 **348/348**）。写入侧：`scripts/garmin/fit-parser.js` 调
+`scripts/common/hr-zones.js`（TS 的 CJS 镜像，parity 由
+`tests/unit/scripts/hr-zones-parity.test.ts` 守护）；历史数据用
+`npm run backfill:hr-zones` 回填。
+
+**为什么不能用设备原始数组**（2026-10-27 修复的三层缺陷）：
+
+| 缺陷 | 证据 | 后果 |
+|------|------|------|
+| 覆盖不全 | FIT `time_in_zone` 的 `time_in_hr_zone` 只有 **140/348** 条有值；`activity_records` 逐秒心率 **348/348** 全有 | `/insight` 强度分布只统计 33/241 条跑步活动，其余显示为空 |
+| 跨活动不可聚合 | 生产库 **19 套**不同边界方案（`50/60/70/80/90/100%`、`52/62/72/82/92%`、`59/73/82/87/92%` of maxHR） | 索引 2 在一套里是「70–80%」在另一套里是「73–82%」，按索引相加的「Z3 占比」无物理含义 |
+| 与 UI 口径冲突 | 同一活动同一时段：设备 7 槽给出 Z3 **49.7%**，app 5 区给出 Z3 **40.3%**（活动 653862644） | `/insight` 说「Z1–Z2 轻松 4.7%」，`/analysis` 说 72.5% —— 同一指标两个答案 |
+
+修复后 `getHrZoneTotals` 固定返回 5 元素、`computeLoadInsight` 的
+`lowIntensityPct`=Z1+Z2、`highIntensityPct`=Z4+Z5（不再把 Z6/Z7 算进高强度），
+`hrZoneBreakdown`、`runner-profile` 的 28 天强度分布同源。设备原始数组保留在
+`activities.device_time_in_hr_zone` 仅供追溯，任何统计/展示都不读它。
+
+推导可靠性：推导总秒数与 `moving_time` 偏差 <10% 的活动占 **241/241**（跑步）与
+**107/107**（非跑步）；暂停空档按 `HR_SAMPLE_MAX_GAP_SEC = 5s` 截断，避免暂停时间
+被算进最后一个区间。真实库回填后 `/insight` 全区间强度分布为
+Z1 19.5% / Z2 53.0% / Z3 16.1% / Z4 9.2% / Z5 2.2%（低 72.5% / 高 11.4%）。
+
+> **与 §9 区间表（`/analysis`）的差异是采样粒度，不是模型**：`getHrZoneStats` 把
+> **每个 lap 的整段时长**归入其平均心率所在的区间（因此能看到「Z2 平均配速 5:40」），
+> 而 `/insight` 与活动详情用**逐秒心率**归区。同一批真实数据下 Z1 分别为 20.3% 与
+> 19.5% —— 差异来自「一段配速不均的 lap 只能落一个区间」vs「每秒各归其区」，
+> 两者都建立在同一套 `HR_ZONE_BOUNDS` 之上。不要把这两个数字「对齐」成同一个值，
+> 那会牺牲区间表的 lap 级明细。
 
 ---
 
@@ -186,7 +221,7 @@ pbRun 是跑步分析工具，但 Garmin 同步会把篮球/游泳/力量训练�
 | 类别 | 判定 | 输出 | 实例（真实库） |
 |------|------|------|---------------|
 | **该运动不产出** | 写入口就限定运动类型，或设备/平台根本不写 | **整项不输出**（连标签） | `training_stress_score` / `intensity_factor` / `average_power_to_weight` / `avg_grade` **0/348**；非跑步的 `average_power` / `normalized_power` / `training_load` / `avg_altitude` / `average_temperature` **0/107** |
-| **该活动没测到** | 数据源支持，只是这次没有 | 保留标签 + `--` | `vdot_value` 120/241 为空、`time_in_hr_zone` 208/348 为空、非跑步的 `average_speed` 97/107 为空 |
+| **该活动没测到** | 数据源支持，只是这次没有 | 保留标签 + `--` | `vdot_value` 120/241 为空、`max_speed` 305/348 为空、非跑步的 `average_speed` 97/107 为空 |
 
 实现：`fmtNumIf()` 值为空返回 `null`，`statRow()` 把 `null` 项整项略去、全空则整行丢弃。
 守护：`tests/unit/lib/llm-gateway.test.ts`（「数据源从不产出的字段整项不出现」/「有值时照常
