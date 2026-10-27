@@ -62,6 +62,23 @@ function wireDb(overrides = {}) {
     hrZoneRows: [
       { activity_id: 1, moving_time: 3600, duration: 3700, time_in_hr_zone: JSON.stringify([600, 1800, 900, 300, 0]) },
     ],
+    // lap 级区间口径: 与活动级**可加总**（同一批逐秒记录按时间窗切分）。
+    // 默认只有 1 段且与活动级完全相等 —— 干净数据必须零 issue 零 warning。
+    lapZoneRows: [
+      {
+        activity_id: 1,
+        lap_index: 0,
+        duration: 3600,
+        time_in_hr_zone: JSON.stringify([600, 1800, 900, 300, 0]),
+        time_in_power_zone: JSON.stringify([300, 1500, 1200, 600, 0]),
+      },
+    ],
+    lapZoneActivityRows: [
+      { activity_id: 1, time_in_hr_zone: JSON.stringify([600, 1800, 900, 300, 0]) },
+    ],
+    lapZonePowerActivityRows: [
+      { activity_id: 1, time_in_power_zone: JSON.stringify([300, 1500, 1200, 600, 0]) },
+    ],
     // 库里实际的列（默认与声明一致 → 无漂移）
     dbColumns: {
       activities: ['activity_id', 'name', 'device_time_in_speed_zone'],
@@ -90,6 +107,17 @@ function wireDb(overrides = {}) {
     if (/NOT IN/.test(q)) return make({ count: cfg.orphanedLaps });
     if (/GROUP BY activity_id/.test(q)) return make(cfg.lapStats);
     if (/SELECT activity_id, moving_time, duration, time_in_hr_zone/.test(q)) return make(cfg.hrZoneRows);
+    // lap 级区间口径: 必须先于泛化匹配 —— lap 查询同时含 time_in_hr_zone 与
+    // time_in_power_zone, 且活动级对照查询只选 activity_id + 单列。
+    if (/SELECT activity_id, lap_index, duration, time_in_hr_zone, time_in_power_zone/.test(q)) {
+      return make(cfg.lapZoneRows);
+    }
+    if (/SELECT activity_id, time_in_hr_zone\s+FROM activities/.test(q)) {
+      return make(cfg.lapZoneActivityRows);
+    }
+    if (/SELECT activity_id, time_in_power_zone\s+FROM activities/.test(q)) {
+      return make(cfg.lapZonePowerActivityRows);
+    }
     // schema 漂移: PRAGMA table_info(表名) → 该表在「库里实际有」的列
     const pragma = /PRAGMA table_info\((\w+)\)/.exec(q);
     if (pragma) {
@@ -310,6 +338,177 @@ describe('心率区间口径校验 (validateHrZoneScope)', () => {
     });
     const v = new DataValidator();
     v.validateHrZoneScope();
+    expect(v.warnings).toEqual([]);
+  });
+});
+
+/**
+ * lap 级区间口径校验（validateLapZoneScope）。
+ *
+ * 活动级有 `validateHrZoneScope` 守着，但 lap 级 `time_in_hr_zone` /
+ * `time_in_power_zone` **一直没有例行校验**。它比活动级更容易坏：值由
+ * `scripts/common/lap-zones.js` 按 `[前一段累计, 本段累计)` 时间窗从逐秒记录切分，
+ * 窗口算错**不会报错**，只会让每段区间分布失真 —— 页面照常渲染，数字静默错误。
+ *
+ * 判据 2（lap 求和 ≈ 活动级）是唯一能发现「窗口切错 / 整段漏切」的机器手段：
+ * 单看某一段完全看不出来，必须与同源的活动级总数对照。
+ */
+describe('lap 级区间口径校验 (validateLapZoneScope)', () => {
+  test('无任何分段 → 提示后返回 (不判错)', () => {
+    wireDb({ lapZoneRows: [] });
+    const v = new DataValidator();
+    v.validateLapZoneScope();
+    const out = mockLog.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(out).toContain('无任何分段数据');
+    expect(v.issues).toEqual([]);
+    expect(v.warnings).toEqual([]);
+  });
+
+  test('长度恒为 5 且与活动级可加总 → 双 ✓, 零 issue/warning', () => {
+    wireDb();
+    const v = new DataValidator();
+    v.validateLapZoneScope();
+    expect(v.issues).toEqual([]);
+    expect(v.warnings).toEqual([]);
+    const out = mockLog.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(out).toContain('lap 区间数组口径: 长度恒为 5');
+    expect(out).toContain('lap 求和与活动级一致');
+  });
+
+  test('长度非 5 (设备原始 7 槽数组被写进统一列) → issue', () => {
+    wireDb({
+      lapZoneRows: [
+        {
+          activity_id: 1,
+          lap_index: 0,
+          duration: 3600,
+          time_in_hr_zone: JSON.stringify([1, 2, 3, 4, 5, 6, 7]),
+          time_in_power_zone: null,
+        },
+      ],
+    });
+    const v = new DataValidator();
+    v.validateLapZoneScope();
+    expect(v.issues.some((i) => /必须是本地 5 区模型/.test(i.message))).toBe(true);
+    const out = mockLog.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(out).toContain('长度非 5 1 段');
+  });
+
+  test('坏 JSON → issue', () => {
+    wireDb({
+      lapZoneRows: [
+        {
+          activity_id: 1,
+          lap_index: 0,
+          duration: 3600,
+          time_in_hr_zone: '{broken',
+          time_in_power_zone: null,
+        },
+      ],
+    });
+    const v = new DataValidator();
+    v.validateLapZoneScope();
+    expect(v.issues.some((i) => /坏 JSON 1/.test(i.message))).toBe(true);
+  });
+
+  test('lap 求和偏离活动级 >15% → warning 并给出样例 (不判 issue)', () => {
+    // 模拟「整段漏切」: 3 段里只切了 2 段, 总数明显偏小。
+    wireDb({
+      lapZoneRows: [
+        { activity_id: 1, lap_index: 0, duration: 1800, time_in_hr_zone: JSON.stringify([300, 900, 0, 0, 0]), time_in_power_zone: null },
+        { activity_id: 1, lap_index: 1, duration: 1800, time_in_hr_zone: JSON.stringify([300, 900, 0, 0, 0]), time_in_power_zone: null },
+      ],
+      lapZoneActivityRows: [
+        { activity_id: 1, time_in_hr_zone: JSON.stringify([600, 1800, 900, 300, 0]) },
+      ],
+    });
+    const v = new DataValidator();
+    v.validateLapZoneScope();
+    expect(v.issues).toEqual([]);
+    const warn = v.warnings.map((w) => w.message).join(' | ');
+    expect(warn).toMatch(/lap 心率区间求和与活动级偏离 >15%/);
+    const out = mockLog.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(out).toContain('1(2400s vs 3600s)');
+  });
+
+  test('5% 级天然错位不误报 (真实库最大偏差 5.06%)', () => {
+    wireDb({
+      lapZoneRows: [
+        { activity_id: 549318948, lap_index: 0, duration: 3600, time_in_hr_zone: JSON.stringify([600, 1800, 900, 300, 0]), time_in_power_zone: null },
+      ],
+      lapZoneActivityRows: [
+        // 活动级略大于 lap 求和 → 5.06% 偏差, 必须留在容差内
+        { activity_id: 549318948, time_in_hr_zone: JSON.stringify([631, 1895, 948, 316, 0]) },
+      ],
+    });
+    const v = new DataValidator();
+    v.validateLapZoneScope();
+    expect(v.warnings).toEqual([]);
+  });
+
+  test('lap 与活动级不同时有值 → 提示无可对照, 不误判', () => {
+    wireDb({
+      lapZoneRows: [
+        { activity_id: 1, lap_index: 0, duration: 3600, time_in_hr_zone: null, time_in_power_zone: JSON.stringify([300, 1500, 1200, 600, 0]) },
+      ],
+      lapZoneActivityRows: [],
+      lapZonePowerActivityRows: [],
+    });
+    const v = new DataValidator();
+    v.validateLapZoneScope();
+    expect(v.issues).toEqual([]);
+    expect(v.warnings).toEqual([]);
+    const out = mockLog.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(out).toContain('无可对照的活动级心率区间');
+    expect(out).toContain('无可对照的活动级功率区间');
+  });
+
+  /**
+   * **功率区间必须与心率同等受检**（2026-10-27 修）。
+   *
+   * 首版 `validateLapZoneScope` 只查了 `time_in_hr_zone` —— 半个契约。功率区间
+   * 是**另一条独立推导链**（`%FTP` 5 区模型），窗口算错一样会静默失真，而且它
+   * 没有活动级 `validateHrZoneScope` 那种兜底。这个用例专门锁住「两种口径都查」：
+   * 只让功率出问题、心率正常，若校验器只查心率就会漏报。
+   */
+  test('功率区间同样受检 (只查心率是半个契约)', () => {
+    wireDb({
+      lapZoneRows: [
+        {
+          activity_id: 1,
+          lap_index: 0,
+          duration: 3600,
+          time_in_hr_zone: JSON.stringify([600, 1800, 900, 300, 0]),
+          // 功率只切了一半 → 求和远小于活动级
+          time_in_power_zone: JSON.stringify([150, 750, 600, 0, 0]),
+        },
+      ],
+      lapZoneActivityRows: [
+        { activity_id: 1, time_in_hr_zone: JSON.stringify([600, 1800, 900, 300, 0]) },
+      ],
+      lapZonePowerActivityRows: [
+        { activity_id: 1, time_in_power_zone: JSON.stringify([300, 1500, 1200, 600, 0]) },
+      ],
+    });
+    const v = new DataValidator();
+    v.validateLapZoneScope();
+    // 心率正常 → 不得报心率
+    const warn = v.warnings.map((w) => w.message).join(' | ');
+    expect(warn).not.toMatch(/心率区间求和/);
+    // 功率异常 → 必须报功率
+    expect(warn).toMatch(/lap 功率区间求和与活动级偏离 >15%/);
+  });
+
+  test('无窗口的 lap (duration 0) 为 NULL 不算缺陷', () => {
+    wireDb({
+      lapZoneRows: [
+        { activity_id: 1, lap_index: 0, duration: 0, time_in_hr_zone: null, time_in_power_zone: null },
+        { activity_id: 1, lap_index: 1, duration: 3600, time_in_hr_zone: JSON.stringify([600, 1800, 900, 300, 0]), time_in_power_zone: null },
+      ],
+    });
+    const v = new DataValidator();
+    v.validateLapZoneScope();
+    expect(v.issues).toEqual([]);
     expect(v.warnings).toEqual([]);
   });
 });

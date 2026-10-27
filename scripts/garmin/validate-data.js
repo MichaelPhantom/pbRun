@@ -76,6 +76,7 @@ class DataValidator {
     this.validateDataRanges();
     this.validateRelationships();
     this.validateHrZoneScope();
+    this.validateLapZoneScope();
     this.validateSchemaDrift();
 
     // Summary
@@ -520,6 +521,164 @@ class DataValidator {
   }
 
   /**
+   * lap 级区间口径验证（2026-10-27 新增）。
+   *
+   * ## 为什么必须单独校验
+   *
+   * 活动级 `time_in_hr_zone` 有 `validateHrZoneScope` 守着，但 lap 级
+   * `activity_laps.time_in_hr_zone` / `time_in_power_zone` **一直没有例行校验**。
+   * 而它比活动级更容易坏：值由 `scripts/common/lap-zones.js` 按
+   * `[前一段累计, 本段累计)` 时间窗从逐秒记录切分而来，窗口算错**不会报错**，
+   * 只会让每段的区间分布失真 —— 页面照常渲染，数字静默错误。
+   *
+   * ## 三条判据
+   *
+   * 1. **长度恒为 5**（与活动级同构，跨 lap 可按索引聚合）；
+   * 2. **lap 求和 ≈ 活动级**（两侧由同一批记录推导，必然可加总。这是唯一能
+   *    发现「窗口切错 / 漏切一段」的机器手段 —— 单看某一 lap 看不出来）；
+   * 3. 无窗口的 lap（`duration: 0`）允许为 NULL，但**不该在有样本时为全 0**。
+   *
+   * 判据 2 的容差取 15%：实测 286 条有 lap 数据的活动里最大偏差 **5.06%**
+   * （`549318948`），来自 lap `cumulative_time` 与记录 `elapsed_sec` 的天然错位
+   * （p50 3s / max 19s）。15% 留出余量但仍能抓住「整段漏切」这类量级错误。
+   */
+  validateLapZoneScope() {
+    log('\n9. lap 级区间口径验证', 'cyan');
+
+    const laps = this.db.prepare(`
+      SELECT activity_id, lap_index, duration, time_in_hr_zone, time_in_power_zone
+      FROM activity_laps
+    `).all();
+
+    if (laps.length === 0) {
+      log('  ⚠ 无任何分段数据', 'yellow');
+      return;
+    }
+
+    let badJson = 0;
+    let badLength = 0;
+    let hrCount = 0;
+    let pwCount = 0;
+    for (const lap of laps) {
+      for (const [col, raw] of [
+        ['hr', lap.time_in_hr_zone],
+        ['power', lap.time_in_power_zone],
+      ]) {
+        if (raw == null) continue;
+        if (col === 'hr') hrCount++;
+        else pwCount++;
+        try {
+          const arr = JSON.parse(raw);
+          if (!Array.isArray(arr) || arr.length !== 5) badLength++;
+        } catch {
+          badJson++;
+        }
+      }
+    }
+
+    if (badJson === 0 && badLength === 0) {
+      log(
+        `  ✓ lap 区间数组口径: 长度恒为 5 (心率 ${hrCount} 段 / 功率 ${pwCount} 段)`,
+        'green',
+      );
+    } else {
+      log(`  ✗ lap 区间数组异常: 坏 JSON ${badJson} 段 / 长度非 5 ${badLength} 段`, 'red');
+      this.addIssue(
+        '区间口径',
+        `activity_laps.time_in_*_zone 必须是本地 5 区模型（长度 5）: 坏 JSON ${badJson} / 长度异常 ${badLength}`,
+      );
+    }
+
+    // 判据 2: lap 求和 vs 活动级 —— 唯一能发现「窗口切错 / 整段漏切」的机器手段。
+    //
+    // **两种区间口径都必须查**。只查心率是半个契约：`time_in_power_zone` 同样由
+    // `lap-zones.js` 的时间窗切分推导，窗口算错一样会静默失真，而功率那边没有
+    // `validateHrZoneScope` 那种活动级兜底（功率区间是另一条独立推导链）。
+    // 实测生产库两种口径都健康：心率 286 条对照最大偏差 5.06%，功率 241 条
+    // 最大 0.99% —— 所以用同一套 15% 容差即可，不必各设一套。
+    for (const [col, label] of [
+      ['time_in_hr_zone', '心率'],
+      ['time_in_power_zone', '功率'],
+    ]) {
+      this._checkLapZoneSum(col, label, laps);
+    }
+  }
+
+  /**
+   * lap 区间求和 vs 活动级（单一口径）。抽出来是为了让心率/功率**共用同一实现** ——
+   * 两套各写一遍，迟早会有一套忘了改（这正是本轮要修的缺陷类型）。
+   */
+  _checkLapZoneSum(col, label, laps) {
+    const acts = this.db.prepare(`
+      SELECT activity_id, ${col}
+      FROM activities
+      WHERE ${col} IS NOT NULL
+    `).all();
+    const lapByAct = new Map();
+    for (const lap of laps) {
+      const raw = lap[col];
+      if (raw == null) continue;
+      if (!lapByAct.has(lap.activity_id)) lapByAct.set(lap.activity_id, []);
+      lapByAct.get(lap.activity_id).push(raw);
+    }
+
+    let checked = 0;
+    let outliers = 0;
+    const samples = [];
+    for (const act of acts) {
+      const lapJsons = lapByAct.get(act.activity_id);
+      if (!lapJsons || lapJsons.length === 0) continue;
+      let actArr;
+      try {
+        actArr = JSON.parse(act[col]);
+      } catch {
+        continue;
+      }
+      if (!Array.isArray(actArr)) continue;
+      const actTotal = actArr.reduce((a, b) => a + (Number(b) || 0), 0);
+      if (!(actTotal > 0)) continue;
+      const sum = [0, 0, 0, 0, 0];
+      for (const raw of lapJsons) {
+        try {
+          const arr = JSON.parse(raw);
+          if (!Array.isArray(arr) || arr.length !== 5) continue;
+          arr.forEach((v, i) => {
+            sum[i] += Number(v) || 0;
+          });
+        } catch {
+          /* 上面已计入 badJson */
+        }
+      }
+      const lapTotal = sum.reduce((a, b) => a + b, 0);
+      checked++;
+      const dev = Math.abs(lapTotal - actTotal) / actTotal;
+      if (dev > 0.15) {
+        outliers++;
+        if (samples.length < 5) {
+          samples.push(`${act.activity_id}(${lapTotal}s vs ${actTotal}s)`);
+        }
+      }
+    }
+
+    if (checked === 0) {
+      log(`  ⚠ 无可对照的活动级${label}区间（lap 与活动级不同时有值）`, 'yellow');
+      return;
+    }
+    if (outliers === 0) {
+      log(`  ✓ ${label} lap 求和与活动级一致 (偏差 ≤15%, 对照 ${checked} 条活动)`, 'green');
+    } else {
+      log(
+        `  ⚠ ${label} lap 求和与活动级偏离 >15%: ${outliers}/${checked} 条 (${samples.join(', ')})`,
+        'yellow',
+      );
+      this.addWarning(
+        '区间口径',
+        `${outliers}/${checked} 条活动的 lap ${label}区间求和与活动级偏离 >15%（检查 lap 时间窗切分）`,
+      );
+    }
+  }
+
+  /**
    * schema 漂移验证（2026-10-27 新增）。
    *
    * ## 为什么需要
@@ -544,7 +703,7 @@ class DataValidator {
    *   但说明迁移没清理；若它是旧口径的统一列则可能是口径陷阱）
    */
   validateSchemaDrift() {
-    log('\n9. schema 漂移验证', 'cyan');
+    log('\n10. schema 漂移验证', 'cyan');
 
     for (const table of ['activities', 'activity_laps']) {
       const declared = DatabaseManager.declaredColumns(table);

@@ -755,6 +755,7 @@ GPS 漂移、起终点的静止采样都被判为「有效移动」，混进前�
 | **校验器必须真的能失败** | `scripts/garmin/validate-data.js` 的 `main()` 退出码：`issues`→1、仅 `warnings`→0（设备不写是常态）、`--strict`→1；退出调用写在 `try/catch` 之外 | `tests/unit/scripts/validate-data.test.js` 的 `main() 退出码契约` 5 例（含「仅 warning 不得卡 CI」与「有 issue 必须失败」两个反向断言） |
 | **生产库列集合必须与代码声明一致** | `DatabaseManager.declaredColumns(table)`（内存库走真实建表+迁移路径得到声明列集合）；`_initDatabase` 幂等补 `device_*` 列并清理旧口径 `time_in_speed_zone`/`time_in_cadence_zone`（全 NULL 直接 DROP，有值先 `COALESCE` 搬到 `device_*` 再 DROP） | `tests/unit/common/db-manager-schema-drift.test.js`（声明自洽、旧库遗留列被清理且**有值时不丢数据**、`COALESCE` 不覆盖新值、生产库与声明完全一致）+ `validate-data.js` 的 `validateSchemaDrift`（缺列判错、多列告警，两表独立） |
 | **schema 单位注释必须与解析器一致** | `scripts/common/db-manager.js` 的 `activity_records.speed`/`distance` 注释（公里/小时、公里），真值来源是 `fit-parser` 的 `lengthUnit='km'` / `speedUnit='km/h'` | `tests/unit/common/db-manager-units.test.js`（注释表述 = 解析器配置、旧「米/秒」表述不得回归、模块可加载防模板字符串语法错误） |
+| **lap 级区间必须有例行校验（两种口径都查）** | `validate-data.js` 的 `validateLapZoneScope()`：lap `time_in_hr_zone`/`time_in_power_zone` 长度恒为 5；lap 求和 vs 活动级偏差 ≤15%（共用 `_checkLapZoneSum`，心率/功率同一实现） | `tests/unit/scripts/validate-data.test.js`（8 例：无分段不判错、干净数据双 ✓、长度非 5→issue、坏 JSON→issue、求和 >15%→warning 带样例、5.06% 天然错位不误报、无可对照不误判、零长 lap 不算缺陷）+ 专锁「功率同样受检」1 例（只查心率会红） |
 | **lap 窗口切分只能有一份实现** | `scripts/common/lap-zones.js`（`lapWindowSamples` / `deriveLapZoneSeconds` / `applyLapZoneSeconds`）；`fit-parser._assignLapZoneSeconds` 与 `backfill-lap-zones.js` 都 require 它 | `tests/unit/common/lap-zones.test.js`（半开区间不重不漏、按 `cumulative_time` 而非 `start_time`、长度恒 5、无 FTP/无心率不造全 0、`cumulative_time` 缺失/倒退/零长跳过、`Number(null)===0` 陷阱） |
 | **回填必须先补列再迁移, 最后才重算** | `scripts/garmin/backfill-lap-zones.js`（4 个 `device_*` 列幂等补上 → 旧设备数组迁 `device_*` → 全量重算；无时间窗的 lap 写 NULL 而非保留陈旧值） | `tests/unit/scripts/backfill-lap-zones.test.js`（15 例：顺序缺陷注入转红、幂等不二次覆盖、损坏 JSON 不迁移、无 FTP/无记录/无时间窗不猜、dry-run 不改 schema、求和偏离告警） |
 | **lap 级区间秒数只由 app 5 区模型推导** | `scripts/garmin/fit-parser.js` 的 `_assignLapZoneSeconds`（按 `cumulative_time` 半开窗口切分逐秒样本，长度恒 5）；设备原始数组一律进 `device_time_in_*_zone` | `tests/unit/garmin/lap-zone-scope.test.js`（设备 7/8 槽数组不得进统一列；推导长度恒 5；各 lap 求和 ≈ 活动级；无 FTP/无心率时不写列；`cumulative_time` 缺失/倒退时跳过） |
@@ -857,6 +858,13 @@ GPS 漂移、起终点的静止采样都被判为「有效移动」，混进前�
   唯一没值的那 1 个 lap 是 `550530240` 的 `duration: 0` 零长段（无时间窗，不猜）。
   消费方：分段表「主要区间」列（`dominantZone` 取占比最高区间）+ AI 上下文
   「分段主区间 K0=Z2 K1=Z3」（`running` 门控下另给「分段主功率区间」）。
+- **lap 级口径必须有例行校验**。活动级有 `validateHrZoneScope` 守着，lap 级此前
+  **完全没有** —— 而它更容易坏：值由时间窗从逐秒记录切分，窗口算错不报错，只是
+  每段分布静默失真（页面照常渲染）。`validate-data.js` 的 `validateLapZoneScope()`
+  查两条：长度恒为 5、lap 求和 ≈ 活动级（容差 15%）。后者是唯一能发现「窗口切错 /
+  整段漏切」的机器手段 —— 单看某一段看不出来，必须与同源的活动级总数对照。
+  **心率与功率两种口径都要查**：只查心率是半个契约，功率是另一条独立推导链
+  （`%FTP` 5 区），没有活动级兜底。
 - **窗口逻辑只能有一份实现**。若解析器与回填脚本各写一份，同步写入的 lap 行与
   回填写入的 lap 行就会不可加总 —— 而且**不报错**，只是「Z4 那几段配速掉了没」
   这类判断悄悄失真。故 `scripts/common/lap-zones.js` 是唯一实现，两侧都 require 它
