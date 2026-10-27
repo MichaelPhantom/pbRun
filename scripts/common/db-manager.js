@@ -8,12 +8,19 @@ const path = require('path');
 
 class DatabaseManager {
   constructor(dbPath = 'app/data/activities.db') {
-    this.dbPath = path.resolve(dbPath);
+    // `:memory:` 是 SQLite 的**特殊名字**，不是文件路径。`path.resolve(':memory:')`
+    // 会把它变成 `<cwd>/:memory:` —— 于是「内存库」悄悄在磁盘上建了一个真文件，
+    // 而且不同 cwd 下落到不同位置（本次 `declaredColumns()` 就用到了内存库，
+    // 差点把 `:memory:` 文件留在仓库根目录）。故内存库必须原样传给 better-sqlite3。
+    const isMemory = dbPath === ':memory:';
+    this.dbPath = isMemory ? dbPath : path.resolve(dbPath);
 
-    // Ensure data directory exists
-    const dataDir = path.dirname(this.dbPath);
-    if (!fs.existsSync(dataDir)) {
-      fs.mkdirSync(dataDir, { recursive: true });
+    // Ensure data directory exists（内存库没有目录）
+    if (!isMemory) {
+      const dataDir = path.dirname(this.dbPath);
+      if (!fs.existsSync(dataDir)) {
+        fs.mkdirSync(dataDir, { recursive: true });
+      }
     }
 
     this.db = new Database(this.dbPath);
@@ -308,6 +315,57 @@ class DatabaseManager {
       }
     }
 
+    // 丢弃**旧口径遗留列**（2026-10-27）。
+    //
+    // `time_in_speed_zone` / `time_in_cadence_zone` 这两列在 app 侧**没有**任何
+    // 5 区模型，正确落点是 `device_*` 前缀列（设备原始数组仅供追溯）。旧 schema
+    // 直接用了不带前缀的名字 —— 留着就是一个口径陷阱：下一个人看到「有
+    // `time_in_speed_zone` 列」就会以为它是统一口径、按索引跨活动聚合，而设备
+    // 边界方案随固件而变，聚合结果没有物理含义（与心率/功率踩过的坑同源）。
+    //
+    // ## 为什么不能直接 DROP
+    //
+    // 生产库实测 4 列（activities + activity_laps 各 2）**全部 100% NULL**，直接
+    // DROP 不丢数据。但 `_initDatabase` 会对**任何**打开的库执行（包括用户从备份
+    // 恢复的旧库、别人的库）—— 无条件 DROP 等于「凡是有值的旧库都静默丢数据」，
+    // 而迁移本身不报错、没人会发现。所以按数据决定动作：
+    //
+    // - **全 NULL** → 直接 DROP（无数据可丢）
+    // - **有值** → 先搬到 `device_<同名列>`（不覆盖该列已有值），再 DROP
+    //
+    // 这样迁移既清掉了口径陷阱，又保证了「旧库里的设备数组不会因为升级而消失」。
+    // 搬运目标列此时一定存在（上面 newActivityColumns / newLapColumns 刚补过）。
+    // SQLite 3.35+ 支持 DROP COLUMN；旧版本或列不存在时跳过（不阻断建库）。
+    for (const table of ['activities', 'activity_laps']) {
+      for (const col of ['time_in_speed_zone', 'time_in_cadence_zone']) {
+        try {
+          const present = this.db
+            .prepare(`PRAGMA table_info(${table})`)
+            .all()
+            .some((c) => c.name === col);
+          if (!present) continue;
+
+          const nonNull = this.db
+            .prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE ${col} IS NOT NULL`)
+            .get().n;
+          if (nonNull > 0) {
+            // 保留原始设备数据: 只填空目标列，绝不覆盖已有值（目标列可能已经被
+            // 回填脚本按新口径写过，覆盖就等于用旧方案污染统一列）。
+            this.db
+              .prepare(
+                `UPDATE ${table}
+                    SET device_${col} = COALESCE(device_${col}, ${col})
+                  WHERE ${col} IS NOT NULL`
+              )
+              .run();
+          }
+          this.db.exec(`ALTER TABLE ${table} DROP COLUMN ${col}`);
+        } catch {
+          /* 列不存在 / SQLite 太旧 / 有约束引用: 保留即可, 不阻断建库 */
+        }
+      }
+    }
+
     // Create indexes for laps
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_laps_activity_id
@@ -521,6 +579,35 @@ class DatabaseManager {
 
   close() {
     this.db.close();
+  }
+
+  /**
+   * 本代码**声明的**列集合（`CREATE TABLE` + `newActivityColumns`/`newLapColumns`
+   * 迁移合并后的结果），来自真实建表路径而非文本解析。
+   *
+   * 用途：检测**生产库落后于代码**。`_initDatabase` 只在 `DatabaseManager` 打开
+   * 库时补列，而有些脚本/回填直接用 `better-sqlite3` 打开同一个库 —— 那些路径
+   * 永远不会触发迁移。于是会出现「代码里写 `device_time_in_speed_zone`、库里
+   * 只有旧列 `time_in_speed_zone`」这种漂移，而**读写两侧都不报错**：
+   * `upsertActivity` 按对象键拼 SQL，写到不存在的列才炸，没写到的列只是静默缺失。
+   *
+   * @param {'activities'|'activity_laps'} table
+   * @returns {string[]} 列名（顺序同建表顺序）
+   */
+  static declaredColumns(table) {
+    if (table !== 'activities' && table !== 'activity_laps') {
+      throw new Error(`declaredColumns: 未知表 ${table}`);
+    }
+    // 内存库走同一条建表+迁移路径 → 得到的就是「新库应有的列」。
+    const probe = new DatabaseManager(':memory:');
+    try {
+      return probe.db
+        .prepare(`PRAGMA table_info(${table})`)
+        .all()
+        .map((c) => c.name);
+    } finally {
+      probe.close();
+    }
   }
 }
 

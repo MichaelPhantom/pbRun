@@ -737,6 +737,7 @@ GPS 漂移、起终点的静止采样都被判为「有效移动」，混进前�
 | **参照 FTP 是参照值，不是区间定义域** | `PowerZoneReference.ftp_median_watts` + UI 列名「参照瓦数」+ 表下说明 | `tests/unit/components/zone-tables-a11y.test.tsx`（`distinct_ftp_count > 1` 时必须出现「共 N 个不同 FTP」；单套 FTP 时不出现该噪音；无参照 FTP 时不编造 `0W+`）；`tests/unit/pages/analysis-page.test.tsx`（`228-279W` 与「共 14 个不同 FTP」同时出现） |
 | **`pace` 与 `speed` 不得互相校验（两条独立推导链）** | `app/lib/insight.ts` 的 `computeDecouplingPct` / `grade-adjust.ts` 用 `speed`（实际移动）；`ActivityTrendCharts` / 分段表用 `pace`（跑姿效率） | `tests/unit/lib/insight.test.ts`（解耦只用 `speed`）；`tests/unit/components/activity-trend-charts.test.tsx`（趋势图配速轴用 `pace`，缺失时按 `cadence×step_length` 派生） |
 | **FIT 解析器读的字段名必须在 SDK profile 里存在** | `scripts/garmin/fit-parser.js` 的全部 `_safeGet*(msg, 'field')` 站点（2026-10-27 清掉 19 个死读站点、12 个不存在的名字） | `tests/unit/garmin/fit-parser-sdk-fields.test.ts`（运行时 introspect `FIT.messages` 逐站点校验，失败信息给出行号；三条反向断言：映射覆盖、allowlist 不含真实存在字段、不含僵尸条目）；`tests/unit/garmin/fit-parser-branches.test.js`（`training_load` 不由解析器提供，连 `training_load_peak` 也不得当作 TL） |
+| **生产库列集合必须与代码声明一致** | `DatabaseManager.declaredColumns(table)`（内存库走真实建表+迁移路径得到声明列集合）；`_initDatabase` 幂等补 `device_*` 列并清理旧口径 `time_in_speed_zone`/`time_in_cadence_zone`（全 NULL 直接 DROP，有值先 `COALESCE` 搬到 `device_*` 再 DROP） | `tests/unit/common/db-manager-schema-drift.test.js`（声明自洽、旧库遗留列被清理且**有值时不丢数据**、`COALESCE` 不覆盖新值、生产库与声明完全一致）+ `validate-data.js` 的 `validateSchemaDrift`（缺列判错、多列告警，两表独立） |
 | **schema 单位注释必须与解析器一致** | `scripts/common/db-manager.js` 的 `activity_records.speed`/`distance` 注释（公里/小时、公里），真值来源是 `fit-parser` 的 `lengthUnit='km'` / `speedUnit='km/h'` | `tests/unit/common/db-manager-units.test.js`（注释表述 = 解析器配置、旧「米/秒」表述不得回归、模块可加载防模板字符串语法错误） |
 | **lap 窗口切分只能有一份实现** | `scripts/common/lap-zones.js`（`lapWindowSamples` / `deriveLapZoneSeconds` / `applyLapZoneSeconds`）；`fit-parser._assignLapZoneSeconds` 与 `backfill-lap-zones.js` 都 require 它 | `tests/unit/common/lap-zones.test.js`（半开区间不重不漏、按 `cumulative_time` 而非 `start_time`、长度恒 5、无 FTP/无心率不造全 0、`cumulative_time` 缺失/倒退/零长跳过、`Number(null)===0` 陷阱） |
 | **回填必须先补列再迁移, 最后才重算** | `scripts/garmin/backfill-lap-zones.js`（4 个 `device_*` 列幂等补上 → 旧设备数组迁 `device_*` → 全量重算；无时间窗的 lap 写 NULL 而非保留陈旧值） | `tests/unit/scripts/backfill-lap-zones.test.js`（15 例：顺序缺陷注入转红、幂等不二次覆盖、损坏 JSON 不迁移、无 FTP/无记录/无时间窗不猜、dry-run 不改 schema、求和偏离告警） |
@@ -896,6 +897,57 @@ GPS 漂移、起终点的静止采样都被判为「有效移动」，混进前�
 现改为取所有 lap 的键并集；反向（lap 0 有、后续 lap 缺）在 bind 时得到 `undefined`
 → better-sqlite3 绑成 NULL，语义正确（实测 69 条活动存在这种情形）。
 守护：`tests/unit/common/db-manager-lap-columns.test.js`（注入旧实现 → 2 条转红）。
+
+#### 4.3.3 生产库的列集合可能落后于代码（schema 漂移）
+
+`_initDatabase` 只在 **`DatabaseManager` 打开库时**补列。但有些路径直接用
+`better-sqlite3` 打开同一个库（回填脚本、只读查询、外部工具），那些路径永远不
+触发迁移。于是会出现「代码声明了列、库里没有」的漂移，而**读写两侧都不报错**：
+
+- **写**：`upsertActivity` 按对象键拼 SQL —— 没写到的列只是静默缺失；
+- **读**：`SELECT *` 少两列，`Activity` 里对应字段永远是 `undefined`。
+
+2026-10-27 真实事故：新增 `activities.device_time_in_speed_zone` /
+`device_time_in_cadence_zone` 后，生产库仍是 **78 列**、缺这两列，却多出两个旧口径的
+`time_in_speed_zone` / `time_in_cadence_zone`（`activity_laps` 同样）。后果是「设备
+原始速度/步频区间」这条数据**在库里根本没有落点**，而没人会发现。
+
+判据与处置：
+
+| 方向 | 含义 | 处置 |
+|------|------|------|
+| **缺列**（代码有、库无） | 写入这些列会抛错或静默跳过 | **判错**。用 `DatabaseManager` 打开库即自动补列 |
+| **多列**（库有、代码无） | 历史遗留列本身无害，但说明迁移没清理 | **告警**。若是旧口径的统一列则是陷阱，应 `DROP COLUMN` |
+
+旧口径遗留列为什么必须删：`time_in_speed_zone` / `time_in_cadence_zone` 这两列在
+app 侧**没有** 5 区模型，正确落点是 `device_*` 前缀列。留着不带前缀的名字，下一个人
+就会以为它是统一口径、按索引跨活动聚合 —— 而设备边界方案随固件而变，聚合结果没有
+物理意义（与心率/功率踩过的坑同源）。
+
+**但清理不能无条件 DROP**。`_initDatabase` 会对**任何**打开的库执行，包括用户从备份
+恢复的旧库、别人的库。生产库那 4 列（两表各 2）实测 **100% NULL**（已核对全部 9 个
+历史备份），但「本库恰好为空」不能当成「所有库都为空」的许可证 —— 无条件 `DROP
+COLUMN` 等于「凡是有值的旧库都静默丢数据」，而迁移本身不报错、没人会发现。故按数据
+决定动作：
+
+| 遗留列状态 | 动作 |
+|-----------|------|
+| 全 NULL | 直接 `DROP COLUMN`（无数据可丢） |
+| 有值 | 先 `UPDATE ... SET device_x = COALESCE(device_x, x)`，再 `DROP COLUMN` |
+
+`COALESCE` 是必须的：目标 `device_*` 列可能已被回填脚本按新口径写过，用旧方案的值
+覆盖它等于把「新口径」静默污染成「旧口径」。`_initDatabase` 对每列做 try/catch
+（列不存在 / SQLite < 3.35 / 有约束引用时跳过，不阻断建库）。
+
+守护：
+
+- `tests/unit/common/db-manager-schema-drift.test.js` —— 真值来源是
+  `DatabaseManager.declaredColumns()`（**内存库走同一条建表+迁移路径**得到，不是把
+  列名再抄一遍），断言：声明里必须有 6 个 `device_*` 列、旧口径列不得出现、旧库打开
+  后遗留列被清理、生产库（存在时）与声明完全一致。
+- `scripts/garmin/validate-data.js` 的 `validateSchemaDrift()` —— 例行校验也报这项，
+  缺列进 `issues`、多列进 `warnings`，两表各自独立上报。
+  `tests/unit/scripts/validate-data.test.js` 5 例覆盖四种组合。
 
 ### 4.4 文档与工程
 

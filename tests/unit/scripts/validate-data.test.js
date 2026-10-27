@@ -13,10 +13,24 @@ const mockDb = { close: jest.fn() };
 jest.mock('better-sqlite3', () => jest.fn(() => mockDb));
 jest.mock(
   'path',
-  () => ({ resolve: (p) => `/abs/${p}` }),
+  () => ({
+    resolve: (p) => `/abs/${p}`,
+    // `DatabaseManager`（schema 漂移校验用来取声明列集合）会调 dirname/join
+    dirname: () => '/abs',
+    join: (...parts) => parts.join('/'),
+  }),
   { virtual: false },
 );
 
+// 声明列集合由桩提供: 默认两表都是「3 列且与库一致」, 具体用例可改。
+const declaredByTable = {
+  activities: ['activity_id', 'name', 'device_time_in_speed_zone'],
+  activity_laps: ['id', 'activity_id', 'lap_index'],
+};
+jest.mock('../../../scripts/common/db-manager', () => ({
+  declaredColumns: jest.fn((table) => declaredByTable[table] ?? []),
+}));
+const DatabaseManager = require('../../../scripts/common/db-manager');
 const DataValidator = require('../../../scripts/garmin/validate-data');
 
 /** 按 SQL 片段分派结果; 传入 overrides 可覆盖任意查询 */
@@ -48,6 +62,11 @@ function wireDb(overrides = {}) {
     hrZoneRows: [
       { activity_id: 1, moving_time: 3600, duration: 3700, time_in_hr_zone: JSON.stringify([600, 1800, 900, 300, 0]) },
     ],
+    // 库里实际的列（默认与声明一致 → 无漂移）
+    dbColumns: {
+      activities: ['activity_id', 'name', 'device_time_in_speed_zone'],
+      activity_laps: ['id', 'activity_id', 'lap_index'],
+    },
   };
   const cfg = { ...def, ...overrides };
 
@@ -71,6 +90,12 @@ function wireDb(overrides = {}) {
     if (/NOT IN/.test(q)) return make({ count: cfg.orphanedLaps });
     if (/GROUP BY activity_id/.test(q)) return make(cfg.lapStats);
     if (/SELECT activity_id, moving_time, duration, time_in_hr_zone/.test(q)) return make(cfg.hrZoneRows);
+    // schema 漂移: PRAGMA table_info(表名) → 该表在「库里实际有」的列
+    const pragma = /PRAGMA table_info\((\w+)\)/.exec(q);
+    if (pragma) {
+      const cols = cfg.dbColumns[pragma[1]] ?? declaredByTable[pragma[1]] ?? [];
+      return make(cols.map((name) => ({ name })));
+    }
     return make({ count: 0 });
   });
   return cfg;
@@ -286,5 +311,83 @@ describe('心率区间口径校验 (validateHrZoneScope)', () => {
     const v = new DataValidator();
     v.validateHrZoneScope();
     expect(v.warnings).toEqual([]);
+  });
+});
+
+/**
+ * schema 漂移校验（validateSchemaDrift）。
+ *
+ * 真实事故: 新增 `activities.device_time_in_speed_zone` / `device_time_in_cadence_zone`
+ * 后，生产库仍是 78 列、缺这两列，只多出旧口径的 `time_in_speed_zone` /
+ * `time_in_cadence_zone` —— 而读写两侧都不报错（写按对象键拼 SQL、读用 SELECT *）。
+ * 缺列必须判**错**（写入会静默丢数据），多列只**告警**（历史遗留列本身无害）。
+ */
+describe('schema 漂移校验 (validateSchemaDrift)', () => {
+  test('列集合一致 → 两表都 ✓, 无 issue/warning', () => {
+    wireDb();
+    const v = new DataValidator();
+    v.validateSchemaDrift();
+    expect(v.issues).toEqual([]);
+    expect(v.warnings).toEqual([]);
+    const out = mockLog.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(out).toMatch(/activities: 3 列与代码声明一致/);
+    expect(out).toMatch(/activity_laps: 3 列与代码声明一致/);
+  });
+
+  test('缺列 → issue（写入会静默丢数据）', () => {
+    // 代码声明 3 列, 库里只有 2 列（缺 device_time_in_speed_zone）
+    wireDb({
+      dbColumns: {
+        activities: ['activity_id', 'name'],
+        activity_laps: ['id', 'activity_id', 'lap_index'],
+      },
+    });
+    const v = new DataValidator();
+    v.validateSchemaDrift();
+    expect(v.issues).toHaveLength(1);
+    expect(v.issues[0].category).toBe('schema 漂移');
+    expect(v.issues[0].message).toMatch(/activities 缺列: device_time_in_speed_zone/);
+    const out = mockLog.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(out).toMatch(/activities 缺 1 列/);
+  });
+
+  test('多列 → 只告警（历史遗留列无害，但说明迁移没清理）', () => {
+    wireDb({
+      dbColumns: {
+        activities: ['activity_id', 'name', 'device_time_in_speed_zone', 'time_in_speed_zone'],
+        activity_laps: ['id', 'activity_id', 'lap_index'],
+      },
+    });
+    const v = new DataValidator();
+    v.validateSchemaDrift();
+    expect(v.issues).toEqual([]); // 多列不是硬错误
+    expect(v.warnings).toHaveLength(1);
+    expect(v.warnings[0].message).toMatch(/activities 多余列: time_in_speed_zone/);
+    const out = mockLog.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(out).toMatch(/activities 多 1 列/);
+  });
+
+  test('两表同时漂移 → 各自独立上报（不会一表掩盖另一表）', () => {
+    wireDb({
+      dbColumns: {
+        activities: ['activity_id'],
+        activity_laps: ['id', 'stale_column'],
+      },
+    });
+    const v = new DataValidator();
+    v.validateSchemaDrift();
+    const issues = v.issues.map((i) => i.message).join(' | ');
+    expect(issues).toMatch(/activities 缺列/);
+    expect(issues).toMatch(/activity_laps 缺列/);
+    const warns = v.warnings.map((w) => w.message).join(' | ');
+    expect(warns).toMatch(/activity_laps 多余列: stale_column/);
+  });
+
+  test('声明列集合来自 DatabaseManager.declaredColumns（不是文本解析）', () => {
+    wireDb();
+    const v = new DataValidator();
+    v.validateSchemaDrift();
+    expect(DatabaseManager.declaredColumns).toHaveBeenCalledWith('activities');
+    expect(DatabaseManager.declaredColumns).toHaveBeenCalledWith('activity_laps');
   });
 });

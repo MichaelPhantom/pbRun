@@ -348,6 +348,8 @@ describe('CLI 脚本导入契约', () => {
 | `tests/unit/common/lap-zones.test.js` | lap 时间窗切分用闭区间（边界那一秒被相邻两段重复计入）、按 `start_time` 而非 `cumulative_time` 对齐、`Number(null)===0` 让「时间未知」的记录落进第一段 | 闭区间与半开区间在**单段**活动里结果完全相同；时间错位在总和上互相抵消（各段各自偏大/偏小但合计正常），只有逐段对账才暴露 |
 | `tests/unit/scripts/backfill-lap-zones.test.js` | 回填脚本先重算再补 `device_*` 列（旧设备数组被推导值覆盖，原始数据永久丢失） | 顺序缺陷只在「旧库里已有设备数组」时显现；新建库/已回填库都不会触发 |
 | `tests/unit/common/db-manager-units.test.js` | schema 注释把 `activity_records.speed` 写成「米/秒」（实际 km/h，差 3.6×）、`distance` 写成「米」（实际公里，差 1000×） | 注释不是可执行代码，覆盖率与运行时断言完全看不见；只有按注释写过滤条件时才炸（解耦已因此把 0.5 km/h 当 0.5 m/s） |
+| `tests/unit/common/db-manager-schema-drift.test.js` | 生产库缺代码声明的列（`device_time_in_speed_zone`/`_cadence_zone`）、多出旧口径列；`upsertActivity` 按对象键拼 SQL、读用 `SELECT *`，两侧都不报错 | 漂移只在「用 raw sqlite 打开库的路径」上出现，`DatabaseManager` 一打开就自动补列 —— 所以本机单测永远绿，只有真库才漂 |
+| `tests/unit/common/db-manager-schema-drift.test.js`（搬运分支） | 清理遗留列时无条件 `DROP COLUMN`：本库恰好 100% NULL，但用户从备份恢复的旧库有值时会被静默丢弃 | 「本库为空」不等于「所有库为空」；迁移不报错，丢数据无声无息 |
 | `tests/unit/mcp/tool-scope-contract.test.ts` | MCP tool description 不声明统计口径/单位 | 文案是字符串常量，没有分支 |
 | `tests/unit/docs/api-route-coverage.test.ts` | 新增 API 路由未写进 README/API 文档 | 文档与代码是两棵树 |
 

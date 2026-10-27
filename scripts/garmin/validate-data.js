@@ -6,6 +6,7 @@
 
 const Database = require('better-sqlite3');
 const path = require('path');
+const DatabaseManager = require('../common/db-manager');
 
 /**
  * 人类瞬时速度合理上限 (km/h)。跑步世界纪录约 44 km/h, 球类挥拍/击球峰值也在此量级;
@@ -75,6 +76,7 @@ class DataValidator {
     this.validateDataRanges();
     this.validateRelationships();
     this.validateHrZoneScope();
+    this.validateSchemaDrift();
 
     // Summary
     this.printSummary();
@@ -514,6 +516,61 @@ class DataValidator {
     } else {
       log(`  ⚠ 区间秒数与 moving_time 偏离 >10%: ${badSum} 条 (${sumOutliers.join(', ')})`, 'yellow');
       this.addWarning('区间口径', `${badSum} 条活动的区间秒数与 moving_time 偏离 >10%`);
+    }
+  }
+
+  /**
+   * schema 漂移验证（2026-10-27 新增）。
+   *
+   * ## 为什么需要
+   *
+   * 生产库的列集合可能**落后于代码**。`_initDatabase` 只在 `DatabaseManager`
+   * 打开库时补列，但有些路径直接用 `better-sqlite3` 打开同一个库（回填脚本、
+   * 只读查询），那些路径永远不触发迁移。真实事故：本次新增
+   * `activities.device_time_in_speed_zone` / `device_time_in_cadence_zone` 后，
+   * 生产库仍是 78 列、缺这两列，只多出两个旧的 `time_in_speed_zone` /
+   * `time_in_cadence_zone` —— 而**读写两侧都不报错**：
+   *   - 写：`upsertActivity` 按对象键拼 SQL，没写到的列只是静默缺失；
+   *   - 读：`SELECT *` 少两列，`Activity` 里对应字段永远是 `undefined`。
+   * 于是「设备原始速度区间」这条数据在库里根本没有落点，而没人会发现。
+   *
+   * ## 判据
+   *
+   * 真值来源是 `DatabaseManager.declaredColumns()`（内存库走同一条建表+迁移
+   * 路径得到），不是把列名再抄一遍 —— 抄一遍就又变成两份定义。
+   *
+   * - **缺列** = 代码声明了、库里没有 → **判错**（写入会静默丢数据）
+   * - **多列** = 库里有、代码不声明 → 只**告警**（历史遗留列本身无害，
+   *   但说明迁移没清理；若它是旧口径的统一列则可能是口径陷阱）
+   */
+  validateSchemaDrift() {
+    log('\n9. schema 漂移验证', 'cyan');
+
+    for (const table of ['activities', 'activity_laps']) {
+      const declared = DatabaseManager.declaredColumns(table);
+      const actual = this.db
+        .prepare(`PRAGMA table_info(${table})`)
+        .all()
+        .map((c) => c.name);
+
+      const missing = declared.filter((c) => !actual.includes(c));
+      const extra = actual.filter((c) => !declared.includes(c));
+
+      if (missing.length === 0 && extra.length === 0) {
+        log(`  ✓ ${table}: ${actual.length} 列与代码声明一致`, 'green');
+        continue;
+      }
+      if (missing.length > 0) {
+        // 缺列是硬错误: 写入这些列会抛「no column named」或静默跳过。
+        log(`  ✗ ${table} 缺 ${missing.length} 列（代码声明但库里没有）:`, 'red');
+        log(`     ${missing.join(', ')}`, 'red');
+        this.addIssue('schema 漂移', `${table} 缺列: ${missing.join(', ')}（用 DatabaseManager 打开库即可自动补列）`);
+      }
+      if (extra.length > 0) {
+        log(`  ⚠ ${table} 多 ${extra.length} 列（库里有但代码不声明）:`, 'yellow');
+        log(`     ${extra.join(', ')}`, 'yellow');
+        this.addWarning('schema 漂移', `${table} 多余列: ${extra.join(', ')}`);
+      }
     }
   }
 
