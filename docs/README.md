@@ -224,8 +224,11 @@ node scripts/sync-garmin.js --force
 ### 数据库管理
 
 ```bash
-# 验证数据完整性
-node scripts/garmin/validate-data.js
+# 验证数据完整性（issues → 退出码 1；warnings 不失败）
+npm run validate:data
+
+# 严格模式: warnings 也算失败（人工排查用）
+npm run validate:data:strict
 
 # 清理旧数据（保留最近 1 年）
 node scripts/common/db-manager.js --clean --keep-days 365

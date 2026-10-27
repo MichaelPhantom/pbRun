@@ -752,6 +752,7 @@ GPS 漂移、起终点的静止采样都被判为「有效移动」，混进前�
 | **参照 FTP 是参照值，不是区间定义域** | `PowerZoneReference.ftp_median_watts` + UI 列名「参照瓦数」+ 表下说明 | `tests/unit/components/zone-tables-a11y.test.tsx`（`distinct_ftp_count > 1` 时必须出现「共 N 个不同 FTP」；单套 FTP 时不出现该噪音；无参照 FTP 时不编造 `0W+`）；`tests/unit/pages/analysis-page.test.tsx`（`228-279W` 与「共 14 个不同 FTP」同时出现） |
 | **`pace` 与 `speed` 不得互相校验（两条独立推导链）** | `app/lib/insight.ts` 的 `computeDecouplingPct` / `grade-adjust.ts` 用 `speed`（实际移动）；`ActivityTrendCharts` / 分段表用 `pace`（跑姿效率） | `tests/unit/lib/insight.test.ts`（解耦只用 `speed`）；`tests/unit/components/activity-trend-charts.test.tsx`（趋势图配速轴用 `pace`，缺失时按 `cadence×step_length` 派生） |
 | **FIT 解析器读的字段名必须在 SDK profile 里存在** | `scripts/garmin/fit-parser.js` 的全部 `_safeGet*(msg, 'field')` 站点（2026-10-27 清掉 19 个死读站点、12 个不存在的名字） | `tests/unit/garmin/fit-parser-sdk-fields.test.ts`（运行时 introspect `FIT.messages` 逐站点校验，失败信息给出行号；三条反向断言：映射覆盖、allowlist 不含真实存在字段、不含僵尸条目）；`tests/unit/garmin/fit-parser-branches.test.js`（`training_load` 不由解析器提供，连 `training_load_peak` 也不得当作 TL） |
+| **校验器必须真的能失败** | `scripts/garmin/validate-data.js` 的 `main()` 退出码：`issues`→1、仅 `warnings`→0（设备不写是常态）、`--strict`→1；退出调用写在 `try/catch` 之外 | `tests/unit/scripts/validate-data.test.js` 的 `main() 退出码契约` 5 例（含「仅 warning 不得卡 CI」与「有 issue 必须失败」两个反向断言） |
 | **生产库列集合必须与代码声明一致** | `DatabaseManager.declaredColumns(table)`（内存库走真实建表+迁移路径得到声明列集合）；`_initDatabase` 幂等补 `device_*` 列并清理旧口径 `time_in_speed_zone`/`time_in_cadence_zone`（全 NULL 直接 DROP，有值先 `COALESCE` 搬到 `device_*` 再 DROP） | `tests/unit/common/db-manager-schema-drift.test.js`（声明自洽、旧库遗留列被清理且**有值时不丢数据**、`COALESCE` 不覆盖新值、生产库与声明完全一致）+ `validate-data.js` 的 `validateSchemaDrift`（缺列判错、多列告警，两表独立） |
 | **schema 单位注释必须与解析器一致** | `scripts/common/db-manager.js` 的 `activity_records.speed`/`distance` 注释（公里/小时、公里），真值来源是 `fit-parser` 的 `lengthUnit='km'` / `speedUnit='km/h'` | `tests/unit/common/db-manager-units.test.js`（注释表述 = 解析器配置、旧「米/秒」表述不得回归、模块可加载防模板字符串语法错误） |
 | **lap 窗口切分只能有一份实现** | `scripts/common/lap-zones.js`（`lapWindowSamples` / `deriveLapZoneSeconds` / `applyLapZoneSeconds`）；`fit-parser._assignLapZoneSeconds` 与 `backfill-lap-zones.js` 都 require 它 | `tests/unit/common/lap-zones.test.js`（半开区间不重不漏、按 `cumulative_time` 而非 `start_time`、长度恒 5、无 FTP/无心率不造全 0、`cumulative_time` 缺失/倒退/零长跳过、`Number(null)===0` 陷阱） |
@@ -963,6 +964,28 @@ COLUMN` 等于「凡是有值的旧库都静默丢数据」，而迁移本身不
 - `scripts/garmin/validate-data.js` 的 `validateSchemaDrift()` —— 例行校验也报这项，
   缺列进 `issues`、多列进 `warnings`，两表各自独立上报。
   `tests/unit/scripts/validate-data.test.js` 5 例覆盖四种组合。
+
+#### 4.3.4 校验器必须真的能失败（退出码契约）
+
+`validate-data.js` 有 20 处 `addIssue`，但 `main()` 旧实现**只在抛异常时** `exit(1)`
+—— 「发现 N 个问题」是正常返回的。于是一个看起来完备的校验器**永远不会失败**：
+接进 CI 也永远绿灯，等于没有校验。这类缺陷最阴：脚本存在、能跑、有输出，唯独
+不能拦任何东西。2026-10-27 实测生产库跑出 3 个 warning、退出码仍是 **0**。
+
+现按发现内容决定退出码（`npm run validate:data` / `--strict`）：
+
+| 情况 | 退出码 | 理由 |
+|------|--------|------|
+| `issues` 非空 | **1** | 硬错误，必须修 |
+| 只有 `warnings` | **0** | 真实库长期有警告（`average_gct_balance` 348/348 全 NULL 是**设备不写**，不是缺陷）。拿常态卡 CI 会让 CI 永久红，守卫随即被关掉 —— 那才是真的失去保护 |
+| `--strict` | warnings 也算失败 | 人工排查时用 |
+
+**退出必须写在 `try/catch` 之外**：写在 `try` 里时，任何把 `process.exit` 变成抛错的
+场景（单测 mock、某些封装）都会让这条 `exit(1)` 被自己的 `catch` 接住 —— 同一个失败
+被记两次，错误信息还变成「验证失败」而非「发现问题」。这条是修的时候真踩到的。
+
+守护：`tests/unit/scripts/validate-data.test.js` 的 `main() 退出码契约` 5 例
+（无发现→不 exit / 仅 warning→0 / 有 issue→1 / `--strict`→1 / 抛异常→1）。
 
 ### 4.4 文档与工程
 

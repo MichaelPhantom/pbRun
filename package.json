@@ -36,7 +36,9 @@
     "backfill:hr-zones": "node scripts/garmin/backfill-hr-zones.js",
     "backfill:power-zones": "node scripts/garmin/backfill-power-zones.js",
     "backfill:lap-zones": "node scripts/garmin/backfill-lap-zones.js",
-    "backfill:workout": "node scripts/garmin/backfill-workout.js"
+    "backfill:workout": "node scripts/garmin/backfill-workout.js",
+    "validate:data": "node scripts/garmin/validate-data.js",
+    "validate:data:strict": "node scripts/garmin/validate-data.js --strict"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

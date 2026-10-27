@@ -620,16 +620,42 @@ class DataValidator {
 }
 
 // CLI
+/**
+ * CLI 入口。
+ *
+ * ## 退出码契约（2026-10-27 修）
+ *
+ * 旧实现只在**抛异常**时 `exit(1)` —— 而「发现 N 个问题」是正常返回的，
+ * 于是这个有 20 处 `addIssue` 的校验器**永远不会失败**：接进 CI 也永远是绿灯，
+ * 等于没有校验。现按发现内容决定退出码：
+ *
+ * - `issues` 非空 → **1**（硬错误，必须修）
+ * - 只有 `warnings` → **0**（真实库长期存在少量警告，如 `average_gct_balance`
+ *   全 NULL —— 那是设备不写，不是缺陷；拿它卡 CI 会让 CI 永久红）
+ * - `--strict` → warnings 也当失败（人工排查用）
+ *
+ * 之所以不把 warnings 也算失败：本校验器面向**真实生产库**，而生产库里
+ * 「设备从不写某列」是常态（348/348 全 NULL 的列有一批）。把常态当错误，
+ * 守卫就会被关掉，那才是真的失去保护。
+ */
 async function main() {
+  const strict = process.argv.includes('--strict');
+  let failed = false;
   try {
     const validator = new DataValidator();
     await validator.validate();
     validator.close();
+    failed = validator.issues.length > 0 || (strict && validator.warnings.length > 0);
   } catch (error) {
     log(`\n✗ 验证失败: ${error.message}`, 'red');
     console.error(error.stack);
     process.exit(1);
+    return;
   }
+  // **退出必须放在 try/catch 之外**：写在 try 里时，任何把 `process.exit` 变成
+  // 抛错的场景（单测 mock、某些封装）都会让这条 `exit(1)` 被自己的 catch 接住，
+  // 于是同一个失败被记两次、错误信息也变成「验证失败」而非「发现问题」。
+  if (failed) process.exit(1);
 }
 
 if (require.main === module) {
@@ -637,3 +663,6 @@ if (require.main === module) {
 }
 
 module.exports = DataValidator;
+// `main` 单独导出: 退出码契约（issues→1 / 仅 warnings→0 / --strict→1）必须被
+// 机器守卫。不导出就只能靠子进程跑真实库, 而 CI 没有真实库。
+module.exports.main = main;

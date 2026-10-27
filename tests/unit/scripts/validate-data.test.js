@@ -391,3 +391,82 @@ describe('schema 漂移校验 (validateSchemaDrift)', () => {
     expect(DatabaseManager.declaredColumns).toHaveBeenCalledWith('activity_laps');
   });
 });
+
+/**
+ * CLI 退出码契约（`main()`）。
+ *
+ * ## 缺陷（2026-10-27 修）
+ *
+ * 旧 `main()` 只在**抛异常**时 `exit(1)`；「发现 N 个问题」是正常返回的。
+ * 于是一个有 20 处 `addIssue` 的校验器**永远不会失败** —— 接进 CI 也永远绿灯，
+ * 等于没有校验。这类缺陷最阴：脚本存在、能跑、有输出，唯独不能拦任何东西。
+ *
+ * ## 契约
+ *
+ * - `issues` 非空 → 1
+ * - 只有 `warnings` → 0（真实库长期有警告：`average_gct_balance` 全 NULL 是
+ *   设备不写，不是缺陷。拿它卡 CI 会让 CI 永久红，守卫随即被关掉）
+ * - `--strict` → warnings 也当失败
+ */
+describe('main() 退出码契约', () => {
+  const { main } = require('../../../scripts/garmin/validate-data');
+
+  let exitSpy;
+  beforeEach(() => {
+    exitSpy = jest.spyOn(process, 'exit').mockImplementation((code) => {
+      throw new Error(`__exit__${code}`);
+    });
+    mockLog.mockClear();
+  });
+  afterEach(() => exitSpy.mockRestore());
+
+  test('无 issue 无 warning → 不调用 process.exit', async () => {
+    wireDb();
+    await main();
+    expect(exitSpy).not.toHaveBeenCalled();
+  });
+
+  test('只有 warning → 退出码 0（真实库常态，不能卡 CI）', async () => {
+    // average_gct_balance 全 NULL 会走 warning 分支
+    wireDb({ activityCount: 10, nullCounts: 10 });
+    await main();
+    expect(exitSpy).not.toHaveBeenCalled();
+  });
+
+  test('有 issue → 退出码 1（这才是校验器该做的事）', async () => {
+    // 单位错: distance 按米写 → average_speed 与期望不符
+    wireDb({
+      activityUnits: [
+        { activity_id: 1, distance: 10000, duration: 3600, average_speed: 10, average_pace: 360 },
+      ],
+    });
+    await expect(main()).rejects.toThrow('__exit__1');
+    expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+
+  test('--strict 时 warning 也判失败', async () => {
+    const argv = process.argv;
+    process.argv = [...argv, '--strict'];
+    try {
+      wireDb({ activityCount: 10, nullCounts: 10 });
+      await expect(main()).rejects.toThrow('__exit__1');
+    } finally {
+      process.argv = argv;
+    }
+  });
+
+  test('抛异常 → 退出码 1（错误路径不能静默）', async () => {
+    // 让 validate() 抛错: db.prepare 未定义
+    const origPrepare = mockDb.prepare;
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    mockDb.prepare = () => {
+      throw new Error('boom');
+    };
+    try {
+      await expect(main()).rejects.toThrow('__exit__1');
+    } finally {
+      mockDb.prepare = origPrepare;
+      errSpy.mockRestore();
+    }
+  });
+});
