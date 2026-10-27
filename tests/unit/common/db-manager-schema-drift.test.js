@@ -301,3 +301,109 @@ describe('schema 漂移: 生产库 vs 代码声明', () => {
     }
   });
 });
+
+/**
+ * `insertActivityRecords` 的写入列是**硬编码白名单** —— 必须与 schema 同步。
+ *
+ * 这与 `insertLaps` 取键并集是相反的设计（记录行字段固定、不需要并集），但
+ * 风险一样：往 `activity_records` 加一列、忘了加进白名单，那一列就**永远写不进去**
+ * 而没有任何报错。真实数据里看不出来 —— 只会在某个页面显示 `--` 时才被发现。
+ *
+ * 判据用 schema 做真值来源（不是把白名单再抄一遍）：
+ *   - schema 里的每一列（除自增 `id`）都必须被写入；
+ *   - 白名单里的每一列都必须在 schema 里（防拼错列名 → SQL 直接报错）。
+ */
+describe('insertActivityRecords 写入列 = schema 列', () => {
+  /** 从源码取 `CREATE TABLE ... activity_records` 的列名。 */
+  function recordSchemaColumns() {
+    const src = fs.readFileSync(
+      path.join(__dirname, '..', '..', '..', 'scripts', 'common', 'db-manager.js'),
+      'utf8',
+    );
+    const start = src.indexOf('CREATE TABLE IF NOT EXISTS activity_records');
+    expect(start).toBeGreaterThan(-1);
+    const end = src.indexOf('`);', start);
+    return [...src.slice(start, end).matchAll(/^\s{8}(\w+)\s+(?:INTEGER|TEXT|REAL|DATETIME)/gm)].map(
+      (m) => m[1],
+    );
+  }
+
+  test('schema 的每一列（除自增 id）都被写入', () => {
+    const schema = recordSchemaColumns();
+    // 用真实库取白名单: 插入一行全字段数据, 再看实际落了哪些列
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pbrun-rec-cols-'));
+    const dbPath = path.join(dir, 't.db');
+    try {
+      const mgr = new DatabaseManager(dbPath);
+      // 先建父活动（activity_records 有 FOREIGN KEY → activities）
+      mgr.upsertActivity({
+        activity_id: 1,
+        name: 'x',
+        start_time: '2026-01-01T00:00:00Z',
+        start_time_local: '2026-01-01T08:00:00',
+        distance: 1,
+        duration: 1,
+        moving_time: 1,
+        elapsed_time: 1,
+      });
+      const row = { activity_id: 1 };
+      // 给 schema 里每个可写列都填一个值（类型按名字猜：数字即可）
+      for (const c of schema) {
+        if (c === 'id') continue;
+        row[c] = c === 'activity_id' ? 1 : 1;
+      }
+      mgr.insertActivityRecords(1, [row]);
+      const stored = mgr.db
+        .prepare('SELECT * FROM activity_records LIMIT 1')
+        .get();
+      mgr.close();
+
+      // 每一列都必须被写进去（值可能被 schema 类型转换，但键必须在）
+      for (const c of schema) {
+        expect(Object.prototype.hasOwnProperty.call(stored, c)).toBe(true);
+      }
+      // 关键: 除自增 id 外, 不允许「schema 有、白名单没写」→ 那些列会是 NULL
+      const writable = schema.filter((c) => c !== 'id');
+      for (const c of writable) {
+        expect(stored[c]).not.toBeNull();
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+/**
+ * 解析器写出的 record 键必须全部可落库。
+ *
+ * 上面那条守卫只保证「schema 的列都被写入」；这一条补另一个方向：
+ * 「解析器产出的键都能写进去」。两者缺一就会出现静默丢数据 ——
+ * 解析器算出了 `temperature`、白名单里没有，那一列永远是 NULL，
+ * 而没有任何报错。
+ */
+describe('fit-parser record 键 ⊆ insertActivityRecords 白名单', () => {
+  test('解析器产出的每个 record 键都能落库', () => {
+    const parserSrc = fs.readFileSync(
+      path.join(__dirname, '..', '..', '..', 'scripts', 'garmin', 'fit-parser.js'),
+      'utf8',
+    );
+    const start = parserSrc.indexOf('records.push({');
+    expect(start).toBeGreaterThan(-1);
+    const end = parserSrc.indexOf('});', start);
+    const parserKeys = [...parserSrc.slice(start, end).matchAll(/^\s+(\w+):/gm)].map((m) => m[1]);
+    expect(parserKeys.length).toBeGreaterThan(5);
+
+    const dbSrc = fs.readFileSync(
+      path.join(__dirname, '..', '..', '..', 'scripts', 'common', 'db-manager.js'),
+      'utf8',
+    );
+    const line = dbSrc
+      .split('\n')
+      .find((l) => l.includes("const columns = ['activity_id', 'record_index'"));
+    expect(line).toBeDefined();
+    const whitelist = [...line.matchAll(/'(\w+)'/g)].map((m) => m[1]);
+
+    const dropped = parserKeys.filter((k) => !whitelist.includes(k));
+    expect(dropped).toEqual([]);
+  });
+});
