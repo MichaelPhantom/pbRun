@@ -14,7 +14,8 @@ const lapRows = [
   { activity_id: 100, lap_index: 1, distance: 1000, duration: 410, average_pace: 410, average_heart_rate: 132, average_cadence: 172, average_stride_length: 1.0 },
   { activity_id: 100, lap_index: 2, distance: 1000, duration: 420, average_pace: 420, average_heart_rate: 134, average_cadence: 174, average_stride_length: 1.1 },
   // 活动 200: 1 个 lap, 更慢 → Z1 (用于验证去重计数 = 2 而非 4)
-  { activity_id: 200, lap_index: 0, distance: 5000, duration: 2500, average_pace: 450, average_heart_rate: 120, average_cadence: 160, average_stride_length: 0.9 },
+  // 5 km @ 450 s/km → 时长必须是 2250s（旧夹具写 2500 = 500 s/km，自相矛盾）
+  { activity_id: 200, lap_index: 0, distance: 5000, duration: 2250, average_pace: 450, average_heart_rate: 120, average_cadence: 160, average_stride_length: 0.9 },
 ];
 
 const allMock = jest.fn(() => lapRows);
@@ -40,16 +41,32 @@ describe('getPaceZoneStats', () => {
     }
   });
 
-  test('avg_pace 按时长加权 (回归: 此前简单平均)', () => {
+  /**
+   * 均配速 ≡ **同一行的** total_duration / total_distance。
+   *
+   * 这一行的三个数字并排展示，用户可以直接相除验算。旧实现是逐 lap 的
+   * 时长加权均值 —— 真实库 Z1 行给 406.0，而它自己的总时长/总距离是 388.1
+   * （差 18 s/km），同一行自相矛盾。
+   */
+  test('avg_pace ≡ 同行总时长/总距离 (可被用户验算)', () => {
     const stats = getPaceZoneStats(45, '2026-01-01', '2026-12-31');
     const z1 = stats.find((s) => s.zone === 1)!;
-    // 时长加权: (400*400 + 410*410 + 420*420 + 450*2500) / (400+410+420+2500)
-    const expected =
-      (400 * 400 + 410 * 410 + 420 * 420 + 450 * 2500) / (400 + 410 + 420 + 2500);
+    const expected = (400 + 410 + 420 + 2250) / 8; // Σt / Σd(km) = 435
     expect(z1.avg_pace).toBeCloseTo(expected, 6);
-    // 与简单平均不同 (证明确实加权)
-    const simple = (400 + 410 + 420 + 450) / 4;
-    expect(z1.avg_pace).not.toBeCloseTo(simple, 3);
+    expect(z1.avg_pace! * (z1.total_distance / 1000)).toBeCloseTo(z1.total_duration, 6);
+    // 判别式: 各 lap 配速的算术平均是 420
+    expect(z1.avg_pace).not.toBeCloseTo((400 + 410 + 420 + 450) / 4, 1);
+  });
+
+  /**
+   * 计时器列全缺（moving_time 与 duration 都为 0）但配速有值时，
+   * 时长由 `配速 × 距离` 还原 —— 否则「总时长 0 / 总距离 1km」会算出均配速 0。
+   */
+  test('计时器列全缺 → 时长由 pace×distance 还原，均配速不为 0', () => {
+    const stats = getPaceZoneStats(45, '2026-01-01', '2026-12-31');
+    const z1 = stats.find((s) => s.zone === 1)!;
+    expect(z1.total_duration).toBe(3480); // 400+410+420+2250
+    expect(z1.avg_pace).toBeCloseTo(435, 6);
   });
 
   test('空区间 avg_* 为 null (非 0)', () => {

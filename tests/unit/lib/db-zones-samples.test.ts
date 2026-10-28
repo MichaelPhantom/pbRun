@@ -67,14 +67,15 @@ describe('getPaceZoneStats', () => {
     expect(stats.every((s) => s.activity_count === 0 && s.avg_pace === null)).toBe(true);
   });
 
-  test('duration=0 权重退化为 1; null 的心率/步频/步幅不计入', () => {
+  test('duration=0 → 时长由 pace×distance 还原; null 的心率/步频/步幅不计入', () => {
     mockAll.mockReturnValue([
       { activity_id: 7, lap_index: 0, distance: 1000, duration: 0, average_pace: 330, average_heart_rate: null, average_cadence: null, average_stride_length: null },
     ]);
     const stats = getPaceZoneStats(45, '2026-01-01', '2026-12-31');
     const z2 = stats.find((s) => s.zone === 2)!; // 330 落在 Z2 (313.3~340.4)
     expect(z2.activity_count).toBe(1);
-    expect(z2.total_duration).toBe(0);
+    // 1 km @ 330 s/km = 330 s（不是 0 —— 否则「均配速 = 总时长/总距离」会变 0）
+    expect(z2.total_duration).toBe(330);
     expect(z2.avg_pace).toBeCloseTo(330, 3);
     expect(z2.avg_heart_rate).toBeNull();
     expect(z2.avg_cadence).toBeNull();

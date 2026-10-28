@@ -547,7 +547,7 @@ FTP 缺失不猜 / 海拔比值 / 尖峰过滤）、`tests/unit/pages/activity-d
 | `getHrZoneStats().total_duration` | 同上 | 同上 |
 | `getVDOTTrend().total_duration` | `Σ activity.duration` | 同上 |
 | `getTrainingLoads().duration` | `SUM(duration)` | 首页「当月平均配速」= Σduration/Σdistance 被系统性拖慢（真实库 2026-08 偏差 **3.78%**、2026-05 3.07%），看起来像退步；周训练时长同样虚高 |
-| `getInsightActivityRows().durationSeconds` | `r.duration` | 它是 `computeCategoryComparison` 的**时长加权权重** —— 暂停多的类别（越野/含等待的团跑）在类别均配速里被过度加权 |
+| `getInsightActivityRows().durationSeconds` | `r.duration` | 它是类别/气温分档的**心率·步频时间权重** —— 暂停多的类别（越野/含等待的团跑）会被过度加权 |
 | `activity-insight` 的 `lap.durationSec` | `l.duration` | 它是 `MIN_RELIABLE_LAP_SEC` 的判据。碎片实际只跑 4 秒、停表后记 60 秒 → 60 ≥ 10 判「可信」，于是 14 m 碎片的 279 s/km 成为「最快段」，门槛形同虚设 |
 | `getPersonalRecords` 的 5K/10K 插值 | `lap.duration` | 带暂停的跑会「跑出」假的慢成绩，**本该破纪录判成没破** |
 | VDOT 代表段 / `training_load` | `duration` | `582132079` 按经过时间得 TL 174、按计时器得 44（4 倍） |
@@ -778,6 +778,85 @@ CTL 差 < 1%、`endDate` 补零/不截断/缺省三种形态）、`tests/unit/li
 预热 ≡ 常量 且 ≠ 120）、`tests/unit/lib/insight-coach.test.ts`（EWMA 行取末周值、
 截断标记、不得取首周）。5 处缺陷注入全部转红（预热 210→90 / 洞察服务回到 28 天 /
 序列停在训练日 / 教练上下文取首周 / 首页回到 120 天）。
+
+#### 「均配速」不是一个平均值：比值的平均 ≠ 总量之比（2026-10-29）
+
+上一节是「窗口取错了」，本节是「**权重用错了**」。全站有 9 处要算「一组活动的
+平均配速/心率/步频/步幅」，其中 6 处用的是 `AVG(列)`（各次活动该列的平均）。
+这是 *mean of ratios*，只有当每次跑的距离/时长完全相同时才等于这段时期的配速。
+
+真实库的形态让这个假设彻底失效 —— 近 7 天只有两次跑：
+
+| 活动 | 距离 | 配速 |
+|------|------|------|
+| `655766038` 恢复跑 | 4.76 km | 7:26/km |
+| 常规跑 | 15.06 km | 5:31/km |
+
+- 「各次配速的平均」= **6:28/km**
+- 这两次合起来：19.82 km / 7100 s = **5:58/km**
+
+差 **30 s/km（8.4%）**，方向永远偏向「你比实际更慢」（Jensen：`mean(1/v) ≥ 1/mean(v)`）。
+全窗口实测：
+
+| 窗口 | `AVG(average_pace)` | `Σt/Σd` | 偏差 |
+|------|--------------------|---------|------|
+| 近 7 天 | 388.3（6:28） | 358.3（5:58） | **+30.0 s/km（+8.4%）** |
+| 近 30 天 | 365.0（6:05） | 358.6（5:59） | +6.4 s/km（+1.8%） |
+| 2026-06 | 388.5 | 365.5 | +23.0 s/km（+6.3%） |
+| 2026-03 | 358.1 | 344.9 | +13.2 s/km（+3.8%） |
+| 近一年 | 355.8（5:56） | 350.6（5:51） | +5.3 s/km（+1.5%） |
+
+同一族还有三个：
+
+| 量 | 错误权重 | 正确权重 | 真实库近 7 天 |
+|----|---------|---------|--------------|
+| 心率 | 等权（`AVG`） | 时间 | 135.0 → **139.8 bpm** |
+| 步频 | 等权 | 时间 | 177.0 → **181.4 spm** |
+| 步幅 | 等权 | 步数（Σ距离/Σ步数） | 0.890 → **0.918 m** |
+
+短间歇的心率/步频更高、步幅更小，等权会把它们当成常态 —— 而近 7 天正是教练最
+常看的窗口。这四类量在 9 处消费方里口径各不相同：`getStats` / `getPeriodStats`
+（SQL `AVG`）、`computeCategoryComparison`（时长加权）、`computeWeatherComparison`
+与 `computeRouteComparison`（等权 `mean`）、`runner-profile`（等权）、
+`activity-insight` 的组均/同类均值（等权）、`activity-environment` 的同温档均值（等权）。
+于是**同一个概念最多有四种答案**。
+
+**修法**：`app/lib/pace.ts` 新增四个唯一实现 —— `groupPaceSecPerKm`（Σt/Σd）、
+`groupHeartRate`（Σhr·t/Σt）、`groupCadence`（Σc·t/Σt）、`sampleSeconds`
+（秒数：显式值优先，否则由 `配速 × 距离` 精确还原）。选 Σt/Σd 而不是「距离加权
+平均配速」不是口味问题，它有两个别的口径没有的性质：
+
+1. **可从展示出来的数字自证**：均配速 ≡ 总时长 / 总距离。用户拿卡片上另外两个
+   数字就能验算 —— 这条不变式现在是测试断言。
+2. **可组合**：把窗口切成子区间，再由子区间的 (Σt, Σd) 合并，结果不变。
+   时长加权平均配速不满足（父区间无法由子区间还原）。
+
+**区间表还多一层自相矛盾**：心率/配速/功率三张表都把 `total_duration`、
+`total_distance`、`avg_pace` 并排展示，但 `avg_pace` 是**逐 lap 加权均值**，
+与该行自己的总量无关。真实库心率区间 Z1 行：表里写 406.0，而 12.34 小时 / 114.4 km
+= **388.1** —— 差 18 s/km，同一行两个答案。现在 `avg_pace` 直接由该行的
+`total_duration / total_distance` 推出（配速表同样），实测 60 行心率区间 + 5 行配速
+区间的最大偏差 **0.000000**。
+
+顺带发现并修掉：`getHrZoneStats` 的步频/步幅/心率原本是**逐 lap 简单平均**
+（连时长加权都不是）；改成时间加权后先用行为断言抓出一个真 bug —— 三个量共用
+一个权重分母，导致步频 161.4 被算成 53.8。
+
+守护：`tests/unit/lib/pace-group.test.ts`（14 例：判别式 ≠ 算术平均、可组合性、
+算术平均不可组合、`seconds` 缺失由 pace×distance 还原、显式 seconds 优先、非法样本跳过）、
+`tests/unit/lib/db-group-avg.test.ts`（真实 SQLite：7 例统计聚合 + 2 例区间表行内自洽，
+夹具刻意让 20 km 与 4 km 悬殊）、`tests/unit/lib/insight-compare.test.ts`（类别/气温/路线
+三处都断言 Σt/Σd 且 `not.toBeCloseTo(等权平均)`）、`tests/unit/lib/insight-compare-branches.test.ts`
+（`average_pace` 缺失但距离/时长存在 → 仍可算；距离缺失 → null）、
+`tests/unit/lib/activity-environment.test.ts`（同温档 5 km vs 15 km 的判别式）、
+`tests/unit/lib/runner-profile.test.ts`（4 km/420 + 20 km/340 → 350 而非 380）、
+`tests/unit/lib/pace-zone-stats.test.ts`（行内自洽 + 计时器列全缺时由配速还原）。
+
+**夹具又一次掩盖了它**：`insight-compare.test.ts` 里 `{ distanceKm: 7, durationSeconds: 2520,
+avgPaceSecPerKm: 350 }` 三个数互相矛盾（350×7=2450≠2520），而 `WeatherSample` 的夹具
+干脆没有 `distanceKm` —— 改完口径后那些字段算出 `null`，测试**照样全绿**（因为没人
+断言它们）。这与 §1.6 的 `lap_index` 1 基夹具、`periodization` 手写 km 是同一个机制
+（见 `docs/testing-strategy.md` §6.5）。
 
 ---
 
@@ -1120,6 +1199,10 @@ GPS 漂移、起终点的静止采样都被判为「有效移动」，混进前�
 | **CTL/ATL/TSB 的预热天数只有一个常量，取数起点只有一个实现** | `training-load.TRAINING_LOAD_WARMUP_DAYS = ceil(5·CTL_TAU)` + `trainingLoadFetchStart(startDate)`；首页 / 分析页 / 洞察服务 / 跑者画像四处都走它（不得自写 28 / 90 / 120） | `tests/unit/lib/training-load.test.ts`（常量 ≥5τ、`trainingLoadFetchStart` 逐值、28 天预热画出假上涨而 210 天平、210 天 vs 700 天基线差 <1%）+ 三个页面测试各断言「预热 ≡ 常量 且 ≠ 旧值」+ 真实库四处 CTL 最大误差 0.72% |
 | **CTL/ATL/TSB 必须算到参考日（含休息日），不能停在最后一个训练日** | `computeTrainingLoads(points, endDate)`；调用方传 `todayLocalDate()` / 区间 `endDate` / 活动日 | `tests/unit/lib/training-load.test.ts`（`endDate` 晚于最后训练日 → 补零延伸、早于 → 不截断、缺省 → 停训练日）+ `tests/unit/pages/analysis-page.test.tsx`（休息 3 天后曲线末点仍是参考日且 ATL 已衰减）+ 真实库 ATL 26.2 vs 30.2 |
 | **参考日必须是本地日期** | `timezone.todayLocalDate()`（首页旧 `ymd(now)` 是 UTC 日期，本地 00:00–08:00 会退一天） | `tests/unit/pages/home-page.test.tsx`（`getTrainingLoads` 的 end ≡ `todayLocalDate()`） |
+| **「均配速」= Σt/Σd，不是各次配速的平均** | `app/lib/pace.ts` 的 `groupPaceSecPerKm`（唯一实现）；`getStats` / `getPeriodStats`（SQL `SUM(time)/SUM(distance)`）、`computeCategoryComparison` / `computeWeatherComparison` / `computeRouteComparison`、`runner-profile`、`activity-insight` 组均/同类均值、`activity-environment` 同温档均值全部走它 | `tests/unit/lib/pace-group.test.ts`（14 例：≠ 算术平均、可组合、算术平均不可组合、seconds 由 pace×distance 还原）+ `tests/unit/lib/db-group-avg.test.ts`（真实 SQLite：20 km 与 4 km 悬殊夹具，配速 366.67 而 `AVG` 为 380）+ `tests/unit/lib/insight-compare.test.ts`（类别/气温/路线三处 `not.toBeCloseTo(等权)`）+ `tests/unit/lib/runner-profile.test.ts`（350 而非 380）+ `tests/unit/lib/activity-environment.test.ts`（5 km vs 15 km） |
+| **均心率/步频按时间加权，均步幅 = Σ距离/Σ步数** | `pace.groupHeartRate` / `groupCadence`；`getStats` 的 SQL 与 `getHrZoneStats` 的 lap 累加器同口径 | `tests/unit/lib/db-group-avg.test.ts`（心率 153.64 而非 160、步频 173.64 而非 180、步幅 0.9714 而非 0.925）+ `tests/unit/lib/pace-group.test.ts` |
+| **区间表同一行的 `avg_pace` ≡ `total_duration / total_distance`** | `getPaceZoneStats` / `getHrZoneStats`（真实库 Z1 行旧值 406.0，而该行总量 388.1） | `tests/unit/lib/db-group-avg.test.ts`（真实 lap：区间表每行自洽，偏差 0）+ `tests/unit/lib/pace-zone-stats.test.ts`（Σt/Σd = 435、计时器列全缺时由配速还原为 330s） |
+| **计时器列全缺时，秒数由 `配速 × 距离` 还原** | `pace.sampleSeconds`（`seconds` 优先，否则 `pace × distance`）；区间表用它算 lap 秒数 | `tests/unit/lib/db-zones-samples.test.ts`（`duration=0` 的 lap → `total_duration` 330s 而非 0） |
 | **周维度 CTL/ATL/TSB 必须进入教练上下文** | `insight-coach.ts` 的「训练负荷(EWMA)」行（取末周期末值 + TSB 状态词 + 截至周/截断标记） | `tests/unit/lib/insight-coach.test.ts`（逐字 `CTL 46.3 / ATL 26.2 / TSB +20.1（新鲜） / 截至 2026-W43(截断)`；取首周立即转红） |
 | **「次数」是跑步次数，不是天数** | `DailyLoad.runs` / `TrainingLoadPoint.runs` 由 SQL `COUNT(*)` 提供；聚合层只做加法（`d.runs ?? 1`） | `tests/unit/lib/insight-branches.test.ts`（一天三练 → 3 次而非 1 次）+ `tests/unit/lib/insight-compare.test.ts`（同一天两练 → 周 `activities` 为 3 而非 2；改回 `n += 1` 立即转红） |
 | **区间内每个 ISO 周都出现，截断周必须标记** | `PeriodizationWeek.partial` + `LoadInsight.weekly[].partial`（同一判定）；`PeriodizationInsight.statsBasis` / `statsWeekCount`；UI 周表与趋势图 x 轴都加 `*` + 图例；教练上下文「按 N 个（含截断）周统计」+ 周训练量块 `(截断)` | `tests/unit/lib/insight-compare.test.ts`（零跑量周出现且进分母、截断周标记、完整周 ≥2 时只用完整周）+ `tests/unit/components/insight-components.test.tsx`（`2026-W43 *` 且旧的无标记文案不得出现、`statsBasis='all'` 的口径注脚、`complete` 时不制造噪音、图表 x 轴 `2026-W39 *`、`*` 图例有/无两侧）+ `tests/unit/lib/insight-coach.test.ts`（逐周序列含 `0.0km/0次` 与 `(截断)`、周训练量块 `(截断)` 后缀） |

@@ -50,7 +50,7 @@ describe('classifyActivity', () => {
 describe('computeCategoryComparison', () => {
   const samples: CategorySample[] = [
     { name: 'A - 乳酸阈值', distanceKm: 8, durationSeconds: 2880, distanceMeters: 8000, avgPaceSecPerKm: 360, avgHeartRate: 170, avgCadence: 180, vdot: 42, trainingLoad: 60 },
-    { name: 'B - 乳酸阈值', distanceKm: 7, durationSeconds: 2520, distanceMeters: 7000, avgPaceSecPerKm: 350, avgHeartRate: 168, avgCadence: 182, vdot: 43, trainingLoad: 58 },
+    { name: 'B - 乳酸阈值', distanceKm: 7, durationSeconds: 2450, distanceMeters: 7000, avgPaceSecPerKm: 350, avgHeartRate: 168, avgCadence: 182, vdot: 43, trainingLoad: 58 },
     { name: 'C - 基础训练', distanceKm: 6, durationSeconds: 2160, distanceMeters: 6000, avgPaceSecPerKm: 400, avgHeartRate: 140, avgCadence: 175, vdot: null, trainingLoad: 40 },
     { name: 'D - 基础训练', distanceKm: 6, durationSeconds: 2200, distanceMeters: 6000, avgPaceSecPerKm: 410, avgHeartRate: 138, avgCadence: 176, vdot: null, trainingLoad: 42 },
   ];
@@ -60,9 +60,18 @@ describe('computeCategoryComparison', () => {
     const thr = r.stats.find((s) => s.category === 'threshold')!;
     expect(thr.count).toBe(2);
     expect(thr.totalKm).toBeCloseTo(15, 1);
-    // 时长加权均配速 (360*2880 + 350*2520)/(2880+2520)
-    const expected = (360 * 2880 + 350 * 2520) / (2880 + 2520);
-    expect(thr.avgPaceSecPerKm).toBeCloseTo(expected, 1);
+    // 均配速 = Σ计时器秒数 / Σ距离 = (2880 + 2450) / 15 = 355.33
+    // （不是「各次配速的平均」：那样是 355 但只在距离相同时才凑巧相等）
+    const expected = (2880 + 2450) / (8 + 7);
+    expect(thr.avgPaceSecPerKm).toBeCloseTo(expected, 5);
+    // 自证不变式: 均配速 × 总距离 = 总时长
+    expect(thr.avgPaceSecPerKm! * thr.totalKm).toBeCloseTo(2880 + 2450, 5);
+    // 心率/步频按时间加权（Σv·t/Σt），与配速的距离权重不同但有同一个理由:
+    // 速率量的汇总必须用「停留时间」做权重。
+    const thrHr = (170 * 2880 + 168 * 2450) / (2880 + 2450);
+    const thrCad = (180 * 2880 + 182 * 2450) / (2880 + 2450);
+    expect(thr.avgHeartRate).toBeCloseTo(thrHr, 5);
+    expect(thr.avgCadence).toBeCloseTo(thrCad, 5);
     expect(thr.avgVdot).toBeCloseTo(42.5, 1);
     expect(thr.efficiency).not.toBeNull();
   });
@@ -98,11 +107,12 @@ describe('computeCategoryComparison', () => {
 
 describe('computeWeatherComparison', () => {
   test('分档聚合并计算效率', () => {
+    // 冷天两条跑长度悬殊（20 km vs 3 km）—— 判别「等权平均」与「Σt/Σd」
     const samples: WeatherSample[] = [
-      { temperatureC: 5, avgPaceSecPerKm: 330, avgHeartRate: 150, avgCadence: 180 },
-      { temperatureC: 8, avgPaceSecPerKm: 335, avgHeartRate: 152, avgCadence: 179 },
-      { temperatureC: 26, avgPaceSecPerKm: 360, avgHeartRate: 165, avgCadence: 176 },
-      { temperatureC: 30, avgPaceSecPerKm: 375, avgHeartRate: 172, avgCadence: 174 },
+      { temperatureC: 5, distanceKm: 20, durationSeconds: 20 * 330, avgPaceSecPerKm: 330, avgHeartRate: 150, avgCadence: 180 },
+      { temperatureC: 8, distanceKm: 3, durationSeconds: 3 * 420, avgPaceSecPerKm: 420, avgHeartRate: 156, avgCadence: 178 },
+      { temperatureC: 26, distanceKm: 10, durationSeconds: 3600, avgPaceSecPerKm: 360, avgHeartRate: 165, avgCadence: 176 },
+      { temperatureC: 30, distanceKm: 6, durationSeconds: 6 * 375, avgPaceSecPerKm: 375, avgHeartRate: 172, avgCadence: 174 },
     ];
     const r = computeWeatherComparison(samples);
     expect(r.sampleCount).toBe(4);
@@ -112,6 +122,14 @@ describe('computeWeatherComparison', () => {
     // 冷天效率应高于热天
     const hot = r.buckets.find((b) => b.bucket === '≥28°C')!;
     expect(cold.efficiency!).toBeGreaterThan(hot.efficiency!);
+
+    // 档内均配速 = Σt/Σd = (20×330 + 3×420)/23 ≈ 341.7
+    expect(cold.avgPaceSecPerKm!).toBeCloseTo((20 * 330 + 3 * 420) / 23, 6);
+    // 判别式: 各次配速的算术平均是 375 → 会差 33 s/km
+    expect(cold.avgPaceSecPerKm!).not.toBeCloseTo((330 + 420) / 2, 1);
+    // 档内均心率 = Σhr·t/Σt
+    expect(cold.avgHeartRate!).toBeCloseTo((150 * 6600 + 156 * 1260) / 7860, 6);
+    expect(cold.avgHeartRate!).not.toBeCloseTo((150 + 156) / 2, 1);
   });
 
   test('空输入', () => {
@@ -122,8 +140,8 @@ describe('computeWeatherComparison', () => {
 
   test('忽略非法温度', () => {
     const r = computeWeatherComparison([
-      { temperatureC: NaN, avgPaceSecPerKm: 300, avgHeartRate: 150, avgCadence: 180 },
-      { temperatureC: 20, avgPaceSecPerKm: 300, avgHeartRate: 150, avgCadence: 180 },
+      { temperatureC: NaN, distanceKm: 10, durationSeconds: 3000, avgPaceSecPerKm: 300, avgHeartRate: 150, avgCadence: 180 },
+      { temperatureC: 20, distanceKm: 10, durationSeconds: 3000, avgPaceSecPerKm: 300, avgHeartRate: 150, avgCadence: 180 },
     ]);
     expect(r.sampleCount).toBe(1);
   });
@@ -172,6 +190,24 @@ describe('computeRouteComparison', () => {
   test('minRuns=1 保留全部可识别路线', () => {
     const r = computeRouteComparison(samples, 1);
     expect(r.routes.length).toBe(2);
+  });
+
+  /**
+   * 同一条路线的「均配速」= 这些跑的 Σt/Σd，不是各次配速的平均。
+   * 4 km 轻松跑（6:40/km）+ 20 km 长距离（5:40/km）：等权 370，真实 350。
+   */
+  test('均配速 = Σt/Σd（不是各次配速的平均）', () => {
+    const unequal: RouteSample[] = [
+      { activityId: 1, name: '甲 - 轻松跑', date: '2026-07-01', distanceKm: 4, avgPaceSecPerKm: 400, avgHeartRate: 140 },
+      { activityId: 2, name: '甲 - 长距离跑', date: '2026-08-01', distanceKm: 20, avgPaceSecPerKm: 340, avgHeartRate: 155 },
+    ];
+    const route = computeRouteComparison(unequal, 2).routes[0];
+    expect(route.avgPaceSecPerKm!).toBeCloseTo((4 * 400 + 20 * 340) / 24, 6);
+    expect(route.avgPaceSecPerKm!).toBeCloseTo(350, 1);
+    expect(route.avgPaceSecPerKm!).not.toBeCloseTo(370, 1);
+    // 均心率按时间加权 = (140×1600 + 155×6800)/8400
+    expect(route.avgHeartRate!).toBeCloseTo((140 * 1600 + 155 * 6800) / 8400, 6);
+    expect(route.avgHeartRate!).not.toBeCloseTo(147.5, 1);
   });
 });
 

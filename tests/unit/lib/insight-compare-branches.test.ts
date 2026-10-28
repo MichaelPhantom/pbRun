@@ -28,26 +28,43 @@ const catSample = (over: Partial<CategorySample> = {}): CategorySample => ({
 });
 
 describe('computeCategoryComparison 稀疏样本分支', () => {
-  test('durationSeconds 为 0 → 权重退化为 1 (均值仍可算出), 但时长占比为 0', () => {
+  test('durationSeconds 为 0 → 秒数由 pace×distance 还原（不是退化成等权）', () => {
     const out = computeCategoryComparison([
       catSample({ durationSeconds: 0, avgPaceSecPerKm: 340, avgHeartRate: 140 }),
       catSample({ durationSeconds: 0, avgPaceSecPerKm: 360, avgHeartRate: 150 }),
     ]);
     const easy = out.stats.find((s) => s.category === 'easy')!;
-    // 等权平均 (权重 1)
+    // 两条都是 8 km：t1=340×8=2720、t2=360×8=2880 → Σt/Σd = 5600/16 = 350
     expect(easy.avgPaceSecPerKm).toBeCloseTo(350, 5);
-    expect(easy.avgHeartRate).toBeCloseTo(145, 5);
+    // 心率按**时间**加权 → (140×2720 + 150×2880)/5600，而不是等权 145
+    expect(easy.avgHeartRate).toBeCloseTo((140 * 2720 + 150 * 2880) / 5600, 5);
+    expect(easy.avgHeartRate).not.toBeCloseTo(145, 1);
     expect(easy.avgCadence).toBe(178);
     // grandDur = 0 → 时长占比 0 (而非 NaN)
     expect(easy.timeSharePct).toBe(0);
   });
 
-  test('配速/心率本身缺失 → 对应均值为 null (分母仍为 0)', () => {
-    const out = computeCategoryComparison([catSample({ avgPaceSecPerKm: null, avgHeartRate: null, avgCadence: null })]);
+  /**
+   * 均配速**不需要** `average_pace` 列存在 —— 只要 (distance, duration) 有值，
+   * Σt/Σd 就能算出来。这是新口径的一个额外好处：少依赖一个可能为 NULL 的输入
+   * （真实库 `average_pace` 有 26 条缺失，其中 27 条 lap 还有 `average_moving_pace`）。
+   */
+  test('average_pace 缺失但距离/时长存在 → 均配速仍可算', () => {
+    const out = computeCategoryComparison([
+      catSample({ avgPaceSecPerKm: null, avgHeartRate: null, avgCadence: null }),
+    ]);
     const easy = out.stats.find((s) => s.category === 'easy')!;
-    expect(easy.avgPaceSecPerKm).toBeNull();
+    expect(easy.avgPaceSecPerKm).toBeCloseTo(2800 / 8, 5); // = 350
     expect(easy.avgHeartRate).toBeNull();
     expect(easy.avgCadence).toBeNull();
+  });
+
+  test('距离缺失 → 均配速为 null（不编造）', () => {
+    const out = computeCategoryComparison([
+      catSample({ distanceKm: 0, distanceMeters: 0, avgPaceSecPerKm: 350 }),
+    ]);
+    const easy = out.stats.find((s) => s.category === 'easy')!;
+    expect(easy.avgPaceSecPerKm).toBeNull();
   });
 
   test('vdot / trainingLoad 全为 null → 均值为 null', () => {

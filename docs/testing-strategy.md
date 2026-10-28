@@ -879,6 +879,26 @@ expect(distToTimer).toBeLessThanOrEqual(1);              // ±1s 取整误差
 输出；`insight-components.test.tsx` 的手写 `periodization` 只保留**不可达分支**需要
 的形态，并补一条「截断周标记」用例（该字段由服务派生，夹具只能复刻其形态）。
 
+#### 补充：夹具缺字段会让「口径修了但测试仍绿」（2026-10-29 聚合权重）
+
+同一机制在**字段完整性**上的变体。修「均配速 = Σt/Σd」时发现：
+
+| 夹具 | 问题 | 后果 |
+|------|------|------|
+| `insight-compare.test.ts` 的类别样本 `{ distanceKm: 7, durationSeconds: 2520, avgPaceSecPerKm: 350 }` | 三个数互相矛盾（350×7 = 2450 ≠ 2520） | 改口径后算出 360 而不是 355.33，才暴露出「夹具本身不自洽」 |
+| `WeatherSample` 夹具**没有** `distanceKm` | 类型上缺了聚合必需的输入 | 改完口径后 `avgPaceSecPerKm` 变 `null`，测试**照样全绿**（没人断言它） |
+| `EnvironmentPeer` 缺 `distanceKm` | 同上 | 同温档均配速静默变 `null` |
+
+**纪律 5**：**聚合函数的每个必需输入字段，夹具都必须提供，且断言必须覆盖它**。
+只要一个字段「生产端有、夹具里没有」，改口径时它就会静默变成 `null`，而测试因为
+没断言过它而保持绿色。因此本次把 `WeatherSample` / `EnvironmentPeer` 的
+`distanceKm`（以及 `durationSeconds`）改成**必填**，并给每个聚合结果补了
+`not.toBeCloseTo(等权平均)` 的判别式断言 —— 让「退回旧口径」和「字段缺失」都必然转红。
+
+> 注：`tests/` 被 `tsconfig.json` 排除在 `tsc --noEmit` 之外，所以**类型系统拦不住**
+> 这类字段缺失（实测把 `tests` 纳入类型检查会引入 7700+ 条既有错误，暂不可行）。
+> 这在当前只能靠「必填字段 + 判别式断言」这条纪律来兜。
+
 ## 7. CI/CD 集成
 
 ### 7.1 GitHub Actions 配置

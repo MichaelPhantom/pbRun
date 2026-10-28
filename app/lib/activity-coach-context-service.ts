@@ -149,6 +149,7 @@ export function buildActivityContextBlock(
         ascentM: activity.total_ascent ?? null,
       },
       envPeers.map((p) => ({
+        distanceKm: p.distanceKm,
         paceSecPerKm: p.paceSecPerKm,
         heartRate: p.heartRate,
         temperatureC: p.temperatureC,

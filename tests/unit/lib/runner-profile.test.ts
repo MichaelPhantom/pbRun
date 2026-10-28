@@ -103,6 +103,31 @@ describe('buildRunnerProfile', () => {
     expect(warmupDays).not.toBe(120);
   });
 
+  /**
+   * 配速趋势必须按距离加权（等价于 Σt/Σd），不能是各次配速的平均。
+   *
+   * 真实库近 7 天只有两次跑：4.76 km 恢复跑（7:26/km）与 15.06 km 常规跑
+   * （5:31/km）。等权平均 6:28/km，真实 5:58/km —— 差 30 s/km（8.4%）。
+   * 这个数会进入**每一次**活动分析的 prompt（跑者画像）。
+   */
+  test('配速趋势按距离加权（不是各次配速的平均）', () => {
+    (db.getActivities as jest.Mock).mockImplementation((params: { limit: number }) => {
+      if (params.limit >= 500) return { data: [], pagination: { page: 1, limit: params.limit, total: 0 } };
+      return {
+        data: [
+          { activity_id: 201, start_time: '2026-09-10T10:00:00.000Z', start_time_local: '2026-09-10T18:00:00', name: '短恢复', distance: 4, average_pace: 420 },
+          { activity_id: 202, start_time: '2026-09-12T10:00:00.000Z', start_time_local: '2026-09-12T18:00:00', name: '长距离', distance: 20, average_pace: 340 },
+        ],
+        pagination: { page: 1, limit: params.limit, total: 2 },
+      };
+    });
+    const p = buildRunnerProfile(baseActivity);
+    // Σt/Σd = (4×420 + 20×340) / 24 = 350
+    expect(p.recentPaceSec!).toBeCloseTo((4 * 420 + 20 * 340) / 24, 6);
+    // 等权平均是 380 → 判别式
+    expect(p.recentPaceSec!).not.toBeCloseTo((420 + 340) / 2, 1);
+  });
+
   test('容错: 任一查询抛错不阻塞, 降级为默认值', () => {
     (db.getStats as jest.Mock).mockImplementation(() => {
       throw new Error('boom');

@@ -115,6 +115,10 @@ export function getInsight(params: InsightParams): InsightResponse {
     .filter((r) => r.temperatureC != null)
     .map((r) => ({
       temperatureC: r.temperatureC as number,
+      // 距离/时长是分档均配速与均心率的聚合权重（Σt/Σd、Σhr·t/Σt），
+      // 缺了它们就只能退回「各次配速的平均」，那是错的口径。
+      distanceKm: r.distanceKm,
+      durationSeconds: r.durationSeconds,
       avgPaceSecPerKm: r.avgPaceSecPerKm,
       avgHeartRate: r.avgHeartRate,
       avgCadence: r.avgCadence,

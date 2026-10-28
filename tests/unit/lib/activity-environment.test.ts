@@ -13,7 +13,8 @@ const peer = (
   hr: number | null,
   temp: number | null,
   ascent: number | null,
-) => ({ paceSecPerKm: pace, heartRate: hr, temperatureC: temp, ascentM: ascent });
+  km = 10,
+) => ({ paceSecPerKm: pace, heartRate: hr, distanceKm: km, temperatureC: temp, ascentM: ascent });
 
 describe('weatherBucketOf', () => {
   test('边界值与未知值', () => {
@@ -39,10 +40,11 @@ describe('summarizeActivityEnvironment', () => {
   });
 
   test('温度/爬升差异 + 同温档排名、配速与心率差', () => {
+    // 同档两条跑长短差异很大（5 km vs 15 km）—— 用来判别「等权平均」与「Σt/Σd」
     const env = summarizeActivityEnvironment(current, [
-      peer(310, 150, 25.5, 90),
-      peer(320, 158, 23, 100),
-      peer(290, 165, 26.5, 130),
+      peer(310, 150, 25.5, 90, 5),
+      peer(320, 158, 23, 100, 10),
+      peer(290, 165, 26.5, 130, 15),
     ])!;
     // 25.5/26.5 在 24–28 档；23 在 18–24 档（不计入同温档）
     expect(env.peerCount).toBe(3);
@@ -52,16 +54,24 @@ describe('summarizeActivityEnvironment', () => {
     expect(env.currentAscentM).toBe(120);
     expect(env.peerAvgAscentM).toBeCloseTo((90 + 100 + 130) / 3);
     expect(env.ascentDeltaM).toBeCloseTo(120 - (90 + 100 + 130) / 3);
+    // 档内均配速 = Σt/Σd = (310×5 + 290×15)/20 = 295（等权平均是 300 → 会差 5s/km）
+    // 档内均心率 = Σhr·t/Σt = (150×1550 + 165×4350)/5900 ≈ 161.06（等权 157.5）
+    const bandSec = 310 * 5 + 290 * 15;
+    const bandKm = 20;
+    const bandHrSec = 150 * 310 * 5 + 165 * 290 * 15;
     expect(env.tempBand).toMatchObject({
       label: '24–28°C',
       count: 3, // 2 个同档样本 + 本次
       peerCount: 2,
-      avgPaceSecPerKm: 300, // (310+290)/2
-      avgHeartRate: 157.5,
       rank: { byPace: 2, total: 3 }, // 290 更快 → 本次第 2
     });
-    expect(env.tempBand!.paceDeltaSecPerKm).toBeCloseTo(0);
-    expect(env.tempBand!.hrDeltaBpm).toBeCloseTo(2.5);
+    expect(env.tempBand!.avgPaceSecPerKm).toBeCloseTo(bandSec / bandKm, 5);
+    expect(env.tempBand!.avgHeartRate).toBeCloseTo(bandHrSec / bandSec, 5);
+    // 判别式: 与「各次配速/心率的算术平均」必须不同（否则等于没修）
+    expect(env.tempBand!.avgPaceSecPerKm).not.toBeCloseTo(300, 1);
+    expect(env.tempBand!.avgHeartRate).not.toBeCloseTo(157.5, 1);
+    expect(env.tempBand!.paceDeltaSecPerKm).toBeCloseTo(300 - bandSec / bandKm, 5);
+    expect(env.tempBand!.hrDeltaBpm).toBeCloseTo(160 - bandHrSec / bandSec, 5);
   });
 
   test('当前无配速/心率 → 排名与差值降级为 null', () => {

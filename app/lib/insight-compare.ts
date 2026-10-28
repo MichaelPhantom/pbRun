@@ -10,6 +10,7 @@ import {
   type DailyLoad,
 } from './insight';
 import { isoWeekBounds, isoWeeksBetween } from './date-utils';
+import { groupCadence, groupHeartRate, groupPaceSecPerKm } from './pace';
 import type {
   CategoryComparison,
   CategoryStats,
@@ -74,7 +75,11 @@ export interface CategorySample {
 
 /**
  * 将所有活动按训练类别聚合。
- * avgPace/avgHR 采用「时长加权」(以每段的 duration 为权重), 更贴近真实强度。
+ *
+ * 均配速 = **Σ计时器秒数 / Σ距离**（`pace.groupPaceSecPerKm`），不是各次配速的
+ * 平均、也不是时长加权平均：只有 Σt/Σd 满足「父类别可由子类别合并还原」，
+ * 也才等于用户自己拿总时长/总距离算出来的那个数。均心率/步频按时间加权、
+ * 步幅按步数（见 `app/lib/pace.ts` 的四个 group* 函数）。
  */
 export function computeCategoryComparison(samples: CategorySample[]): CategoryComparison {
   const groups = new Map<TrainingCategory, CategorySample[]>();
@@ -92,35 +97,22 @@ export function computeCategoryComparison(samples: CategorySample[]): CategoryCo
     const totalKm = rows.reduce((a, r) => a + r.distanceKm, 0);
     const durSum = rows.reduce((a, r) => a + (r.durationSeconds || 0), 0);
 
-    let wPace = 0;
-    let wPaceDur = 0;
-    let wHr = 0;
-    let wHrDur = 0;
-    let wCad = 0;
-    let wCadDur = 0;
     let effSum = 0;
     let effN = 0;
-
     for (const r of rows) {
-      const w = r.durationSeconds > 0 ? r.durationSeconds : 1;
-      if (r.avgPaceSecPerKm != null && r.avgPaceSecPerKm > 0) {
-        wPace += r.avgPaceSecPerKm * w;
-        wPaceDur += w;
-      }
-      if (r.avgHeartRate != null && r.avgHeartRate > 0) {
-        wHr += r.avgHeartRate * w;
-        wHrDur += w;
-      }
-      if (r.avgCadence != null && r.avgCadence > 0) {
-        wCad += r.avgCadence * w;
-        wCadDur += w;
-      }
       // 有氧效率 = 速度(m/s) / 心率(bpm), 越高越经济
       if (r.avgPaceSecPerKm != null && r.avgPaceSecPerKm > 0 && r.avgHeartRate != null && r.avgHeartRate > 0) {
         effSum += 1000 / r.avgPaceSecPerKm / r.avgHeartRate;
         effN += 1;
       }
     }
+    const samples = rows.map((r) => ({
+      paceSecPerKm: r.avgPaceSecPerKm,
+      distanceKm: r.distanceKm,
+      seconds: r.durationSeconds,
+      heartRate: r.avgHeartRate,
+      cadence: r.avgCadence,
+    }));
 
     stats.push({
       category,
@@ -128,9 +120,9 @@ export function computeCategoryComparison(samples: CategorySample[]): CategoryCo
       count: rows.length,
       totalKm: Math.round(totalKm * 10) / 10,
       avgDistanceKm: Math.round((totalKm / rows.length) * 100) / 100,
-      avgPaceSecPerKm: wPaceDur > 0 ? wPace / wPaceDur : null,
-      avgHeartRate: wHrDur > 0 ? wHr / wHrDur : null,
-      avgCadence: wCadDur > 0 ? wCad / wCadDur : null,
+      avgPaceSecPerKm: groupPaceSecPerKm(samples),
+      avgHeartRate: groupHeartRate(samples),
+      avgCadence: groupCadence(samples),
       avgVdot: mean(rows.map((r) => r.vdot).filter((v): v is number => v != null)),
       avgTrainingLoad: mean(rows.map((r) => r.trainingLoad).filter((v): v is number => v != null)),
       efficiency: effN > 0 ? effSum / effN : null,
@@ -160,6 +152,10 @@ export function computeCategoryComparison(samples: CategorySample[]): CategoryCo
 
 export interface WeatherSample {
   temperatureC: number;
+  /** 距离（公里）—— 均配速必须按 Σt/Σd 聚合，没有距离就算不出分档均配速。 */
+  distanceKm: number;
+  /** 计时器秒数 —— 均心率/步频的时间权重。 */
+  durationSeconds: number;
   avgPaceSecPerKm: number | null;
   avgHeartRate: number | null;
   avgCadence: number | null;
@@ -197,9 +193,6 @@ export function computeWeatherComparison(samples: WeatherSample[]): WeatherCompa
   for (const edge of WEATHER_EDGES) {
     const rows = buckets.get(edge.label);
     if (!rows || rows.length === 0) continue;
-    const paces = rows.map((r) => r.avgPaceSecPerKm).filter((v): v is number => v != null && v > 0);
-    const hrs = rows.map((r) => r.avgHeartRate).filter((v): v is number => v != null && v > 0);
-    const cads = rows.map((r) => r.avgCadence).filter((v): v is number => v != null && v > 0);
     let effSum = 0;
     let effN = 0;
     for (const r of rows) {
@@ -208,13 +201,22 @@ export function computeWeatherComparison(samples: WeatherSample[]): WeatherCompa
         effN += 1;
       }
     }
+    // 域类型用 `avg*` 前缀，聚合函数用 `paceSecPerKm`/`heartRate` —— 显式映射，
+    // 不做「同义字段名的隐式猜测」（那正是本仓库反复出问题的地方）。
+    const agg = rows.map((r) => ({
+      paceSecPerKm: r.avgPaceSecPerKm,
+      distanceKm: r.distanceKm,
+      seconds: r.durationSeconds,
+      heartRate: r.avgHeartRate,
+      cadence: r.avgCadence,
+    }));
     out.push({
       bucket: edge.label,
       count: rows.length,
-      avgHeartRate: mean(hrs),
-      avgPaceSecPerKm: mean(paces),
+      avgHeartRate: groupHeartRate(agg),
+      avgPaceSecPerKm: groupPaceSecPerKm(agg),
       efficiency: effN > 0 ? effSum / effN : null,
-      avgCadence: mean(cads),
+      avgCadence: groupCadence(agg),
     });
   }
 
@@ -263,6 +265,11 @@ export function computeRouteComparison(samples: RouteSample[], minRuns = 2): Rou
   for (const [routeKey, rows] of groups.entries()) {
     if (rows.length < minRuns) continue;
     const sorted = [...rows].sort((a, b) => (a.date < b.date ? -1 : 1));
+    const routeAgg = rows.map((r) => ({
+      paceSecPerKm: r.avgPaceSecPerKm,
+      distanceKm: r.distanceKm,
+      heartRate: r.avgHeartRate,
+    }));
     const paced = rows
       .filter((r) => r.avgPaceSecPerKm != null && r.avgPaceSecPerKm > 0)
       .sort((a, b) => a.avgPaceSecPerKm! - b.avgPaceSecPerKm!);
@@ -284,8 +291,10 @@ export function computeRouteComparison(samples: RouteSample[], minRuns = 2): Rou
       count: rows.length,
       avgDistanceKm: Math.round((rows.reduce((a, r) => a + r.distanceKm, 0) / rows.length) * 100) / 100,
       bestPaceSecPerKm: best?.avgPaceSecPerKm ?? null,
-      avgPaceSecPerKm: mean(paced.map((r) => r.avgPaceSecPerKm!)),
-      avgHeartRate: mean(rows.map((r) => r.avgHeartRate).filter((v): v is number => v != null)),
+      // 同一条路线的「均配速」= 这些跑的 Σt/Σd（不是各次配速的平均）。
+      // `seconds` 由 pace × distance 还原（RouteSample 不带时长列）。
+      avgPaceSecPerKm: groupPaceSecPerKm(routeAgg),
+      avgHeartRate: groupHeartRate(routeAgg),
       lastDate: sorted[sorted.length - 1].date.slice(0, 10),
       paceTrendPer30d: trend,
       best: best ? { activityId: best.activityId, date: best.date.slice(0, 10), paceSecPerKm: best.avgPaceSecPerKm! } : null,

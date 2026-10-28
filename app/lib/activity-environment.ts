@@ -9,6 +9,7 @@
  */
 
 import { weatherBucketOf } from './insight-compare';
+import { groupHeartRate, groupPaceSecPerKm } from './pace';
 import type {
   ActivityEnvironmentSummary,
   EnvironmentCurrent,
@@ -69,11 +70,11 @@ export function summarizeActivityEnvironment(
       const paces = bandPeers
         .map((p) => p.paceSecPerKm)
         .filter((v): v is number => finite(v) && v > 0);
-      const hrs = bandPeers
-        .map((p) => p.heartRate)
-        .filter((v): v is number => finite(v) && v > 0);
-      const avgPace = mean(paces);
-      const avgHr = mean(hrs);
+      // 档内均配速/均心率与其它页面同一口径（Σt/Σd、Σhr·t/Σt）。
+      // 旧实现是各次配速的算术平均 —— 一次 5km 与一次 25km 等权，
+      // 于是「档内均 5:10/km」可能比真实档内配速慢十几秒。
+      const avgPace = groupPaceSecPerKm(bandPeers);
+      const avgHr = groupHeartRate(bandPeers);
       const currentPace = finite(current.paceSecPerKm) && current.paceSecPerKm > 0
         ? current.paceSecPerKm
         : null;

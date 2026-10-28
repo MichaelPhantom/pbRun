@@ -5,7 +5,7 @@
 import { computeDecouplingPct, decouplingTone, mean, type RecordSample } from './insight';
 import { powerZoneSecondsFromSamples } from './power-zones';
 import { resolveFtp } from './power';
-import { effectiveTimeSec } from './pace';
+import { effectiveTimeSec, groupHeartRate, groupPaceSecPerKm } from './pace';
 import { classifyActivity } from './insight-compare';
 import type {
   ActivityComparison,
@@ -313,14 +313,15 @@ export function computeComparison(
     if (idx >= 0) rank = { byPace: idx + 1, total: ordered.length };
   }
 
-  const peersPace = peers.map((p) => p.paceSecPerKm).filter((v): v is number => v != null && v > 0);
-  const peersHr = peers.map((p) => p.heartRate).filter((v): v is number => v != null && v > 0);
-  const peersPaceMean = mean(peersPace);
-  const peersHrMean = mean(peersHr);
+  // 组均配速/心率必须与其它页面同一口径：Σt/Σd、Σhr·t/Σt（见 pace.ts 的
+  // group* 函数）。旧实现的 `mean(paces)` 是「各次配速的平均」，长短不一时会
+  // 系统性偏高（更慢），而这个数直接写进「比同组均值快/慢 Xs/km」的结论里。
+  const peersPaceMean = groupPaceSecPerKm(peers);
+  const peersHrMean = groupHeartRate(peers);
 
   // 组均/组最佳 (含本次)
   const allPace = paced.map((p) => p.paceSecPerKm!);
-  const groupAvgPaceSecPerKm = mean(allPace);
+  const groupAvgPaceSecPerKm = groupPaceSecPerKm(all);
   const groupBestPaceSecPerKm = allPace.length ? Math.min(...allPace) : null;
 
   // 分类对标: 仅取与本次同训练类别的样本, 给出同类排名/同类均值 (更公平的同类比较)
@@ -330,7 +331,7 @@ export function computeComparison(
   if (sameCatPaced.length >= 2) {
     const ordered = [...sameCatPaced].sort((a, b) => a.paceSecPerKm! - b.paceSecPerKm!);
     const idx = ordered.findIndex((p) => p.activityId === current.activityId);
-    const avg = mean(sameCatPaced.map((p) => p.paceSecPerKm!));
+    const avg = groupPaceSecPerKm(sameCatPaced);
     sameCategory = {
       category: currentCategory,
       count: sameCatPaced.length,

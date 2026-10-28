@@ -407,12 +407,12 @@ GET /api/stats?period=week
 | `totalActivities` | number | 跑步次数 | 次 |
 | `totalDistance` | number | 总距离（**米**；DB 存公里，接口 ×1000） | m |
 | `totalDuration` | number | 总时长（**计时器时间** `moving_time` 累加，不是经过时间） | 秒 |
-| `averagePace` | number? | 平均配速（逐活动 `AVG`，非时长加权） | 秒/公里 |
-| `averageHeartRate` | number? | 平均心率 | bpm |
+| `averagePace` | number? | 平均配速 = **Σ计时器时间 / Σ距离**（不是 `AVG(average_pace)`：那是「各次配速的平均」，只在距离相同时才成立）。恒等于 `totalDuration / (totalDistance/1000)`，可被用户验算 | 秒/公里 |
+| `averageHeartRate` | number? | 平均心率 = **Σ(心率×计时器时间)/Σ计时器时间**（时间加权；等权平均会让一次 12 分钟间歇与一次 2 小时长距离等权，真实库近 7 天差 4.8bpm） | bpm |
 | `totalAscent` | number? | 总爬升 | m |
 | `averageVDOT` | number? | 平均 VDOT（仅 Z3+ 代表性强度段有值的活动参与） | - |
-| `averageCadence` | number? | 平均步频 | spm |
-| `averageStrideLength` | number? | 平均步幅 | m |
+| `averageCadence` | number? | 平均步频 = Σ(步频×时间)/Σ时间（速率量必须按时间加权；真实库近 7 天等权 177.0 vs 加权 181.4） | spm |
+| `averageStrideLength` | number? | 平均步幅 = **Σ距离 / Σ步数**（步数 = 距离/步幅），不是各次步幅的平均 | m |
 | `totalTrainingLoad` | number? | 训练负荷总和 | - |
 
 ---
@@ -549,7 +549,8 @@ GET /api/analysis/hr-zones?startDate=2026-09-01&endDate=2026-10-31&groupBy=month
 > `activity_count` 是**该区间内的分段数**去重后的活动数，逐区间相加会重复计数
 > （同一活动可能横跨多个心率区间），`summary.total_activities` 也是这个相加值 ——
 > 只适合做「样本量」参考，不能当成独立活动总数。
-> `avg_pace` / `avg_cadence` 按 lap 时长加权。
+> `avg_pace` **恒等于同一行的 `total_duration / (total_distance/1000)`** —— 三个数字并排展示，用户可直接相除验算（真实库旧的逐 lap 加权均值在 Z1 行给 406.0，而该行自身总量是 388.1，差 18 s/km）。
+> `avg_cadence` / `avg_stride_length` / `avg_heart_rate` 按 lap **计时器时长**加权。
 
 **心率区间定义**（`app/lib/hr-zones.ts`，基于最大心率百分比，`MAX_HR` 环境变量或默认 190）
 
@@ -665,7 +666,7 @@ GET /api/analysis/power-zones?startDate=2026-01-01&endDate=2026-12-31
 | `zones[].activity_count` / `lap_count` | number | 去重活动数 / 参与聚合的 lap 数 |
 | `zones[].total_duration` | number | 秒 |
 | `zones[].total_distance` | number | **米**（lap 距离累加） |
-| `zones[].avg_power` / `avg_heart_rate` / `avg_cadence` / `avg_stride_length` | number \| null | lap **时长加权**均值 |
+| `zones[].avg_power` / `avg_heart_rate` / `avg_cadence` / `avg_stride_length` | number \| null | lap **计时器时长加权**均值（速率/强度量必须按停留时间加权） |
 | `reference.ftp_median_watts` | number \| null | 参与活动 FTP 的中位数（**参照值，不是任何一次活动的 FTP**） |
 | `reference.ftp_device_count` / `ftp_zone_boundary_count` | number | FTP 来源分布（设备显式 / 由 `power_zone_boundaries[3]` 回退） |
 | `reference.activity_count` / `distinct_ftp_count` | number | 参与活动数 / 去重 FTP 值个数（说明为何不能按绝对瓦数聚合） |
@@ -779,7 +780,7 @@ GET /api/insight?startDate=2026-06-01&endDate=2026-09-22
 | `decoupling` | 有氧解耦：`points` 明细、`meanPct`、`trendPer30d` |
 | `form` | 跑姿按月趋势（步频/步幅/触地/垂直振幅/垂直比） |
 | `paceHr` | 配速-心率回归模型：`slope`/`intercept`/`r`/`predictions`/`thresholdPaceSecPerKm` |
-| `categories` | 训练类别对比（阈值/间歇/长距离/节奏/VO₂max/轻松），含时长加权配速/心率与有氧效率 |
+| `categories` | 训练类别对比（阈值/间歇/长距离/节奏/VO₂max/轻松）。均配速 = **Σt/Σd**（不是各次配速的平均、也不是时长加权平均），均心率/步频 = 时间加权，有氧效率 = 速度/心率 |
 | `weather` | 气温分档对比（心率/配速/效率） |
 | `routes` | 常跑路线对比（次数/最佳/均值/配速趋势） |
 | `periodization` | 周期化：周跑量/负荷/次数/CTL/ATL/TSB、峰值、增幅、波动；每周期带 `partial`（该周被所选区间截断）、`peakWeek`（`{week, km}`，与 `peakWeekKm` 同源，UI 不得自行取 max）、`statsBasis`（`complete` 只用完整周 / `all` 区间不足 2 个完整周时退化为全部周）、`statsWeekCount`。`ctl/atl/tsb` 为期末值，预热 `TRAINING_LOAD_WARMUP_DAYS`（5τ=210 天）并以 `endDate` 为参考日（休息日也走 EWMA） |

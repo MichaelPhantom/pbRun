@@ -192,8 +192,12 @@ export function buildRunnerProfile(exclude: Activity): RunnerProfile {
 function recentVolume(exclude: Activity, day: string) {
   let last7Km = 0, last7Runs = 0, last28Km = 0, last28Runs = 0;
   let prevWeekKm = 0; // 7-14 天前
-  let recentPaceSum = 0, recentPaceN = 0; // 近 30 天
-  let earlierPaceSum = 0, earlierPaceN = 0; // 31-60 天前
+  // 配速趋势必须用 Σ计时器秒数 / Σ距离，不能用「各次配速的平均」。
+  // 2026-10-29: 旧实现累加 average_pace 再除以次数 —— 一次 4.76km 的恢复跑
+  // （7:26/km）与一次 15km 的常规跑（5:31/km）等权，近 7 天的"均配速"因此
+  // 高了 30 s/km（+8.4%），而这个数会进入**每一次**活动分析的 prompt。
+  let recentPaceSecSum = 0, recentPaceKm = 0; // 近 30 天
+  let earlierPaceSecSum = 0, earlierPaceKm = 0; // 31-60 天前
   let prev: RunnerProfile['prev'] = null;
   let prevTime = -Infinity;
   try {
@@ -225,10 +229,11 @@ function recentVolume(exclude: Activity, day: string) {
       if (t >= from14 && t < from7) prevWeekKm += km;
       // 近 28 天 (含近 7 天)
       if (t >= from30) { last28Km += km; last28Runs += 1; }
-      // 配速趋势: 近 30 天 vs 31-60 天
-      if (a.average_pace != null && a.average_pace > 0) {
-        if (t >= from30) { recentPaceSum += a.average_pace; recentPaceN += 1; }
-        else if (t >= from60ms) { earlierPaceSum += a.average_pace; earlierPaceN += 1; }
+      // 配速趋势: 近 30 天 vs 31-60 天（距离加权 ⇒ 等价于 Σt/Σd）
+      if (a.average_pace != null && a.average_pace > 0 && km > 0) {
+        const sec = a.average_pace * km;
+        if (t >= from30) { recentPaceSecSum += sec; recentPaceKm += km; }
+        else if (t >= from60ms) { earlierPaceSecSum += sec; earlierPaceKm += km; }
       }
       // 最近一次 (时间最接近且早于本次)
       if (t < selfTime && t > prevTime) {
@@ -252,8 +257,8 @@ function recentVolume(exclude: Activity, day: string) {
     last28Km: Math.round(last28Km * 10) / 10,
     last28Runs,
     weeklyVolumeChangePct,
-    recentPaceSec: recentPaceN > 0 ? recentPaceSum / recentPaceN : null,
-    earlierPaceSec: earlierPaceN > 0 ? earlierPaceSum / earlierPaceN : null,
+    recentPaceSec: recentPaceKm > 0 ? recentPaceSecSum / recentPaceKm : null,
+    earlierPaceSec: earlierPaceKm > 0 ? earlierPaceSecSum / earlierPaceKm : null,
     prev,
   };
 }

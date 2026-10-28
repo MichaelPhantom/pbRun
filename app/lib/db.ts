@@ -36,7 +36,7 @@ import { hrZoneOf, resolveMaxHr } from './hr-zones';
 import { POWER_ZONE_NAMES, powerZoneOf } from './power-zones';
 import { resolveFtp } from './power';
 import { RUNNING_ACTIVITY_TYPES } from './sport';
-import { effectiveTimeSec, paceSecPerKm } from './pace';
+import { effectiveTimeSec, sampleSeconds, paceSecPerKm } from './pace';
 
 
 /**
@@ -323,12 +323,48 @@ export function getStats(period?: 'week' | 'month' | 'year' | 'total'): StatsRes
       -- duration 是经过时间（含暂停），拿它做「总时长」会把等人的时间算成训练。
       -- 真实库 110/348 条活动的两者不同，最多相差 7845 秒。
       SUM(CASE WHEN moving_time > 0 THEN moving_time ELSE duration END) as totalDuration,
-      AVG(average_pace) as averagePace,
-      AVG(average_heart_rate) as averageHeartRate,
+
+      -- ⚠ 均配速/均心率/均步频/均步幅**不能**用 AVG(列)：
+      --   AVG(average_pace) 是「各次活动配速的平均」，不是「这段时期的配速」。
+      --   它只在每次跑距离相同时才成立，真实库里长短差异极大 → 系统性偏高（更慢）。
+      --   真实库近 7 天：AVG=388.3 而 Σt/Σd=358.3（**+30.0 s/km / +8.4%**）。
+      --   口径与唯一实现见 app/lib/pace.ts 的 groupPaceSecPerKm / groupHeartRate。
+      --   这套写法的额外好处：均配速 ≡ totalDuration / (totalDistance/1000)，
+      --   用户拿卡片上另外两个数字就能自证（tests 里有这条不变式）。
+      -- 注意 * 1.0：SQLite 的整数除法会把 7/2 算成 3。
+      (SUM(CASE WHEN distance > 0
+                THEN (CASE WHEN moving_time > 0 THEN moving_time ELSE duration END)
+                ELSE 0 END) * 1.0)
+        / NULLIF(SUM(CASE WHEN distance > 0 THEN distance ELSE 0 END), 0) as averagePace,
+
+      (SUM(CASE WHEN average_heart_rate > 0
+                THEN average_heart_rate * (CASE WHEN moving_time > 0 THEN moving_time ELSE duration END)
+                ELSE 0 END) * 1.0)
+        / NULLIF(SUM(CASE WHEN average_heart_rate > 0
+                          THEN (CASE WHEN moving_time > 0 THEN moving_time ELSE duration END)
+                          ELSE 0 END), 0) as averageHeartRate,
+
       SUM(total_ascent) as totalAscent,
+
+      -- 跑力是「每次跑的估算值」，区间均值取算术平均（不按距离加权：
+      -- 长距离跑的 VDOT 天然偏低，加权会把「当前跑力」压低）。这是刻意的，
+      -- 与配速/心率那类**强度量**的口径不同。
       AVG(vdot_value) as averageVDOT,
-      AVG(average_cadence) as averageCadence,
-      AVG(average_stride_length) as averageStrideLength,
+
+      -- 步频是速率（步/分钟）→ 按时间加权；真实库近 7 天等权 177.0 vs 加权 181.4。
+      (SUM(CASE WHEN average_cadence > 0
+                THEN average_cadence * (CASE WHEN moving_time > 0 THEN moving_time ELSE duration END)
+                ELSE 0 END) * 1.0)
+        / NULLIF(SUM(CASE WHEN average_cadence > 0
+                          THEN (CASE WHEN moving_time > 0 THEN moving_time ELSE duration END)
+                          ELSE 0 END), 0) as averageCadence,
+
+      -- 步幅 = 距离/步数 → 一组活动的平均步幅 = Σ距离 / Σ步数（步数 = 距离/步幅）。
+      (SUM(CASE WHEN average_stride_length > 0 AND distance > 0 THEN distance ELSE 0 END) * 1000.0)
+        / NULLIF(SUM(CASE WHEN average_stride_length > 0 AND distance > 0
+                          THEN distance * 1000.0 / average_stride_length
+                          ELSE 0 END), 0) as averageStrideLength,
+
       SUM(training_load) as totalTrainingLoad
     FROM activities
     WHERE ${runningTypeClause('activities')} ${dateFilter}
@@ -578,7 +614,13 @@ export function getPaceZoneStats(
     s.activityIds.add(lap.activity_id);
     // 时间基数 = **计时器时间**（与配速、区间秒数同一口径，见 `app/lib/pace.ts`）。
     // 用 `duration`（含暂停）会让 `total_duration` 与同一行的区间秒数之和矛盾。
-    const lapSec = effectiveTimeSec(lap) ?? 0;
+    // 计时器列全缺时由 pace × distance 还原（配速的定义就是 秒/公里）。
+    const lapSec =
+      sampleSeconds({
+        seconds: effectiveTimeSec(lap),
+        paceSecPerKm: lap.average_pace,
+        distanceKm: (lap.distance ?? 0) / 1000,
+      }) ?? 0;
     const w = lapSec > 0 ? lapSec : 1; // 权重: lap 计时器时长（为 0 时退化为等权）
     s.total_duration += lapSec;
     s.total_distance += lap.distance;
@@ -612,7 +654,9 @@ export function getPaceZoneStats(
       activity_count: s.activityIds.size,
       total_duration: s.total_duration,
       total_distance: s.total_distance,
-      avg_pace: avg(s.wPaceSum, s.wPaceDur),
+      // 均配速 ≡ 同一行的 total_duration / total_distance（可被用户验算）。
+      // 逐 lap 时长加权均值在区间内也会偏——真实库 Z1 行 406.0 vs 388.1。
+      avg_pace: s.total_distance > 0 ? s.total_duration / (s.total_distance / 1000) : null,
       avg_cadence: avg(s.wCadSum, s.wCadDur),
       avg_stride_length: avg(s.wStrideSum, s.wStrideDur),
       avg_heart_rate: avg(s.wHrSum, s.wHrDur),
@@ -879,9 +923,16 @@ export function getHrZoneStats(params: HrZoneAnalysisParams): HrZoneStat[] {
 
   const statsMap = new Map<string, HrZoneStat>();
   const activitySets = new Map<string, Set<number>>();
+  // 心率/步频/步幅按 **lap 计时器时长** 加权（速率量必须用时间做权重）；
+  // 均配速不在这里累加 —— 它必须由同一行的 total_duration / total_distance 推出，
+  // 否则表格里「总时长 12:34 / 总距离 120km / 均配速 6:46」会自相矛盾
+  // （真实库 Z1 行：逐 lap 平均 406.0 vs 自身总量 388.1，差 18 s/km）。
+  // 每个量各自累加权重：三者缺值情况不同，共用一个分母会把权重乘 3
+  // （真实表现：步频 161.4 被算成 53.8）。
   const sums = new Map<string, {
-    pace: number; cadence: number; stride: number; hr: number;
-    nPace: number; nCadence: number; nStride: number; nHr: number;
+    cadence: number; cadenceW: number;
+    stride: number; strideW: number;
+    hr: number; hrW: number;
   }>();
 
   for (const lap of rows) {
@@ -905,29 +956,38 @@ export function getHrZoneStats(params: HrZoneAnalysisParams): HrZoneStat[] {
       };
       statsMap.set(key, stat);
       activitySets.set(key, new Set());
-      sums.set(key, { pace: 0, cadence: 0, stride: 0, hr: 0, nPace: 0, nCadence: 0, nStride: 0, nHr: 0 });
+      sums.set(key, { cadence: 0, cadenceW: 0, stride: 0, strideW: 0, hr: 0, hrW: 0 });
     }
 
     const activitySet = activitySets.get(key)!;
     activitySet.add(lap.activity_id);
     stat.activity_count = activitySet.size;
 
-    stat.total_duration += effectiveTimeSec(lap) ?? 0;
+    // 计时器列全缺时由 pace × distance 还原，避免该 lap 的时长记成 0 而把
+    // 同一行的「均配速 = 总时长/总距离」拖到 0。
+    const lapSec =
+      sampleSeconds({
+        seconds: effectiveTimeSec(lap),
+        paceSecPerKm: lap.average_pace,
+        distanceKm: (lap.distance ?? 0) / 1000,
+      }) ?? 0;
+    stat.total_duration += lapSec;
     stat.total_distance += lap.distance || 0;
 
     const s = sums.get(key)!;
-    if (lap.average_pace) { s.pace += lap.average_pace; s.nPace += 1; }
-    if (lap.average_cadence) { s.cadence += lap.average_cadence; s.nCadence += 1; }
-    if (lap.average_stride_length) { s.stride += lap.average_stride_length; s.nStride += 1; }
-    if (lap.average_heart_rate) { s.hr += lap.average_heart_rate; s.nHr += 1; }
+    const w = lapSec > 0 ? lapSec : 1; // 时长为 0 的 lap 退化为等权（保留样本）
+    if (lap.average_cadence) { s.cadence += lap.average_cadence * w; s.cadenceW += w; }
+    if (lap.average_stride_length) { s.stride += lap.average_stride_length * w; s.strideW += w; }
+    if (lap.average_heart_rate) { s.hr += lap.average_heart_rate * w; s.hrW += w; }
   }
 
   for (const [key, stat] of statsMap) {
     const s = sums.get(key)!;
-    stat.avg_pace = s.nPace > 0 ? s.pace / s.nPace : null;
-    stat.avg_cadence = s.nCadence > 0 ? s.cadence / s.nCadence : null;
-    stat.avg_stride_length = s.nStride > 0 ? s.stride / s.nStride : null;
-    stat.avg_heart_rate = s.nHr > 0 ? s.hr / s.nHr : null;
+    // 均配速 ≡ 该行自己的「总时长 / 总距离」。
+    stat.avg_pace = stat.total_distance > 0 ? stat.total_duration / (stat.total_distance / 1000) : null;
+    stat.avg_cadence = s.cadenceW > 0 ? s.cadence / s.cadenceW : null;
+    stat.avg_stride_length = s.strideW > 0 ? s.stride / s.strideW : null;
+    stat.avg_heart_rate = s.hrW > 0 ? s.hr / s.hrW : null;
   }
 
   return Array.from(statsMap.values()).sort((a, b) => {
@@ -1019,7 +1079,14 @@ export function getPeriodStats(startDate: string, endDate: string): PeriodStats 
        -- 同 getStats: 总时长用计时器时间（moving_time），不用经过时间。
        SUM(CASE WHEN moving_time > 0 THEN moving_time ELSE duration END) AS totalDuration,
        COUNT(*) AS totalActivities,
-       AVG(average_pace) AS avgPace,
+       -- 均配速 = Σ计时器时间 / Σ距离（**不是** AVG(average_pace)）。
+       -- 真实库近 7 天 AVG(average_pace)=388.3 而 Σt/Σd=358.3（+30.0 s/km / +8.4%）。
+       -- 口径与唯一实现见 app/lib/pace.ts 的 groupPaceSecPerKm。
+       (SUM(CASE WHEN distance > 0
+                 THEN (CASE WHEN moving_time > 0 THEN moving_time ELSE duration END)
+                 ELSE 0 END) * 1.0)
+         / NULLIF(SUM(CASE WHEN distance > 0 THEN distance ELSE 0 END), 0) AS avgPace,
+       -- 跑力取算术平均（每次跑的估算值，不按距离加权），见 getStats 的说明。
        AVG(vdot_value) AS avgVDOT,
        SUM(training_load) AS totalTrainingLoad
      FROM activities

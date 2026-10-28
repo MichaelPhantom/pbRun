@@ -255,6 +255,7 @@ export function getActivityInsight(activityId: number): ActivityInsightResponse 
         ascentM: activity.total_ascent ?? null,
       },
       peers.map((p) => ({
+        distanceKm: p.distanceKm,
         paceSecPerKm: p.paceSecPerKm,
         heartRate: p.heartRate,
         temperatureC: p.temperatureC,

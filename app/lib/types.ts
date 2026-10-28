@@ -774,6 +774,13 @@ export interface RouteQuality {
 export interface EnvironmentPeer {
   paceSecPerKm: number | null;
   heartRate: number | null;
+  /**
+   * 距离（公里）—— 同温档「均配速」必须按 Σt/Σd 聚合。
+   *
+   * 没有距离就只能退回「各次配速的算术平均」，而一次 5 km 与一次 25 km 等权
+   * 会把档内均配速算错十几秒（`docs/features.md` 的聚合口径一节）。故是必填。
+   */
+  distanceKm: number;
   temperatureC?: number | null;
   ascentM?: number | null;
 }
