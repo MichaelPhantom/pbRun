@@ -56,15 +56,49 @@ describe('analyzeLaps', () => {
     expect(r.laps.every((l) => l.role === 'steady')).toBe(true);
   });
 
+  /**
+   * 主课平均心率按 **lap 计时器时长** 加权（不是逐 lap 简单平均）。
+   *
+   * 真实库 213 条有主课的跑步活动里 55 条相差 ≥0.5bpm，最大 **20.7bpm**
+   * （`568320983`）—— 200 m 的冲刺段与 3 km 的阈值段被等权对待。
+   */
+  test('主课平均心率按 lap 时长加权', () => {
+    const laps: LapInput[] = [
+      { lapIndex: 0, distanceMeters: 3000, paceSecPerKm: 450, heartRate: 140, cadence: 170, power: null, durationSec: 1350 },
+      { lapIndex: 1, distanceMeters: 1000, paceSecPerKm: 300, heartRate: 170, cadence: 185, power: null, durationSec: 300 },
+      { lapIndex: 2, distanceMeters: 8000, paceSecPerKm: 310, heartRate: 185, cadence: 180, power: null, durationSec: 2480 },
+    ];
+    const r = analyzeLaps(laps);
+    expect(r.workLaps).toBe(2);
+    // (170×300 + 185×2480) / 2780 = 183.38
+    expect(r.workAvgHeartRate!).toBeCloseTo((170 * 300 + 185 * 2480) / 2780, 6);
+    // 判别式：等权平均是 177.5
+    expect(r.workAvgHeartRate!).not.toBeCloseTo((170 + 185) / 2, 1);
+    expect(r.workDistanceMeters).toBe(9000);
+  });
+
+  test('durationSec 缺失时由「配速 × 距离」还原权重', () => {
+    const laps: LapInput[] = [
+      { lapIndex: 0, distanceMeters: 3000, paceSecPerKm: 450, heartRate: 140, cadence: 170, power: null },
+      // 1 km @ 300 s/km = 300 s；8 km @ 310 = 2480 s
+      { lapIndex: 1, distanceMeters: 1000, paceSecPerKm: 300, heartRate: 170, cadence: 185, power: null },
+      { lapIndex: 2, distanceMeters: 8000, paceSecPerKm: 310, heartRate: 185, cadence: 180, power: null },
+    ];
+    const r = analyzeLaps(laps);
+    expect(r.workAvgHeartRate!).toBeCloseTo((170 * 300 + 185 * 2480) / 2780, 6);
+  });
+
   test('非跑步: 按相对心率识别强度段, 但不外传绝对配速 (bestPace/workAvgPace)', () => {
     // 泳池游泳的真实形态: lap 距离多为 0/50/100m, average_pace 常缺失,
     // 但有稳定的分段心率。用配速做基准会让所有段落进 steady、永远识别不出
     // 「主课」; 用相对心率才能识别强度结构。
+    // lap 3 刻意比 lap 2 长 8 倍（400m vs 50m）：主课均心率按**时长**加权，
+    // 等权平均会把它算成 152.5，而真实加权值是 154.46。
     const swim: LapInput[] = [
       { lapIndex: 0, distanceMeters: 0, paceSecPerKm: null, heartRate: 80, cadence: null, power: null },
       { lapIndex: 1, distanceMeters: 50, paceSecPerKm: 2400, heartRate: 110, cadence: null, power: null },
-      { lapIndex: 2, distanceMeters: 100, paceSecPerKm: 1850, heartRate: 150, cadence: null, power: null },
-      { lapIndex: 3, distanceMeters: 100, paceSecPerKm: 1900, heartRate: 155, cadence: null, power: null },
+      { lapIndex: 2, distanceMeters: 50, paceSecPerKm: 1850, heartRate: 150, cadence: null, power: null },
+      { lapIndex: 3, distanceMeters: 400, paceSecPerKm: 1900, heartRate: 155, cadence: null, power: null },
       { lapIndex: 4, distanceMeters: 50, paceSecPerKm: 2600, heartRate: 95, cadence: null, power: null },
     ];
     const r = analyzeLaps(swim, { running: false });
@@ -76,9 +110,13 @@ describe('analyzeLaps', () => {
     expect(r.bestPaceSecPerKm).toBeNull();
     expect(r.bestLapIndex).toBeNull();
     expect(r.workAvgPaceSecPerKm).toBeNull();
-    // 心率与段数照常可用
-    expect(r.workAvgHeartRate).toBe(152.5);
-    expect(r.workDistanceMeters).toBe(200);
+    // 心率与段数照常可用。均心率按**时长**加权：
+    //   (150 × 1850×0.05 + 155 × 1900×0.4) / (92.5 + 760) = 154.46
+    const wHr = (150 * (1850 * 0.05) + 155 * (1900 * 0.4)) / (1850 * 0.05 + 1900 * 0.4);
+    expect(r.workAvgHeartRate!).toBeCloseTo(wHr, 6);
+    // 判别式：等权平均是 152.5
+    expect(r.workAvgHeartRate!).not.toBeCloseTo((150 + 155) / 2, 1);
+    expect(r.workDistanceMeters).toBe(450);
   });
 
   test('非跑步: 心率缺失时退回 steady, 不误判 (也不崩)', () => {

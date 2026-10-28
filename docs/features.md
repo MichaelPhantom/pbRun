@@ -852,6 +852,19 @@ CTL 差 < 1%、`endDate` 补零/不截断/缺省三种形态）、`tests/unit/li
 `tests/unit/lib/runner-profile.test.ts`（4 km/420 + 20 km/340 → 350 而非 380）、
 `tests/unit/lib/pace-zone-stats.test.ts`（行内自洽 + 计时器列全缺时由配速还原）。
 
+**顺带补齐两处残留**（同一族，2026-10-29）：
+
+1. `analyzeLaps` 的**主课平均心率**原本是逐 lap 简单平均 —— 200 m 的冲刺段与
+   3 km 的阈值段等权。真实库 213 条有主课的跑步活动里 **55 条**相差 ≥0.5bpm，
+   最大 **20.7bpm**（活动 `568320983`）。现按 lap 计时器时长加权（缺失时由
+   `配速 × 距离` 还原），与心率区间表/类别对比同一口径。
+2. **区间平均跑力（VDOT）刻意保持算术平均**，并在代码里写明理由与实测：
+   30/90/365 天窗口下等权 41.40/39.77/39.35 vs 距离加权 41.12/39.58/39.39，
+   最大差 0.37（<1%）—— VDOT 是「每次跑等价能力」的**估计值**而不是速率，
+   合并估计值的标准做法就是算术平均；按距离加权会让长距离跑主导（其 VDOT
+   天然偏低），把「当前跑力」系统性压低。真正的契约是**两处实现必须相等**：
+   `getStats().averageVDOT` ≡ `getPeriodStats().avgVDOT` ≡ `insight.vdot.mean`。
+
 **夹具又一次掩盖了它**：`insight-compare.test.ts` 里 `{ distanceKm: 7, durationSeconds: 2520,
 avgPaceSecPerKm: 350 }` 三个数互相矛盾（350×7=2450≠2520），而 `WeatherSample` 的夹具
 干脆没有 `distanceKm` —— 改完口径后那些字段算出 `null`，测试**照样全绿**（因为没人
@@ -1202,6 +1215,9 @@ GPS 漂移、起终点的静止采样都被判为「有效移动」，混进前�
 | **「均配速」= Σt/Σd，不是各次配速的平均** | `app/lib/pace.ts` 的 `groupPaceSecPerKm`（唯一实现）；`getStats` / `getPeriodStats`（SQL `SUM(time)/SUM(distance)`）、`computeCategoryComparison` / `computeWeatherComparison` / `computeRouteComparison`、`runner-profile`、`activity-insight` 组均/同类均值、`activity-environment` 同温档均值全部走它 | `tests/unit/lib/pace-group.test.ts`（14 例：≠ 算术平均、可组合、算术平均不可组合、seconds 由 pace×distance 还原）+ `tests/unit/lib/db-group-avg.test.ts`（真实 SQLite：20 km 与 4 km 悬殊夹具，配速 366.67 而 `AVG` 为 380）+ `tests/unit/lib/insight-compare.test.ts`（类别/气温/路线三处 `not.toBeCloseTo(等权)`）+ `tests/unit/lib/runner-profile.test.ts`（350 而非 380）+ `tests/unit/lib/activity-environment.test.ts`（5 km vs 15 km） |
 | **均心率/步频按时间加权，均步幅 = Σ距离/Σ步数** | `pace.groupHeartRate` / `groupCadence`；`getStats` 的 SQL 与 `getHrZoneStats` 的 lap 累加器同口径 | `tests/unit/lib/db-group-avg.test.ts`（心率 153.64 而非 160、步频 173.64 而非 180、步幅 0.9714 而非 0.925）+ `tests/unit/lib/pace-group.test.ts` |
 | **区间表同一行的 `avg_pace` ≡ `total_duration / total_distance`** | `getPaceZoneStats` / `getHrZoneStats`（真实库 Z1 行旧值 406.0，而该行总量 388.1） | `tests/unit/lib/db-group-avg.test.ts`（真实 lap：区间表每行自洽，偏差 0）+ `tests/unit/lib/pace-zone-stats.test.ts`（Σt/Σd = 435、计时器列全缺时由配速还原为 330s） |
+| **主课平均心率按 lap 计时器时长加权** | `analyzeLaps` 的 `workAvgHeartRate`（`pace.groupHeartRate` + `LapInput.durationSec`，缺失由 `配速×距离` 还原） | `tests/unit/lib/activity-insight.test.ts`（1000 m/300s 与 8000 m/2480s → 183.38 而非 177.5；`durationSec` 缺失时同值；非跑步泳池样本 154.46 而非 152.5） |
+| **区间平均跑力取算术平均，且三处实现必须相等** | `getStats().averageVDOT` / `getPeriodStats().avgVDOT` / `insight.computeVdotTrend().mean`（刻意不按距离/时间加权：VDOT 是估计值不是速率，实测三种权重差 <1%） | `tests/unit/lib/db-group-avg.test.ts`（`getPeriodStats().avgVDOT ≡ insight.vdot.mean`，9 位小数） |
+| **SQL 注释里不得出现反引号** | `app/lib/db.ts` / `scripts/common/db-manager.js` 的模板字符串（2026-10-27～29 踩了 5 次，每次都是整站编译不过） | `tests/unit/ci/sql-template-hygiene.test.ts`（扫描 `^\s*--` 行；含一条自测确认守卫本身会转红） |
 | **计时器列全缺时，秒数由 `配速 × 距离` 还原** | `pace.sampleSeconds`（`seconds` 优先，否则 `pace × distance`）；区间表用它算 lap 秒数 | `tests/unit/lib/db-zones-samples.test.ts`（`duration=0` 的 lap → `total_duration` 330s 而非 0） |
 | **周维度 CTL/ATL/TSB 必须进入教练上下文** | `insight-coach.ts` 的「训练负荷(EWMA)」行（取末周期末值 + TSB 状态词 + 截至周/截断标记） | `tests/unit/lib/insight-coach.test.ts`（逐字 `CTL 46.3 / ATL 26.2 / TSB +20.1（新鲜） / 截至 2026-W43(截断)`；取首周立即转红） |
 | **「次数」是跑步次数，不是天数** | `DailyLoad.runs` / `TrainingLoadPoint.runs` 由 SQL `COUNT(*)` 提供；聚合层只做加法（`d.runs ?? 1`） | `tests/unit/lib/insight-branches.test.ts`（一天三练 → 3 次而非 1 次）+ `tests/unit/lib/insight-compare.test.ts`（同一天两练 → 周 `activities` 为 3 而非 2；改回 `n += 1` 立即转红） |

@@ -346,9 +346,18 @@ export function getStats(period?: 'week' | 'month' | 'year' | 'total'): StatsRes
 
       SUM(total_ascent) as totalAscent,
 
-      -- 跑力是「每次跑的估算值」，区间均值取算术平均（不按距离加权：
-      -- 长距离跑的 VDOT 天然偏低，加权会把「当前跑力」压低）。这是刻意的，
-      -- 与配速/心率那类**强度量**的口径不同。
+      -- 跑力（VDOT）**刻意取算术平均**，与配速/心率那类「强度量」口径不同：
+      -- VDOT 是「每次跑所对应的竞赛等价能力」的**估计值**，不是速率。合并一组
+      -- 估计值的标准做法就是算术平均；按距离加权会让长距离跑主导（长距离的
+      -- VDOT 天然偏低），把「当前跑力」系统性地压低。
+      --
+      -- 这不是没量过：真实库 30/90/365 天三种窗口，
+      --   等权 41.40 / 39.77 / 39.35
+      --   距离加权 41.12 / 39.58 / 39.39
+      --   时间加权 41.03 / 39.47 / 39.36
+      -- 最大差 0.37（<1%），换权重的收益远小于口径分叉的代价。
+      -- 它必须与 insight.computeVdotTrend().mean 同一口径（那边同为本区间
+      -- 全部样本的算术平均），tests/unit/lib/db-group-avg.test.ts 有跨实现断言。
       AVG(vdot_value) as averageVDOT,
 
       -- 步频是速率（步/分钟）→ 按时间加权；真实库近 7 天等权 177.0 vs 加权 181.4。
@@ -1086,7 +1095,8 @@ export function getPeriodStats(startDate: string, endDate: string): PeriodStats 
                  THEN (CASE WHEN moving_time > 0 THEN moving_time ELSE duration END)
                  ELSE 0 END) * 1.0)
          / NULLIF(SUM(CASE WHEN distance > 0 THEN distance ELSE 0 END), 0) AS avgPace,
-       -- 跑力取算术平均（每次跑的估算值，不按距离加权），见 getStats 的说明。
+       -- 跑力取算术平均（VDOT 是估计值不是速率）；口径必须与
+       -- getStats().averageVDOT 和 insight.computeVdotTrend().mean 一致。
        AVG(vdot_value) AS avgVDOT,
        SUM(training_load) AS totalTrainingLoad
      FROM activities

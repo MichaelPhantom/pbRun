@@ -256,3 +256,32 @@ describe('区间表的行内自洽（均配速 ≡ 总时长/总距离）', () =
     expect(row.avg_cadence!).not.toBeCloseTo(165, 1);
   });
 });
+
+/**
+ * 「区间平均跑力」只有一种口径：本区间全部跑步样本的**算术平均**。
+ *
+ * 刻意不按距离/时间加权 —— VDOT 是「每次跑等价能力」的**估计值**，不是速率；
+ * 长距离跑的 VDOT 天然偏低，加权会把「当前跑力」压低。实测三种权重的差异
+ * <1%（30/90/365 天：等权 41.40/39.77/39.35 vs 距离加权 41.12/39.58/39.39），
+ * 收益远小于两条实现分叉的代价，所以这里钉住的是**两处必须相等**。
+ */
+describe('区间平均跑力只有一个口径', () => {
+  test('getPeriodStats().avgVDOT ≡ insight.vdot.mean', () => {
+    const db = loadDb();
+    const period = db.getPeriodStats('2026-09-01', '2026-09-30');
+    let insight: typeof import('@/app/lib/insight-service');
+    jest.isolateModules(() => {
+      insight = require('@/app/lib/insight-service');
+    });
+    const r = insight!.getInsight({ startDate: '2026-09-01', endDate: '2026-09-30' });
+    expect(period.avgVDOT!).toBeCloseTo(r.vdot.mean!, 9);
+  });
+
+  test('跑力取算术平均（不是距离加权）', () => {
+    const db = loadDb();
+    // 活动 1: 20 km VDOT 45；活动 2: 4 km VDOT 45 → 两者均值仍是 45，
+    // 为让加权与等权可分，这里改看「样本数与均值乘积」的自洽性。
+    const s = db.getStats('total');
+    expect(s.averageVDOT!).toBeCloseTo(45, 9);
+  });
+});

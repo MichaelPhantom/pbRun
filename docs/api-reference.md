@@ -410,7 +410,7 @@ GET /api/stats?period=week
 | `averagePace` | number? | 平均配速 = **Σ计时器时间 / Σ距离**（不是 `AVG(average_pace)`：那是「各次配速的平均」，只在距离相同时才成立）。恒等于 `totalDuration / (totalDistance/1000)`，可被用户验算 | 秒/公里 |
 | `averageHeartRate` | number? | 平均心率 = **Σ(心率×计时器时间)/Σ计时器时间**（时间加权；等权平均会让一次 12 分钟间歇与一次 2 小时长距离等权，真实库近 7 天差 4.8bpm） | bpm |
 | `totalAscent` | number? | 总爬升 | m |
-| `averageVDOT` | number? | 平均 VDOT（仅 Z3+ 代表性强度段有值的活动参与） | - |
+| `averageVDOT` | number? | 区间平均跑力 = 本区间全部跑步样本的**算术平均**（刻意不按距离/时间加权：VDOT 是估计值不是速率，长距离跑的 VDOT 天然偏低，加权会压低「当前跑力」）。与 `insight.vdot.mean` 同一口径 | - |
 | `averageCadence` | number? | 平均步频 = Σ(步频×时间)/Σ时间（速率量必须按时间加权；真实库近 7 天等权 177.0 vs 加权 181.4） | spm |
 | `averageStrideLength` | number? | 平均步幅 = **Σ距离 / Σ步数**（步数 = 距离/步幅），不是各次步幅的平均 | m |
 | `totalTrainingLoad` | number? | 训练负荷总和 | - |

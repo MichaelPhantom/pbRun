@@ -230,6 +230,18 @@ export function analyzeLaps(
   const workDur = work.reduce((a, r) => a + (r.paceSecPerKm ?? 0) * (r.distanceMeters / 1000), 0);
   const workHrs = work.map((r) => r.heartRate).filter((v): v is number => v != null && v > 0);
 
+  // 主课平均心率必须按**时长**加权（与心率区间表/类别对比同一口径）。
+  // 逐 lap 简单平均会让 200 m 的冲刺段与 3 km 的阈值段等权：真实库 213 条
+  // 有主课的跑步活动里 55 条相差 ≥0.5bpm，最大 **20.7bpm**（活动 `568320983`）。
+  // 权重优先用 lap 计时器时长（`durationSec`），缺失时由「配速 × 距离」还原。
+  const lapSeconds = new Map(laps.map((l) => [l.lapIndex, l.durationSec ?? null]));
+  const workHrSamples = work.map((r) => ({
+    heartRate: r.heartRate,
+    seconds: lapSeconds.get(r.lapIndex) ?? null,
+    paceSecPerKm: r.paceSecPerKm,
+    distanceKm: r.distanceMeters / 1000,
+  }));
+
   let workHrDrift: number | null = null;
   if (workHrs.length >= 2) workHrDrift = workHrs[workHrs.length - 1] - workHrs[0];
 
@@ -258,7 +270,7 @@ export function analyzeLaps(
     workDistanceMeters: Math.round(workDistanceMeters),
     workAvgPaceSecPerKm:
       running && workDistanceMeters > 0 ? workDur / (workDistanceMeters / 1000) : null,
-    workAvgHeartRate: workHrs.length ? mean(workHrs) : null,
+    workAvgHeartRate: groupHeartRate(workHrSamples),
     workHrDrift,
     bestPaceSecPerKm,
     bestLapIndex,
