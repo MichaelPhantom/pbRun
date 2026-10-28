@@ -214,6 +214,40 @@ describe('formatInsightForCoach', () => {
     expect(text).not.toContain('含截断周统计');
   });
 
+  /**
+   * `PeriodizationWeek.ctl/atl/tsb` 此前只在 UI 周表里出现，从未进入教练上下文。
+   *
+   * 汇总页 AI 最常被问的「我是变强了还是疲劳了 / 什么时候能比赛」只能由
+   * CTL/ATL/TSB 回答 —— ACWR 是负荷**比**，不是体能/疲劳的**绝对量**。
+   * 值取末周期末值（= 参考日的值），并带上 TSB 的状态词与截至周（截断要标）。
+   */
+  test('训练负荷 EWMA (CTL/ATL/TSB) 进入教练上下文', () => {
+    const text = formatInsightForCoach(
+      makeInsight({
+        periodization: {
+          weeks: [
+            { week: '2026-W42', km: 30, tl: 300, activities: 3, ctl: 45.2, atl: 28, tsb: 17.2, partial: false },
+            { week: '2026-W43', km: 28.3, tl: 280, activities: 3, ctl: 46.3, atl: 26.2, tsb: 20.1, partial: true },
+          ],
+          peakWeekKm: 30,
+          avgWeekKm: 30,
+          rampRatePerWeek: 0,
+          weeklyChangeStdPct: null,
+          statsBasis: 'complete',
+          statsWeekCount: 2,
+        },
+      }),
+    );
+    expect(text).toContain('训练负荷(EWMA)');
+    // 末周的值 + TSB 状态词 + 截至周（截断标记）
+    expect(text).toContain('CTL 46.3');
+    expect(text).toContain('ATL 26.2');
+    expect(text).toContain('TSB +20.1（新鲜）');
+    expect(text).toContain('截至 2026-W43(截断)');
+    // 不得把上一周的值当成本周
+    expect(text).not.toContain('CTL 45.2');
+  });
+
   test('statsBasis=all 时声明口径 (区间不足 2 个完整周)', () => {
     const text = formatInsightForCoach(
       makeInsight({

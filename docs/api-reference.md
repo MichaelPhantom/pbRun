@@ -782,7 +782,7 @@ GET /api/insight?startDate=2026-06-01&endDate=2026-09-22
 | `categories` | 训练类别对比（阈值/间歇/长距离/节奏/VO₂max/轻松），含时长加权配速/心率与有氧效率 |
 | `weather` | 气温分档对比（心率/配速/效率） |
 | `routes` | 常跑路线对比（次数/最佳/均值/配速趋势） |
-| `periodization` | 周期化：周跑量/负荷/次数/CTL/ATL/TSB、峰值、增幅、波动；每周期带 `partial`（该周被所选区间截断）、`peakWeek`（`{week, km}`，与 `peakWeekKm` 同源，UI 不得自行取 max）、`statsBasis`（`complete` 只用完整周 / `all` 区间不足 2 个完整周时退化为全部周）、`statsWeekCount` |
+| `periodization` | 周期化：周跑量/负荷/次数/CTL/ATL/TSB、峰值、增幅、波动；每周期带 `partial`（该周被所选区间截断）、`peakWeek`（`{week, km}`，与 `peakWeekKm` 同源，UI 不得自行取 max）、`statsBasis`（`complete` 只用完整周 / `all` 区间不足 2 个完整周时退化为全部周）、`statsWeekCount`。`ctl/atl/tsb` 为期末值，预热 `TRAINING_LOAD_WARMUP_DAYS`（5τ=210 天）并以 `endDate` 为参考日（休息日也走 EWMA） |
 | `findings` | 动态洞察建议数组：`{id, severity, title, detail, metric?, action?}` |
 
 **响应示例（节选）**

@@ -8,6 +8,8 @@
  */
 import { render, screen } from '@testing-library/react';
 import DashboardPage from '@/app/page';
+import { TRAINING_LOAD_WARMUP_DAYS, trainingLoadFetchStart } from '@/app/lib/training-load';
+import { todayLocalDate } from '@/app/lib/timezone';
 
 // jsdom 无 canvas; 首页 Donut/Sparkline 走 useEchart → mock echarts 实例
 const setOption = jest.fn();
@@ -129,6 +131,14 @@ describe('DashboardPage (首页) 数据编排', () => {
     const [start, end] = db.getTrainingLoads.mock.calls[0];
     expect(start).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(end >= start).toBe(true);
+    // 预热窗口只有一个实现：`trainingLoadFetchStart`（= 参考日 − 5τ）。
+    // 首页旧值 120 天只走了 2.9τ，CTL 残留 5.5% 误差；且 `ymd(now)` 是 UTC
+    // 日期，本地 00:00–08:00 会让参考日退到前一天。
+    expect(end).toBe(todayLocalDate());
+    expect(start).toBe(trainingLoadFetchStart(end));
+    const warmupDays = (Date.parse(end) - Date.parse(start)) / 86400000;
+    expect(warmupDays).toBe(TRAINING_LOAD_WARMUP_DAYS);
+    expect(warmupDays).not.toBe(120);
   });
 
   test('有数据时渲染 VDOT / 训练状态 / 预测 / 最近活动', async () => {

@@ -9,26 +9,61 @@
  * 序列须按日期连续 (缺日补 0) 以保证时间常数正确。
  */
 import type { TrainingLoadPoint } from './types';
+import { localDateMinusDays } from './timezone';
 
 export interface TrainingLoadSummary {
-  ctl: number; // 最新慢性负荷 (体能)
-  atl: number; // 最新急性负荷 (疲劳)
-  tsb: number; // 体能-疲劳平衡 (Form)
-  /** 用于绘制 90 天曲线的逐日序列 (date, ctl, atl, tsb, load) */
+  ctl: number; // 参考日 (endDate) 的慢性负荷 (体能)
+  atl: number; // 参考日的急性负荷 (疲劳)
+  tsb: number; // 参考日的体能-疲劳平衡 (Form)
+  /** 逐日序列 (date, ctl, atl, tsb, load)，从首个数据日到 `endDate` */
   series: { date: string; load: number; ctl: number; atl: number; tsb: number }[];
 }
 
-const CTL_TAU = 42;
-const ATL_TAU = 7;
+export const CTL_TAU = 42;
+export const ATL_TAU = 7;
 
-/** 把按天聚合的负荷点补成连续日期序列 (缺日 0), 最早→最新排序。 */
-function toContinuousDays(points: TrainingLoadPoint[]): { date: string; load: number }[] {
+/**
+ * EWMA 预热天数 —— **所有** CTL/ATL/TSB 消费方都必须用这个常量取数。
+ *
+ * EWMA 从 0 起递推，n 天后初始值残留的误差约为 `e^{-n/τ}`。CTL 的 τ=42，于是：
+ *
+ * | 预热 | 残差 | 真实库 CTL（收敛值 48.9） |
+ * |-----|------|--------------------------|
+ * | 28 天 (0.67τ) | **51%** | 24.3（`/insight` 周期化旧值） |
+ * | 90 天 (2.1τ) | 11% | 42.3（`/analysis` 旧 `WARMUP_DAYS = 90`） |
+ * | 120 天 (2.9τ) | 5.5% | 44.9（首页 / 跑者画像旧值） |
+ * | 210 天 (5τ) | **0.67%** | 46.7（≈ 收敛） |
+ *
+ * 这不只是「数字偏小」：屏幕上看的是**曲线形状**。预热不足时 EWMA 从 0 爬升，
+ * 于是任何窗口的前几周都会画出一条陡峭的「体能上涨」，而真实 CTL 可能是平的 ——
+ * 90 天窗口实测图上 CTL 32.7 → 51.1（+56%），收敛值只有 48.6 → 55.3（+14%）。
+ * 模型据此会判定「体能大幅提升」，这是纯粹的计算伪影。
+ *
+ * 取数成本可以忽略：整库只有 238 个训练日行，多取 210 天仍是单次分组查询。
+ */
+export const TRAINING_LOAD_WARMUP_DAYS = Math.ceil(5 * CTL_TAU);
+
+/** 取数起点：`startDate` 往前推 `TRAINING_LOAD_WARMUP_DAYS` 天（唯一实现）。 */
+export function trainingLoadFetchStart(startDate: string): string {
+  return localDateMinusDays(startDate, TRAINING_LOAD_WARMUP_DAYS);
+}
+
+/** 把按天聚合的负荷点补成连续日期序列 (缺日 0), 最早→`endDate` 排序。 */
+function toContinuousDays(points: TrainingLoadPoint[], endDate?: string): { date: string; load: number }[] {
   if (points.length === 0) return [];
   const map = new Map(points.map((p) => [p.date, p.load ?? 0]));
-  // 日期范围: 最早..今天 (今天以最后一个数据点或 now 为准; 用数据最后日)
   const sorted = [...points].sort((a, b) => (a.date < b.date ? -1 : 1));
   const start = sorted[0].date;
-  const end = sorted[sorted.length - 1].date;
+  const lastData = sorted[sorted.length - 1].date;
+  // ⚠ 序列终点必须是**参考日**，不能是「最后一个训练日」。
+  //
+  // 休息日没有训练行，若停在最后一个训练日，卡片就把**昨天的疲劳当成今天的**：
+  // 真实库 2026-10-27 之后休一天，ATL 30.2（停在训练日）vs 26.2（算到今天），
+  // TSB +17.3 vs +20.2。TSB 是「今天有多新鲜」，差一天就已是另一个结论；
+  // 连休一周时序列会整整落后一周，卡片还显示「疲劳」而人早已恢复。
+  //
+  // 只往后延伸到 endDate（不截断数据）；endDate 早于最后训练日时仍用数据末端。
+  const end = endDate != null && endDate > lastData ? endDate : lastData;
   const out: { date: string; load: number }[] = [];
   // ⚠ 2026-09-15 修: 必须用 UTC 解析('T00:00:00Z')。原 'T00:00:00' 按**本地时区**
   //   解析, 在 UTC+8 下 toISOString() 前推 8h 跨日 → 所有日期偏移一天(CTL/ATL/TSB
@@ -54,9 +89,17 @@ function ewma(values: number[], tau: number): number[] {
   return out;
 }
 
-/** 由逐日负荷点计算 CTL/ATL/TSB 与 90 天曲线。 */
-export function computeTrainingLoads(points: TrainingLoadPoint[]): TrainingLoadSummary {
-  const days = toContinuousDays(points);
+/**
+ * 由逐日负荷点计算 CTL/ATL/TSB 与逐日曲线。
+ *
+ * @param points  按日聚合的负荷点；应覆盖 `endDate` 之前至少
+ *                `TRAINING_LOAD_WARMUP_DAYS` 天（用 `trainingLoadFetchStart` 取数），
+ *                否则 EWMA 尚未收敛、曲线会带一段假上涨。
+ * @param endDate 参考日（YYYY-MM-DD）。序列会补零延伸到这一天，返回的
+ *                `ctl`/`atl`/`tsb` 即**该日**的值。缺省为最后一个训练日。
+ */
+export function computeTrainingLoads(points: TrainingLoadPoint[], endDate?: string): TrainingLoadSummary {
+  const days = toContinuousDays(points, endDate);
   if (days.length === 0) {
     return { ctl: 0, atl: 0, tsb: 0, series: [] };
   }

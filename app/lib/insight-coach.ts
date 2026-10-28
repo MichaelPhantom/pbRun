@@ -5,6 +5,7 @@
 
 import type { InsightResponse } from './types';
 import { formatDuration } from './format';
+import { tsbStatus } from './training-load';
 
 function fmtPace(secPerKm: number | null | undefined): string {
   if (secPerKm == null || !Number.isFinite(secPerKm) || secPerKm <= 0) return '--';
@@ -86,6 +87,17 @@ export function formatInsightForCoach(insight: InsightResponse): string {
         periodization.weeks
           .map((w) => `${w.week} ${n(w.km, 1)}km/${w.activities}次${w.partial ? '(截断)' : ''}`)
           .join(' '),
+    );
+    // CTL/ATL/TSB 此前**只**在 UI 的周维度表里出现，从未进入教练上下文 ——
+    // 而「我是变强了还是疲劳了」正是汇总页 AI 最常被问的问题。只给 ACWR 不够：
+    // ACWR 是负荷比，不是体能/疲劳的绝对量，也答不了「几周后能比赛」。
+    // 值取末周的期末值（= 参考日的值，见 training-load.ts 的预热契约）。
+    const lastWeek = periodization.weeks[periodization.weeks.length - 1];
+    const tsbLabel = tsbStatus(lastWeek.tsb).label;
+    L.push(
+      `训练负荷(EWMA): CTL ${n(lastWeek.ctl, 1)}  ATL ${n(lastWeek.atl, 1)}  ` +
+        `TSB ${lastWeek.tsb >= 0 ? '+' : ''}${n(lastWeek.tsb, 1)}（${tsbLabel}）  ` +
+        `截至 ${lastWeek.week}${lastWeek.partial ? '(截断)' : ''}`,
     );
   }
 

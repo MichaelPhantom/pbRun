@@ -715,6 +715,70 @@ FTP 缺失不猜 / 海拔比值 / 尖峰过滤）、`tests/unit/pages/activity-d
 合法化。这与上一节 `lap_index` 的 1 基夹具、以及 §1.6 的 `average_pace` 夹具是
 同一个机制（见 `docs/testing-strategy.md` §6.5）。
 
+#### CTL/ATL/TSB 的预热窗口与参考日：同一个「体能」有四个答案（2026-10-28）
+
+上一节是「同一周在不同卡上两个跑量」，本节是「**同一天在不同页面四个体能**」。
+CTL/ATL/TSB 是 EWMA（τ = 42 / 7），而 EWMA **从 0 起递推**，n 天后初始值残留的
+误差约为 `e^{-n/τ}`。旧实现里每个消费方各自决定预热多久：
+
+| 消费方 | 旧预热 | 残差 | 真实库 CTL@2026-10-28（收敛值 48.9） |
+|--------|--------|------|--------------------------------------|
+| `/insight` 周期化（为 ACWR 定的 28 天） | 28 天 = 0.67τ | **51%** | **24.3** |
+| `/analysis` 训练负荷卡 | 90 天 = 2.1τ | 11% | **42.3** |
+| 首页 Fitness 卡 | 120 天 = 2.9τ | 5.5% | **44.9** |
+| 跑者画像（注入 AI） | 120 天 = 2.9τ | 5.5% | **44.9** |
+
+同一天、同一概念（「我的体能是多少」），四个页面给出 24.3 / 42.3 / 44.9 / 44.9。
+更糟的是**曲线形状**：预热不足时 EWMA 从 0 爬升，于是任何窗口的前几周都会被画成
+一条陡峭的「体能上涨」。90 天窗口实测：
+
+| | 首周 CTL | 末周 CTL | 涨幅 |
+|---|---|---|---|
+| 旧实现（图上看到的） | 32.7 | 51.1 | **+18.4（+56%）** |
+| 收敛值（真实的） | 48.6 | 55.3 | +6.7（+14%） |
+| 修后 | 48.4 | 46.3 | **−2.1** |
+
+模型读到的是一条不存在的「体能大幅提升」，据此建议加量 —— 而真实体能其实在缓慢
+下降。**这不是精度问题，是幻觉来源。**
+
+第二个子缺陷：**序列终点是最后一个训练日，不是参考日**。休息日没有训练行，
+`toContinuousDays` 就停在最后一个训练日，于是卡片显示的是**昨天的疲劳**。真实库
+2026-10-27 之后休一天：停在训练日 → ATL 30.2 / TSB +17.3；算到今天 → ATL 26.2 /
+TSB +20.2。TSB 是「今天有多新鲜」，差一天就已是另一个结论；连休一周时卡片会整整
+落后一周，还显示「疲劳」而人早已恢复。
+
+**修法**（三条纪律）：
+
+1. **预热天数只有一个常量**：`training-load.TRAINING_LOAD_WARMUP_DAYS = ceil(5·CTL_TAU) = 210`
+   （残差 0.67%），取数起点只有一个实现 `trainingLoadFetchStart(startDate)`。任何页面
+   都不得自己写 `subDays(start, 90)` / `-120` / `-28`。ACWR 需要的 28 天是**另一个**
+   窗口，两者取更长者，不得混用（`computeLoadInsight` 按年龄回溯，多余历史无影响）。
+2. **序列必须补零到参考日**：`computeTrainingLoads(points, endDate)` 把序列延伸到
+   `endDate`，返回的 `ctl/atl/tsb` 即**该日**的值。所有调用方都要传参考日
+   （首页 `todayLocalDate()`、分析页 `endDate`、洞察服务 `endDate`、跑者画像活动日）。
+3. **参考日本身必须是本地日期**：首页旧实现用 `ymd(now)`（UTC）而月份用本地
+   `getMonth()` —— 本地 00:00–08:00 之间两者不是同一个日历，参考日会退到前一天。
+
+修后真实库四处一致（3 年基线 46.34）：首页 46.01 / 分析页 46.17 / 跑者画像 46.01 /
+洞察周期化末周 46.1，**最大误差 0.72%**；4 种窗口（7/30/90/180 天）的周期化周 CTL
+最大误差 0.66%。
+
+**顺带补上 AI 消费**：`PeriodizationWeek.ctl/atl/tsb` 此前只在 UI 周表里出现，从未
+进入教练上下文 —— 而「我是变强了还是疲劳了 / 什么时候能比赛」只能由它们回答
+（ACWR 是负荷**比**，不是体能/疲劳的**绝对量**）。现输出一行
+`训练负荷(EWMA): CTL 46.3 ATL 26.2 TSB +20.1（新鲜） 截至 2026-W43(截断)`。
+
+守护：`tests/unit/lib/training-load.test.ts`（`TRAINING_LOAD_WARMUP_DAYS ≥ 5τ`、
+`trainingLoadFetchStart` 逐值、28 天预热会画出假上涨而 210 天平、210 天与 700 天基线
+CTL 差 < 1%、`endDate` 补零/不截断/缺省三种形态）、`tests/unit/lib/insight-services.test.ts`
+（取数起点 ≡ `trainingLoadFetchStart`、长历史恒定负荷下显示首周 CTL 已收敛到 ~50）、
+`tests/unit/pages/analysis-page.test.tsx`（预热 ≡ 常量 且 ≠ 90、休息 3 天后曲线与卡片
+都算到参考日）、`tests/unit/pages/home-page.test.tsx`（参考日 = `todayLocalDate()`、
+预热 ≡ 常量 且 ≠ 120）、`tests/unit/lib/runner-profile.test.ts`（活动日为参考日、
+预热 ≡ 常量 且 ≠ 120）、`tests/unit/lib/insight-coach.test.ts`（EWMA 行取末周值、
+截断标记、不得取首周）。5 处缺陷注入全部转红（预热 210→90 / 洞察服务回到 28 天 /
+序列停在训练日 / 教练上下文取首周 / 首页回到 120 天）。
+
 ---
 
 ## 2. AI 上下文口径（核心契约）
@@ -1053,6 +1117,10 @@ GPS 漂移、起终点的静止采样都被判为「有效移动」，混进前�
 | **表格「单位」副标题必须与单元格渲染格式一致** | `DataTable` 的 `unit`（`ActivityDetailClient` 分段表 `h:mm:ss`；三个区间表同为 `h:mm:ss`） | `tests/unit/pages/activity-detail.test.tsx`（分段表「时长」表头必须是 `h:mm:ss` 且不含 `min`，单元格是 `5:40` 形态；改回 `min` 立即转红） |
 | **周键只有一个实现，周窗口只能按日期判定** | `app/lib/date-utils.ts` 的 `isoWeekKey` / `isoWeekBounds` / `isoWeeksBetween`；`insight.ts` / `insight-compare.ts` / `insight-service.ts` 只做 re-export，不得自带拷贝 | `tests/unit/lib/date-utils.test.ts`（`isoWeekKey` ≡ `periodKeyOf(week)`、跨年周边界、非法键 `null`、含首尾截断周、旧字符串过滤必然多算周的判别式） |
 | **周聚合只有一个实现，两张周表必须逐周一致** | `insight.aggregateWeeklyLoad` 同时供 `computeLoadInsight`（`load.weekly`）与 `computePeriodization`（`periodization.weeks`）；两者的 range 都由 `isoWeeksBetween` 决定 | `tests/unit/lib/insight-services.test.ts`（`load.weekly` 与 `periodization.weeks` 逐周 `km`/`n` 相等、周集合相同；丢 range 或改回字符串过滤立即转红）+ 真实库 7/30/90/180/365 天窗口 0 处不一致 |
+| **CTL/ATL/TSB 的预热天数只有一个常量，取数起点只有一个实现** | `training-load.TRAINING_LOAD_WARMUP_DAYS = ceil(5·CTL_TAU)` + `trainingLoadFetchStart(startDate)`；首页 / 分析页 / 洞察服务 / 跑者画像四处都走它（不得自写 28 / 90 / 120） | `tests/unit/lib/training-load.test.ts`（常量 ≥5τ、`trainingLoadFetchStart` 逐值、28 天预热画出假上涨而 210 天平、210 天 vs 700 天基线差 <1%）+ 三个页面测试各断言「预热 ≡ 常量 且 ≠ 旧值」+ 真实库四处 CTL 最大误差 0.72% |
+| **CTL/ATL/TSB 必须算到参考日（含休息日），不能停在最后一个训练日** | `computeTrainingLoads(points, endDate)`；调用方传 `todayLocalDate()` / 区间 `endDate` / 活动日 | `tests/unit/lib/training-load.test.ts`（`endDate` 晚于最后训练日 → 补零延伸、早于 → 不截断、缺省 → 停训练日）+ `tests/unit/pages/analysis-page.test.tsx`（休息 3 天后曲线末点仍是参考日且 ATL 已衰减）+ 真实库 ATL 26.2 vs 30.2 |
+| **参考日必须是本地日期** | `timezone.todayLocalDate()`（首页旧 `ymd(now)` 是 UTC 日期，本地 00:00–08:00 会退一天） | `tests/unit/pages/home-page.test.tsx`（`getTrainingLoads` 的 end ≡ `todayLocalDate()`） |
+| **周维度 CTL/ATL/TSB 必须进入教练上下文** | `insight-coach.ts` 的「训练负荷(EWMA)」行（取末周期末值 + TSB 状态词 + 截至周/截断标记） | `tests/unit/lib/insight-coach.test.ts`（逐字 `CTL 46.3 / ATL 26.2 / TSB +20.1（新鲜） / 截至 2026-W43(截断)`；取首周立即转红） |
 | **「次数」是跑步次数，不是天数** | `DailyLoad.runs` / `TrainingLoadPoint.runs` 由 SQL `COUNT(*)` 提供；聚合层只做加法（`d.runs ?? 1`） | `tests/unit/lib/insight-branches.test.ts`（一天三练 → 3 次而非 1 次）+ `tests/unit/lib/insight-compare.test.ts`（同一天两练 → 周 `activities` 为 3 而非 2；改回 `n += 1` 立即转红） |
 | **区间内每个 ISO 周都出现，截断周必须标记** | `PeriodizationWeek.partial` + `LoadInsight.weekly[].partial`（同一判定）；`PeriodizationInsight.statsBasis` / `statsWeekCount`；UI 周表与趋势图 x 轴都加 `*` + 图例；教练上下文「按 N 个（含截断）周统计」+ 周训练量块 `(截断)` | `tests/unit/lib/insight-compare.test.ts`（零跑量周出现且进分母、截断周标记、完整周 ≥2 时只用完整周）+ `tests/unit/components/insight-components.test.tsx`（`2026-W43 *` 且旧的无标记文案不得出现、`statsBasis='all'` 的口径注脚、`complete` 时不制造噪音、图表 x 轴 `2026-W39 *`、`*` 图例有/无两侧）+ `tests/unit/lib/insight-coach.test.ts`（逐周序列含 `0.0km/0次` 与 `(截断)`、周训练量块 `(截断)` 后缀） |
 | **「峰值周」只有一个答案** | `PeriodizationInsight.peakWeek`（与 `peakWeekKm` 同一个 reduce 选出）；训练负荷卡与周期化卡都读它，不得各自取 max | `tests/unit/lib/insight-compare.test.ts`（截断周跑量 40km > 完整周 10km 时峰值仍取 10km、`peakWeek.km ≡ peakWeekKm`、`statsBasis='all'` 时同源、空输入为 `null`）+ `tests/unit/components/insight-components.test.tsx`（两卡都显示 51.3 且 `60.0` 只出现在表里、缺 `peakWeek` 时显示 `--`）+ 真实库 540 个窗口 0 处不一致 |

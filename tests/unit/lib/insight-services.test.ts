@@ -88,6 +88,7 @@ jest.mock('@/app/lib/db', () => ({
 
 import { getInsight } from '@/app/lib/insight-service';
 import { getActivityInsight } from '@/app/lib/activity-insight-service';
+import { TRAINING_LOAD_WARMUP_DAYS, trainingLoadFetchStart } from '@/app/lib/training-load';
 
 describe('insight-service.getInsight', () => {
   test('编排完整 InsightResponse', () => {
@@ -165,6 +166,49 @@ describe('insight-service.getInsight', () => {
     const r2 = getInsight({ startDate: '2026-09-14', endDate: '2026-09-27' });
     expect(r2.periodization!.statsBasis).toBe('complete');
     expect(r2.periodization!.weeks.every((w) => !w.partial)).toBe(true);
+  });
+
+  /**
+   * CTL 的取数窗口必须覆盖 EWMA 预热 —— **28 天是 ACWR 的需求，不是 CTL 的**。
+   *
+   * 旧实现 `warmupStart = subDays(startDate, 28)` 同时喂给 `computeTrainingLoads`，
+   * 而 CTL 的 τ=42：28 天只走了 0.67τ，残差 **51%**。真实库 7 天窗口的周期化
+   * CTL 显示 24.3（收敛值 48.9），30 天窗口显示 30.7→36.5 的「上涨」，
+   * 收敛值其实是 53.4→55.3 —— 一条纯粹的预热伪影。
+   */
+  test('CTL 取数窗口覆盖 EWMA 预热（不是 ACWR 的 28 天）', () => {
+    const db = jest.requireMock('@/app/lib/db');
+    getInsight({ startDate: '2026-09-15', endDate: '2026-09-22' });
+    const [from] = (db.getDailyLoads as jest.Mock).mock.calls[0] as [string, string];
+    expect(from).toBe(trainingLoadFetchStart('2026-09-15'));
+    // 判别式：28 天是旧值，必须不同
+    expect(from).not.toBe('2026-08-18');
+    const days = (Date.parse('2026-09-15') - Date.parse(from)) / 86400000;
+    expect(days).toBe(TRAINING_LOAD_WARMUP_DAYS);
+  });
+
+  test('周期化 CTL 已收敛（长历史恒定负荷 → 显示首周即接近负荷值）', () => {
+    const db = jest.requireMock('@/app/lib/db');
+    // 从 2025-01-01 起每天 50 负荷，一直到 2026-09-22
+    const rows: { date: string; load: number; distance: number; duration: number; runs: number }[] = [];
+    const start = Date.parse('2025-01-01T00:00:00Z');
+    for (let i = 0; Date.parse('2025-01-01T00:00:00Z') + i * 86400000 <= Date.parse('2026-09-22T00:00:00Z'); i++) {
+      rows.push({
+        date: new Date(start + i * 86400000).toISOString().slice(0, 10),
+        load: 50,
+        distance: 10000,
+        duration: 3600,
+        runs: 1,
+      });
+    }
+    (db.getDailyLoads as jest.Mock).mockImplementationOnce((s: string, e: string) =>
+      rows.filter((r) => r.date >= s && r.date <= e),
+    );
+    const r = getInsight({ startDate: '2026-09-14', endDate: '2026-09-20' });
+    // 显示窗口首周的 CTL 必须是 ~50，而不是从 0 爬升出来的 ~23
+    const first = r.periodization!.weeks[0];
+    expect(first.ctl).toBeGreaterThan(49);
+    expect(first.ctl).toBeLessThan(51);
   });
 });
 

@@ -17,6 +17,7 @@ jest.mock('@/app/lib/db', () => ({
 // training-load 使用真实实现 (纯函数)
 import * as db from '@/app/lib/db';
 import { buildRunnerProfile, formatRunnerProfile } from '@/app/lib/runner-profile';
+import { TRAINING_LOAD_WARMUP_DAYS, trainingLoadFetchStart } from '@/app/lib/training-load';
 
 const baseActivity = {
   activity_id: 100,
@@ -89,6 +90,17 @@ describe('buildRunnerProfile', () => {
     expect(p.longestKm).toBe(21.75);
     expect(p.typicalCadence).toBe(178);
     expect(p.prev?.name).toBe('上次');
+  });
+
+  test('训练负荷按 EWMA 预热常量取数, 且以活动日为参考日', () => {
+    buildRunnerProfile(baseActivity);
+    const [start, end] = (db.getTrainingLoads as jest.Mock).mock.calls[0] as [string, string];
+    expect(end).toBe('2026-09-17');
+    expect(start).toBe(trainingLoadFetchStart('2026-09-17'));
+    const warmupDays = (Date.parse(end) - Date.parse(start)) / 86400000;
+    expect(warmupDays).toBe(TRAINING_LOAD_WARMUP_DAYS);
+    // 旧值 120 天（2.9τ）→ CTL 残留 5.5% 误差
+    expect(warmupDays).not.toBe(120);
   });
 
   test('容错: 任一查询抛错不阻塞, 降级为默认值', () => {

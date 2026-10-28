@@ -25,20 +25,13 @@ import {
   type RouteSample,
   type WeatherSample,
 } from './insight-compare';
-import { computeTrainingLoads } from './training-load';
+import { computeTrainingLoads, trainingLoadFetchStart } from './training-load';
 import { isoWeekKey } from './date-utils';
 import type { InsightParams, InsightResponse, LoadInsight, PeriodizationWeek } from './types';
 
 /** 计算区间天数 (含端点)。 */
 function rangeDays(startDate: string, endDate: string): number {
   return Math.max(1, dayOrdinal(endDate) - dayOrdinal(startDate) + 1);
-}
-
-/** 为 ACWR 提供 28 天预热窗口的起点。 */
-function subDays(ymd: string, days: number): string {
-  const d = new Date(`${ymd}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() - days);
-  return d.toISOString().slice(0, 10);
 }
 
 /** 解耦分析的最少长跑里程 (km)。 */
@@ -53,14 +46,19 @@ const MAX_DECOUPLING_RUNS = 20;
 export function getInsight(params: InsightParams): InsightResponse {
   const { startDate, endDate } = params;
 
-  // ACWR 需要 28 天历史预热; 其余指标直接用所选区间
-  const warmupStart = subDays(startDate, 28);
+  // 取数起点必须同时满足两件事，故只能取**更长**的那一个：
+  //  - ACWR 的慢性窗口 = 28 天（`computeLoadInsight` 按年龄回溯，多余历史无影响）；
+  //  - CTL/ATL/TSB 的 EWMA 预热 = `TRAINING_LOAD_WARMUP_DAYS`（210 天 ≈ 5τ）。
+  // 旧实现只取 28 天（为 ACWR 定的），顺手喂给 CTL —— τ=42 下 28 天只走了 0.67τ，
+  // 残差 **51%**：真实库 7 天窗口的周期化 CTL 显示 24.3 而收敛值 48.9。
+  const warmupStart = trainingLoadFetchStart(startDate);
 
   const vdot = computeVdotTrend(db.getVdotSamples(startDate, endDate));
 
   const zTotals = db.getHrZoneTotals(startDate, endDate);
-  // 负荷序列取"预热窗口 → 区间末", 但周聚合仅展示所选区间
-  const dailyLoads = db.getDailyLoads(warmupStart, endDate).map((p) => ({
+  // 负荷序列取「预热窗口 → 区间末」, 但周聚合仅展示所选区间
+  const loadPoints = db.getDailyLoads(warmupStart, endDate);
+  const dailyLoads = loadPoints.map((p) => ({
     date: p.date,
     load: p.load,
     distanceMeters: p.distance,
@@ -142,9 +140,10 @@ export function getInsight(params: InsightParams): InsightResponse {
     categories,
   });
 
-  // 周期化: 复用预热窗口的逐日负荷, 计算周维度 CTL/ATL/TSB 期末值
+  // 周期化: 复用同一份逐日负荷, 计算周维度 CTL/ATL/TSB 期末值。
+  // 必须传 `endDate` —— 序列要补零到参考日, 否则末周的值取的是最后一个训练日。
   const weeklyLoads: Pick<PeriodizationWeek, 'week' | 'ctl' | 'atl' | 'tsb'>[] = (() => {
-    const summary = computeTrainingLoads(db.getDailyLoads(warmupStart, endDate));
+    const summary = computeTrainingLoads(loadPoints, endDate);
     const byWeek = new Map<string, Pick<PeriodizationWeek, 'week' | 'ctl' | 'atl' | 'tsb'>>();
     for (const p of summary.series) {
       if (p.date < startDate) continue;

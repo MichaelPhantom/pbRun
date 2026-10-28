@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { getLatestVdot, getTrainingLoads, getActivities, getVDOTHistory, getDailyDistances, getHrZoneStats } from "@/app/lib/db";
 import { predictRaceTimes } from "@/app/lib/vdot-pace";
-import { computeTrainingLoads, tsbStatus } from "@/app/lib/training-load";
+import { computeTrainingLoads, trainingLoadFetchStart, tsbStatus } from "@/app/lib/training-load";
+import { todayLocalDate } from "@/app/lib/timezone";
 import { formatDistance, formatDuration, formatPace } from "@/app/lib/format";
 import { SectionCard } from "@/app/components/ui/SectionCard";
 import { StatCard } from "@/app/components/ui/StatCard";
@@ -15,12 +16,6 @@ import { GlobalCoach } from "@/app/lib/components/ai/GlobalCoach";
 
 export const dynamic = "force-dynamic";
 
-const EWMA_LOOKBACK_DAYS = 120; // CTL(τ=42) 预热 + 覆盖上月/本月
-
-function ymd(d: Date): string {
-  return d.toISOString().split("T")[0];
-}
-
 export default async function DashboardPage() {
   const now = new Date();
   const year = now.getFullYear();
@@ -28,10 +23,13 @@ export default async function DashboardPage() {
   const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   const prevMonthStr = `${prevMonthDate.getFullYear()}-${String(prevMonthDate.getMonth() + 1).padStart(2, "0")}`;
 
-  const startLookback = new Date(now);
-  startLookback.setDate(startLookback.getDate() - (EWMA_LOOKBACK_DAYS - 1));
-  const startStr = ymd(startLookback);
-  const endStr = ymd(now);
+  // 参考日 = **本地**今天，取数起点 = 参考日 − `TRAINING_LOAD_WARMUP_DAYS`。
+  // 两处旧实现都在这里出错：
+  //  - `ymd(now)` 是 UTC 日期，本地 00:00–08:00 会退到前一天（与 `monthStr` 的
+  //    本地月份不是同一个日历）；
+  //  - 120 天预热只走了 2.9τ，CTL 残留 5.5% 误差（见 training-load.ts 的收敛表）。
+  const endStr = todayLocalDate();
+  const startStr = trainingLoadFetchStart(endStr);
 
   // 并行取数 (server, 互不依赖)
   const [vdot, loadPoints, recent, vdotHistory, dailyDistances, hrZoneStats] = await Promise.all([
@@ -44,7 +42,7 @@ export default async function DashboardPage() {
   ]);
 
   const recentActivities = recent.data;
-  const tl = computeTrainingLoads(loadPoints);
+  const tl = computeTrainingLoads(loadPoints, endStr);
 
   // 当月 / 上月里程 (训练负荷序列按本地日期分组)
   const sumKm = (prefix: string) =>

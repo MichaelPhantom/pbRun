@@ -9,7 +9,7 @@
  * 容错纪律: 任何查询失败一律降级 (缺失字段不展示), 绝不阻塞分析主流程。
  */
 import { getActivities, getPersonalRecords, getStats, getTrainingLoads, getVDOTHistory } from './db';
-import { computeTrainingLoads, tsbStatus } from './training-load';
+import { computeTrainingLoads, trainingLoadFetchStart, tsbStatus } from './training-load';
 import { formatDuration } from './format';
 import type { Activity } from './types';
 
@@ -93,14 +93,17 @@ export function buildRunnerProfile(exclude: Activity): RunnerProfile {
   // ---- 近 28 天强度分布 (按心率区间时长) ----
   const intensityDist = computeIntensityDist(exclude, day);
 
-  // ---- 训练负荷 (近 120 天回看保证 CTL 收敛) ----
+  // ---- 训练负荷 (按 `TRAINING_LOAD_WARMUP_DAYS` 回看保证 CTL 收敛) ----
+  // 旧实现只回看 120 天（2.9τ → CTL 残留 5.5%）；且 `hit` 取 `date <= day`，
+  // 序列停在最后一个训练日时会把前一天的疲劳当成当天的。现在 `computeTrainingLoads`
+  // 接受参考日并补零到该日，`hit` 只是防御性兜底。
   let ctl: number | null = null;
   let atl: number | null = null;
   let tsb: number | null = null;
   let tsbLabel: string | null = null;
   try {
-    const points = getTrainingLoads(ymd(addDays(new Date(`${day}T00:00:00Z`), -120)), day);
-    const { series } = computeTrainingLoads(points);
+    const points = getTrainingLoads(trainingLoadFetchStart(day), day);
+    const { series } = computeTrainingLoads(points, day);
     const hit = [...series].reverse().find((p) => p.date <= day);
     if (hit) {
       ctl = Math.round(hit.ctl * 10) / 10;
