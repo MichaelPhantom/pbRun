@@ -88,6 +88,38 @@ setsid nohup systemd-run --user --scope -- bash scripts/deploy-prod.sh \
 > 跟整机 OOM（`dmesg` 里无 `oom_memcg` 或指向 `/`）是两回事，加内存条/清缓存都救不了，
 > 必须换 cgroup 跑。
 
+### 2.1 换 cgroup 之后仍失败：Turbopack 的 PostCSS worker 超时（2 核机器）
+
+把构建挪进 `user.slice` 解决了 memcg OOM，但本机只有 **2 核**。Turbopack 给
+PostCSS/Tailwind worker 的是**固定 wall-clock deadline**，冷缓存构建会撞上：
+
+```
+Error [TurbopackInternalError]: Failed to write app endpoint /page
+  - app/globals.css [app-client] (css)
+  - failed to receive message / reading packet length
+  - timeout while receiving message from process / deadline has elapsed
+```
+
+这**不是代码错误**（同一提交在 4 核 CI 上 `npm run build` 通过），而是构建工具的
+超时与 CPU 核数耦合。`scripts/deploy-prod.sh` 的处理：
+
+1. 先用 Turbopack（默认，快）；
+2. 失败则 **`rm -rf .next` 清掉半成品**，再用 `next build --webpack` 重试 ——
+   webpack 没有这个 deadline。半成品必须清：残缺 `.next` 会让 `next start`
+   静默 500（与 2026-10-26 生产事故同一形态）。
+3. 想直接跳过 Turbopack：`PB_BUILD_WEBPACK=1 bash scripts/deploy-prod.sh`。
+
+### 2.2 两类“校验器本身写错”的部署陷阱
+
+| 陷阱 | 表现 | 根因 |
+|------|------|------|
+| `XDG_RUNTIME_DIR` 未导出 | `systemctl --user stop/start` 报 `Failed to connect to bus`，构建成功但**服务没重启** | 自动化环境（cron / CI / 非登录 shell）里该变量为空；旧脚本只在构建函数内部局部 export。现统一在脚本入口 export |
+| 健康检查写死 Turbopack 的产物路径 | 构建成功、页面 200，校验却报「页面未输出 CSS 引用」 | 校验 grep 的是 `/pbrun/_next/static/chunks/*.css`；webpack 把 CSS 放在 `/pbrun/_next/static/css/*.css`。校验器与被测实现耦合 → 回退 webpack 后**永远失败**。现匹配任意 `/pbrun/_next/*.css`，两种构建工具都成立 |
+
+> 与 `docs/features.md` §4.3.4「校验器必须真的能失败」是同一族纪律的反面：
+> 校验器不能**永远失败**，也不能与被测实现的内部布局耦合。
+
+
 ---
 
 ## 磁盘清理白名单
