@@ -53,6 +53,36 @@ restore_data_link() {
 SCOPE_MEM="${PB_BUILD_SCOPE_MEM:-8G}"
 BUILD_DIR="$ROOT/${DIST_DIR:-.next}"
 
+# ── 产物备份 / 回滚 ─────────────────────────────────────────────────────
+# 2026-10-28 事故：一次部署在 [3/5] 停了服务，[4/5] 构建失败后脚本退出，
+# **服务再也没起来** —— 站点停了 1 天 17 小时（3996 无监听），而门户卡片还绿着。
+# 部署的第一原则不是「构建成功」，而是「失败也不能让站点下线」。所以：
+#   构建前把上一版产物挪到 `<distDir>.prev`；构建成功才删备份；
+#   构建失败则丢掉半成品、把备份挪回来、重新起服务，然后以非零码退出。
+# 半成品目录绝不能留给 next start（残缺 .next → 静态资源 500，见 §2 事故）。
+prev_dir() { printf '%s.prev' "$BUILD_DIR"; }
+
+stash_build() {
+  if [ -e "$BUILD_DIR" ]; then
+    rm -rf "$(prev_dir)"
+    mv "$BUILD_DIR" "$(prev_dir)"
+    echo "      已备份上一版产物 → $(prev_dir)"
+  elif [ -e "$(prev_dir)" ]; then
+    # 上次部署中途被强杀：半成品已丢，但备份还在 —— 不要覆盖它
+    echo "      沿用上次残留的产物备份 $(prev_dir)"
+  fi
+}
+
+restore_build() {
+  rm -rf "$BUILD_DIR"
+  if [ -e "$(prev_dir)" ]; then
+    mv "$(prev_dir)" "$BUILD_DIR"
+    echo "      已回滚上一版产物"
+  else
+    echo "      ⚠ 没有可回滚的产物备份（首次部署）"
+  fi
+}
+
 # 单次构建 (参数透传给 next build)。用户 systemd 可用时挪进 user.slice。
 build_with() {
   if command -v systemd-run >/dev/null 2>&1 && systemd-run --user --quiet --scope true 2>/dev/null; then
@@ -134,15 +164,23 @@ echo "[3/5] 停止服务 (避免 next start 持有旧 .next 时被覆盖)"
 systemctl --user stop "$SERVICE"
 
 echo "[4/5] 构建 (unset NODE_ENV: 防止 Next 16 误判环境)"
+stash_build
 stash_data_link
 trap restore_data_link EXIT
 if ! run_build_in_scope; then
-  echo "[4/5] ✗ 构建失败, 清理半成品 $BUILD_DIR (残缺产物会让 next start 静默 500)" >&2
-  rm -rf "$BUILD_DIR"
+  restore_data_link
+  trap - EXIT
+  echo "[4/5] ✗ 构建失败 —— 回滚上一版产物并重启服务（绝不把站点留在 502）" >&2
+  restore_build
+  systemctl --user start "$SERVICE" || true
+  sleep 2
+  verify || true
   exit 1
 fi
 restore_data_link
 trap - EXIT
+# 构建成功才丢弃备份
+rm -rf "$(prev_dir)"
 
 # 构建后必须恢复软链；若恢复失败则 loud 失败，绝不带着坏数据目录启动服务。
 if [ -e "$ROOT/app/data.link.bak" ] || [ ! -L "$ROOT/app/data" ]; then
