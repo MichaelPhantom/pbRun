@@ -358,8 +358,10 @@ export interface PeriodStats {
   totalActivities: number;                       // 活动次数
   totalDistance: number;                         // 总距离（米）
   totalDuration: number;                         // 总时长（秒）
-  avgPace?: number;                              // 平均配速（秒/公里）
-  avgVDOT?: number;                              // 平均 VDOT
+  avgPace?: number;                              // 平均配速（秒/公里；Σ时间/Σ距离）
+  /** 平均心率（bpm；Σ(心率×计时器时间)/Σ时间，不是各次心率的平均） */
+  avgHeartRate?: number;
+  avgVDOT?: number;                              // 平均 VDOT（算术平均，见 getStats 说明）
   totalTrainingLoad?: number;                    // 训练负荷（总和）
 }
 

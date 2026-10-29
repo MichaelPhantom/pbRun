@@ -10,7 +10,7 @@ import {
 } from '@/app/lib/llm';
 import { runCoachStream } from '@/app/lib/coach-stream';
 import { DEFAULT_MODEL, resolveRequestedModel } from '@/app/lib/model-curation';
-import { formatInsightForCoach } from '@/app/lib/insight-coach';
+import { formatInsightForCoach, formatZoneStructureForCoach } from '@/app/lib/insight-coach';
 import {
   getDateRangeFromDays,
   parseTimeRangeDays,
@@ -18,7 +18,7 @@ import {
 } from '@/app/lib/date-utils';
 import { formatPeriodComparison } from '@/app/lib/period-comparison';
 import { parseDateParam } from '@/app/lib/query-params';
-import { getActivities, getPeriodStats } from '@/app/lib/db';
+import { getActivities, getPaceZoneStats, getPeriodStats, getPowerZoneStats, getStats } from '@/app/lib/db';
 import { isStatisticsSurface, type StatisticsSurface } from '@/app/lib/coach-prompts';
 
 export const dynamic = 'force-dynamic';
@@ -109,9 +109,31 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // 分析页的主体是三张区间表；教练必须真的拿到配速/功率区间（心率区间已在
+    // `强度分布` 里）。其余界面不注入，避免把所有块都塞给模型。
+    let zoneBlock = '';
+    if (surface === 'analysis') {
+      try {
+        // 与页面同源：分析页用「近一周平均 VDOT」作配速区间的分母。
+        const vdotForZones = getStats('week').averageVDOT ?? insight.vdot.latest ?? null;
+        const power = getPowerZoneStats(startDate, endDate);
+        zoneBlock =
+          vdotForZones != null
+            ? formatZoneStructureForCoach({
+                pace: getPaceZoneStats(vdotForZones, startDate, endDate),
+                vdot: vdotForZones,
+                power: power.zones,
+                reference: power.reference,
+              })
+            : formatZoneStructureForCoach({ power: power.zones, reference: power.reference });
+      } catch {
+        zoneBlock = '';
+      }
+    }
+
     ctx = {
       profileBlock,
-      insightBlock: formatInsightForCoach(insight),
+      insightBlock: [formatInsightForCoach(insight), zoneBlock].filter(Boolean).join('\n\n'),
       rangeLabel:
         startDate === '2000-01-01'
           ? `全部历史（截至 ${endDate}）`

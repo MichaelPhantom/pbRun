@@ -1149,6 +1149,40 @@ AI 教练有两种**能力维度**，它们的数据单位与结论都不同，*
 单次活动被问到周期化时指向「汇总页/洞察页教练」；统计类被问到某次训练时指向
 「活动详情页的 AI 分析」。**只有洞察页**允许做多月规划与赛季目标（它确实有区间数据）。
 
+#### 提示词 ↔ 数据块的「对齐契约」（2026-10-29 全面核对）
+
+提示词最隐蔽的失败不是「写得不好」，而是**要求模型分析数据里没有的东西** —— 模型只能
+二选一：编造，或写「数据缺失」，两者都在伤害可信度。全面核对发现三类：
+
+| 类型 | 实例 | 真相 |
+|------|------|------|
+| **幽灵指标** | 跑步 prompt 要求「触地平衡（理想 50/50）」，输出示例还给了 `52/48%` | `activities.average_gct_balance` **348/348 全 NULL**（设备用哨兵 16383 表示「未测量」，见 §4.3.1） |
+| **幽灵指标** | 「恢复评估：心率恢复速率（如有数据）」 | 数据源没有心率恢复字段，永远不会有值 |
+| **幽灵表格** | 分析页 prompt 要求「必须说明三张区间表的分母不同」 | 教练上下文里**只有**心率区的「强度分布」，配速/功率区间从未注入 |
+| **不存在的公式** | 非跑步 prompt：「用心率区间时长 × 心率水平估算强度」 | 秒 × bpm 没有量纲意义；数据里其实有 Garmin 训练效果（有氧/无氧 TE） |
+
+修补：
+
+1. **删掉幽灵项**：触地平衡/心率恢复速率从分析框架与输出示例里移除，并在「数据纪律」里
+   显式列出「设备不写的字段，不要索要、不要写『建议补齐』」。
+2. **补上缺失的块**：新增 `insight-coach.formatZoneStructureForCoach` 产出【区间结构】
+   （配速区间按当前 VDOT、功率区间按各活动自身 FTP + 参照 FTP + 「不可按绝对瓦数横向比」），
+   只在 `surface === 'analysis'` 时注入 —— 其余界面不需要，也不该把所有块都塞进去。
+3. **换成真实公式**：非跑步改用「训练效果（TE）+ 心率区间分布 + 热量」量化强度。
+4. **补齐两个被要求却没提供的量**：`getPeriodStats().avgHeartRate`（时长加权）与
+   【区间环比】的「平均心率」行 —— 统计页 prompt 要求引用均心率，此前上下文里没有。
+5. **补上三条「数据里有、提示词却没让它用」的纪律**：
+   - **课表是执行质量的唯一客观基准**（285 条带课表活动全有目标配速区间，旧 prompt 只让它
+     「评估匹配度」却不指向【课表】【课表执行】）；
+   - **官方恢复建议优先**（`recovery_time` / `primary_benefit` 348/348 有值，旧 prompt 让它
+     「给出恢复时间」而不引用设备结论，容易与详情页的「3.5 天」打架）；
+   - **两个跑力不能互算**（`VDOT` 本地推算 vs `Garmin VO2max` 设备估算，量纲算法不同，
+     不要求吻合）；**瞬时值不是能力**（`最大速度`/`瞬时峰值功率` 是逐秒尖峰）。
+
+守护：`tests/unit/lib/coach-prompt-data-alignment.test.ts` ——
+「提示词提到的每个块，必须由对应构造器产出」＋「幽灵指标不得以『要你分析』的形式出现」
+＋ `formatZoneStructureForCoach` 的行为用例（分布/明细/参照 FTP/无 FTP 段/空输入）。
+
 #### 教练分析的时间窗 = 页面显示的时间窗
 
 `GlobalCoach` 由页面决定分析区间。2026-10-29 之前页面只传 `days`，于是
@@ -1196,6 +1230,9 @@ AI 教练有两种**能力维度**，它们的数据单位与结论都不同，*
 | 区间环比（当前 vs 上一等长区间） | `period-comparison.ts` | `tests/unit/lib/period-comparison.test.ts` |
 | 汇总 AI 页面映射 | `InsightClient` / `AnalysisClient` / `StatsClient` / `app/page.tsx` | `tests/unit/components|pages` |
 | **提示词按能力维度分档** | `coach-prompts.ts`（`CAPABILITY_BOUNDARY` + 2 套单次 + 4 套统计） | `tests/unit/lib/coach-prompts.test.ts`（17 例：边界互相指向、单次无 📅 长期板块、四界面两两不等且各自独有标记、只有洞察页可做多月规划、surface 白名单） |
+| **提示词引用的每个数据块必须真实产出** | 提示词 → 构造器一一对应：【跑者画像】`formatRunnerProfile`、【全局训练指标】`formatInsightForCoach`、【区间环比】`formatPeriodComparison`、【区间结构】`formatZoneStructureForCoach`（仅 analysis surface） | `tests/unit/lib/coach-prompt-data-alignment.test.ts`（块标题存在性 + 幽灵指标反向断言 + @ 区间结构行为 4 例） |
+| **不存在的指标不得要求模型分析** | 触地平衡 / 心率恢复速率 → 从框架与示例移除，改为「设备不写，不要索要」；非跑步的「区间时长×心率」→ 训练效果(TE) | 同上（`not.toContain('触地平衡 52/48')` 等 4 条反向断言） |
+| **统计页的均心率必须真在上下文里** | `getPeriodStats().avgHeartRate`（时长加权，与统计页卡片同源）+ 【区间环比】的平均心率行 | `tests/unit/lib/db-group-avg.test.ts`（153.64 而非 160）+ `coach-prompt-data-alignment.test.ts`（环比行逐字） |
 | **教练分析区间 ≡ 页面显示区间** | 页面传显式 `startDate/endDate`；`date-utils.statsPeriodRange` 同时供 `getStats` SQL、页面文案与教练 | `tests/unit/api/insight-coach-route.test.ts`（真实读发给模型的 system 与 user 消息）、`tests/unit/components/global-coach.test.tsx`（显式区间优先于 days） |
 | CI 门槛与文档漂移 | `.github/workflows/test.yml` | `tests/unit/ci/*` / `tests/unit/docs/*` |
 | **统计口径：表现分析只取跑步** | `db.runningTypeClause` / `db.isRunningType`（19 处查询） | `tests/unit/lib/db-insight-integration.test.ts`（真实 SQL：趋势/区间/纪录/负荷全部排除非跑步） |

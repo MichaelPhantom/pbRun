@@ -185,3 +185,90 @@ export function formatInsightForCoach(insight: InsightResponse): string {
 
   return L.join('\n');
 }
+
+/**
+ * 【区间结构】—— 配速区间 / 功率区间的**时长分布与明细**。
+ *
+ * ## 为什么单独成块
+ *
+ * 「分析页」的三张区间表（心率 / 配速 / 功率）是那个页面的主体，但
+ * `formatInsightForCoach` **从来没有**把配速区间与功率区间放进上下文 ——
+ * 只有心率区的 `强度分布`。于是分析页教练的提示词要求「必须说明三张区间表的
+ * 分母不同」，模型手上却只有一张表：它要么照稿空谈，要么编造。
+ *
+ * 三张表的分母各自独立，必须并列给出才能读懂：
+ *  - 心率区间：分母 = 最大心率（`MAX_HR`）
+ *  - 配速区间：分母 = **当前 VDOT**（每个区间是不同的配速带）
+ *  - 功率区间：分母 = **各活动自身的 FTP**（真实库有 14 个不同 FTP，绝不能按绝对瓦数聚合）
+ *
+ * 本块只在 `surface === 'analysis'` 时拼进教练上下文（其余界面不需要，
+ * 也不该为了「信息齐全」把所有块都塞进去）。
+ */
+export interface ZoneRowLike {
+  zone: number;
+  total_duration: number;
+  total_distance: number;
+  avg_pace?: number | null;
+  avg_heart_rate?: number | null;
+  avg_cadence?: number | null;
+  avg_power?: number | null;
+  lap_count?: number;
+  activity_count?: number;
+}
+
+function fmtZoneDistribution(rows: ZoneRowLike[]): string {
+  const total = rows.reduce((a, r) => a + (r.total_duration > 0 ? r.total_duration : 0), 0);
+  if (total <= 0) return '--';
+  return rows
+    .filter((r) => r.total_duration > 0)
+    .map((r) => `Z${r.zone} ${n((r.total_duration / total) * 100, 1)}%`)
+    .join(' / ');
+}
+
+function fmtZoneDetail(r: ZoneRowLike, withPower: boolean): string {
+  const bits = [`Z${r.zone}`, `${(r.total_distance / 1000).toFixed(1)}km`, formatDuration(r.total_duration)];
+  if (r.avg_pace != null) bits.push(`均 ${fmtPace(r.avg_pace)}/km`);
+  if (withPower && r.avg_power != null) bits.push(`均 ${Math.round(r.avg_power)}W`);
+  if (r.avg_heart_rate != null) bits.push(`均心率 ${Math.round(r.avg_heart_rate)}bpm`);
+  if (r.avg_cadence != null) bits.push(`均步频 ${Math.round(r.avg_cadence)}spm`);
+  return bits.join(' ');
+}
+
+/**
+ * @param pace     配速区间行（`getPaceZoneStats`）
+ * @param vdot     配速区间的分母（当前跑力）
+ * @param power    功率区间行（`getPowerZoneStats().zones`）
+ * @param reference 功率区间的参照信息（FTP 中位数 / 不同 FTP 个数）
+ */
+export function formatZoneStructureForCoach(input: {
+  pace?: ZoneRowLike[];
+  vdot?: number | null;
+  power?: ZoneRowLike[];
+  reference?: { ftp_median_watts?: number | null; distinct_ftp_count?: number | null; laps_without_ftp?: number | null } | null;
+}): string {
+  const { pace, vdot, power, reference } = input;
+  const lines: string[] = ['【区间结构】'];
+
+  const paceRows = (pace ?? []).filter((r) => r.total_duration > 0);
+  if (paceRows.length > 0) {
+    lines.push(`配速区间（分母 = 当前跑力 VDOT ${n(vdot, 1)}）: ${fmtZoneDistribution(paceRows)}`);
+    lines.push('  ' + paceRows.map((r) => fmtZoneDetail(r, false)).join('  |  '));
+  }
+
+  const powerRows = (power ?? []).filter((r) => r.total_duration > 0);
+  if (powerRows.length > 0) {
+    const ref = reference;
+    const refBits: string[] = ['分母 = 各活动自身 FTP'];
+    if (ref?.ftp_median_watts != null) refBits.push(`参照 ${Math.round(ref.ftp_median_watts)}W`);
+    if (ref?.distinct_ftp_count != null && ref.distinct_ftp_count > 1) {
+      refBits.push(`${ref.distinct_ftp_count} 个不同 FTP, 不可按绝对瓦数横向比`);
+    }
+    lines.push(`功率区间（${refBits.join(' · ')}）: ${fmtZoneDistribution(powerRows)}`);
+    lines.push('  ' + powerRows.map((r) => fmtZoneDetail(r, true)).join('  |  '));
+    if (ref?.laps_without_ftp) {
+      lines.push(`  （另有 ${ref.laps_without_ftp} 段因活动无 FTP 未计入 —— 不是零功率）`);
+    }
+  }
+
+  return lines.length > 1 ? lines.join('\n') : '';
+}

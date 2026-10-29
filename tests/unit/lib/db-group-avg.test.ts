@@ -285,3 +285,14 @@ describe('区间平均跑力只有一个口径', () => {
     expect(s.averageVDOT!).toBeCloseTo(45, 9);
   });
 });
+
+describe('getPeriodStats 的均心率（统计页卡片与教练上下文同一口径）', () => {
+  test('按计时器时长加权，不是各次心率的平均', () => {
+    const db = loadDb();
+    const p = db.getPeriodStats('2026-09-01', '2026-09-30');
+    // (150×7200 + 170×1600) / 8800 = 153.64（等权平均是 160）
+    expect(p.avgHeartRate!).toBeCloseTo((150 * 7200 + 170 * 1600) / 8800, 6);
+    expect(p.avgHeartRate!).toBeCloseTo(153.64, 1);
+    expect(p.avgHeartRate!).not.toBeCloseTo(160, 0);
+  });
+});

@@ -80,6 +80,16 @@ export function formatPeriodComparison(
     );
   }
 
+  // 均心率：统计页的「平均心率」卡片就是这个口径（时长加权），教练必须能引用它
+  if (current.avgHeartRate != null || previous.avgHeartRate != null) {
+    const hrDelta = fmtNumDelta(current.avgHeartRate, previous.avgHeartRate, 1);
+    lines.push(
+      `- 平均心率: ${current.avgHeartRate != null ? Math.round(current.avgHeartRate) : '--'} bpm vs ` +
+        `${previous.avgHeartRate != null ? Math.round(previous.avgHeartRate) : '--'} bpm` +
+        (hrDelta ? `（${hrDelta}）` : ''),
+    );
+  }
+
   const vdotDelta = fmtNumDelta(current.avgVDOT, previous.avgVDOT, 1);
   if (current.avgVDOT != null || previous.avgVDOT != null) {
     lines.push(

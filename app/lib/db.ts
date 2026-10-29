@@ -1080,6 +1080,14 @@ export function getPeriodStats(startDate: string, endDate: string): PeriodStats 
                  THEN (CASE WHEN moving_time > 0 THEN moving_time ELSE duration END)
                  ELSE 0 END) * 1.0)
          / NULLIF(SUM(CASE WHEN distance > 0 THEN distance ELSE 0 END), 0) AS avgPace,
+       -- 均心率按**计时器时长**加权（同 getStats / pace.groupHeartRate）。
+       -- 统计页的「平均心率」卡片与教练上下文必须是同一个数。
+       (SUM(CASE WHEN average_heart_rate > 0
+                 THEN average_heart_rate * (CASE WHEN moving_time > 0 THEN moving_time ELSE duration END)
+                 ELSE 0 END) * 1.0)
+         / NULLIF(SUM(CASE WHEN average_heart_rate > 0
+                           THEN (CASE WHEN moving_time > 0 THEN moving_time ELSE duration END)
+                           ELSE 0 END), 0) AS avgHeartRate,
        -- 跑力取算术平均（VDOT 是估计值不是速率）；口径必须与
        -- getStats().averageVDOT 和 insight.computeVdotTrend().mean 一致。
        AVG(vdot_value) AS avgVDOT,
@@ -1092,6 +1100,7 @@ export function getPeriodStats(startDate: string, endDate: string): PeriodStats 
     totalDuration?: number | null;
     totalActivities?: number;
     avgPace?: number | null;
+    avgHeartRate?: number | null;
     avgVDOT?: number | null;
     totalTrainingLoad?: number | null;
   };
@@ -1103,6 +1112,7 @@ export function getPeriodStats(startDate: string, endDate: string): PeriodStats 
     totalDistance: (row?.totalDistance ?? 0) * 1000,
     totalDuration: row?.totalDuration ?? 0,
     avgPace: row?.avgPace ?? undefined,
+    avgHeartRate: row?.avgHeartRate ?? undefined,
     avgVDOT: row?.avgVDOT ?? undefined,
     totalTrainingLoad: row?.totalTrainingLoad ?? undefined,
   };
