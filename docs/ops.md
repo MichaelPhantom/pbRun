@@ -109,6 +109,10 @@ Error [TurbopackInternalError]: Failed to write app endpoint /page
    静默 500（与 2026-10-26 生产事故同一形态）。
 3. 想直接跳过 Turbopack：`PB_BUILD_WEBPACK=1 bash scripts/deploy-prod.sh`。
 
+> **本机（2 核）建议直接设 `PB_BUILD_WEBPACK=1`**：实测 Turbopack 在这台机器上
+> **每次都超时**（冷缓存 100% 复现，已连续 6 次），先失败一次再回退等于每次白等
+> 1–2 分钟。CI 是 4 核，`npm run build` 走 Turbopack 正常，不需要改。
+
 ### 2.2 两类“校验器本身写错”的部署陷阱
 
 | 陷阱 | 表现 | 根因 |
