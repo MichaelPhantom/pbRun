@@ -940,6 +940,28 @@ avgPaceSecPerKm: 350 }` 三个数互相矛盾（350×7=2450≠2520），而 `Wea
 - **降级纪律**：任何一步查询失败只丢失对应段落，返回空串也不阻塞 AI 主流程。
 - **不做**：不用跨全历史的宏观趋势替代对当次的解读；趋势只作为解释当次状态的背景。
 
+#### 追问建议必须与所在能力同域（2026-10-30）
+
+单次活动页在分析完成后会给出 3–5 条**一键追问**（`followup-suggestions.ts`）。这些建议
+会被直接发给**单次活动**教练，而该教练的提示词写着「你只负责这一次训练；跨多次活动的
+统计与周期化不在这里做，越界问题请指向汇总页/洞察页教练」。旧实现却在推荐统计类问题：
+
+| 旧建议 | 越界原因 |
+|--------|---------|
+| 「我的训练强度结构是否合理？需要增加轻松跑吗？」 | Z4+Z5 占比是**近 28 天聚合**，不是这一次的 |
+| 「以我目前的进步速度，下一个目标应该定多少？多久能达成？」 | 目标设定 / 周期化 |
+| 「我距离下一个 PB 还有多远？」 | PB 是历史最好成绩，属于统计页 |
+
+用户点了系统推荐的问题，教练要么违反自己的边界（口径不一致），要么拒绝（体验荒谬）。
+
+修法：建议**只覆盖这一次的执行、这一次的代价、下一次怎么练**；同时把
+`intensityZ45Pct`（近 28 天区间占比）从输入里删掉 —— 没有这个信号就生成不出越界问题。
+另：**安全兜底（伤病风险）永远保留**，不再被上下文建议挤掉（旧实现最后统一 `slice(0,4)`）。
+
+守护：`tests/unit/components/followup-suggestions.test.ts` —— 一条反向断言遍历 5 种场景，
+禁止任何建议出现 `PB / 下一个目标 / 多久能达成 / 赛季 / 3 个月 / 长期规划 / 月跑量 / 周均 /
+训练结构是否合理`。
+
 #### 「最快段 / 主课」只认配速可信的分段（`MIN_RELIABLE_LAP_SEC`，2026-10-27）
 
 `average_pace = 计时器时间 / (distance/1000)`（口径见 §1.6「配速的时间基数」）。分母很小时
@@ -1296,6 +1318,7 @@ AI 教练有两种**能力维度**，它们的数据单位与结论都不同，*
 | **区间平均跑力取算术平均，且三处实现必须相等** | `getStats().averageVDOT` / `getPeriodStats().avgVDOT` / `insight.computeVdotTrend().mean`（刻意不按距离/时间加权：VDOT 是估计值不是速率，实测三种权重差 <1%） | `tests/unit/lib/db-group-avg.test.ts`（`getPeriodStats().avgVDOT ≡ insight.vdot.mean`，9 位小数） |
 | **SQL 注释里不得出现反引号** | `app/lib/db.ts` / `scripts/common/db-manager.js` 的模板字符串（2026-10-27～29 踩了 5 次，每次都是整站编译不过） | `tests/unit/ci/sql-template-hygiene.test.ts`（扫描 `^\s*--` 行；含一条自测确认守卫本身会转红） |
 | **计时器列全缺时，秒数由 `配速 × 距离` 还原** | `pace.sampleSeconds`（`seconds` 优先，否则 `pace × distance`）；区间表用它算 lap 秒数 | `tests/unit/lib/db-zones-samples.test.ts`（`duration=0` 的 lap → `total_duration` 330s 而非 0） |
+| **追问建议必须与所在界面的能力同域** | `followup-suggestions.ts`：只输出「这一次的执行 / 这一次的代价 / 下一次怎么练」；输入只含 `tsb`/`weeklyVolumeChangePct`/`vdotTrend`，**不含近 28 天区间占比** | `tests/unit/components/followup-suggestions.test.ts`（反向断言：5 种场景下任何建议都不得出现 PB / 目标 / 赛季 / 月跑量 / 训练结构是否合理；安全兜底恒为最后一条） |
 | **周维度 CTL/ATL/TSB 必须进入教练上下文** | `insight-coach.ts` 的「训练负荷(EWMA)」行（取末周期末值 + TSB 状态词 + 截至周/截断标记） | `tests/unit/lib/insight-coach.test.ts`（逐字 `CTL 46.3 / ATL 26.2 / TSB +20.1（新鲜） / 截至 2026-W43(截断)`；取首周立即转红） |
 | **「次数」是跑步次数，不是天数** | `DailyLoad.runs` / `TrainingLoadPoint.runs` 由 SQL `COUNT(*)` 提供；聚合层只做加法（`d.runs ?? 1`） | `tests/unit/lib/insight-branches.test.ts`（一天三练 → 3 次而非 1 次）+ `tests/unit/lib/insight-compare.test.ts`（同一天两练 → 周 `activities` 为 3 而非 2；改回 `n += 1` 立即转红） |
 | **区间内每个 ISO 周都出现，截断周必须标记** | `PeriodizationWeek.partial` + `LoadInsight.weekly[].partial`（同一判定）；`PeriodizationInsight.statsBasis` / `statsWeekCount`；UI 周表与趋势图 x 轴都加 `*` + 图例；教练上下文「按 N 个（含截断）周统计」+ 周训练量块 `(截断)` | `tests/unit/lib/insight-compare.test.ts`（零跑量周出现且进分母、截断周标记、完整周 ≥2 时只用完整周）+ `tests/unit/components/insight-components.test.tsx`（`2026-W43 *` 且旧的无标记文案不得出现、`statsBasis='all'` 的口径注脚、`complete` 时不制造噪音、图表 x 轴 `2026-W39 *`、`*` 图例有/无两侧）+ `tests/unit/lib/insight-coach.test.ts`（逐周序列含 `0.0km/0次` 与 `(截断)`、周训练量块 `(截断)` 后缀） |
@@ -1351,6 +1374,9 @@ AI 教练有两种**能力维度**，它们的数据单位与结论都不同，*
 
 ### 4.2 AI 对话
 
+- **追问建议与能力边界绑定**（2026-10-30 修）：建议由前端 `followup-suggestions.ts` 生成，
+  与所在界面的能力同域；**新增建议时必须同步检查是否越界**（单次活动不得推荐周期化/PB/
+  目标设定类问题）。统计类界面的追问靠用户自由输入，暂不做建议。
 - **对话仅存 localStorage**：换设备/清缓存即丢失。若要跨端同步，需要新增 `ai_conversations`
   表与鉴权；当前单用户场景优先级较低。
 - **无服务端限流/配额**：依赖本机网关与模型回退。多用户部署前需加按 IP/会话的速率限制。

@@ -32,9 +32,14 @@ const RouteMap = dynamic(() => import('@/app/lib/components/map/RouteMap').then(
   loading: () => <div className="h-[360px] animate-pulse rounded-xl bg-surface-2" />,
 });
 
+/**
+ * 追问建议可用的画像信号 —— 只保留「这一次 + 下一次怎么练」用得上的几项。
+ *
+ * 刻意**不含**近 28 天区间占比（Z4+Z5）：那是多月聚合量，用它生成的追问
+ * （「我的训练结构是否合理」）属于统计页教练的职责，与单次活动的提示词边界冲突。
+ */
 interface ProfileSignal {
   tsb: number | null;
-  intensityZ45Pct: number | null;
   weeklyVolumeChangePct: number | null;
   vdotTrend: 'up' | 'down' | 'flat' | null;
 }

@@ -47,7 +47,6 @@ export function AiAnalysis({
   activity?: Activity;
   profileSignal?: {
     tsb: number | null;
-    intensityZ45Pct: number | null;
     weeklyVolumeChangePct: number | null;
     vdotTrend: 'up' | 'down' | 'flat' | null;
   };
@@ -318,7 +317,6 @@ export function AiAnalysis({
           },
           // 画像信号 (若有) 使建议更具针对性; 缺失时退化为通用高质量问题
           profile: {
-            intensityZ45Pct: profileSignal?.intensityZ45Pct ?? null,
             weeklyVolumeChangePct: profileSignal?.weeklyVolumeChangePct ?? null,
             tsb: profileSignal?.tsb ?? null,
             vdotTrend: profileSignal?.vdotTrend ?? null,

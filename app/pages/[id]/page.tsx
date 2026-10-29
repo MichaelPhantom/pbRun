@@ -35,15 +35,14 @@ export default async function ActivityDetailPage({ params }: PageProps) {
   const { records: chartRecords } = downsampleRecords(records, 1, DETAIL_RECORDS_MAX_POINTS);
 
   // 轻量画像信号, 供 AI 追问建议使用 (完整画像在分析路由内构建; 此处仅取少量派生值)。
-  let profileSignal: { tsb: number | null; intensityZ45Pct: number | null; weeklyVolumeChangePct: number | null; vdotTrend: 'up' | 'down' | 'flat' | null } | undefined;
+  // 只保留能服务于「这一次 + 下一次怎么练」的信号。
+  // 刻意不含近 28 天区间占比：那会诱发「我的训练结构是否合理」这类统计类追问，
+  // 与单次活动教练的能力边界冲突（见 followup-suggestions.ts 文件头）。
+  let profileSignal: { tsb: number | null; weeklyVolumeChangePct: number | null; vdotTrend: 'up' | 'down' | 'flat' | null } | undefined;
   try {
     const p = buildRunnerProfile(activity);
-    const z45 = p.intensityDist
-      .filter((z) => z.zone >= 4)
-      .reduce((s, z) => s + z.pct, 0);
     profileSignal = {
       tsb: p.tsb,
-      intensityZ45Pct: p.intensityDist.length > 0 ? Math.round(z45) : null,
       weeklyVolumeChangePct: p.weeklyVolumeChangePct,
       vdotTrend: p.vdotTrend,
     };
