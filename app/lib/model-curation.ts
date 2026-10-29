@@ -146,36 +146,38 @@ export interface ResolvedModel {
  *
  * - 依 preset 顺序输出 (即下拉顺序), 网关返回顺序无关;
  * - 依 candidates 优先级取第一个「存在且未标记 unavailable」的 id (网关改名兜底);
- * - 全部候选都不可用 → 仍输出条目但 available=false (前端置灰, 便于解释);
- * - `raw` 为空 (网关不可达/返回异常) → 乐观视为可用: 此时无法判定, 且真正的
- *   可用性由分析请求本身给出明确错误。
+ * - **网关 `/models` 未列出 ≠ 不可用**：它是「当前可用」的过滤视图（365 条里只列
+ *   145 条），而本机 opencode 配置里的 id 即使没列出也仍可路由。2026-10-29 实测：
+ *   `z.ai/glm-5.2-juzi` 不在列表里但 2.6s 正常返回；`glm-5.3-flash-wb` / `hy3-wb`
+ *   不在列表里但返回 429（限流≠不存在）；`deepseek/deepseek-v4-flash-juzi` 返回 502
+ *   （已路由、上游报错）。按「未列出即置灰」会把**能用的模型藏起来**，比放出一个
+ *   会失败的更糟 —— 失败路径本来就有 5xx→`auto` 回退 + 可见提示。
+ * - 只有网关**显式**返回 `available: false` 才置灰;
+ * - `raw` 为空 (网关不可达/返回异常) 同样乐观视为可用。
  */
 export function resolvePresets(raw: RawModel[]): ResolvedModel[] {
   return MODEL_PRESETS.map((p) => {
-    const hit =
+    // 「有没有被网关列出」与「能不能用」是两件事，必须分开判断：
+    //   listed  = 任一候选 id 出现在 /models 里（不论 available 标记）
+    //   usable  = 任一候选 id 出现且未被显式标记 unavailable
+    // 未列出 → 未知，乐观可用；列出但显式 false → 置灰。
+    const matches =
       raw.length === 0
-        ? undefined
+        ? []
         : p.candidates
             .map((c) => raw.find((r) => (r?.id || '').trim() === c))
-            .find((r) => r && r.available !== false);
-    if (raw.length === 0) {
-      return {
-        id: p.id,
-        name: p.name,
-        series: p.series,
-        available: true,
-        thinking: p.thinking,
-        isDefault: !!p.isDefault,
-      };
-    }
-    // 网关常见 name 就是裸 id (如 deepseek-v4.1-flash-wb), 此时优先用
-    // preset 的展示名, 让下拉与触发按钮不至于显示一串 id。
+            .filter((r): r is RawModel => !!r);
+    const hit = matches.find((r) => r.available !== false);
+    const listedButUnavailable = matches.length > 0 && !hit;
+
+    // 网关常见 name 就是裸 id, 此时优先用 preset 的展示名, 让下拉与触发按钮
+    // 不至于显示一串 id。
     const gatewayName = hit?.name?.trim();
     return {
       id: hit ? hit.id : p.id,
       name: gatewayName && gatewayName !== hit?.id ? gatewayName : p.name,
       series: p.series,
-      available: !!hit,
+      available: !listedButUnavailable,
       thinking: p.thinking,
       isDefault: !!p.isDefault,
     };

@@ -999,8 +999,10 @@ GET /api/llm/models
  见 `fetchModels`）。
 - `models` 是**固定白名单**，**与本机 opencode 的 `providers.freellm.models` 逐项一致**
  （同集合、同顺序，即下拉顺序；`auto` 不出现，仅作服务端回退目标与旧客户端兼容）。
-  单一来源：`app/lib/model-curation.ts`。网关不可达时乐观看作可用（`available: true`）；
-  网关 `/models` 未列出的条目返回 `available: false`（前端置灰并说明「当前网关不可用」）。
+  单一来源：`app/lib/model-curation.ts`。**网关 `/models` 未列出 ≠ 不可用** —— 它是「当前可用」
+  的过滤视图（365 条里只列 145 条），实测 `z.ai/glm-5.2-juzi` 未列出但 2.6s 正常返回、
+  `hy3-wb` 未列出但返回 429（限流≠不存在）。因此「未列出」按**乐观可用**处理，只有网关
+  **显式**返回 `available: false` 才置灰；网关不可达时同样乐观。
 
 | 模型 id | 显示名 | 分组 | 思考 | 下发 `reasoning_effort: low` |
 |---|---|---|---|---|

@@ -150,10 +150,24 @@ describe('resolvePresets', () => {
     expect(out.find((m) => m.isDefault)?.id).toBe(DEFAULT_MODEL);
   });
 
-  test('网关未列出的条目 → available=false（前端置灰）', () => {
+  /**
+   * 网关 `/models` 未列出 ≠ 不可用：它是「当前可用」的过滤视图（365 条里只列 145），
+   * 而实测 `z.ai/glm-5.2-juzi` 不在列表里却 2.6s 正常返回、`hy3-wb` 返回 429
+   * （限流≠不存在）。按「未列出即置灰」会把能用的模型藏起来。
+   */
+  test('网关未列出 → 乐观可用（不把能用的模型藏起来）', () => {
     const out = resolvePresets(raw('deepseek-flash-qd', 'glm-5.3-flash-qd'));
     expect(out.find((m) => m.id === 'deepseek-flash-qd')?.available).toBe(true);
     expect(out.find((m) => m.id === 'glm-5.3-flash-qd')?.available).toBe(true);
+    expect(out.find((m) => m.id === 'hy3-wb')?.available).toBe(true);
+  });
+
+  test('网关显式 available:false → 置灰（这是唯一可信的不可用信号）', () => {
+    const out = resolvePresets([
+      { id: 'deepseek-flash-qd', available: true },
+      { id: 'hy3-wb', available: false },
+    ]);
+    expect(out.find((m) => m.id === 'deepseek-flash-qd')?.available).toBe(true);
     expect(out.find((m) => m.id === 'hy3-wb')?.available).toBe(false);
   });
 
