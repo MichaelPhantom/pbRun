@@ -46,15 +46,23 @@ export function formatInsightForCoach(insight: InsightResponse): string {
   // 这正是「近 7/30/180 天趋势」类问题的答案来源。weekly 里 n(次数) 与
   // seconds(周训练时长) 此前算出来从未被任何消费方读取。
   if (load.weekly.length > 0) {
-    L.push(
-      '周训练量: ' +
-        load.weekly
-          .map(
-            (w) =>
-              `${w.week} ${n(w.km, 1)}km/${formatDuration(w.seconds)}/${w.n}次/${n(w.tl, 0)}TL${w.partial ? '(截断)' : ''}`,
-          )
-          .join(' '),
-    );
+    // 逐周序列是「哪一周在涨/掉」的答案来源，但**必须限长**：全部历史窗口在没有
+    // 夹紧前有 1401 周，这一行会到 38 KB（纯零）；夹紧后仍有 52 周。数据攒到几年后
+    // 还会更长。故只逐周列出最近 26 周（半年），更早的折成一行汇总 —— 模型要的
+    // 是「近期节奏」与「更早的总量/零周数」，不是 200 行 0.0km。
+    const RECENT_WEEKS = 26;
+    const tail = load.weekly.slice(-RECENT_WEEKS);
+    const head = load.weekly.slice(0, Math.max(0, load.weekly.length - RECENT_WEEKS));
+    const fmtWeek = (w: (typeof load.weekly)[number]) =>
+      `${w.week} ${n(w.km, 1)}km/${formatDuration(w.seconds)}/${w.n}次/${n(w.tl, 0)}TL${w.partial ? '(截断)' : ''}`;
+    L.push(`${head.length > 0 ? `周训练量（近 ${tail.length} 周）` : '周训练量'}: ${tail.map(fmtWeek).join(' ')}`);
+    if (head.length > 0) {
+      const km = head.reduce((a, w) => a + w.km, 0);
+      const zero = head.filter((w) => w.km <= 0).length;
+      L.push(
+        `  更早 ${head.length} 周汇总: 合计 ${n(km, 1)}km / 周均 ${n(km / head.length, 1)}km / 零跑量 ${zero} 周`,
+      );
+    }
   }
   L.push(
     `强度分布: ` +

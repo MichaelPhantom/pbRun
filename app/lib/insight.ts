@@ -238,7 +238,10 @@ export function computeLoadInsight(
 
   // 区间内的每个 ISO 周都要出现（零跑量周也出现），与 `computePeriodization` 同口径。
   // 只在**显式传入 range** 时补齐：缺省时不裁剪，补齐会把数据边界外的周也画出来。
-  const weekKeys = range != null ? isoWeeksBetween(range.startDate, range.endDate) : [...byWeek.keys()].sort();
+  const weekKeys =
+    range != null
+      ? isoWeeksBetween(effectiveWeeklyStart(daily, range.startDate), range.endDate)
+      : [...byWeek.keys()].sort();
   const weekly = weekKeys.map((week) => {
     const v = byWeek.get(week);
     // 截断周标记 —— 与 `computePeriodization` 的 `PeriodizationWeek.partial` 同一判定。
@@ -288,6 +291,42 @@ export function computeLoadInsight(
   const highIntensityPct = totalZ > 0 ? ((five[3] ?? 0) + (five[4] ?? 0)) / totalZ * 100 : 0;
 
   return { weekly, acute, chronic: chronicWeekly, acwr, acwrTone, zDistribution, lowIntensityPct, highIntensityPct };
+}
+
+/**
+ * 周聚合的**有效起点**：区间起点早于「第一条有数据的日期」时，从首个有数据的那周开始。
+ *
+ * ## 为什么必须夹紧
+ *
+ * 「全部历史」的 `startDate` 是一个合成值 `2000-01-01`。若直接用它枚举 ISO 周，
+ * 会得到 **1401 个周**，其中 1349 个是「数据存在之前」的空周。后果不是「图更长」，而是
+ * **统计量被稀释**：
+ *
+ * | 窗口 | 周均跑量 | statsWeekCount |
+ * |------|---------|----------------|
+ * | 全部历史（未夹紧） | **1.5 km** | 1399 |
+ * | 全部历史（夹紧后） | 41.9 km | 52 |
+ * | 近一年 | 42.0 km | 51 |
+ *
+ * 同一页面上「全部历史」比「近一年」把周均从 42 km 砍到 1.5 km —— 而且卡片看起来
+ * 完全自洽（有基数、有 μ/σ）。同时 AI 上下文的「周训练量」一行会膨胀到 **38 KB**。
+ *
+ * 夹紧**不违反**「零跑量周也要出现」：那条规则针对的是**训练区间内**的休息周；
+ * 数据存在之前的周不是「休息」，而是「没有数据」，画出来是假信息。
+ *
+ * @param daily     逐日负荷（可能包含预热窗口）
+ * @param startDate 请求的区间起点
+ * @returns 不早于首个「有数据」日期的起点；无任何数据时原样返回
+ */
+export function effectiveWeeklyStart(
+  daily: readonly { date: string; runs?: number; load?: number; distanceMeters?: number }[],
+  startDate: string,
+): string {
+  const first = [...daily]
+    .sort((a, b) => (a.date < b.date ? -1 : 1))
+    .find((d) => (d.runs ?? 0) > 0 || (d.load ?? 0) > 0 || (d.distanceMeters ?? 0) > 0);
+  if (!first || !/^\d{4}-\d{2}-\d{2}$/.test(first.date)) return startDate;
+  return first.date > startDate ? first.date : startDate;
 }
 
 // ---------------------------------------------------------------------------

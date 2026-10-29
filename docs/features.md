@@ -675,6 +675,27 @@ FTP 缺失不猜 / 海拔比值 / 尖峰过滤）、`tests/unit/pages/activity-d
 出现周 41.25 km），而「掉到 0 又爬回来」这段最该被看见的断崖被抹平了。休息周是
 训练结构的一部分，不能被聚合悄悄抹掉。
 
+**但「数据存在之前」的周不是休息周，必须夹紧**（2026-10-30）。`days=0`（全部历史）的
+区间起点是合成值 `2000-01-01` —— 直接枚举 ISO 周会得到 **1401 个周**，其中 1349 个是
+数据尚未产生的空周。后果不是「图更长」，而是**统计量被稀释**：
+
+| 窗口 | 周均跑量 | `statsWeekCount` | AI 指标块 |
+|------|---------|------------------|-----------|
+| 全部历史（未夹紧） | **1.5 km** | 1399 | **41,066 字符**（其中周训练量一行 38,151） |
+| 全部历史（夹紧后） | **42.0 km** | 51 | 4,640 字符 |
+| 近一年 | 42.0 km | 51 | 4,640 字符 |
+
+同一页面上「全部历史」把周均从 42 km 砍到 1.5 km，而卡片看起来完全自洽（有基数、
+有 μ 与 σ）。夹紧实现是 `insight.effectiveWeeklyStart(daily, startDate)`：取
+`max(区间起点, 首个有数据的日期)`，两张周表共用。
+
+夹紧**不违反**「零跑量周也要出现」——那条规则针对的是训练区间内的休息周；数据存在
+之前的周不是「休息」，而是「没有数据」。区间内的零周照常出现（有专门用例）。
+
+另外 AI 上下文的「周训练量」**限长 26 周**：数据攒到几年后逐周列出会无限膨胀。
+超过 26 周时只逐周列最近半年，更早的折成一行「合计 / 周均 / 零跑量周数」。
+
+
 **截断周必须显式标记**：`PeriodizationWeek.partial` 为真时周键后加 `*`、表格行
 `title` 说明「该周被所选区间截断」。峰值/周均/增幅/波动 σ 只在**完整周 ≥ 2 个**时
 用完整周计算（`statsBasis: 'complete'`）；不足 2 个完整周（如「近一周」）退化为
@@ -1307,6 +1328,8 @@ AI 教练有两种**能力维度**，它们的数据单位与结论都不同，*
 | **`LoadInsight.weekly` 的 `n`/`seconds` 必须进教练上下文** | `insight-coach.ts` 的「周训练量」块（`week km/时长/次数/TL`） | `tests/unit/lib/insight-coach.test.ts`（两个 ISO 周必须逐字输出 `49.7km/5:16:40/5次/430TL`；删掉整块立即转红）+ `tests/unit/components/insight-field-consumption.test.ts`（内联对象字面量字段必须进入字段集合 —— 旧解析器只收多行 interface，`weekly` 整块漏掉，该字段族**永远绿**） |
 | **表格「单位」副标题必须与单元格渲染格式一致** | `DataTable` 的 `unit`（`ActivityDetailClient` 分段表 `h:mm:ss`；三个区间表同为 `h:mm:ss`） | `tests/unit/pages/activity-detail.test.tsx`（分段表「时长」表头必须是 `h:mm:ss` 且不含 `min`，单元格是 `5:40` 形态；改回 `min` 立即转红） |
 | **周键只有一个实现，周窗口只能按日期判定** | `app/lib/date-utils.ts` 的 `isoWeekKey` / `isoWeekBounds` / `isoWeeksBetween`；`insight.ts` / `insight-compare.ts` / `insight-service.ts` 只做 re-export，不得自带拷贝 | `tests/unit/lib/date-utils.test.ts`（`isoWeekKey` ≡ `periodKeyOf(week)`、跨年周边界、非法键 `null`、含首尾截断周、旧字符串过滤必然多算周的判别式） |
+| **周聚合的起点必须夹到「首个有数据的那一周」** | `insight.effectiveWeeklyStart(daily, range.startDate)`；`computeLoadInsight` 与 `computePeriodization` 共用 | `tests/unit/lib/insight.test.ts`（4 例：夹紧/不夹紧/跳过零负荷日行/非法日期）+ `tests/unit/lib/insight-compare.test.ts`（区间起点 2000-01-01 时周均仍 10、`statsWeekCount` < 10） |
+| **AI 周序列限长 26 周 + 汇总行** | `formatInsightForCoach`（超过 26 周只列最近半年，更早折成「合计/周均/零跑量周数」） | `tests/unit/lib/insight-coach.test.ts`（60 周 → 逐周条目恰好 26 条、含「更早 34 周汇总」、该行 < 1500 字符） |
 | **周聚合只有一个实现，两张周表必须逐周一致** | `insight.aggregateWeeklyLoad` 同时供 `computeLoadInsight`（`load.weekly`）与 `computePeriodization`（`periodization.weeks`）；两者的 range 都由 `isoWeeksBetween` 决定 | `tests/unit/lib/insight-services.test.ts`（`load.weekly` 与 `periodization.weeks` 逐周 `km`/`n` 相等、周集合相同；丢 range 或改回字符串过滤立即转红）+ 真实库 7/30/90/180/365 天窗口 0 处不一致 |
 | **CTL/ATL/TSB 的预热天数只有一个常量，取数起点只有一个实现** | `training-load.TRAINING_LOAD_WARMUP_DAYS = ceil(5·CTL_TAU)` + `trainingLoadFetchStart(startDate)`；首页 / 分析页 / 洞察服务 / 跑者画像四处都走它（不得自写 28 / 90 / 120） | `tests/unit/lib/training-load.test.ts`（常量 ≥5τ、`trainingLoadFetchStart` 逐值、28 天预热画出假上涨而 210 天平、210 天 vs 700 天基线差 <1%）+ 三个页面测试各断言「预热 ≡ 常量 且 ≠ 旧值」+ 真实库四处 CTL 最大误差 0.72% |
 | **CTL/ATL/TSB 必须算到参考日（含休息日），不能停在最后一个训练日** | `computeTrainingLoads(points, endDate)`；调用方传 `todayLocalDate()` / 区间 `endDate` / 活动日 | `tests/unit/lib/training-load.test.ts`（`endDate` 晚于最后训练日 → 补零延伸、早于 → 不截断、缺省 → 停训练日）+ `tests/unit/pages/analysis-page.test.tsx`（休息 3 天后曲线末点仍是参考日且 ATL 已衰减）+ 真实库 ATL 26.2 vs 30.2 |

@@ -381,6 +381,35 @@ describe('computePeriodization', () => {
       expect(computePeriodization([]).peakWeek).toBeNull();
     });
 
+    /**
+     * 「全部历史」的区间起点是合成值 `2000-01-01`。若直接用它枚举 ISO 周，会得到
+     * 1401 个周、其中 1349 个是「数据存在之前」的空周，于是周均/σ/增幅被稀释
+     * （真实库实测周均 42.0 → **1.5 km**）。周聚合必须从「首个有数据的那一周」开始。
+     */
+    test('区间起点早于首条数据 → 从首个有数据的那周开始（不被空周稀释）', () => {
+      const daily = days([
+        ['2026-09-07', 10], ['2026-09-14', 10], ['2026-09-21', 10], ['2026-09-28', 10],
+      ]);
+      const r = computePeriodization(daily, null, { startDate: '2000-01-01', endDate: '2026-10-04' });
+      // 只有 4 个有数据的周（W37–W40），周均必须仍是 10
+      expect(r.avgWeekKm).toBeCloseTo(10, 5);
+      expect(r.peakWeekKm).toBeCloseTo(10, 5);
+      expect(r.statsWeekCount).toBe(4);
+      // 判别式：若从 2000-01-01 枚举，周数会是 4 位数、周均掉到 0.07
+      expect(r.statsWeekCount).toBeLessThan(10);
+    });
+
+    test('起点晚于首条数据时不夹紧（区间内的零跑量周照常出现）', () => {
+      // 数据从 09-07 起，区间从 09-14 起：09-07 那周不算，09-21 那周有数据，
+      // 09-28 与 10-05 之间插入一个零周也不得被省略
+      const daily = days([['2026-09-07', 10], ['2026-09-14', 10], ['2026-09-28', 10]]);
+      const r = computePeriodization(daily, null, { startDate: '2026-09-14', endDate: '2026-10-04' });
+      const weeks = r.weeks.map((w) => w.week);
+      expect(weeks).toContain('2026-W38');
+      expect(weeks).toContain('2026-W39'); // 零跑量周（09-21 那周）必须出现
+      expect(weeks).toContain('2026-W40');
+    });
+
     test('「次数」是真实跑步次数, 不是天数', () => {
       // 同一天跑两次 —— 真实库有 3 个这样的日子
       const daily = days([['2026-10-19', 5, 2], ['2026-10-20', 6, 1]]);

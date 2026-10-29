@@ -152,6 +152,29 @@ describe('formatInsightForCoach', () => {
     expect(text).toContain('2026-W38 51.3km/5:23:20/5次/412TL');
   });
 
+  /**
+   * 周序列必须限长：数据攒到几年后，逐周列出每一周会让这一行膨胀到几十 KB
+   * （全部历史窗口在夹紧前是 38 KB 纯零）。只逐周列最近 26 周，更早的折成一行汇总。
+   */
+  test('周序列超过 26 周 → 只列最近 26 周 + 更早的汇总行', () => {
+    const weekly = Array.from({ length: 60 }, (_, i) => ({
+      week: `2025-W${String((i % 52) + 1).padStart(2, '0')}`,
+      km: i % 3 === 0 ? 0 : 10,
+      tl: 100,
+      n: 1,
+      seconds: 3600,
+      partial: false,
+    }));
+    const text = formatInsightForCoach(makeInsight({ load: { ...makeInsight().load, weekly } }));
+    expect(text).toContain('周训练量（近 26 周）');
+    // 更早的 34 周折成一行
+    expect(text).toContain('更早 34 周汇总');
+    // 逐周条目只有 26 条 → 该行长度有界
+    const line = text.split('\n').find((l) => l.startsWith('周训练量'));
+    expect((line!.match(/\d{4}-W\d{2} /g) ?? []).length).toBe(26);
+    expect(line!.length).toBeLessThan(1500);
+  });
+
   test('weekly 为空时不输出周训练量块 (不编造空行)', () => {
     const text = formatInsightForCoach(makeInsight());
     expect(text).not.toContain('周训练量');

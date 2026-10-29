@@ -2,6 +2,7 @@
  * 洞察计算层纯函数测试 —— 无 DB 依赖。
  */
 import {
+  effectiveWeeklyStart,
   buildFindings,
   computeDecouplingInsight,
   computeDecouplingPct,
@@ -427,5 +428,29 @@ describe('buildFindings', () => {
       rangeDays: 90,
     });
     expect(f.some((x) => x.id === 'threshold-pace')).toBe(true);
+  });
+});
+
+describe('effectiveWeeklyStart（周聚合的有效起点）', () => {
+  const d = (date: string, over: Record<string, number> = {}) => ({ date, load: 0, distanceMeters: 0, runs: 0, ...over });
+
+  test('起点早于首条数据 → 夹到首个有数据的日期', () => {
+    const daily = [d('2000-01-01'), d('2025-11-05', { runs: 1, load: 50, distanceMeters: 10000 }), d('2025-11-12', { runs: 1 })];
+    expect(effectiveWeeklyStart(daily, '2000-01-01')).toBe('2025-11-05');
+  });
+
+  test('起点晚于首条数据 → 不夹紧（区间内的零周仍要出现）', () => {
+    const daily = [d('2025-11-05', { runs: 1 }), d('2026-05-01', { runs: 1 })];
+    expect(effectiveWeeklyStart(daily, '2026-04-01')).toBe('2026-04-01');
+  });
+
+  test('首条数据就是 zero-load 行（只有日行没有跑量）→ 继续往后找', () => {
+    const daily = [d('2025-11-05'), d('2025-11-20', { runs: 1 })];
+    expect(effectiveWeeklyStart(daily, '2000-01-01')).toBe('2025-11-20');
+  });
+
+  test('无任何数据 / 非法日期 → 原样返回起点', () => {
+    expect(effectiveWeeklyStart([], '2000-01-01')).toBe('2000-01-01');
+    expect(effectiveWeeklyStart([d('bogus', { runs: 1 })], '2000-01-01')).toBe('2000-01-01');
   });
 });

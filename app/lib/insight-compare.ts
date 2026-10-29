@@ -5,6 +5,7 @@
 import {
   aggregateWeeklyLoad,
   dayOrdinal,
+  effectiveWeeklyStart,
   linearRegression,
   mean,
   type DailyLoad,
@@ -347,7 +348,12 @@ export function computePeriodization(
   // 旧实现只列出「有数据的周」，于是休息周直接从图和表里消失：跑量曲线看似
   // 连续、周环比波动 σ 偏小（真实库 90 天窗口 18.1% vs 含零周 45.5%）、
   // 「周均」偏高。休息周是训练结构的一部分，不能被聚合悄悄抹掉。
-  const weekKeys = startDate && endDate ? isoWeeksBetween(startDate, endDate) : [...byWeek.keys()].sort();
+  // 与「训练负荷」卡同一口径：区间起点早于首条数据时，从首个有数据的那周开始枚举，
+  // 否则「全部历史」会用 1349 个「数据存在之前」的空周把周均/σ/增幅稀释成 1.5 km。
+  const weekKeys =
+    startDate && endDate
+      ? isoWeeksBetween(effectiveWeeklyStart(sorted, startDate), endDate)
+      : [...byWeek.keys()].sort();
 
   const loadMap = new Map((weeklyCtlAtlTsb ?? []).map((w) => [w.week, w]));
   let weeks: PeriodizationWeek[] = weekKeys.map((week) => {
