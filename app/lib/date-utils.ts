@@ -179,3 +179,39 @@ function aggregateByFallback(dateStr: string): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
+
+/**
+ * 「统计页自然周期」→ 显式 `[startDate, endDate]`（本地日期，含两端）。
+ *
+ * ## 为什么必须是唯一实现
+ *
+ * 统计页有三个消费方需要**同一个**自然周期：
+ *  1. `db.getStats(period)` 的 SQL 过滤条件；
+ *  2. 页面标题上的周期标签；
+ *  3. **统计类 AI 教练**的分析区间 —— 它必须与页面显示的完全一致。
+ *
+ * 2026-10-29 之前 (1)(3) 各算各的：页面按**自然月**显示，教练却按**滚动 30 天**
+ * 分析（前端只传了 `days`）。于是「本月」卡片里的数字与教练嘴里的数字对不上 ——
+ * 用户无法判断谁错。现在两者都从这里取。
+ *
+ * - `week`：ISO 周（周一）起；`month`：当月 1 日起；`year`：1 月 1 日起；
+ * - `total`：固定 `2000-01-01`（早于本项目所有数据，等价于「无上界」）。
+ */
+export function statsPeriodRange(
+  period: 'week' | 'month' | 'year' | 'total',
+  today: string = todayLocalDate(),
+): { startDate: string; endDate: string } {
+  if (period === 'total') return { startDate: '2000-01-01', endDate: today };
+  if (period === 'week') {
+    // ISO 周：周一为一周开始。用 UTC 解析避免本地时区把日期推前/推后一天。
+    const d = new Date(`${today}T00:00:00Z`);
+    const daysSinceMonday = (d.getUTCDay() + 6) % 7;
+    const monday = new Date(d.getTime() - daysSinceMonday * 86_400_000);
+    return { startDate: monday.toISOString().slice(0, 10), endDate: today };
+  }
+  if (period === 'month') return { startDate: `${today.slice(0, 7)}-01`, endDate: today };
+  if (period === 'year') return { startDate: `${today.slice(0, 4)}-01-01`, endDate: today };
+  // 运行时脏数据（period 来自查询参数）：退化为「只有今天」，与旧行为一致 ——
+  // 宁可少统计，也不要因为一个坏参数把「本年」当成默认。
+  return { startDate: today, endDate: today };
+}

@@ -251,7 +251,12 @@ export default async function DashboardPage() {
       </div>
 
       {/* 首页整体 AI 教练: 全部历史 + 近期趋势（与洞察/分析/统计页同源） */}
-      <GlobalCoach days={0} />
+      <GlobalCoach
+        days={0}
+        surface="dashboard"
+        startDate={`${monthStr}-01`}
+        endDate={endStr}
+      />
     </div>
   );
 }

@@ -10,6 +10,7 @@ import { useStickToBottom } from './useStickToBottom';
 import { streamChat, looksTruncated } from './stream-chat';
 import { timeRangeLabel } from '@/app/lib/date-utils';
 import type { ChatMessage } from '@/app/lib/llm';
+import type { StatisticsSurface } from '@/app/lib/coach-prompts';
 
 type Status = 'idle' | 'streaming' | 'done' | 'error';
 
@@ -28,11 +29,34 @@ interface Turn {
 const CACHE_KEY = 'pbrun.ai.coach.cache';
 
 /**
- * 全局 AI 教练 —— 基于所选区间（近一周/近一月/近半年/全部）的训练数据做综合辅导。
- * 与活动详情页的 AiAnalysis 同源 (共享 streamChat / 模型选择 / MarkdownLite),
- * 但上下文为【跑者画像 + 全局洞察指标 + 区间趋势】, 适合汇总页。
+ * 统计类 AI 教练 —— 基于**所选区间的聚合数据**做辅导（不是单次训练）。
+ *
+ * 与活动详情页的 `AiAnalysis` 能力不同、提示词也不同：
+ *  - 本组件 = 统计类（趋势/结构/负荷/周期化），四个页面各有一套提示词；
+ *  - `AiAnalysis` = 单次活动（执行质量/当次代价/横向定位）。
+ *
+ * `surface` 决定用哪套统计类提示词（`app/lib/coach-prompts.ts`），`label` 只用于
+ * 界面上的能力说明。`startDate`/`endDate` 必须与页面显示的时间窗一致 —— 否则
+ * 「统计页按自然月显示、教练按滚动 30 天分析」这种错位会再次出现。
  */
-export function GlobalCoach({ days }: { days: number }) {
+export interface GlobalCoachProps {
+  /** 回看天数（0 = 全部历史）；仅在未传 startDate/endDate 时生效。 */
+  days: number;
+  /** 挂载界面 —— 决定统计类提示词。缺省 insight。 */
+  surface?: StatisticsSurface;
+  /** 显式区间：与页面显示的时间窗完全一致。 */
+  startDate?: string;
+  endDate?: string;
+}
+
+const SURFACE_LABEL: Record<StatisticsSurface, string> = {
+  dashboard: '最近状态 · 本周安排',
+  insight: '区间综合诊断 · 周期化',
+  analysis: '强度结构 · 负荷管理',
+  stats: '自然周期总量 · 纪录',
+};
+
+export function GlobalCoach({ days, surface = 'insight', startDate, endDate }: GlobalCoachProps) {
   const { models, configured, model, choose } = useModelCatalog();
 
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -43,6 +67,13 @@ export function GlobalCoach({ days }: { days: number }) {
   const genIdRef = useRef(0);
   const restoredRef = useRef(false);
 
+  // 缓存键 = 界面 + 区间。不同界面/区间的答案绝不能互相覆盖：
+  // 「统计页近一月」与「洞察页近一月」回答的是**不同的问题**。
+  const cacheKey = startDate && endDate
+    ? `${surface}.${startDate}_${endDate}`
+    : `${surface}.d${days}`;
+  // 界面上写清「教练实际分析的时间窗」——必须与页面显示一致（用显式区间时优先）。
+  const rangeLabel = startDate && endDate ? `${startDate} ~ ${endDate}` : timeRangeLabel(days);
   const { ref: scrollRef, isAtBottom, scrollToBottom } = useStickToBottom<HTMLDivElement>([turns]);
   const busy = status === 'streaming';
 
@@ -52,7 +83,7 @@ export function GlobalCoach({ days }: { days: number }) {
     if (restoredRef.current) return;
     restoredRef.current = true;
     try {
-      const raw = localStorage.getItem(`${CACHE_KEY}.${days}`);
+      const raw = localStorage.getItem(`${CACHE_KEY}.${cacheKey}`);
       if (!raw) return;
       const cached = JSON.parse(raw) as Turn[];
       if (Array.isArray(cached) && cached.length > 0) {
@@ -63,18 +94,18 @@ export function GlobalCoach({ days }: { days: number }) {
     } catch {
       /* 忽略 */
     }
-  }, [days]);
+  }, [cacheKey]);
 
   // 保存结果缓存 (仅完成态)
   useEffect(() => {
     if (status !== 'done' || turns.length === 0) return;
     try {
       const snapshot = turns.map((t) => ({ ...t, streaming: false }));
-      localStorage.setItem(`${CACHE_KEY}.${days}`, JSON.stringify(snapshot));
+      localStorage.setItem(`${CACHE_KEY}.${cacheKey}`, JSON.stringify(snapshot));
     } catch {
       /* 忽略配额错误 */
     }
-  }, [status, turns, days]);
+  }, [status, turns, cacheKey]);
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
@@ -106,8 +137,16 @@ export function GlobalCoach({ days }: { days: number }) {
         const result = await streamChat({
           url: '/pbrun/api/insight/coach',
           body: isFollowup
-            ? { model: opts.model, question: opts.question, history: opts.history ?? [], days }
-            : { model: opts.model, days },
+            ? {
+                model: opts.model,
+                question: opts.question,
+                history: opts.history ?? [],
+                days,
+                surface,
+                startDate,
+                endDate,
+              }
+            : { model: opts.model, days, surface, startDate, endDate },
           signal: ac.signal,
           isStale,
           onDelta: (text, reasoning) => {
@@ -144,7 +183,9 @@ export function GlobalCoach({ days }: { days: number }) {
         setAnnounce('生成失败');
       }
     },
-    [days],
+    // 请求体里带了 surface / startDate / endDate，依赖必须一并列出，
+    // 否则切换界面（同一组件不同 surface）会复用旧的闭包值。
+    [days, surface, startDate, endDate],
   );
 
   function start() {
@@ -179,7 +220,7 @@ export function GlobalCoach({ days }: { days: number }) {
     <SectionCard
       id="ai-coach"
       className="scroll-mt-20"
-      title="AI 综合教练"
+      title="AI 统计教练"
       accent
       action={
         <div className="flex items-center gap-2">
@@ -215,13 +256,24 @@ export function GlobalCoach({ days }: { days: number }) {
       )}
 
       {configured && !hasAnalysis && status === 'idle' && (
-        <p className="py-2 text-sm text-fg-muted">
-          基于你
-          <span className="font-medium text-fg-secondary">
-            {timeRangeLabel(days)}的跑者画像与全局洞察指标（跑力趋势 + 训练结构 + 类别/气温/路线对比 + 有氧效率）
-          </span>
-          ，给出世界顶级教练水准的综合诊断与长期规划。生成后可继续追问。
-        </p>
+        <div className="space-y-1.5 py-2 text-sm text-fg-muted">
+          <p>
+            <span className="mr-1.5 rounded bg-surface-2 px-1.5 py-0.5 text-[11px] font-medium text-fg-secondary">
+              统计类
+            </span>
+            基于
+            <span className="font-medium text-fg-secondary">
+              {rangeLabel}的聚合数据
+            </span>
+            （跑力趋势 / 训练结构 / 负荷与恢复 / 类别·气温·路线对比）回答「这段时间怎么样、接下来怎么排」。
+            本界面侧重：
+            <span className="font-medium text-fg-secondary">{SURFACE_LABEL[surface]}</span>。
+          </p>
+          <p className="text-xs">
+            单次训练的分段与动作细节请到该活动的详情页用「AI 深度分析」——那是另一套能力，
+            数据与提示词都不同，互不替代。
+          </p>
+        </div>
       )}
 
       {(turns.length > 0 || busy) && (

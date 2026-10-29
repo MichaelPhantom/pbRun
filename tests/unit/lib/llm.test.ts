@@ -192,8 +192,14 @@ describe('buildAnalysisMessages', () => {
     expect(system.content).toContain('脱耦');
     expect(system.content).toContain('跑步经济性');
     expect(system.content).toContain('训练性质');
-    // 可执行处方
-    expect(system.content).toContain('下次训练处方');
+    // 可执行处方（只到「下一次」与「本周内的下一次质量课」）
+    expect(system.content).toContain('下一次训练怎么练');
+    // 能力边界: 单次活动 prompt 必须声明「不做多月规划」并把越界问题指向汇总页
+    expect(system.content).toContain('职责边界');
+    expect(system.content).toContain('汇总页');
+    expect(system.content).toContain('绝不编造');
+    // 判别式: 单次活动 prompt 不含任何「长期」板块（那是统计类界面的职责）
+    expect(system.content).not.toContain('📅');
     // 横向可比 + 环境修正
     expect(system.content).toContain('横向');
     expect(system.content).toContain('同温档');

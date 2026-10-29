@@ -30,7 +30,7 @@ import {
 } from './types';
 import type { VdotSample } from './insight';
 import { getPaceZoneBoundsFromVdot, getPaceZoneCenterFromVdot } from './vdot-pace';
-import { periodKeyOf } from './date-utils';
+import { periodKeyOf, statsPeriodRange } from './date-utils';
 import { localDateRangeToUtc } from './timezone';
 import { hrZoneOf, resolveMaxHr } from './hr-zones';
 import { POWER_ZONE_NAMES, powerZoneOf } from './power-zones';
@@ -289,30 +289,15 @@ export function getActivityRecords(activityId: number): ActivityRecord[] {
 export function getStats(period?: 'week' | 'month' | 'year' | 'total'): StatsResponse {
   const db = getDatabase();
 
+  // 自然周期边界只有一个实现（`date-utils.statsPeriodRange`）：
+  // 统计页的标题、SQL 过滤、以及**统计类 AI 教练的分析区间**必须来自同一处，
+  // 否则会出现「页面按自然月、教练按滚动 30 天」的口径错位。
   let dateFilter = '';
   const queryParams: string[] = [];
   if (period && period !== 'total') {
-    const now = new Date();
-    let startDate: Date;
-    switch (period) {
-      case 'week': {
-        // ISO 周口径: 周一 00:00 起 (含今天)
-        const dayOfWeek = now.getDay(); // 0=周日
-        const daysSinceMonday = (dayOfWeek + 6) % 7;
-        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysSinceMonday);
-        break;
-      }
-      case 'month':
-        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-        break;
-      case 'year':
-        startDate = new Date(now.getFullYear(), 0, 1);
-        break;
-      default:
-        startDate = now;
-    }
+    const range = statsPeriodRange(period);
     dateFilter = 'AND start_time >= ?';
-    queryParams.push(startDate.toISOString());
+    queryParams.push(toInclusiveStart(range.startDate, 'getStats'));
   }
 
   const query = `

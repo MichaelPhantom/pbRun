@@ -64,7 +64,10 @@ describe('状态与入口', () => {
 
   test('已配置 idle → 引导文案 + 模型下拉', () => {
     render(<GlobalCoach days={30} />);
-    expect(screen.getByText(/跑者画像与全局洞察指标/)).toBeInTheDocument();
+    // 空态必须声明**能力维度**（统计类）与本界面职责，并说明单次训练请去活动详情页
+    expect(screen.getByText('统计类')).toBeInTheDocument();
+    expect(screen.getByText(/聚合数据/)).toBeInTheDocument();
+    expect(screen.getByText(/单次训练的分段与动作细节/)).toBeInTheDocument();
     expect(screen.getByText(/近一月/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '生成综合诊断' })).toBeEnabled();
     const trigger = screen.getByRole('button', { name: '选择模型' });
@@ -76,7 +79,32 @@ describe('状态与入口', () => {
     expect(screen.getByText(/近一周/)).toBeInTheDocument();
     cleanupRender();
     render(<GlobalCoach days={0} />);
-    expect(screen.getByText(/全部的跑者画像与全局洞察指标/)).toBeInTheDocument();
+    expect(screen.getByText(/全部的聚合数据/)).toBeInTheDocument();
+  });
+
+  /**
+   * 显式区间优先于 days —— 教练分析的时间窗必须**等于页面显示的时间窗**。
+   * 否则会出现「统计页按自然月显示、教练按滚动 30 天分析」的口径错位。
+   */
+  test('传显式区间时，文案与请求体都用它（而不是 days）', async () => {
+    mockStreamChat.mockResolvedValueOnce(ok());
+    render(<GlobalCoach days={30} surface="stats" startDate="2026-10-01" endDate="2026-10-29" />);
+    expect(screen.getByText(/2026-10-01 ~ 2026-10-29/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '生成综合诊断' }));
+    await waitFor(() => expect(mockStreamChat).toHaveBeenCalledTimes(1));
+    const body = (mockStreamChat.mock.calls[0][0] as { body: Record<string, unknown> }).body;
+    expect(body.surface).toBe('stats');
+    expect(body.startDate).toBe('2026-10-01');
+    expect(body.endDate).toBe('2026-10-29');
+  });
+
+  test('surface 决定请求体（缺省 insight）', async () => {
+    mockStreamChat.mockResolvedValueOnce(ok());
+    render(<GlobalCoach days={30} />);
+    fireEvent.click(screen.getByRole('button', { name: '生成综合诊断' }));
+    await waitFor(() => expect(mockStreamChat).toHaveBeenCalledTimes(1));
+    const body = (mockStreamChat.mock.calls[0][0] as { body: Record<string, unknown> }).body;
+    expect(body.surface).toBe('insight');
   });
 });
 
@@ -100,7 +128,7 @@ describe('生成主流程', () => {
       signal: AbortSignal;
     };
     expect(arg.url).toBe('/pbrun/api/insight/coach');
-    expect(arg.body).toEqual({ model: 'deepseek-v4.1-flash-wb', days: 90 });
+    expect(arg.body).toEqual({ model: 'deepseek-v4.1-flash-wb', days: 90, surface: 'insight' });
     expect(arg.signal.aborted).toBe(false);
     expect(arg.isStale()).toBe(false);
 
@@ -116,7 +144,7 @@ describe('生成主流程', () => {
     expect(screen.getByRole('button', { name: '重新诊断' })).toBeInTheDocument();
 
     // 完成态写入缓存 (streaming 归 false)
-    const raw = localStorage.getItem(`${CACHE_KEY}.90`);
+    const raw = localStorage.getItem(`${CACHE_KEY}.insight.d90`);
     expect(raw).toBeTruthy();
     const cached = JSON.parse(raw!) as { streaming?: boolean; role: string }[];
     expect(cached[0].streaming).toBe(false);
@@ -183,7 +211,7 @@ describe('生成主流程', () => {
 describe('缓存恢复', () => {
   test('已有缓存 → 挂载即恢复对话与完成态', () => {
     localStorage.setItem(
-      `${CACHE_KEY}.30`,
+      `${CACHE_KEY}.insight.d30`,
       JSON.stringify([
         { id: 'a1', role: 'assistant', content: '缓存里的诊断', model: 'm-cache', streaming: false },
       ]),
@@ -191,15 +219,15 @@ describe('缓存恢复', () => {
     render(<GlobalCoach days={30} />);
     expect(screen.getByText('缓存里的诊断')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '重新诊断' })).toBeInTheDocument();
-    expect(screen.queryByText(/跑者画像与全局洞察指标/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/聚合数据/)).not.toBeInTheDocument();
   });
 
   test('坏缓存 (非法 JSON / 非数组 / 空数组) → 忽略并保持 idle', () => {
     for (const bad of ['{oops', '{"a":1}', '[]']) {
       cleanupRender();
-      localStorage.setItem(`${CACHE_KEY}.30`, bad);
+      localStorage.setItem(`${CACHE_KEY}.insight.d30`, bad);
       render(<GlobalCoach days={30} />);
-      expect(screen.getByText(/跑者画像与全局洞察指标/)).toBeInTheDocument();
+      expect(screen.getByText(/聚合数据/)).toBeInTheDocument();
       expect(screen.getByRole('button', { name: '生成综合诊断' })).toBeInTheDocument();
     }
   });
@@ -226,6 +254,7 @@ describe('追问与工具动作', () => {
       question: '我的短板是什么？',
       history: [{ role: 'assistant', content: expect.stringContaining('每周 3 次轻松跑') }] as ChatMessage[],
       days: 60,
+      surface: 'insight',
     });
     // 用户气泡 + 自动切换落款
     expect(await screen.findByText('我的短板是什么？')).toBeInTheDocument();

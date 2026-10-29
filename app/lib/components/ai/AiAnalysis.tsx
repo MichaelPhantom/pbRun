@@ -330,7 +330,7 @@ export function AiAnalysis({
     <SectionCard
       id="ai-coach"
       className="scroll-mt-20"
-      title="AI 教练分析"
+      title="AI 单次训练分析"
       accent
       action={
         <div className="flex items-center gap-2">
@@ -367,19 +367,28 @@ export function AiAnalysis({
       )}
 
       {configured && !hasAnalysis && status === 'idle' && (
-        <p className="py-2 text-sm text-fg-muted">
-          {running ? (
-            <>
-              结合你的<span className="font-medium text-fg-secondary">个人基础（跑量 / 个人纪录 / 跑力趋势 / 疲劳状态）</span>
-              与本次活动的配速、心率、步频、分段表现，并横向对比<span className="font-medium text-fg-secondary">同路线 / 同距离 / 同类训练</span>的可比样本，点击「生成分析」获取量身定制的专业解读与训练建议。生成后可继续追问。
-            </>
-          ) : (
-            <>
-              结合你的<span className="font-medium text-fg-secondary">个人基础（周训练量 / 疲劳状态 / 训练结构）</span>
-              与本次活动的时长、心率区间、强度分段与动作表现，并横向对比<span className="font-medium text-fg-secondary">同类训练</span>的可比样本，点击「生成分析」获取针对这项运动的专业解读与训练建议。生成后可继续追问。
-            </>
-          )}
-        </p>
+        <div className="space-y-1.5 py-2 text-sm text-fg-muted">
+          <p>
+            <span className="mr-1.5 rounded bg-surface-2 px-1.5 py-0.5 text-[11px] font-medium text-fg-secondary">
+              单次活动
+            </span>
+            {running ? (
+              <>
+                结合你的<span className="font-medium text-fg-secondary">个人基础（跑量 / 个人纪录 / 跑力趋势 / 疲劳状态）</span>
+                与本次活动的配速、心率、步频、分段表现，并横向对比<span className="font-medium text-fg-secondary">同路线 / 同距离 / 同类训练</span>的可比样本，点击「生成分析」获取本次训练的解读与「下一次怎么练」。生成后可继续追问。
+              </>
+            ) : (
+              <>
+                结合你的<span className="font-medium text-fg-secondary">个人基础（周训练量 / 疲劳状态 / 训练结构）</span>
+                与本次活动的时长、心率区间、强度分段与动作表现，并横向对比<span className="font-medium text-fg-secondary">同类训练</span>的可比样本，点击「生成分析」获取本次训练的专业解读与安排。生成后可继续追问。
+              </>
+            )}
+          </p>
+          <p className="text-xs">
+            本界面只回答**这一次训练**。跑量趋势、强度结构、周期化与多月规划请用汇总页的
+            「AI 统计教练」——那是另一套能力（数据与提示词都不同），互不替代。
+          </p>
+        </div>
       )}
 
       {/* 对话区 */}

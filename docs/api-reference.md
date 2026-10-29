@@ -812,12 +812,29 @@ GET /api/insight?startDate=2026-06-01&endDate=2026-09-22
 POST /api/insight/coach
 Content-Type: application/json
 
-{ "model": "deepseek-v4.1-flash-wb", "days": 30 }
+{ "model": "deepseek-v4.1-flash-wb", "days": 30, "surface": "insight" }
+{ "model": "deepseek-v4.1-flash-wb", "startDate": "2026-10-01", "endDate": "2026-10-29", "surface": "stats" }
 { "model": "deepseek-v4.1-flash-wb", "days": 0, "question": "我的短板是什么？", "history": [] }
 ```
 
-`days` 支持 7 / 30 / 90 / 180 / 365 / 0（`0` 或 `all` = 全部历史），非法值回落 30；
-页面入口：`/insight?days=`、`/analysis?days=`、`/stats?period=`（周→7 / 月→30 / 年→365 / 总→0）。
+**这是「统计类」接口**，与 `POST /api/activities/:id/analysis`（单次活动）是两种能力，
+提示词与数据都不同，互不替代。
+
+| 字段 | 说明 |
+|------|------|
+| `days` | 7 / 30 / 90 / 180 / 365 / 0（`0` 或 `all` = 全部历史），非法值回落 30 |
+| `startDate` / `endDate` | **显式区间，页面必须传**：教练分析的时间窗必须等于页面显示的时间窗（统计页是自然周/月/年，与滚动 `days` 不是同一个窗口） |
+| `surface` | `dashboard` / `insight` / `analysis` / `stats` —— 决定用哪套统计类提示词（职责、输出格式、篇幅都不同）。非法值回落 `insight`（白名单，防止任意字符串注入提示词） |
+
+| 界面 | `surface` | 提示词侧重 | 篇幅 |
+|------|-----------|-----------|------|
+| 首页 | `dashboard` | 当前状态快照 + 本周怎么练 | ≤700 字 |
+| 洞察页 | `insight` | 区间综合诊断 + 周期化 + 2-4 周 + 3 个月（唯一允许做多月规划的界面） | ≤1800 字 |
+| 分析页 | `analysis` | 强度结构 / CTL-ATL-TSB / ACWR / 区间配比 | ≤1200 字 |
+| 统计页 | `stats` | 自然周期总量与纪录 + 数据口径陷阱 | ≤900 字 |
+
+单次活动接口（`/api/activities/:id/analysis`）的提示词按运动类型分两套
+（跑步 / 非跑步），并显式声明「不做跨多次活动的统计与周期化」，越界问题指向汇总页教练。
 对于非「全部历史」区间，服务端会额外计算**上一等长区间**的跑量/跑步次数/时长/配速/跑力/负荷，
 作为【区间环比】注入教练上下文（全部为**跑步口径**，非跑步活动不计入）；无上一区间活动或
 `days=0` 时自动省略。

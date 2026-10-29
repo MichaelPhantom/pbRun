@@ -44,9 +44,16 @@ interface StatsClientProps {
   pr: PersonalRecordsResponse;
   period: StatsPeriod;
   currentVdot: number | null;
+  /**
+   * 统计页自然周期的**显式区间**（`date-utils.statsPeriodRange`）。
+   *
+   * 必须与上面的 `getStats(period)` 用同一个边界：统计类 AI 教练要分析的就是
+   * 页面上这批数字，不能是「滚动 30 天」。
+   */
+  coachRange: { startDate: string; endDate: string };
 }
 
-export default function StatsClient({ data, pr, period, currentVdot }: StatsClientProps) {
+export default function StatsClient({ data, pr, period, currentVdot, coachRange }: StatsClientProps) {
   const dateRangeStr = formatPeriodDateRange(pr.startDate, pr.endDate, pr.period);
   const periodItems = (['week', 'month', 'year', 'total'] as const).map((p) => ({
     label: PERIOD_LABELS[p],
@@ -98,7 +105,12 @@ export default function StatsClient({ data, pr, period, currentVdot }: StatsClie
       </SectionCard>
 
       {/* AI 综合教练: 与当前统计周期同一时间窗（周/月/年/全部） */}
-      <GlobalCoach days={COACH_DAYS[period]} />
+      <GlobalCoach
+        days={COACH_DAYS[period]}
+        surface="stats"
+        startDate={coachRange.startDate}
+        endDate={coachRange.endDate}
+      />
     </div>
   );
 }

@@ -248,7 +248,12 @@ export default function InsightClient({
       </SectionCard>
 
       {/* AI 综合教练 */}
-      <GlobalCoach days={timeRangeDays} />
+      <GlobalCoach
+        days={timeRangeDays}
+        surface="insight"
+        startDate={insight.range.startDate}
+        endDate={insight.range.endDate}
+      />
 
       {/* VDOT 趋势 */}
       <SectionCard

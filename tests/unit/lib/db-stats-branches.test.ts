@@ -146,7 +146,7 @@ describe('getStats / getPeriodStats 假值与缺行分支', () => {
     expect(res.totalTrainingLoad).toBe(0);
   });
 
-  test('getStats: 未知 period 字符串 → default 分支 (以当日为起点)', () => {
+  test('getStats: 未知 period 字符串 → 退化为「只有今天」(不误当成全年)', () => {
     mockGet.mockReturnValue({ totalActivities: 1 });
     // 绕过类型系统模拟脏数据 (生产里 period 来自查询参数)
     getStats('last-90-days' as unknown as 'week');
@@ -155,7 +155,10 @@ describe('getStats / getPeriodStats 假值与缺行分支', () => {
     const [startIso] = mockGet.mock.calls.at(-1) as [string];
     const start = new Date(startIso);
     const now = new Date();
-    expect(Math.abs(start.getTime() - now.getTime())).toBeLessThan(60_000); // 近似 now
+    // 边界 = **本地今天 0 点**（不是「此刻」）：旧实现在这里用 `new Date()`，
+    // 会把今天早些时候的跑步排除在「今天」之外 —— 一个只在边界上显形的漏统计。
+    expect(start.getTime()).toBeLessThanOrEqual(now.getTime());
+    expect(now.getTime() - start.getTime()).toBeLessThan(24 * 3600 * 1000);
   });
 
   test('getPeriodStats: 查询无行 (undefined) → 全部兜底为 0 / undefined', () => {

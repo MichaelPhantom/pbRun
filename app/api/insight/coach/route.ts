@@ -19,6 +19,7 @@ import {
 import { formatPeriodComparison } from '@/app/lib/period-comparison';
 import { parseDateParam } from '@/app/lib/query-params';
 import { getActivities, getPeriodStats } from '@/app/lib/db';
+import { isStatisticsSurface, type StatisticsSurface } from '@/app/lib/coach-prompts';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,7 +31,9 @@ export const dynamic = 'force-dynamic';
  *  - question: 追问内容 (有则为多轮)
  *  - history: 历史对话 [{role,content}]
  *  - days: 30|90|180 (默认 90)
- *  - startDate/endDate: 显式区间
+ *  - startDate/endDate: 显式区间（页面必须传，保证「教练分析的时间窗 = 页面显示的时间窗」）
+ *  - surface: dashboard|insight|analysis|stats（决定用哪套**统计类**提示词，
+ *    缺省 insight）。非白名单值一律回落 insight，避免任意字符串注入提示词。
  *
  * 返回 SSE 流 (与单活动分析一致); 调用策略见 app/lib/coach-stream.ts。
  */
@@ -49,6 +52,7 @@ export async function POST(request: NextRequest) {
   let days = 90;
   let startDate: string | undefined;
   let endDate: string | undefined;
+  let surface: StatisticsSurface = 'insight';
 
   try {
     const body = await request.json();
@@ -60,6 +64,7 @@ export async function POST(request: NextRequest) {
     const ed = parseDateParam(body?.endDate ?? null, 'endDate');
     if (sd.ok && sd.value) startDate = sd.value;
     if (ed.ok && ed.value) endDate = ed.value;
+    if (isStatisticsSurface(body?.surface)) surface = body.surface;
   } catch {
     // 无 body 或非 JSON, 用默认
   }
@@ -112,6 +117,7 @@ export async function POST(request: NextRequest) {
           ? `全部历史（截至 ${endDate}）`
           : `${startDate} ~ ${endDate}`,
       comparisonBlock,
+      surface,
     };
   } catch (error) {
     console.error('Error building global coach context:', error);

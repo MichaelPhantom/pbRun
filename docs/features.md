@@ -1119,19 +1119,55 @@ GPS 漂移、起终点的静止采样都被判为「有效移动」，混进前�
 
 ### 2.2 汇总页：区间与趋势优先
 
-`GlobalCoach` 的 `days` 由页面决定，服务端用**同一区间**重新计算洞察指标：
+#### 提示词按「能力维度 × 界面」分档（2026-10-29）
 
-| 页面 | 页面参数 | `days` | 口径 |
-|------|---------|--------|------|
-| `/` | 无 | `0` | 全部历史 + 近期趋势 |
-| `/insight` | `?days=7/30/90/180/0` | 原样 | 近一周 / 近一月 / 近三月 / 近半年 / 全部 |
-| `/analysis` | `?days=7/30/90/180/0` | 原样 | 同上 |
-| `/stats` | `?period=week/month/year/total` | `7/30/365/0` | 周 / 月 / 年 / 全部 |
+AI 教练有两种**能力维度**，它们的数据单位与结论都不同，**绝不能共用一套提示词**：
 
-> 口径提示：`/stats` 的统计表是**自然周/自然月/自然年**，其 AI 教练使用**滚动 7/30/365 天**窗口
-> （与「近一周/近一月/近一年」文案一致）；如需严格自然周期，可改用显式 `startDate/endDate`
-> 调用 `/api/insight/coach`。这是为避免前端重复计算日历边界而保留的已知差异。
+| 能力 | 数据 | 能回答 | 不能回答 |
+|------|------|--------|---------|
+| **单次活动**（活动详情页） | 一次活动的分段/配速/心率/步频/功率 + 可比样本 | 执行质量、当次强度与代价、横向定位、**下一次**怎么练 | 跨多次活动的统计与周期化（月跑量、趋势排名、阶段划分、赛季规划） |
+| **统计类**（首页/洞察/分析/统计） | 一段时间的聚合指标 | 趋势、训练结构、负荷管理（CTL/ATL/TSB、ACWR）、周期化、类别/气温/路线对比 | 某一次训练的分段执行、步频步幅细节、触地时间等技术动作 |
+
+**修复前**：同一套 `GLOBAL_COACH_PROMPT` 被四个页面共用，而它要求「训练结构评估 +
+未来 2-4 周处方 + 3 个月目标」；单次活动分析的两套 prompt 也各自带「3 个月发展目标 /
+长期视角」。于是模型被**逼着在缺依据时编造**：一次跑的明细里没有跨月结构却要它给
+三个月目标；一个月的总量里没有分段却要它诊断「本次配速策略」。用户在两个界面拿到
+同类内容，也分不清该问谁。
+
+**修复后**（`app/lib/coach-prompts.ts` 是唯一来源）：
+
+| 能力 | 界面 | 提示词 | 职责 | 篇幅 |
+|------|------|--------|------|------|
+| 单次活动 | 活动详情 | `SINGLE_RUNNING_PROMPT` | 执行质量 / 当次代价 / 横向定位 / 下一次怎么练 | ≤1200 字 |
+| 单次活动 | 活动详情（非跑步） | `SINGLE_NON_RUNNING_PROMPT` | 专项指标 / 交叉负荷 / 对跑步的影响 | ≤800 字 |
+| 统计类 | 首页 | `statisticsSystemPrompt('dashboard')` | 当前状态快照 + **本周**怎么练 | ≤700 字 |
+| 统计类 | 洞察页 | `statisticsSystemPrompt('insight')` | 区间综合诊断 + 周期化 + 2-4 周 + 3 个月 | ≤1800 字 |
+| 统计类 | 分析页 | `statisticsSystemPrompt('analysis')` | 强度结构 / CTL-ATL-TSB / ACWR / 区间配比 | ≤1200 字 |
+| 统计类 | 统计页 | `statisticsSystemPrompt('stats')` | 自然周期总量与纪录 + **数据口径陷阱** | ≤900 字 |
+
+关键机制是 **`CAPABILITY_BOUNDARY`**：两个维度各自声明「我不回答什么、该找谁」。
+单次活动被问到周期化时指向「汇总页/洞察页教练」；统计类被问到某次训练时指向
+「活动详情页的 AI 分析」。**只有洞察页**允许做多月规划与赛季目标（它确实有区间数据）。
+
+#### 教练分析的时间窗 = 页面显示的时间窗
+
+`GlobalCoach` 由页面决定分析区间。2026-10-29 之前页面只传 `days`，于是
+**统计页按自然月显示、教练却按滚动 30 天分析** —— 同一个「本月」有两个数字。
+
+现在页面传**显式区间**，且区间来源单点化：
+
+| 页面 | 页面参数 | 传给教练的区间 | 口径 |
+|------|---------|---------------|------|
+| `/` | 无 | `${monthStr}-01` ~ 今天 | 本月（页面写「本月概览」） |
+| `/insight` | `?days=7/30/90/180/0` | `insight.range`（服务端算出的实际区间） | 近一周 / 近一月 / 近三月 / 近半年 / 全部 |
+| `/analysis` | `?days=…` | 页面 `startDate`/`endDate` | 同上 |
+| `/stats` | `?period=week/month/year/total` | `date-utils.statsPeriodRange(period)` | **自然周/月/年**（与统计表的 SQL 过滤同一个函数） |
+
+`statsPeriodRange` 同时供 `getStats(period)` 的 SQL 过滤、页面文案与教练区间 ——
+三者不可能再漂移。原来文档里那条「已知差异」不复存在。
+
 | 直接调用 API | body `days` | `7/30/90/180/365/0` 或 `all` | 非法值回落 30 |
+| 直接调用 API | body `surface` | `dashboard/insight/analysis/stats` | 非法值回落 `insight`（白名单，防止任意字符串注入提示词） |
 
 上下文 =【跑者画像】+【全局洞察指标】（VDOT 趋势 / ACWR / 强度分布 / 周期化 / 有氧解耦 /
 类别·气温·路线对比 / 配速-心率模型 / findings）+【区间环比】，并由 `formatInsightForCoach`
@@ -1142,6 +1178,8 @@ GPS 漂移、起终点的静止采样都被判为「有效移动」，混进前�
 `runningTypeClause`），故次数行写「跑步次数」而非「次数」—— 否则模型会以为含游泳/球类。
 无上一区间活动时整段省略（不做虚假基线）；`days=0`（全部历史）无「上一区间」，自动跳过。
 追问复用同一上下文（`buildGlobalCoachFollowupMessages`），前端回传 history。
+界面（`surface`）只影响 **system 提示词与任务句**，上下文块（画像/洞察/环比）四个界面共用 ——
+分档的是**能力与交付物**，不是数据源。
 
 ---
 
@@ -1156,7 +1194,9 @@ GPS 漂移、起终点的静止采样都被判为「有效移动」，混进前�
 | 汇总 AI 路由（区间/追问/回退） | `api/insight/coach` | `tests/unit/api/insight-coach-route.test.ts` |
 | 区间参数（7/30/90/180/365/0/all） | `date-utils.ts` | `tests/unit/lib/date-utils.test.ts` |
 | 区间环比（当前 vs 上一等长区间） | `period-comparison.ts` | `tests/unit/lib/period-comparison.test.ts` |
-| 汇总 AI 页面映射 | `InsightClient` / `AnalysisClient` / `StatsClient` | `tests/unit/components|pages` |
+| 汇总 AI 页面映射 | `InsightClient` / `AnalysisClient` / `StatsClient` / `app/page.tsx` | `tests/unit/components|pages` |
+| **提示词按能力维度分档** | `coach-prompts.ts`（`CAPABILITY_BOUNDARY` + 2 套单次 + 4 套统计） | `tests/unit/lib/coach-prompts.test.ts`（17 例：边界互相指向、单次无 📅 长期板块、四界面两两不等且各自独有标记、只有洞察页可做多月规划、surface 白名单） |
+| **教练分析区间 ≡ 页面显示区间** | 页面传显式 `startDate/endDate`；`date-utils.statsPeriodRange` 同时供 `getStats` SQL、页面文案与教练 | `tests/unit/api/insight-coach-route.test.ts`（真实读发给模型的 system 与 user 消息）、`tests/unit/components/global-coach.test.tsx`（显式区间优先于 days） |
 | CI 门槛与文档漂移 | `.github/workflows/test.yml` | `tests/unit/ci/*` / `tests/unit/docs/*` |
 | **统计口径：表现分析只取跑步** | `db.runningTypeClause` / `db.isRunningType`（19 处查询） | `tests/unit/lib/db-insight-integration.test.ts`（真实 SQL：趋势/区间/纪录/负荷全部排除非跑步） |
 | **统计口径：活动日志保留全类型** | `getActivities` / `getMonthSummaries` | `tests/unit/lib/db-insight-integration.test.ts`（月度汇总 count 与列表 total 严格相等） |

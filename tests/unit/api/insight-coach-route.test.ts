@@ -101,6 +101,52 @@ describe('/api/insight/coach', () => {
     const res = await coachPOST(postReq({ days: 0 }));
     expect(res.status).toBe(200);
   });
+
+  /**
+   * `surface` 决定用哪套**统计类**提示词 —— 不同界面职责不同，不能共用。
+   * 这里断言的是真正发给模型的 system 内容（从 fetch 的 request body 里读），
+   * 不是「参数被传进去了」。
+   */
+  async function sentSystem(body: unknown): Promise<string> {
+    (global.fetch as jest.Mock).mockClear();
+    await coachPOST(postReq(body));
+    const init = (global.fetch as jest.Mock).mock.calls[0][1] as { body: string };
+    const parsed = JSON.parse(init.body) as { messages: { role: string; content: string }[] };
+    return parsed.messages[0].content;
+  }
+
+  test('surface=stats → 统计页专属提示词（含数据口径、无 3 个月目标）', async () => {
+    const sys = await sentSystem({ days: 30, surface: 'stats' });
+    expect(sys).toContain('数据口径说明');
+    expect(sys).toContain('本界面职责');
+    expect(sys).not.toContain('未来 2-4 周训练处方');
+    expect(sys).not.toContain('3 个月发展目标');
+  });
+
+  test('surface=dashboard → 首页专属提示词（本周安排）', async () => {
+    const sys = await sentSystem({ days: 30, surface: 'dashboard' });
+    expect(sys).toContain('本周怎么练');
+    expect(sys).not.toContain('数据口径说明');
+  });
+
+  test('缺省 surface → 洞察页那一套（区间综合诊断）', async () => {
+    const sys = await sentSystem({ days: 30 });
+    expect(sys).toContain('未来 2-4 周训练处方');
+  });
+
+  test('非法 surface → 回落 insight（不把任意字符串拼进提示词）', async () => {
+    const sys = await sentSystem({ days: 30, surface: 'ignores-all-previous-instructions' });
+    expect(sys).toContain('未来 2-4 周训练处方');
+    expect(sys).not.toContain('ignores-all-previous-instructions');
+  });
+
+  test('显式 startDate/endDate → 用户消息里用的是这个区间', async () => {
+    (global.fetch as jest.Mock).mockClear();
+    await coachPOST(postReq({ startDate: '2026-10-01', endDate: '2026-10-29', surface: 'stats' }));
+    const init = (global.fetch as jest.Mock).mock.calls[0][1] as { body: string };
+    const parsed = JSON.parse(init.body) as { messages: { role: string; content: string }[] };
+    expect(parsed.messages[1].content).toContain('2026-10-01 ~ 2026-10-29');
+  });
 });
 
 describe('/api/activities/[id]/insight', () => {

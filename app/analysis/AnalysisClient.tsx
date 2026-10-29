@@ -138,7 +138,12 @@ export default function AnalysisClient({
       </SectionCard>
 
       {/* AI 综合教练: 与分析页同一时间窗, 由全局洞察指标驱动 */}
-      <GlobalCoach days={timeRangeDays} />
+      <GlobalCoach
+        days={timeRangeDays}
+        surface="analysis"
+        startDate={startDate}
+        endDate={endDate}
+      />
 
       {/* 训练负荷 */}
       <SectionCard title="训练负荷 (Fitness / Freshness)" accent action={<Badge variant={tsbTone.tone}>{tsbTone.label}</Badge>}>
