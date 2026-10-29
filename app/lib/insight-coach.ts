@@ -24,9 +24,13 @@ export function formatInsightForCoach(insight: InsightResponse): string {
   const L: string[] = ['【全局训练指标】'];
   const { vdot, load, decoupling, form, paceHr, categories, weather, routes, periodization } = insight;
 
-  L.push(
-    `数据区间: ${insight.range.startDate} ~ ${insight.range.endDate}（${insight.activityCount} 次跑步）`,
-  );
+  // `days=0`（全部历史）的起点是合成值 `2000-01-01`。直接打印会让模型以为这是
+  // 26 年的训练史（进而说「你训练了二十多年」）。改写成语义正确的标签。
+  const rangeLabel =
+    insight.range.startDate === '2000-01-01'
+      ? `全部历史（至 ${insight.range.endDate}）`
+      : `${insight.range.startDate} ~ ${insight.range.endDate}`;
+  L.push(`数据区间: ${rangeLabel}（${insight.activityCount} 次跑步）`);
 
   // VDOT
   const vdotPts = vdot.perMonth.map((p) => `${p.period} ${p.avg.toFixed(1)}`).join(' / ');
@@ -50,9 +54,12 @@ export function formatInsightForCoach(insight: InsightResponse): string {
     // 夹紧前有 1401 周，这一行会到 38 KB（纯零）；夹紧后仍有 52 周。数据攒到几年后
     // 还会更长。故只逐周列出最近 26 周（半年），更早的折成一行汇总 —— 模型要的
     // 是「近期节奏」与「更早的总量/零周数」，不是 200 行 0.0km。
+    // 26 周以内全列（近期节奏要完整）；超过 30 周才折，避免「27 周 → 26+1」这种
+    // 只折一周的噪音。
     const RECENT_WEEKS = 26;
-    const tail = load.weekly.slice(-RECENT_WEEKS);
-    const head = load.weekly.slice(0, Math.max(0, load.weekly.length - RECENT_WEEKS));
+    const compress = load.weekly.length > 30;
+    const tail = compress ? load.weekly.slice(-RECENT_WEEKS) : load.weekly;
+    const head = compress ? load.weekly.slice(0, load.weekly.length - RECENT_WEEKS) : [];
     const fmtWeek = (w: (typeof load.weekly)[number]) =>
       `${w.week} ${n(w.km, 1)}km/${formatDuration(w.seconds)}/${w.n}次/${n(w.tl, 0)}TL${w.partial ? '(截断)' : ''}`;
     L.push(`${head.length > 0 ? `周训练量（近 ${tail.length} 周）` : '周训练量'}: ${tail.map(fmtWeek).join(' ')}`);

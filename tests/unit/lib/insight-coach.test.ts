@@ -175,6 +175,27 @@ describe('formatInsightForCoach', () => {
     expect(line!.length).toBeLessThan(1500);
   });
 
+  test('26–30 周全列（不做「26+1」这种只折一周的噪音）', () => {
+    const weekly = Array.from({ length: 28 }, (_, i) => ({
+      week: `2026-W${String(i + 1).padStart(2, '0')}`,
+      km: 10, tl: 100, n: 1, seconds: 3600, partial: false,
+    }));
+    const text = formatInsightForCoach(makeInsight({ load: { ...makeInsight().load, weekly } }));
+    expect(text).toContain('周训练量:');
+    expect(text).not.toContain('更早');
+  });
+
+  /**
+   * `days=0` 的起点是合成值 `2000-01-01`，直接打印会让模型以为这是 26 年训练史。
+   */
+  test('全部历史的区间标签不得打印 2000-01-01', () => {
+    const text = formatInsightForCoach(
+      makeInsight({ range: { startDate: '2000-01-01', endDate: '2026-10-30' } }),
+    );
+    expect(text).toContain('数据区间: 全部历史（至 2026-10-30）');
+    expect(text).not.toContain('2000-01-01');
+  });
+
   test('weekly 为空时不输出周训练量块 (不编造空行)', () => {
     const text = formatInsightForCoach(makeInsight());
     expect(text).not.toContain('周训练量');
