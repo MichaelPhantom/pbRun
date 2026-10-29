@@ -87,16 +87,18 @@
   运维侧需续凭证（`push_cred`，约 5h TTL），见网关日志 `RuntimeError`。
 - **现象 C（输出中途截断，`finish_reason=length`）**: 思考模型的 reasoning
   占用 `max_tokens` 同预算。本路由已将预算提到 4000（上游 shim 上限 8000）；
-  治本方法是选非思考模型（2026-09-26 起白名单默认即 `deepseek-v4.1-flash-wb`，
-  实测无思考、`finish=stop`），或在下拉里选 Gemini（两者均非思考）。
+  治本方法是在下拉里选**非思考**或**下发 effort 后思考很少**的模型
+  （2026-10-29 起默认 `deepseek-flash-qd`：下发 effort 后思考 517 字符、首字节 2.4s；
+  `minimax-m3.1-flash-qd` 等非思考项也可）。
 - **单位约定**（防复发）: `activities.distance` 为公里、`activity_laps.distance`
   为米；聚合函数在 `db.ts` 内统一转米后再返回。`Activity.distance` 的类型注释已更正。
 - **思考模型怎么用（2026-09-13 落地, 2026-09-26 收敛为白名单）**: 能用，但
-  `reasoning_effort: low` 必须**按模型精确下发**——它对 `glm-5.3-flash` 是必需
-  （实测思考 889 字符 → 0），对非思考模型反而是毒药（`deepseek-v4.1-flash-wb`
-  下发后会诱发 230 字符思考、`glm-5.1-wb` 实测 reasoning 0→1476）。因此判定
-  顺序是：先查 `app/lib/model-curation.ts` 白名单 preset（`thinking`/`effort`
-  为 2026-09-26 对本机网关 A/B 实测结论），未命中才回落 `isThinkingModel`
+  `reasoning_effort: low` 必须**按模型精确下发**，而且**同一底模的不同渠道行为
+  也不一致**：`glm-5.3-flash-qd` 下发后思考 3897→1917 字符（必需、29s→11s），
+  `glm-5.3-flash-trae` 反而 1555→**3761** 字符（毒药），`qwen3.8-flash-qd`
+  169→347（毒药），`deepseek-flash-qd` 1061→517（有利）。因此判定顺序是：
+  先查 `app/lib/model-curation.ts` 白名单 preset（`thinking`/`effort` 为
+  2026-10-29 对本机网关的逐模型 A/B 实测结论），未命中才回落 `isThinkingModel`
   启发式；`auto` 永不下发（路由目标不确定）。单测
   `tests/unit/lib/thinking.test.ts` 锁定映射。
 - **分析质量优化（2026-09-13）**: 分段标签改累计距离区间（laps 含 709m 等
@@ -200,11 +202,18 @@ systemd-run --user --scope -- bash scripts/deploy-prod.sh   # 挪到无上限的
 - **为什么改**: `model-curation.ts` 原来每轮从网关 298 项里自动策展（每系列最新
   2 版 → 26 项），列表随网关改名漂移，且混入夹具/专用模型；实测默认 `auto`
   与若干思考模型存在失败率高、输出截断、长提示不吐首字节等问题。
-- **现在是什么**: 人工挑选的**固定白名单**（`MODEL_PRESETS`，顺序即下拉顺序）：
-  - 默认 `deepseek-v4.1-flash-wb`（非思考、`finish=stop`，实测约 1800 token）
-  - 可选 `glm-5.3-flash`（思考，但下发 `reasoning_effort: low` 后思考归零）、
-    `kimi-k3`、`gemini-3.7-flash`、`gemini-3.5-flash-lite`
+- **现在是什么（2026-10-29 调整）**: **与本机 opencode 的 `providers.freellm.models`
+  逐项一致**的固定白名单（15 项，`MODEL_PRESETS`，顺序即下拉顺序）：
+  - 默认 `deepseek-flash-qd`（实测 2.4s 首字节、1M 上下文、下发 effort 后思考 517 字符）
+  - 其余 14 项：`deepseek-v4.1-flash-trae` / `deepseek-v4.1-flash-wb` /
+    `deepseek/deepseek-v4-flash-juzi` / `glm-5.3-flash-qd` / `glm-5.3-flash-trae` /
+    `glm-5.3-flash-wb` / `hy3-wb` / `mimo-v2.6-flash-trae` /
+    `minimax-m3.1-flash-qd` / `minimax-m3.1-flash-trae` / `qwen3.8-flash-qd` /
+    `space-bunny-wb` / `step-5-preview-wb` / `z.ai/glm-5.2-juzi`
   - `auto` 不进下拉，只作为**服务端回退目标**与旧客户端兼容值。
+  - 旧默认 `deepseek-v4.1-flash-wb` **已失效**（网关返回 `503 No candidate model
+    has a configured, usable provider key`），故默认改为 `deepseek-flash-qd`；
+    `tests/unit/lib/model-curation.test.ts` 有回归守卫禁止把默认改回它。
 - **服务端清洗**: `resolveRequestedModel` 只放行白名单候选 id 与 `auto`，其余
   （旧版本残留选择、拼写错误、越权传参）在打网关之前就清洗为默认模型，
   避免 400 `model_not_found`。见 `tests/unit/api/analysis-fallback.test.ts`。

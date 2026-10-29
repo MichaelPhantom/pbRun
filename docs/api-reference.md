@@ -551,6 +551,9 @@ GET /api/analysis/hr-zones?startDate=2026-09-01&endDate=2026-10-31&groupBy=month
 > 只适合做「样本量」参考，不能当成独立活动总数。
 > `avg_pace` **恒等于同一行的 `total_duration / (total_distance/1000)`** —— 三个数字并排展示，用户可直接相除验算（真实库旧的逐 lap 加权均值在 Z1 行给 406.0，而该行自身总量是 388.1，差 18 s/km）。
 > `avg_cadence` / `avg_stride_length` / `avg_heart_rate` 按 lap **计时器时长**加权。
+> 三张区间表的分母各不相同：心率 = 最大心率、配速 = 当前 VDOT、功率 = **各活动自身 FTP**；
+> AI 教练在 `surface=analysis` 时会额外收到【区间结构】块（配速/功率区间的时长分布与明细），
+> 其余界面不注入。
 
 **心率区间定义**（`app/lib/hr-zones.ts`，基于最大心率百分比，`MAX_HR` 环境变量或默认 190）
 
@@ -812,9 +815,9 @@ GET /api/insight?startDate=2026-06-01&endDate=2026-09-22
 POST /api/insight/coach
 Content-Type: application/json
 
-{ "model": "deepseek-v4.1-flash-wb", "days": 30, "surface": "insight" }
-{ "model": "deepseek-v4.1-flash-wb", "startDate": "2026-10-01", "endDate": "2026-10-29", "surface": "stats" }
-{ "model": "deepseek-v4.1-flash-wb", "days": 0, "question": "我的短板是什么？", "history": [] }
+{ "model": "deepseek-flash-qd", "days": 30, "surface": "insight" }
+{ "model": "deepseek-flash-qd", "startDate": "2026-10-01", "endDate": "2026-10-29", "surface": "stats" }
+{ "model": "deepseek-flash-qd", "days": 0, "question": "我的短板是什么？", "history": [] }
 ```
 
 **这是「统计类」接口**，与 `POST /api/activities/:id/analysis`（单次活动）是两种能力，
@@ -839,10 +842,13 @@ Content-Type: application/json
 作为【区间环比】注入教练上下文（全部为**跑步口径**，非跑步活动不计入）；无上一区间活动或
 `days=0` 时自动省略。
 
-`model` 只接受白名单值（`app/lib/model-curation.ts`）：默认
-`deepseek-v4.1-flash-wb`，可选 `glm-5.3-flash` / `kimi-k3` /
-`gemini-3.7-flash` / `gemini-3.5-flash-lite`，以及回退目标 `auto`；
-其余值在服务端清洗为默认模型。
+`model` 只接受白名单值（`app/lib/model-curation.ts`，共 15 项，与本机 opencode 的
+freellm provider 一致 —— 详见[可用模型列表](#17-可用模型列表)）：默认 `deepseek-flash-qd`，
+回退目标 `auto`；其余值在服务端清洗为默认模型。
+
+> 默认模型是**实测可用**的那一个：2026-10-29 发现旧的 `deepseek-v4.1-flash-wb` 已返回
+> `503 No candidate model has a configured, usable provider key`，每次分析都要先失败一次再回退
+> `auto`（多一次往返 + UI 显示「已自动切换」）。
 
 **响应头**
 
@@ -925,13 +931,13 @@ GET /api/activities/{id}/insight
 POST /api/activities/{id}/analysis
 Content-Type: application/json
 
-{ "model": "deepseek-v4.1-flash-wb" }
-{ "model": "kimi-k3", "question": "我的短板是什么？", "history": [] }
+{ "model": "deepseek-flash-qd" }
+{ "model": "glm-5.3-flash-qd", "question": "我的短板是什么？", "history": [] }
 ```
 
 | 字段 | 说明 |
 |------|------|
-| `model` | [可用模型列表](#17-可用模型列表) 里的白名单值；省略或非法值清洗为默认 `deepseek-v4.1-flash-wb`，避免 400 `model_not_found` |
+| `model` | [可用模型列表](#17-可用模型列表) 里的白名单值；省略或非法值清洗为默认 `deepseek-flash-qd`，避免 400 `model_not_found` |
 | `question` / `history` | 追问时必填（首轮不传） |
 
 **行为**
@@ -981,8 +987,8 @@ GET /api/llm/models
 ```json
 {
   "models": [
-    { "id": "deepseek-v4.1-flash-wb", "name": "DeepSeek V4.1 Flash", "series": "DeepSeek",
-      "available": true, "thinking": false, "recommended": true }
+    { "id": "deepseek-flash-qd", "name": "DeepSeek Flash (QD)", "series": "DeepSeek",
+      "available": true, "thinking": true, "recommended": true }
   ],
   "configured": true
 }
@@ -991,9 +997,28 @@ GET /api/llm/models
 - 每项字段：`id` / `name` / `series` / `available` / `thinking` / `recommended`
  （默认项为 `true` —— 即 preset 内部的 `isDefault`，**对外字段名是 `recommended`**，
  见 `fetchModels`）。
-- `models` 是**固定白名单**（默认 1 + 可选 4，顺序即下拉顺序；`auto` 不出现，仅作服务端回退目标与
-  旧客户端兼容），由 `app/lib/model-curation.ts` 与网关 `/models` 对齐后返回；网关不可达时乐观
-  视为可用（`available: true`）。
+- `models` 是**固定白名单**，**与本机 opencode 的 `providers.freellm.models` 逐项一致**
+ （同集合、同顺序，即下拉顺序；`auto` 不出现，仅作服务端回退目标与旧客户端兼容）。
+  单一来源：`app/lib/model-curation.ts`。网关不可达时乐观看作可用（`available: true`）；
+  网关 `/models` 未列出的条目返回 `available: false`（前端置灰并说明「当前网关不可用」）。
+
+| 模型 id | 显示名 | 分组 | 思考 | 下发 `reasoning_effort: low` |
+|---|---|---|---|---|
+| `deepseek-flash-qd` | DeepSeek Flash (QD) | DeepSeek | 🧠 | 是 |
+| `deepseek-v4.1-flash-trae` | DeepSeek V4.1 Flash (Trae) | DeepSeek | 🧠 | 是 |
+| `deepseek-v4.1-flash-wb` | DeepSeek V4.1 Flash (WB) | DeepSeek | — | 否 |
+| `deepseek/deepseek-v4-flash-juzi` | DeepSeek V4 Flash (Juzi) | DeepSeek | — | 否 |
+| `glm-5.3-flash-qd` | GLM 5.3 Flash (QD) | GLM | 🧠 | 是 |
+| `glm-5.3-flash-trae` | GLM 5.3 Flash (Trae) | GLM | 🧠 | 否 |
+| `glm-5.3-flash-wb` | GLM 5.3 Flash (WB) | GLM | 🧠 | 否 |
+| `hy3-wb` | Hunyuan 3 (WB) | Hunyuan | 🧠 | 否 |
+| `mimo-v2.6-flash-trae` | MiMo V2.6 Flash (Trae) | MiMo | 🧠 | 是 |
+| `minimax-m3.1-flash-qd` | MiniMax M3.1 (QD) | MiniMax | — | 否 |
+| `minimax-m3.1-flash-trae` | MiniMax M3.1 (Trae) | MiniMax | 🧠 | 否 |
+| `qwen3.8-flash-qd` | Qwen3.8 Flash (QD) | Qwen | 🧠 | 否 |
+| `space-bunny-wb` | Space Bunny (WB) | Space Bunny | — | 否 |
+| `step-5-preview-wb` | Step 5 Preview (WB) | Step | — | 否 |
+| `z.ai/glm-5.2-juzi` | GLM 5.2 (Juzi) | GLM | 🧠 | 否 |
 - `configured`：`FREELLMAPI_KEY` / Base URL 是否就绪；未就绪时 `models` 可能为空，客户端仍可用默认模型。
 - `Cache-Control: no-store`；异常返回 `500 { "error": ... }`。
 

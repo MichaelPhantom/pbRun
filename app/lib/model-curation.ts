@@ -1,23 +1,42 @@
 /**
- * 模型清单 (单一来源) —— 人工挑选的固定白名单, 不再从网关 298 项里自动策展。
+ * 模型清单 (单一来源) —— **与本机 opencode 的 freellm provider 完全对齐**。
  *
- * 背景: freellmapi /models 返回大量噪声条目 (聚合器 auto/fusion/free-router、
- * 同一底模的多渠道夹具 -wb/-juzi/-qd/-trae、代码/安全/视觉等专用模型), 暴露它们
- * 对「跑步教练分析」既无选择价值又难维护。2026-09-26 起改为显式白名单: 默认 1 个
- * + 可选 4 个, 顺序即下拉顺序。
+ * 真源: `~/.config/opencode/opencode.jsonc` 的 `providers.freellm.models`。
+ * 2026-10-29 起，这里列出的 15 个条目与该配置**逐项一致**（同集合、同顺序）——
+ * 用户在 opencode 里能用哪些模型，pbRun 的下拉里就是哪些，不再出现
+ * 「pbRun 有 kimi-k3 / gemini-*，而本机根本没有」这种对不上的情况。
  *
- * 每条 preset 的 thinking / effort 不是猜测, 而是 2026-09-26 对本机网关的 A/B 实测
- * (完整教练提示, stream, max_tokens=4000):
+ * ## 为什么不再从网关 365 项里自动策展
  *
- * | 模型                    | 不下发 effort          | 下发 reasoning_effort: low |
- * |-------------------------|------------------------|----------------------------|
- * | deepseek-v4.1-flash-wb  | 无思考, finish=stop     | **诱发** 230 字符思考 (变差) |
- * | glm-5.3-flash           | 889 字符思考           | 思考被压到 0 (必需)          |
- * | kimi-k3                 | 742~1150 字符思考      | 1284~1429 字符 (无效)       |
- * | gemini-3.7-flash        | 无思考                 | 无思考 (无差异)              |
- * | gemini-3.5-flash-lite   | 无思考                 | 无思考 (无差异)              |
+ * freellmapi `/models` 返回 365 条（可用 145 条），混着聚合器、同一底模的多渠道
+ * 夹具（`-wb` / `-juzi` / `-qd` / `-trae`）、代码/安全/视觉专用模型。对「跑步教练
+ * 分析」这个场景，选择价值为零、维护成本极高。白名单是显式的、可审计的。
  *
- * 结论: effort 只对 glm-5.3-flash 下发; deepseek 绝不能下发 (会诱发思考)。
+ * ## thinking / effort 的取值不是猜的
+ *
+ * 2026-10-29 对本机网关实测（同一条教练提示，`max_tokens=120`，对比是否下发
+ * `reasoning_effort: "low"`；数字为 `reasoning_content` 字符数）：
+ *
+ * | 模型                      | 不下发 effort | 下发 low      | 结论 |
+ * |---------------------------|---------------|---------------|------|
+ * | deepseek-flash-qd         | 1061 字符 4.9s | 517 字符 3.3s | **下发**（省一半思考、更快） |
+ * | deepseek-v4.1-flash-trae  | 366           | 273           | 下发 |
+ * | glm-5.3-flash-qd          | 3897 字符 29.0s | 1917 字符 11.4s | **必须下发**（否则近 30 秒） |
+ * | glm-5.3-flash-trae        | 1555          | **3761**      | **不下发**（反而 2.4 倍） |
+ * | mimo-v2.6-flash-trae      | 592           | 381           | 下发 |
+ * | minimax-m3.1-flash-qd     | 0             | 0             | 不下发（非思考模型） |
+ * | minimax-m3.1-flash-trae   | 487           | 501           | 不下发（无差异） |
+ * | qwen3.8-flash-qd          | 169           | **347**       | **不下发**（反而翻倍） |
+ * | z.ai/glm-5.2-juzi         | 221           | 218           | 不下发（无差异） |
+ *
+ * 结论：**不能按厂商一刀切**。「deepseek 一律不发」「glm 一律发」都会伤害其中一半
+ * 渠道 —— 同一个底模的不同渠道（`-qd` / `-trae` / `-wb`）在思考行为上并不一致。
+ *
+ * 探测时不可用的 6 个条目（`deepseek-v4.1-flash-wb` 503 无可用 provider key、
+ * `space-bunny-wb` / `step-5-preview-wb` / `deepseek/deepseek-v4-flash-juzi` 502、
+ * `glm-5.3-flash-wb` / `hy3-wb` 429）取保守值：`thinking` 按同族证据推断（仅影响
+ * UI 的 🧠 标注），`effort` **一律 false**（不下发未知行为的参数）。等它们恢复后
+ * 重新跑上表即可补齐。
  */
 
 export interface RawModel {
@@ -45,54 +64,42 @@ export interface ModelPreset {
   isDefault?: boolean;
 }
 
-/** 默认模型: 快、非思考、finish=stop, 适合固定结构的教练点评。 */
-export const DEFAULT_MODEL = 'deepseek-v4.1-flash-wb';
+/**
+ * 默认模型：`deepseek-flash-qd`。
+ *
+ * 2026-10-29 实测：旧默认 `deepseek-v4.1-flash-wb` 已返回 **503
+ * 「No candidate model has a configured, usable provider key」** —— 每次分析都要先
+ * 失败一次再回退 `auto`（多一次往返 + UI 显示「已自动切换」）。`deepseek-flash-qd`
+ * 实测 2.4s 首字节、1M 上下文、下发 effort 后思考 517 字符，是本机当前最快的可用项，
+ * 也正是 opencode 当前使用的模型。
+ */
+export const DEFAULT_MODEL = 'deepseek-flash-qd';
 
 /** 网关路由器 id —— 不进下拉列表, 但允许被请求 (回退目标 + 旧客户端兼容)。 */
 export const AUTO_MODEL = 'auto';
 
 export const MODEL_PRESETS: ModelPreset[] = [
-  {
-    id: 'deepseek-v4.1-flash-wb',
-    candidates: ['deepseek-v4.1-flash-wb', 'deepseek-v4.1-flash'],
-    name: 'DeepSeek V4.1 Flash',
-    series: 'DeepSeek',
-    thinking: false,
-    effort: false,
-    isDefault: true,
-  },
-  {
-    id: 'glm-5.3-flash',
-    candidates: ['glm-5.3-flash', 'glm-5.3-flash-qd', 'glm-5.3-flash-wb'],
-    name: 'GLM 5.3 Flash',
-    series: 'GLM',
-    thinking: true,
-    effort: true,
-  },
-  {
-    id: 'kimi-k3',
-    candidates: ['kimi-k3', 'kimi-k3-qd', 'kimi-k3-1-wb'],
-    name: 'Kimi K3',
-    series: 'Kimi',
-    thinking: true,
-    effort: false,
-  },
-  {
-    id: 'gemini-3.7-flash',
-    candidates: ['gemini-3.7-flash'],
-    name: 'Gemini 3.7 Flash',
-    series: 'Gemini Flash',
-    thinking: false,
-    effort: false,
-  },
-  {
-    id: 'gemini-3.5-flash-lite',
-    candidates: ['gemini-3.5-flash-lite'],
-    name: 'Gemini 3.5 Flash Lite',
-    series: 'Gemini Flash Lite',
-    thinking: false,
-    effort: false,
-  },
+  // 顺序 = `~/.config/opencode/opencode.jsonc` 里 `providers.freellm.models` 的键序，
+  // 也就是下拉顺序。改这张表时**必须同步改那份配置**（tests/unit/lib/model-curation.test.ts
+  // 逐项断言，docs/model-docs.test.ts 还会校验文档）。
+  // thinking/effort 的取值见文件头的实测表；探测时不可用的 6 条取保守值。
+  // ---- DeepSeek ----
+  { id: 'deepseek-flash-qd', candidates: ['deepseek-flash-qd'], name: 'DeepSeek Flash (QD)', series: 'DeepSeek', thinking: true, effort: true, isDefault: true },
+  { id: 'deepseek-v4.1-flash-trae', candidates: ['deepseek-v4.1-flash-trae'], name: 'DeepSeek V4.1 Flash (Trae)', series: 'DeepSeek', thinking: true, effort: true },
+  { id: 'deepseek-v4.1-flash-wb', candidates: ['deepseek-v4.1-flash-wb'], name: 'DeepSeek V4.1 Flash (WB)', series: 'DeepSeek', thinking: false, effort: false },
+  { id: 'deepseek/deepseek-v4-flash-juzi', candidates: ['deepseek/deepseek-v4-flash-juzi'], name: 'DeepSeek V4 Flash (Juzi)', series: 'DeepSeek', thinking: false, effort: false },
+  // ---- GLM ----
+  { id: 'glm-5.3-flash-qd', candidates: ['glm-5.3-flash-qd'], name: 'GLM 5.3 Flash (QD)', series: 'GLM', thinking: true, effort: true },
+  { id: 'glm-5.3-flash-trae', candidates: ['glm-5.3-flash-trae'], name: 'GLM 5.3 Flash (Trae)', series: 'GLM', thinking: true, effort: false },
+  { id: 'glm-5.3-flash-wb', candidates: ['glm-5.3-flash-wb'], name: 'GLM 5.3 Flash (WB)', series: 'GLM', thinking: true, effort: false },
+  { id: 'hy3-wb', candidates: ['hy3-wb'], name: 'Hunyuan 3 (WB)', series: 'Hunyuan', thinking: true, effort: false },
+  { id: 'mimo-v2.6-flash-trae', candidates: ['mimo-v2.6-flash-trae'], name: 'MiMo V2.6 Flash (Trae)', series: 'MiMo', thinking: true, effort: true },
+  { id: 'minimax-m3.1-flash-qd', candidates: ['minimax-m3.1-flash-qd'], name: 'MiniMax M3.1 (QD)', series: 'MiniMax', thinking: false, effort: false },
+  { id: 'minimax-m3.1-flash-trae', candidates: ['minimax-m3.1-flash-trae'], name: 'MiniMax M3.1 (Trae)', series: 'MiniMax', thinking: true, effort: false },
+  { id: 'qwen3.8-flash-qd', candidates: ['qwen3.8-flash-qd'], name: 'Qwen3.8 Flash (QD)', series: 'Qwen', thinking: true, effort: false },
+  { id: 'space-bunny-wb', candidates: ['space-bunny-wb'], name: 'Space Bunny (WB)', series: 'Space Bunny', thinking: false, effort: false },
+  { id: 'step-5-preview-wb', candidates: ['step-5-preview-wb'], name: 'Step 5 Preview (WB)', series: 'Step', thinking: false, effort: false },
+  { id: 'z.ai/glm-5.2-juzi', candidates: ['z.ai/glm-5.2-juzi'], name: 'GLM 5.2 (Juzi)', series: 'GLM', thinking: true, effort: false },
 ];
 
 /** 按 id (含候选 id) 查 preset; 未命中返回 undefined。 */

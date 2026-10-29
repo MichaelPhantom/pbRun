@@ -107,7 +107,7 @@ describe('请求体解析', () => {
   });
 
   test('初次分析: 使用 buildAnalysisMessages 并带画像块', async () => {
-    await POST(req(JSON.stringify({ model: 'glm-5.3-flash' })), ctx('1'));
+    await POST(req(JSON.stringify({ model: 'glm-5.3-flash-qd' })), ctx('1'));
     expect(llm.buildAnalysisMessages).toHaveBeenCalledWith(
       activity,
       [],
@@ -118,7 +118,7 @@ describe('请求体解析', () => {
     expect(runCoachStream.mock.calls[0][0]).toMatchObject({
       baseUrl: 'http://upstream.test/v1',
       key: 'k',
-      model: 'glm-5.3-flash',
+      model: 'glm-5.3-flash-qd',
     });
   });
 

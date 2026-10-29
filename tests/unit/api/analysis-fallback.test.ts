@@ -35,7 +35,7 @@ jest.mock('@/app/lib/llm', () => ({
   buildAnalysisRequestBody: jest.fn((model: string) => ({ model, messages: [] })),
 }));
 
-function makeRequest(model = 'kimi-k3'): NextRequest {
+function makeRequest(model = 'glm-5.3-flash-qd'): NextRequest {
   return new NextRequest('http://localhost/api/activities/1/analysis', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -71,18 +71,18 @@ describe('POST /api/activities/:id/analysis — 模型回退契约', () => {
       return sseResponse();
     }) as unknown as typeof fetch;
 
-    const res = await POST(makeRequest('kimi-k3'), ctx);
+    const res = await POST(makeRequest('glm-5.3-flash-qd'), ctx);
 
     expect(res.status).toBe(200);
     expect(res.headers.get('X-Model-Fallback')).toBe('1');
-    expect(res.headers.get('X-Model-Requested')).toBe('kimi-k3');
+    expect(res.headers.get('X-Model-Requested')).toBe('glm-5.3-flash-qd');
     expect(res.headers.get('X-Model-Used')).toBe('auto');
   });
 
   test('主模型成功 → 不下发回退头', async () => {
     global.fetch = jest.fn(async () => sseResponse()) as unknown as typeof fetch;
 
-    const res = await POST(makeRequest('kimi-k3'), ctx);
+    const res = await POST(makeRequest('glm-5.3-flash-qd'), ctx);
 
     expect(res.status).toBe(200);
     expect(res.headers.get('X-Model-Fallback')).toBeNull();
@@ -102,7 +102,7 @@ describe('POST /api/activities/:id/analysis — 模型回退契约', () => {
     const fetchMock = jest.fn(async () => new Response('bad model', { status: 400 }));
     global.fetch = fetchMock as unknown as typeof fetch;
 
-    const res = await POST(makeRequest('kimi-k3'), ctx);
+    const res = await POST(makeRequest('glm-5.3-flash-qd'), ctx);
 
     expect(res.status).toBe(400);
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -117,7 +117,7 @@ describe('POST /api/activities/:id/analysis — 模型回退契约', () => {
     });
     global.fetch = fetchMock as unknown as typeof fetch;
 
-    const res = await POST(makeRequest('kimi-k3'), ctx);
+    const res = await POST(makeRequest('glm-5.3-flash-qd'), ctx);
 
     expect(res.status).toBe(200);
     expect(res.headers.get('X-Model-Fallback')).toBe('1');
@@ -133,13 +133,13 @@ describe('POST /api/activities/:id/analysis — 模型回退契约', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('X-Model-Fallback')).toBeNull();
     const sent = JSON.parse(fetchMock.mock.calls[0][1].body as string);
-    expect(sent.model).toBe('deepseek-v4.1-flash-wb');
+    expect(sent.model).toBe('deepseek-flash-qd');
   });
 
   test('429 且 auto 仍失败 → 502 + 可操作错误文案', async () => {
     global.fetch = jest.fn(async () => new Response('rate limited', { status: 429 })) as unknown as typeof fetch;
 
-    const res = await POST(makeRequest('kimi-k3'), ctx);
+    const res = await POST(makeRequest('glm-5.3-flash-qd'), ctx);
     const body = await res.json();
 
     expect(res.status).toBe(502);

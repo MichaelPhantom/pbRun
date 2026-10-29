@@ -358,11 +358,36 @@ npm run dev
   按 6 大分析框架生成结构化专业解读。
   **单次分析以横向可比为主，长期趋势仅作背景**。支持**多轮追问**与
   **智能追问建议**（一键发起上下文相关问题）。支持 SSE 流式、思考过程折叠、
-  停止/继续、复制/重生成（更精炼/更深入）、👍👎、固定白名单的模型选择（默认
-  DeepSeek V4.1 Flash，另可选 GLM 5.3 Flash / Kimi K3 / Gemini 3.7 Flash /
-  Gemini 3.5 Flash Lite）。调用本机 freellm 网关，主模型 90s 首字节看门狗 +
+  停止/继续、复制/重生成（更精炼/更深入）、👍👎、固定白名单的模型选择（15 项，
+  与**本机 opencode 的 freellm provider 逐项一致**；默认 DeepSeek Flash (QD)，
+  另含 DeepSeek / GLM / MiniMax / Qwen / MiMo / Step / Hunyuan 各渠道）。调用本机 freellm 网关，主模型 90s 首字节看门狗 +
   限流/故障自动回退 `auto`。凭证见 `.env` 的 `FREELLMAPI_KEY`，故障排查见
   `docs/faq.md#11`。活动列表/仪表盘每张卡片均提供 AI 复盘入口（详情页锚点 `#ai-coach`）。
+
+  <details>
+  <summary>模型白名单（15 项，与 <code>~/.config/opencode/opencode.jsonc</code> 的 freellm provider 逐项一致）</summary>
+
+| 模型 id | 显示名 | 分组 | 思考 | 下发 effort |
+|---|---|---|---|---|
+| `deepseek-flash-qd` | DeepSeek Flash (QD) | DeepSeek | 🧠 | 是 |
+| `deepseek-v4.1-flash-trae` | DeepSeek V4.1 Flash (Trae) | DeepSeek | 🧠 | 是 |
+| `deepseek-v4.1-flash-wb` | DeepSeek V4.1 Flash (WB) | DeepSeek | — | 否 |
+| `deepseek/deepseek-v4-flash-juzi` | DeepSeek V4 Flash (Juzi) | DeepSeek | — | 否 |
+| `glm-5.3-flash-qd` | GLM 5.3 Flash (QD) | GLM | 🧠 | 是 |
+| `glm-5.3-flash-trae` | GLM 5.3 Flash (Trae) | GLM | 🧠 | 否 |
+| `glm-5.3-flash-wb` | GLM 5.3 Flash (WB) | GLM | 🧠 | 否 |
+| `hy3-wb` | Hunyuan 3 (WB) | Hunyuan | 🧠 | 否 |
+| `mimo-v2.6-flash-trae` | MiMo V2.6 Flash (Trae) | MiMo | 🧠 | 是 |
+| `minimax-m3.1-flash-qd` | MiniMax M3.1 (QD) | MiniMax | — | 否 |
+| `minimax-m3.1-flash-trae` | MiniMax M3.1 (Trae) | MiniMax | 🧠 | 否 |
+| `qwen3.8-flash-qd` | Qwen3.8 Flash (QD) | Qwen | 🧠 | 否 |
+| `space-bunny-wb` | Space Bunny (WB) | Space Bunny | — | 否 |
+| `step-5-preview-wb` | Step 5 Preview (WB) | Step | — | 否 |
+| `z.ai/glm-5.2-juzi` | GLM 5.2 (Juzi) | GLM | 🧠 | 否 |
+
+  列表顺序即下拉顺序；`thinking` 决定 🧠 标注，`下发 effort` 决定是否给该模型发送
+  `reasoning_effort: low`（逐模型实测，见 `app/lib/model-curation.ts` 文件头）。
+  </details>
 - ✅ **训练洞察（动态）** - 独立「洞察」菜单：所有指标**请求时实时计算、无缓存表**，随数据同步自动更新。包含
   **跑力 VDOT 趋势**（线性拟合 + 平台期判定）、**训练负荷与周期**（ACWR 急慢性比 + 强度分布 + 周期化周 CTL/ATL/TSB）、
   **有氧效率**（长跑逐秒解耦 Pa:HR 漂移）、**跑姿技术趋势**（步频/触地/垂直比）、**配速-心率回归模型**（反推阈值配速），
@@ -398,7 +423,7 @@ pbRun/
 │       ├── activity-coach-context-service.ts # 同路线/±10%同距离/同类取数编排
 │       ├── llm.ts                   # AI prompt/请求体/全局教练消息/模型策展接入
 │       ├── runner-profile.ts        # 跑者画像 (个人基础数据)
-│       ├── model-curation.ts        # 模型清单 (固定白名单: 默认 + 4 可选)
+│       ├── model-curation.ts        # 模型清单 (固定白名单 15 项, 与 opencode freellm 对齐)
 │       └── components/ai/           # AI 对话 UI (活动分析/全局教练/思考块/模型选择/SSE 解析)
 ├── scripts/               # 数据同步脚本
 │   ├── common/            # 通用模块

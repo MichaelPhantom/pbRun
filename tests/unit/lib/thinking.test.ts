@@ -72,33 +72,50 @@ describe('buildAnalysisRequestBody', () => {
 });
 
 /**
- * 白名单 (model-curation) 优先生效: thinking/effort 以实测结论为准,
- * 不再走下面的启发式 —— 尤其 deepseek-v4.1-flash-wb 绝不能下发 effort
- * (实测会诱发 230 字符思考, 反而吃掉输出预算)。
+ * 白名单 (model-curation) 优先生效：thinking/effort 以**逐模型实测**为准，
+ * 不再走启发式。注意同一个底模的不同渠道结论并不一致 ——
+ * `glm-5.3-flash-qd` 必须下发 effort（思考 3897→1917），
+ * `glm-5.3-flash-trae` 绝不能下发（1555→3761）。
  */
 describe('白名单模型的 thinking/effort', () => {
   test.each([
+    ['deepseek-flash-qd', true],
+    ['deepseek-v4.1-flash-trae', true],
     ['deepseek-v4.1-flash-wb', false],
-    ['glm-5.3-flash', true],
-    ['kimi-k3', true],
-    ['gemini-3.7-flash', false],
-    ['gemini-3.5-flash-lite', false],
+    ['glm-5.3-flash-qd', true],
+    ['glm-5.3-flash-trae', true],
+    ['minimax-m3.1-flash-qd', false],
+    ['minimax-m3.1-flash-trae', true],
+    ['qwen3.8-flash-qd', true],
+    ['step-5-preview-wb', false],
+    ['z.ai/glm-5.2-juzi', true],
   ])('%s → isThinkingModel=%s', (id, expected) => {
     expect(isThinkingModel(id)).toBe(expected);
   });
 
-  test('effort 只对 glm-5.3-flash 下发', () => {
-    for (const id of ['deepseek-v4.1-flash-wb', 'kimi-k3', 'gemini-3.7-flash', 'auto']) {
+  test('effort 逐模型下发：同一底模的不同渠道结论相反', () => {
+    // 下发的四个（实测能省思考/时延）
+    for (const id of ['deepseek-flash-qd', 'deepseek-v4.1-flash-trae', 'glm-5.3-flash-qd', 'mimo-v2.6-flash-trae']) {
+      expect(buildAnalysisRequestBody(id, []).reasoning_effort).toBe('low');
+    }
+    // 不发的：effort 反而增加思考 / 无差异 / 非思考 / auto
+    for (const id of [
+      'glm-5.3-flash-trae',
+      'qwen3.8-flash-qd',
+      'minimax-m3.1-flash-trae',
+      'minimax-m3.1-flash-qd',
+      'z.ai/glm-5.2-juzi',
+      'deepseek-v4.1-flash-wb',
+      'auto',
+    ]) {
       expect(buildAnalysisRequestBody(id, [])).not.toHaveProperty('reasoning_effort');
     }
-    expect(buildAnalysisRequestBody('glm-5.3-flash', []).reasoning_effort).toBe('low');
   });
 
-  test('候选 id (网关改名兜底) 与规范 id 结论一致', () => {
-    expect(isThinkingModel('deepseek-v4.1-flash')).toBe(false);
-    expect(isThinkingModel('glm-5.3-flash-wb')).toBe(true);
-    expect(buildAnalysisRequestBody('deepseek-v4.1-flash', [])).not.toHaveProperty(
-      'reasoning_effort',
-    );
+  test('非白名单 id 回落启发式（不再有候选别名兜底）', () => {
+    // 旧白名单的候选别名已随白名单一起下线
+    expect(isThinkingModel('deepseek-v4.1-flash')).toBe(true); // 启发式命中 deepseek
+    expect(isThinkingModel('gemini-3.7-flash')).toBe(false); // 启发式排除 gemini
+    expect(buildAnalysisRequestBody('auto', [])).not.toHaveProperty('reasoning_effort');
   });
 });
