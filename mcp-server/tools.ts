@@ -472,7 +472,9 @@ export async function registerTools(server: McpServer): Promise<void> {
       title: '训练负荷分析 (ACWR)',
       description:
         '基于近 N 天训练负荷计算 ACWR 急慢性负荷比与连续训练/休息天数, 并给出建议。' +
-        '**跑步口径**（只统计跑步类活动的负荷）。load 无单位 (Garmin 训练负荷)。',
+        '**跑步口径**（只统计跑步类活动的负荷）。load 无单位 (Garmin 训练负荷)。' +
+        'ACWR 窗口恒为标准窗（急性 7 天/慢性 28 天）; 训练历史不足 28 天时 acwr=null' +
+        '（缺失天数不按 0 负荷处理）, chronic_load_days 给出现有天数。',
       inputSchema: {
         days: z.number().int().min(7).max(365).optional().describe('分析天数窗口 (默认 28, 需至少 7 天)'),
       },
