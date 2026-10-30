@@ -39,8 +39,10 @@ const daily = (opts: { base?: number; spike?: number; days?: number; ref?: strin
 describe('computeLoadInsight', () => {
   const run = (zSeconds: number[], d: ReturnType<typeof daily>) => computeLoadInsight(d, zSeconds);
 
-  test('ACWR: 无数据 → 0; 均衡 → optimal; 急性偏高 → caution; 激增 → risk', () => {
-    expect(computeLoadInsight([], []).acwrTone).toBe('under'); // 无参考日 → acwr 0
+  test('ACWR: 无数据 → insufficient; 均衡 → optimal; 急性偏高 → caution; 激增 → risk', () => {
+    // 无数据 → 连「历史多少天」都无从谈起 → insufficient (不再报 under:
+    //  旧实现无数据时 acwr=0 → 「欠训练」, 但「没记录过」≠「训练不足」)
+    expect(computeLoadInsight([], []).acwrTone).toBe('insufficient');
     expect(run(secs({}), daily({ base: 7, spike: 7 })).acwrTone).toBe('optimal');
     // acute=12*7=84, chronic=7*21+84=231 → chronicWeekly=57.75 → acwr≈1.45 → caution
     expect(run(secs({}), daily({ base: 7, spike: 12 })).acwrTone).toBe('caution');

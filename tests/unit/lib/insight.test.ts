@@ -123,6 +123,32 @@ describe('computeLoadInsight / ACWR', () => {
     expect(r.acwrTone).toBe('optimal');
   });
 
+  test('历史不足 28 天 → acwr=null + insufficient（缺失天数不按 0 负荷处理）', () => {
+    // 旧实现：只有 7 天数据时 chronic 只累到 7 天再 ÷4 → ACWR 虚高 4 倍谎报「高风险」。
+    const daily: DailyLoad[] = [];
+    for (let i = 0; i < 7; i++) {
+      daily.push({ date: `2026-09-${String(1 + i).padStart(2, '0')}`, load: 300, distanceMeters: 10000, duration: 3600 });
+    }
+    const r = computeLoadInsight(daily, z, '2026-09-07');
+    expect(r.chronicLoadDays).toBe(7);
+    expect(r.acwr).toBeNull();
+    expect(r.acwrTone).toBe('insufficient');
+  });
+
+  test('27 天历史 → 仍不足以计算（边界；数据日须贴着参考日）', () => {
+    // 08-12 ~ 09-07 恰好 27 个日历日, 参考日 09-07。
+    // (若数据停在更早, 日历跨度 ≥28 会被判「足够」—— 缺口视为休息 0,
+    //  危险方向是编造「虚高」, 而陈旧数据只会得出保守的 0/under。)
+    const daily: DailyLoad[] = [];
+    for (let i = 0; i < 17; i++) daily.push({ date: `2026-08-${String(12 + i).padStart(2, '0')}`, load: 100, distanceMeters: 10000, duration: 3600 });
+    for (let i = 0; i < 10; i++) daily.push({ date: `2026-09-${String(1 + i).padStart(2, '0')}`, load: 100, distanceMeters: 10000, duration: 3600 });
+    expect(daily).toHaveLength(27);
+    const r = computeLoadInsight(daily, z, '2026-09-07');
+    expect(r.chronicLoadDays).toBe(27);
+    expect(r.acwr).toBeNull();
+    expect(r.acwrTone).toBe('insufficient');
+  });
+
   test('ACWR 高风险', () => {
     const daily: DailyLoad[] = [];
     // 慢性期 100/天, 急性期 500/天

@@ -1005,7 +1005,12 @@ GET /api/llm/models
   **显式**返回 `available: false` 才置灰；网关不可达时同样乐观。
 
 | 模型 id | 显示名 | 分组 | 思考 | 下发 `reasoning_effort: low` |
-|---|---|---|---|---|
+
+> 取值来自 2026-10-29/30 两次网关实测（同提示 A/B，见 `app/lib/model-curation.ts` 文件头）。
+> 探测时不可用的 5 条（`deepseek-v4.1-flash-wb` / `space-bunny-wb` / `step-5-preview-wb` /
+> `glm-5.3-flash-wb` / `hy3-wb`）为保守值；`deepseek/deepseek-v4-flash-juzi` 已于 10-30
+> 复测证实为非思考模型（思考 0 字符）。
+
 | `deepseek-flash-qd` | DeepSeek Flash (QD) | DeepSeek | 🧠 | 是 |
 | `deepseek-v4.1-flash-trae` | DeepSeek V4.1 Flash (Trae) | DeepSeek | 🧠 | 是 |
 | `deepseek-v4.1-flash-wb` | DeepSeek V4.1 Flash (WB) | DeepSeek | — | 否 |

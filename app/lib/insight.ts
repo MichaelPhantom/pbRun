@@ -253,12 +253,19 @@ export function computeLoadInsight(
     return { week, km: v?.km ?? 0, tl: v?.tl ?? 0, n: v?.n ?? 0, seconds: v?.seconds ?? 0, partial };
   });
 
-  // 急性/慢性: 以参考日为终点回溯
+  // 急性/慢性: 以参考日为终点回溯。窗口是**定长标准窗**（7/28 天），不看「取到
+  // 了多少数据」——但**慢性窗必须真的有 28 天历史**：缺失的天不是「休息 0 负荷」，
+  // 当 0 处理会把 chronic 压小、ACWR 虚高（新用户被谎报「高风险」）。
+  // 与「周聚合夹紧」同一纪律：数据存在之前 ≠ 休息；宁可 null，不编造。
   const ref = referenceDate ?? sorted[sorted.length - 1]?.date;
   let acute = 0;
   let chronic = 0;
+  let chronicLoadDays = 0;
   if (ref) {
     const refOrd = dayOrdinal(ref);
+    const firstData = sorted[0]?.date;
+    const dataAge = firstData ? dayOrdinal(ref) - dayOrdinal(firstData) + 1 : 0;
+    chronicLoadDays = Math.min(28, Math.max(0, dataAge));
     for (const d of sorted) {
       const age = refOrd - dayOrdinal(d.date);
       if (age >= 0 && age < 7) acute += d.load;
@@ -266,10 +273,11 @@ export function computeLoadInsight(
     }
   }
   const chronicWeekly = chronic / 4;
-  const acwr = chronicWeekly > 0 ? acute / chronicWeekly : 0;
+  const hasFullChronicWindow = chronicLoadDays >= 28;
+  const acwr = hasFullChronicWindow && chronicWeekly > 0 ? Math.round((acute / chronicWeekly) * 100) / 100 : null;
 
   let acwrTone: LoadInsight['acwrTone'];
-  if (acwr === 0) acwrTone = 'under';
+  if (acwr == null) acwrTone = 'insufficient';
   else if (acwr < 0.8) acwrTone = 'under';
   else if (acwr <= 1.3) acwrTone = 'optimal';
   else if (acwr <= 1.5) acwrTone = 'caution';
@@ -290,7 +298,7 @@ export function computeLoadInsight(
   const lowIntensityPct = totalZ > 0 ? ((five[0] ?? 0) + (five[1] ?? 0)) / totalZ * 100 : 0;
   const highIntensityPct = totalZ > 0 ? ((five[3] ?? 0) + (five[4] ?? 0)) / totalZ * 100 : 0;
 
-  return { weekly, acute, chronic: chronicWeekly, acwr, acwrTone, zDistribution, lowIntensityPct, highIntensityPct };
+  return { weekly, acute, chronic: chronicWeekly, chronicLoadDays, acwr, acwrTone, zDistribution, lowIntensityPct, highIntensityPct };
 }
 
 /**
@@ -542,14 +550,24 @@ export function buildFindings(input: FindingInput): InsightFinding[] {
   const { vdot, load, decoupling, paceHr } = input;
   const findings: InsightFinding[] = [];
 
-  // 负荷平衡
-  if (load.acwrTone === 'risk') {
+  // 负荷平衡（tone 与 acwr 的映射见 computeLoadInsight：risk/caution/optimal 时
+  // acwr 必非 null；insufficient 单独提示 —— 历史不足不是「训练过度」也不是「欠训练」）
+  if (load.acwrTone === 'insufficient') {
+    findings.push({
+      id: 'load-insufficient',
+      severity: 'info',
+      title: '训练历史不足 28 天',
+      detail: 'ACWR 需要完整的 28 天慢性窗；缺失天数不按 0 负荷处理，暂不评估负荷平衡。',
+      metric: `慢性窗 ${load.chronicLoadDays}/28 天`,
+      action: '继续记录训练，28 天后自动给出 ACWR 评估。',
+    });
+  } else if (load.acwrTone === 'risk') {
     findings.push({
       id: 'load-risk',
       severity: 'critical',
       title: '负荷激增风险',
       detail: '急性负荷显著高于慢性基线，受伤概率上升。',
-      metric: `ACWR ${load.acwr.toFixed(2)}`,
+      metric: `ACWR ${load.acwr!.toFixed(2)}`,
       action: '本周减量 20–30%，优先恢复，避免新增高强度课。',
     });
   } else if (load.acwrTone === 'caution') {
@@ -558,7 +576,7 @@ export function buildFindings(input: FindingInput): InsightFinding[] {
       severity: 'warn',
       title: '负荷接近警戒',
       detail: '训练负荷增长偏快，建议控制增量节奏。',
-      metric: `ACWR ${load.acwr.toFixed(2)}`,
+      metric: `ACWR ${load.acwr!.toFixed(2)}`,
       action: '将每周跑量增量控制在 +5% 以内。',
     });
   } else if (load.acwrTone === 'optimal') {
@@ -567,7 +585,7 @@ export function buildFindings(input: FindingInput): InsightFinding[] {
       severity: 'positive',
       title: '负荷处于理想区间',
       detail: '急慢性负荷比均衡，是可持续提升的窗口。',
-      metric: `ACWR ${load.acwr.toFixed(2)}`,
+      metric: `ACWR ${load.acwr!.toFixed(2)}`,
       action: '保持当前节奏，可小幅加量。',
     });
   }

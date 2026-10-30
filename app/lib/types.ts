@@ -481,8 +481,16 @@ export interface LoadInsight {
   }[]; // 按 ISO 周
   acute: number;                                 // 近 7 天负荷
   chronic: number;                               // 近 28 天周均负荷
-  acwr: number;                                  // acute / chronic
-  acwrTone: 'under' | 'optimal' | 'caution' | 'risk';
+  /** 慢性窗实际天数（< 28 = 历史不足，`acwr` 为 null 的原因）。 */
+  chronicLoadDays: number;
+  /**
+   * acute / chronic。**历史不足 28 天时为 null**：缺失的天不是「休息 0 负荷」，
+   * 把它们当 0 会把 chronic 压小、ACWR 虚高（新用户会被谎报「高风险」）。
+   * 宁可不给值，不编造一个看起来正常的数（与「周聚合夹紧」同一纪律）。
+   */
+  acwr: number | null;
+  /** `insufficient` = 训练历史不足 28 天，无法计算可靠的 ACWR。 */
+  acwrTone: 'under' | 'optimal' | 'caution' | 'risk' | 'insufficient';
   zDistribution: { zone: number; seconds: number; pct: number }[]; // 全区间强度分布
   lowIntensityPct: number;                       // Z1+Z2 占比
   highIntensityPct: number;                       // Z4+Z5 占比

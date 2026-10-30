@@ -33,6 +33,7 @@ const ACWR_LABEL: Record<InsightResponse['load']['acwrTone'], { label: string; t
   optimal: { label: '理想', tone: 'good' },
   caution: { label: '警戒', tone: 'warn' },
   risk: { label: '高风险', tone: 'crit' },
+  insufficient: { label: '历史不足', tone: 'neutral' },
 };
 
 function fmtPace(secPerKm: number | null | undefined): string {
@@ -301,7 +302,11 @@ export default function InsightClient({
       <SectionCard
         title="训练负荷与周期"
         accent
-        action={<Badge variant={acwrBadge.tone}>ACWR {load.acwr.toFixed(2)} · {acwrBadge.label}</Badge>}
+        action={
+          <Badge variant={acwrBadge.tone}>
+            ACWR {load.acwr != null ? load.acwr.toFixed(2) : '—'} · {acwrBadge.label}
+          </Badge>
+        }
       >
         <div className="mb-3 grid grid-cols-3 gap-3">
           <StatCard value={load.acute.toFixed(0)} label="急性负荷 (7天)" accent hint="近期疲劳" />

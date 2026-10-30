@@ -120,9 +120,10 @@ input: { days: number }  // 默认 28
 output: {
   total_load: number,
   avg_daily_load: number,
-  acute_load: number,          // 近 7 天负荷
-  chronic_load: number,        // 近 28 天负荷
-  acwr: number,                // 急慢性负荷比 (Acute:Chronic Workload Ratio)
+  acute_load: number,          // 近 7 天负荷**总量** (与主站 LoadInsight.acute 同口径)
+  chronic_load: number,        // 近 28 天**周均**负荷 (总量 ÷ 4, 与主站 chronic 同口径)
+  chronic_load_days: number,   // 慢性窗实际覆盖天数 (< 28 = 历史不足, acwr 为 null)
+  acwr: number | null,         // 急慢性负荷比; 训练历史不足 28 天时为 **null**
   consecutive_rest_days: number,
   consecutive_training_days: number,
   recommendation: string,      // 如 "ACWR=1.4, 负荷偏高, 建议安排 1-2 天恢复"
@@ -130,11 +131,14 @@ output: {
 }
 ```
 
-**ACWR 判定标准**:
+**ACWR 判定标准**（窗口恒为定长标准窗: 急性 7 天 / 慢性 28 天, 与分析窗 `days` 无关）:
 - < 0.8: 欠训练 (detraining)
 - 0.8–1.3: 最佳区间 (sweet spot)
 - 1.3–1.5: 警戒区 (elevated risk)
 - > 1.5: 危险区 (high injury risk)
+- **null**: 训练历史不足 28 天 —— 缺失天数不按 0 负荷处理（否则 chronic 被压小、
+  ACWR 虚高）。旧实现 `min(28, days)` 在 `days=7` 时急/慢窗重合, ACWR 恒 1.0
+  （永远「最佳区间」）—— 已废弃, 见 tests/unit/mcp/analysis.test.ts。
 
 ## 4. 数据单位约定
 

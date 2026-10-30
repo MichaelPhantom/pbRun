@@ -205,7 +205,14 @@ describe('mcp-server/analysis 纯逻辑', () => {
       duration: load * 30,
     });
 
-    test('连续 7 天等量负荷 → ACWR=1 最佳区间', () => {
+    /**
+     * 旧实现 `min(28, days)` 把慢性窗截成分析窗：days=7 时急/慢窗完全重合，
+     * **ACWR 恒等于 1.0、永远报「最佳区间」**（哪怕突然爆量一倍）——旧测试
+     * 「连续 7 天等量负荷 → ACWR=1 最佳区间」固化了这个缺陷。
+     * 现契约：窗口是定长标准窗（7/28），与 `days` 无关；days<28 时 chronic 只算
+     * 到 `chronic_load_days` 天，ACWR = null（缺失天数不按 0 负荷处理）。
+     */
+    test('days=7 + 爆量：急/慢窗重合时的假「最佳区间」必须消失', () => {
       const days = ['2026-08-02', '2026-08-03', '2026-08-04', '2026-08-05', '2026-08-06', '2026-08-07', '2026-08-08'];
       const r = computeTrainingLoadAnalysis(
         7,
@@ -216,10 +223,32 @@ describe('mcp-server/analysis 纯逻辑', () => {
 
       expect(r.daily).toHaveLength(7);
       expect(r.total_load).toBe(700);
-      expect(r.acwr).toBe(1);
+      // 慢性窗只覆盖 7 天 → ACWR 不可计算（旧实现恒 1.0）
+      expect(r.chronic_load_days).toBe(7);
+      expect(r.acwr).toBeNull();
+      expect(r.recommendation).toContain('不足 28 天');
+      // 急性/连续训练等非 ACWR 指标照常
+      expect(r.acute_load).toBe(700);
       expect(r.consecutive_training_days).toBe(7);
       expect(r.consecutive_rest_days).toBe(0);
-      expect(r.recommendation).toContain('最佳区间');
+    });
+
+    test('days=7 但补齐了 28 天慢性窗 → 正常计算 ACWR', () => {
+      const points = eachDay('2026-07-12', '2026-08-08').map((d, i) => point(d, i >= 24 ? 400 : 100));
+      const r = computeTrainingLoadAnalysis(7, points, '2026-08-02', '2026-08-08');
+      // chronic = (21×100 + 3×400)/4 = 825, acute = 400+400+400+300+300+300+300? —— 直接断言非 null 与区间
+      expect(r.chronic_load_days).toBe(28);
+      expect(r.acwr).not.toBeNull();
+      // 爆量周 → ACWR 明显高于 1
+      expect(r.acwr!).toBeGreaterThan(1.3);
+    });
+
+    test('acute/chronic 单位与主站一致（7 天总量 / 28 天周均）', () => {
+      const points = eachDay('2026-07-12', '2026-08-08').map((d) => point(d, 100));
+      const r = computeTrainingLoadAnalysis(28, points, '2026-07-12', '2026-08-08');
+      expect(r.acute_load).toBe(700);       // 总量, 非日均
+      expect(r.chronic_load).toBe(700);     // 2800/4 周均
+      expect(r.acwr).toBe(1);
     });
 
     test('近 7 天负荷偏高 → ACWR 进入危险区', () => {

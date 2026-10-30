@@ -32,11 +32,17 @@
  * 结论：**不能按厂商一刀切**。「deepseek 一律不发」「glm 一律发」都会伤害其中一半
  * 渠道 —— 同一个底模的不同渠道（`-qd` / `-trae` / `-wb`）在思考行为上并不一致。
  *
- * 探测时不可用的 6 个条目（`deepseek-v4.1-flash-wb` 503 无可用 provider key、
- * `space-bunny-wb` / `step-5-preview-wb` / `deepseek/deepseek-v4-flash-juzi` 502、
- * `glm-5.3-flash-wb` / `hy3-wb` 429）取保守值：`thinking` 按同族证据推断（仅影响
- * UI 的 🧠 标注），`effort` **一律 false**（不下发未知行为的参数）。等它们恢复后
- * 重新跑上表即可补齐。
+ * ## 探测时不可用条目的补测（2026-10-30 网关恢复后重跑）
+ *
+ * | 模型 | 2026-10-30 复测 | 结论 |
+ * |------|----------------|------|
+ * | `deepseek/deepseek-v4-flash-juzi` | 恢复：思考 0 字符 / 正文 63–109 / 4.6–5.7s；发 effort 同样思考 0 | **非思考模型**，effort 无效果 —— 保守值被实测证实，`thinking:false` 从推断转为实测 |
+ * | `deepseek-v4.1-flash-wb` | 仍 503（无可用 provider key） | 维持保守值 |
+ * | `space-bunny-wb` / `step-5-preview-wb` | 429 冷却后仍 503（×3 轮） | 维持保守值 |
+ * | `glm-5.3-flash-wb` / `hy3-wb` | 仍 503 | 维持保守值 |
+ *
+ * 仍不可用的 5 条保持保守值：`thinking` 按同族证据推断（仅影响 UI 的 🧠 标注），
+ * `effort` **一律 false**（不下发未知行为的参数）。再次恢复后重跑上表即可。
  */
 
 export interface RawModel {

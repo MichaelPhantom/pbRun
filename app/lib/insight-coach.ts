@@ -42,9 +42,12 @@ export function formatInsightForCoach(insight: InsightResponse): string {
   if (vdotPts) L.push(`VDOT 按月: ${vdotPts}`);
 
   // 负荷
+  // 注意括号: `+` 的优先级高于 `?:`, 不加括号会把整段前缀吞进条件 (分支测试抓过)。
   L.push(
     `负荷: 急性(7天) ${n(load.acute, 0)}  慢性(28天周均) ${n(load.chronic, 0)}  ` +
-      `ACWR ${n(load.acwr, 2)}（${load.acwrTone}）`,
+      (load.acwr != null
+        ? `ACWR ${n(load.acwr, 2)}（${load.acwrTone}）`
+        : `ACWR 不可计算（训练历史不足 28 天，现有 ${load.chronicLoadDays} 天）`),
   );
   // 周序列: 只给 acute/chronic 两个汇总值时, 模型看不到「哪一周在涨/掉」——
   // 这正是「近 7/30/180 天趋势」类问题的答案来源。weekly 里 n(次数) 与

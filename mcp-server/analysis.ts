@@ -6,6 +6,7 @@ import type { PeriodStats, TrainingLoadPoint } from '../app/lib/types';
 import { downsampleRecords } from '../app/lib/sampling';
 import { hrZoneRanges } from '../app/lib/hr-zones';
 import { isValidDateParam } from '../app/lib/query-params';
+import { localDateMinusDays } from '../app/lib/timezone';
 
 export { downsampleRecords, hrZoneRanges };
 
@@ -97,8 +98,12 @@ export interface TrainingLoadAnalysis {
   endDate: string;
   total_load: number;
   avg_daily_load: number;
+  /** 近 7 天负荷**总量**（与主站 `LoadInsight.acute` 同口径，非日均）。 */
   acute_load: number;
+  /** 近 28 天**周均**负荷（慢性窗总量 ÷ 4；与主站 `LoadInsight.chronic` 同口径）。 */
   chronic_load: number;
+  /** 实际用于慢性窗的天数（< 28 表示历史不足，ACWR 为 null 的原因）。 */
+  chronic_load_days: number;
   acwr: number | null;
   consecutive_rest_days: number;
   consecutive_training_days: number;
@@ -126,9 +131,35 @@ export function computeTrainingLoadAnalysis(
 
   const sum = (arr: { load: number }[]) => arr.reduce((s, d) => s + d.load, 0);
   const totalLoad = sum(daily);
-  const acuteLoad = sum(daily.slice(-7)) / Math.min(7, days);
-  const chronicLoad = sum(daily.slice(-28)) / Math.min(28, days);
-  const acwr = chronicLoad > 0 ? Math.round((acuteLoad / chronicLoad) * 100) / 100 : null;
+
+  // ACWR 的窗口是**定长标准窗**（急性 7 天、慢性 28 天），与分析窗口 `days` 无关。
+  // 旧实现 `min(28, days)` 把慢性窗截成分析窗：days=7 时急/慢窗完全重合，
+  // **ACWR 恒等于 1.0、永远报「最佳区间」**（哪怕突然爆量一倍）；days=14 时慢性窗
+  // 被截成非标准的 14 天。实测见 tests/unit/mcp/analysis.test.ts。
+  //
+  // 慢性窗直接从 `points` 回溯（工具层在 days<28 时会补取 28 天数据），**不能**只看
+  // `daily`（分析窗）——否则补取的数据被丢弃，等于没补。数据纪元内的缺行 = 真休息
+  // （0 负荷）；**纪元之前**的天数才是「没有数据」。
+  const loadByDatePlain = new Map(points.map((p) => [p.date, p.load ?? 0]));
+  const chronicDays = eachDay(localDateMinusDays(endDate, 27), endDate);
+  let chronicTotal = 0;
+  for (const d of chronicDays) chronicTotal += loadByDatePlain.get(d) ?? 0;
+  const acuteTotal = sum(daily.slice(-7));
+
+  // 慢性窗实际覆盖天数 = min(28, 从最早数据日到区间末)。不足 28 天（新用户 / 新装
+  // 同步）时缺的天**不是**「休息 0 负荷」，把它们当 0 会把 chronic 压小、ACWR 虚高。
+  // 与「周聚合夹紧」同一纪律：宁可不给值（null），不编造一个看起来正常的数。
+  const firstPointDate = points.map((p) => p.date).sort()[0];
+  const chronicLoadDays = firstPointDate
+    ? Math.min(28, eachDay(firstPointDate, endDate).length)
+    : 0;
+  const hasFullChronicWindow = chronicLoadDays >= 28;
+  const acuteLoad = acuteTotal;                 // 7 天总量（主站口径）
+  const chronicLoad = chronicTotal / 4;         // 28 天周均（主站口径）
+  const acwr =
+    hasFullChronicWindow && chronicTotal > 0
+      ? Math.round((acuteTotal / chronicLoad) * 100) / 100
+      : null;
 
   let consecutiveRestDays = 0;
   for (let i = daily.length - 1; i >= 0 && daily[i].load === 0; i--) consecutiveRestDays++;
@@ -136,8 +167,11 @@ export function computeTrainingLoadAnalysis(
   for (let i = daily.length - 1; i >= 0 && daily[i].load > 0; i--) consecutiveTrainingDays++;
 
   let recommendation: string;
-  if (acwr == null || totalLoad === 0) {
-    recommendation = '暂无足够训练数据, 无法计算 ACWR';
+  if (acwr == null) {
+    recommendation =
+      totalLoad === 0
+        ? '暂无足够训练数据, 无法计算 ACWR'
+        : `训练历史不足 28 天（现有 ${chronicLoadDays} 天）, 无法计算可靠的 ACWR —— 缺失天数不按 0 负荷处理`;
   } else if (acwr < 0.8) {
     recommendation = `ACWR=${acwr}, 训练量偏低 (欠训练), 建议在身体允许下适当增加训练量`;
   } else if (acwr <= 1.3) {
@@ -156,6 +190,7 @@ export function computeTrainingLoadAnalysis(
     avg_daily_load: round2(totalLoad / days)!,
     acute_load: round2(acuteLoad)!,
     chronic_load: round2(chronicLoad)!,
+    chronic_load_days: chronicLoadDays,
     acwr,
     consecutive_rest_days: consecutiveRestDays,
     consecutive_training_days: consecutiveTrainingDays,
