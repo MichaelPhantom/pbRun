@@ -25,6 +25,7 @@ function makeInsight(overrides: Partial<InsightResponse> = {}): InsightResponse 
       weekly: [],
       acute: 417,
       chronic: 421,
+      chronicLoadDays: 28,
       acwr: 0.99,
       acwrTone: 'optimal',
       zDistribution: [
@@ -68,6 +69,12 @@ describe('formatInsightForCoach', () => {
     expect(text).toContain('【全局训练指标】');
     expect(text).toContain('跑力(VDOT)');
     expect(text).toContain('ACWR');
+    // acwr=null 时 (历史不足 28 天) 不打印「ACWR null」也不编造数值 —— 写明原因
+    const insufficient = formatInsightForCoach(
+      makeInsight({ load: { ...makeInsight().load, acwr: null, acwrTone: 'insufficient' as const, chronicLoadDays: 12 } }),
+    );
+    expect(insufficient).toContain('ACWR 不可计算（训练历史不足 28 天，现有 12 天）');
+    expect(insufficient).not.toContain('ACWR null');
     expect(text).toContain('训练类别');
     expect(text).toContain('乳酸阈值');
     expect(text).toContain('气温影响');
