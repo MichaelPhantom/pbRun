@@ -779,7 +779,7 @@ GET /api/insight?startDate=2026-06-01&endDate=2026-09-22
 | `range` | 实际计算区间 `{startDate, endDate}` |
 | `activityCount` | 区间内**跑步**次数（非跑步活动不计，见 [统计口径](#统计口径跑步-vs-全类型)） |
 | `vdot` | VDOT 趋势：`raw` 散点、`perMonth` 月聚合、`slopePer30d` 斜率、`plateau` 平台期 |
-| `load` | 训练负荷：`weekly` 周聚合（`{week, km, tl, n, seconds, partial}`，`n` 为**跑步次数**，`partial` 表示该周被区间截断；只含与区间相交的周，零跑量周也出现）、`acute`/`chronic`/`acwr`/`acwrTone`、`zDistribution` 强度分布 |
+| `load` | 训练负荷：`weekly` 周聚合（`{week, km, tl, n, seconds, partial}`，`n` 为**跑步次数**，`partial` 表示该周被区间截断；只含与区间相交的周，零跑量周也出现）、`acute`/`chronic`/`chronicLoadDays`/`acwr`/`acwrTone`（`acwr` 在训练历史不足 28 天时为 `null`，`acwrTone` 相应为 `insufficient`）、`zDistribution` 强度分布 |
 | `decoupling` | 有氧解耦：`points` 明细、`meanPct`、`trendPer30d` |
 | `form` | 跑姿按月趋势（步频/步幅/触地/垂直振幅/垂直比） |
 | `paceHr` | 配速-心率回归模型：`slope`/`intercept`/`r`/`predictions`/`thresholdPaceSecPerKm` |
@@ -797,7 +797,7 @@ GET /api/insight?startDate=2026-06-01&endDate=2026-09-22
     "range": { "startDate": "2026-06-01", "endDate": "2026-09-22" },
     "activityCount": 125,
     "vdot": { "slopePer30d": 0.18, "latest": 41.2, "plateau": true, "perMonth": [] },
-    "load": { "acwr": 0.99, "acwrTone": "optimal", "lowIntensityPct": 3.5, "highIntensityPct": 45.2 },
+    "load": { "acwr": 0.99, "acwrTone": "optimal", "chronicLoadDays": 28, "lowIntensityPct": 3.5, "highIntensityPct": 45.2 },
     "findings": [
       { "id": "intensity-low", "severity": "warn", "title": "轻松跑占比偏低", "metric": "Z1–Z2 3.5%" }
     ]
