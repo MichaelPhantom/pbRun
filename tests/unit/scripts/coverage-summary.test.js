@@ -8,7 +8,7 @@
  * - toMarkdown 达标 ✅ / 未达标 ❌ 且统计失败项数
  */
 const path = require('node:path');
-const { loadThresholds, groupOf, summarize, toMarkdown, main } = require('../../../scripts/testing/coverage-summary');
+const { loadThresholds, groupOf, summarize, toMarkdown, checkMargins, requiredMargin, main } = require('../../../scripts/testing/coverage-summary');
 
 const ROOT = path.resolve(__dirname, '../../..');
 const thresholds = loadThresholds(ROOT);
@@ -99,6 +99,38 @@ describe('toMarkdown', () => {
     // global 语句 80 < 90 且分支 80 < 90, app/lib 语句 96 < 99 → 3 项
     expect(failed).toBe(3);
     expect(markdown).toContain('❌ 3 项门槛未达标');
+  });
+
+  /**
+   * 余量规则 (checkMargins): `npm run test:ci` 先删产物 → threshold-margin 测试
+   * 被 skip, 余量侵蚀无人报告 (app/api branches 曾滑到 0.33pt)。摘要脚本必须在
+   * 门禁流程内自查。requiredMargin 与 threshold-margin.test.ts 同公式。
+   */
+  test('requiredMargin: 高门槛留 0.5pt, 低门槛留 1.5pt', () => {
+    expect(requiredMargin(99)).toBe(0.5);
+    expect(requiredMargin(94)).toBe(1.5);
+    expect(requiredMargin(87)).toBe(1.5);
+  });
+
+  test('余量不足 (< min(1.5, 100-gate-0.5)) → 被 checkMargins 报告', () => {
+    const th = { './app/api/': { branches: 89 } };
+    const mk = (hit, total) => new Map([['./app/api/', { files: 1, branches: { covered: hit, total } }]]);
+    // 89.31%: 达标但余量 0.31pt < 1.5pt
+    expect(checkMargins(mk(401, 449), th)).toHaveLength(1);
+    // 93.3%: 余量 4.3pt, 不报
+    expect(checkMargins(mk(419, 449), th)).toHaveLength(0);
+  });
+
+  test('toMarkdown: 余量不足标 ⚠ 但不算失败 (门槛仍达标)', () => {
+    const th = { global: { branches: 89 } };
+    const summaryTight = {
+      '/x/app/lib/a.ts': { branches: { covered: 401, total: 449, pct: 89.31 } },
+    };
+    const { markdown, failed } = toMarkdown(summarize(summaryTight, th), th, { title: 'T' });
+    expect(markdown).toContain('bran ≥89 ⚠');
+    expect(markdown).toContain('⚠ 余量不足');
+    expect(failed).toBe(0);
+    expect(markdown).toContain('✅ 全部门槛通过');
   });
 
   test('只输出实际存在的分组 (缺失分组跳过)', () => {

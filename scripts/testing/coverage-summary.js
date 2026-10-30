@@ -71,7 +71,39 @@ function summarize(summary, thresholds) {
   return groups;
 }
 
-/** 生成 Markdown 表 (分组 + 门槛对比, 未达门槛标 ❌) */
+/**
+ * 余量规则 (与 tests/unit/ci/threshold-margin.test.ts 同一口径):
+ *   门槛越接近 100, 可留的余量越少 (数学上限 100-gate), 故要求 >= min(1.5, (100-gate)-0.5)。
+ *
+ * 为什么这里也要查: `npm run test:ci` **先删 coverage/ 再跑测试**, Jest 的
+ * coverageThreshold 执行时产物尚不存在, threshold-margin 测试会因「产物不新鲜」
+ * 被 skip —— 门槛守住了, 但**余量侵蚀无人报告** (app/api branches 曾滑到 0.33pt)。
+ * 在摘要脚本里查余量 = 门禁流程内每轮必查, 不依赖开发者的运行方式。
+ */
+const MIN_MARGIN_PT = 1.5;
+function requiredMargin(gate) {
+  return Math.min(MIN_MARGIN_PT, Math.max(0.5, 100 - gate - 0.5));
+}
+
+function checkMargins(groups, thresholds) {
+  const tight = [];
+  for (const [name, th] of Object.entries(thresholds)) {
+    const g = groups.get(name);
+    if (!g) continue;
+    for (const m of METRICS) {
+      if (th[m] == null) continue;
+      const actual = pct(g[m].covered, g[m].total);
+      const margin = actual - th[m];
+      const need = requiredMargin(th[m]);
+      if (margin < need) {
+        tight.push(`${name} ${m}: 实测 ${actual.toFixed(2)}% − 门槛 ${th[m]} = ${margin.toFixed(2)}pt (< 要求 ${need.toFixed(2)}pt)`);
+      }
+    }
+  }
+  return tight;
+}
+
+/** 生成 Markdown 表 (分组 + 门槛对比, 未达门槛标 ❌; 余量不足标 ⚠ 但不算失败) */
 function toMarkdown(groups, thresholds, { title = 'Jest 覆盖率摘要' } = {}) {
   const lines = [`### ${title}`, '', '| 分组 | 文件 | 语句 | 分支 | 函数 | 行 | 门槛 |', '| --- | ---: | ---: | ---: | ---: | ---: | --- |'];
   const order = ['global', ...Object.keys(thresholds).filter((k) => k !== 'global')];
@@ -86,11 +118,15 @@ function toMarkdown(groups, thresholds, { title = 'Jest 覆盖率摘要' } = {})
         const actual = pct(g[m].covered, g[m].total);
         const ok = actual >= th[m];
         if (!ok) failed += 1;
-        return `${m.slice(0, 4)} ≥${th[m]}${ok ? '' : ' ❌'}`;
+        // 余量不足 (但仍达标): 标 ⚠ 提醒, 不让它静默滑向跌破
+        const tight = ok && actual - th[m] < requiredMargin(th[m]);
+        return `${m.slice(0, 4)} ≥${th[m]}${ok ? (tight ? ' ⚠' : '') : ' ❌'}`;
       })
       .join(' · ');
     lines.push(`| ${name} | ${g.files} | ${cells[0]} | ${cells[1]} | ${cells[2]} | ${cells[3]} | ${gate} |`);
   }
+  const tight = checkMargins(groups, thresholds);
+  for (const t of tight) lines.push(`> ⚠ 余量不足: ${t}`);
   lines.push('', failed === 0 ? '✅ 全部门槛通过' : `❌ ${failed} 项门槛未达标`);
   return { markdown: lines.join('\n'), failed };
 }
@@ -120,4 +156,4 @@ function main() {
 // 仅 CLI 直跑时执行 (被 require 时不自动运行, 便于单测)
 if (require.main === module) main();
 
-module.exports = { loadThresholds, groupOf, summarize, toMarkdown, main };
+module.exports = { loadThresholds, groupOf, summarize, toMarkdown, checkMargins, requiredMargin, main };

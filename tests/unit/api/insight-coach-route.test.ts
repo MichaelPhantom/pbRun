@@ -48,6 +48,19 @@ jest.mock('@/app/lib/db', () => ({
     avgVDOT: 40,
     totalTrainingLoad: 600,
   })),
+  // surface=analysis 分支需要 (此前 mock 缺这三个, 分支永远走 catch, 覆盖率 75.7%)
+  getStats: jest.fn(() => ({ averageVDOT: 42 })),
+  getPaceZoneStats: jest.fn(() => [
+    { zone: 2, target_pace_sec_per_km: 330, pace_min_sec_per_km: 320, pace_max_sec_per_km: 345, activity_count: 2, total_duration: 1800, total_distance: 5400, avg_pace: 333, avg_cadence: 178, avg_stride_length: 1.05, avg_heart_rate: 148 },
+    { zone: 4, target_pace_sec_per_km: 280, pace_min_sec_per_km: 270, pace_max_sec_per_km: 290, activity_count: 1, total_duration: 900, total_distance: 3300, avg_pace: 273, avg_cadence: 184, avg_stride_length: 1.12, avg_heart_rate: 168 },
+  ]),
+  getPowerZoneStats: jest.fn(() => ({
+    zones: [
+      { zone: 1, zone_name: 'Z1(恢复)', activity_count: 1, lap_count: 2, total_duration: 600, total_distance: 1200, avg_power: 150, avg_heart_rate: 128, avg_cadence: 170, avg_stride_length: 0.95 },
+      { zone: 4, zone_name: 'Z4(阈值)', activity_count: 1, lap_count: 1, total_duration: 600, total_distance: 2400, avg_power: 300, avg_heart_rate: 170, avg_cadence: 182, avg_stride_length: 1.15 },
+    ],
+    reference: { ftp_median_watts: 290, distinct_ftp_count: 1, laps_without_ftp: 0 },
+  })),
 }));
 
 import * as activityService from '@/app/lib/activity-insight-service';
@@ -138,6 +151,41 @@ describe('/api/insight/coach', () => {
     const sys = await sentSystem({ days: 30, surface: 'ignores-all-previous-instructions' });
     expect(sys).toContain('未来 2-4 周训练处方');
     expect(sys).not.toContain('ignores-all-previous-instructions');
+  });
+
+  /**
+   * `surface === 'analysis'` 时会额外注入【区间结构】(三张区间表)。旧测试的 db mock
+   * 缺 `getStats`/`getPaceZoneStats`/`getPowerZoneStats`, 该分支永远走 catch,
+   * 注入逻辑从未被执行 —— 覆盖率 75.7%、app/api 分支余量被压到 0.33pt。
+   */
+  /** 数据块在 user 消息 (messages[1]), 提示词在 system —— 分别断言。 */
+  async function sentMessages(body: unknown): Promise<{ sys: string; user: string }> {
+    (global.fetch as jest.Mock).mockClear();
+    await coachPOST(postReq(body));
+    const init = (global.fetch as jest.Mock).mock.calls[0][1] as { body: string };
+    const parsed = JSON.parse(init.body) as { messages: { role: string; content: string }[] };
+    return { sys: parsed.messages[0].content, user: parsed.messages[1].content };
+  }
+
+  test('surface=analysis → 注入【区间结构】(配速+功率区间表)', async () => {
+    const { user } = await sentMessages({ days: 30, surface: 'analysis' });
+    expect(user).toContain('【区间结构】');
+    // 配速区间行与功率参照值都来自上面的 mock (参照 FTP 渲染为「参照 290W」)
+    expect(user).toContain('Z4');
+    expect(user).toContain('参照 290W');
+  });
+
+  test('surface=analysis 且 VDOT 缺失 → 功率区间照常注入 (无 vdot 参数的分支)', async () => {
+    const { getStats } = jest.requireMock('@/app/lib/db') as { getStats: jest.Mock };
+    getStats.mockReturnValueOnce({ averageVDOT: null });
+    const { user } = await sentMessages({ days: 30, surface: 'analysis' });
+    expect(user).toContain('【区间结构】');
+    expect(user).toContain('参照 290W');
+  });
+
+  test('非 analysis surface → 不注入【区间结构】', async () => {
+    const { user } = await sentMessages({ days: 30, surface: 'stats' });
+    expect(user).not.toContain('【区间结构】');
   });
 
   test('显式 startDate/endDate → 用户消息里用的是这个区间', async () => {

@@ -438,6 +438,25 @@ FTP 缺失不猜 / 海拔比值 / 尖峰过滤）、`tests/unit/pages/activity-d
 （概览 IF·TSS·W/kg·瞬时峰值 / 尖峰不展示 / 净高差与累计爬升分开 / 最高步频 /
 渲染条件不依赖单一罕见字段 / 非跑步不展示）。
 
+#### 覆盖率「余量」必须在门禁流程内自查（2026-10-30）
+
+门槛（`coverageThreshold`）只保证「不低于」，**不保证有安全边际**。曾把 global branches
+门槛设 88 而实测 88.07（余量 0.07pt），本地绿 CI 红。规则：每组每项余量 ≥
+`min(1.5, 100-gate-0.5)`pt（`tests/unit/ci/threshold-margin.test.ts`）。
+
+但这道守护有个**流程盲区**：`npm run test:ci` 先删 `coverage/` 再跑测试，Jest 的
+门槛检查执行时产物尚不存在，threshold-margin 测试因「产物不新鲜」被 skip ——
+**门槛守住了，余量侵蚀无人报告**。app/api branches 就这样滑到 0.33pt
+（`insight/coach/route.ts` 加了 `surface` 分支但 mock 缺三个 db 函数，
+`surface==='analysis'` 注入逻辑从未被执行）。
+
+修法（两层）：
+1. 摘要脚本 `scripts/testing/coverage-summary.js` 内建 `checkMargins`：余量不足标
+   `⚠`（达标但不安全）并输出明细行 —— 门禁流程内每轮必查，不依赖运行方式。
+2. 补齐真实缺口：`insight-coach-route.test.ts` 的 db mock 补 `getStats`/
+   `getPaceZoneStats`/`getPowerZoneStats`，新增 `surface=analysis` 用例断言
+   【区间结构】真的进入 user 消息（app/api branches 0.33pt → 4.33pt）。
+
 #### 守卫升级：`Activity` 的 71 个字段也要机器审计
 
 `Activity` 是数据库原始行，比 `InsightResponse` 更容易藏「有值但从不展示」。守卫扩展
@@ -1347,6 +1366,7 @@ AI 教练有两种**能力维度**，它们的数据单位与结论都不同，*
 | **区间平均跑力取算术平均，且三处实现必须相等** | `getStats().averageVDOT` / `getPeriodStats().avgVDOT` / `insight.computeVdotTrend().mean`（刻意不按距离/时间加权：VDOT 是估计值不是速率，实测三种权重差 <1%） | `tests/unit/lib/db-group-avg.test.ts`（`getPeriodStats().avgVDOT ≡ insight.vdot.mean`，9 位小数） |
 | **SQL 注释里不得出现反引号** | `app/lib/db.ts` / `scripts/common/db-manager.js` 的模板字符串（2026-10-27～29 踩了 5 次，每次都是整站编译不过） | `tests/unit/ci/sql-template-hygiene.test.ts`（扫描 `^\s*--` 行；含一条自测确认守卫本身会转红） |
 | **计时器列全缺时，秒数由 `配速 × 距离` 还原** | `pace.sampleSeconds`（`seconds` 优先，否则 `pace × distance`）；区间表用它算 lap 秒数 | `tests/unit/lib/db-zones-samples.test.ts`（`duration=0` 的 lap → `total_duration` 330s 而非 0） |
+| **覆盖率余量必须在门禁流程内自查** | `scripts/testing/coverage-summary.js` 的 `checkMargins`（摘要表标 ⚠ + 明细行）；`tests/unit/ci/threshold-margin.test.ts` 在有新鲜产物时同样校验 | `tests/unit/scripts/coverage-summary.test.js`（requiredMargin 公式 / 余量不足被报告 / ⚠ 不算失败）+ `tests/unit/api/insight-coach-route.test.ts`（`surface=analysis` 注入断言, app/api branches 余量 0.33 → 4.33pt） |
 | **追问建议必须与所在界面的能力同域** | `followup-suggestions.ts`：只输出「这一次的执行 / 这一次的代价 / 下一次怎么练」；输入只含 `tsb`/`weeklyVolumeChangePct`/`vdotTrend`，**不含近 28 天区间占比** | `tests/unit/components/followup-suggestions.test.ts`（反向断言：5 种场景下任何建议都不得出现 PB / 目标 / 赛季 / 月跑量 / 训练结构是否合理；安全兜底恒为最后一条） |
 | **周维度 CTL/ATL/TSB 必须进入教练上下文** | `insight-coach.ts` 的「训练负荷(EWMA)」行（取末周期末值 + TSB 状态词 + 截至周/截断标记） | `tests/unit/lib/insight-coach.test.ts`（逐字 `CTL 46.3 / ATL 26.2 / TSB +20.1（新鲜） / 截至 2026-W43(截断)`；取首周立即转红） |
 | **「次数」是跑步次数，不是天数** | `DailyLoad.runs` / `TrainingLoadPoint.runs` 由 SQL `COUNT(*)` 提供；聚合层只做加法（`d.runs ?? 1`） | `tests/unit/lib/insight-branches.test.ts`（一天三练 → 3 次而非 1 次）+ `tests/unit/lib/insight-compare.test.ts`（同一天两练 → 周 `activities` 为 3 而非 2；改回 `n += 1` 立即转红） |
