@@ -17,7 +17,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { spawnSync } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 
 const ROOT = path.join(__dirname, '..', '..', '..');
 const SCRIPT_PATH = path.join(ROOT, 'scripts', 'deploy-prod.sh');
@@ -102,9 +102,175 @@ describe('deploy-prod.sh 部署契约', () => {
     // 失败分支里**不得**出现无条件 `rm -rf "$BUILD_DIR"` 而没有回滚
     expect(failBody).not.toMatch(/rm -rf "\$BUILD_DIR"\s*\n\s*exit 1/);
 
-    // 备份只在构建成功后删除
-    const successBlock = buildStep.slice(buildStep.indexOf('restore_data_link\ntrap - EXIT'));
-    expect(successBlock).toContain('rm -rf "$(prev_dir)"');
+    // 备份只在构建成功后删除（成功路径在构建 if 块之后；失败分支不得删备份）
+    expect(buildStep.indexOf('rm -rf "$(prev_dir)"')).toBeGreaterThan(
+      buildStep.indexOf('run_build_in_scope'),
+    );
+    expect(failBody).not.toContain('rm -rf "$(prev_dir)"');
+  });
+
+  // ── 2026-10-29/30 事故加固：互斥 / 残留哨兵 / 时间戳 / 全窗口兜底 ──────────
+  // 事故链：03:10 构建被 kill → 脚本退出 → 服务停 17 小时 48 分；哨兵
+  // `app/data.link.bak` 留在原地，而看门狗只看「存在」不看「多久」，全程静默。
+
+  test('部署互斥：flock 必须在停服之前拿锁（并发部署会互相覆盖 .next）', () => {
+    const lockAt = src.indexOf('flock -n 9');
+    expect(lockAt).toBeGreaterThan(-1);
+    const stopAt = src.search(/^\s*systemctl --user stop/m);
+    expect(stopAt).toBeGreaterThan(lockAt);
+  });
+
+  test('哨兵时间戳：mv 之后必须 touch -h（否则年龄判据永远显示几十天前）', () => {
+    const mvAt = src.indexOf('mv "$ROOT/app/data" "$DATA_LINK_BAK"');
+    const touchAt = src.indexOf('touch -h "$DATA_LINK_BAK"');
+    expect(mvAt).toBeGreaterThan(-1);
+    expect(touchAt).toBeGreaterThan(mvAt);
+  });
+
+  test('失败安全网：trap 必须在停服之后、stash 之前安装', () => {
+    const stopAt = src.search(/^\s*systemctl --user stop/m);
+    const trapAt = src.indexOf('trap deploy_guard EXIT');
+    const stashAt = src.indexOf('stash_build\n');
+    expect(trapAt).toBeGreaterThan(stopAt);
+    expect(stashAt).toBeGreaterThan(trapAt);
+  });
+
+  /**
+   * 沙箱执行器：桩掉 systemctl / systemd-run / curl / next，真跑部署脚本。
+   * 每个用例独立沙箱 —— 用例之间不能靠顺序共享状态。
+   */
+  const makeSandbox = (prefix: string) => {
+    const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+    const calls = path.join(sandbox, 'calls.log');
+    const stub = path.join(sandbox, 'stub');
+    const sh = (file: string, body: string) => {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, body);
+      fs.chmodSync(file, 0o755);
+    };
+    fs.mkdirSync(path.join(sandbox, 'scripts'), { recursive: true });
+    fs.copyFileSync(SCRIPT_PATH, path.join(sandbox, 'scripts', 'deploy-prod.sh'));
+    fs.mkdirSync(path.join(sandbox, 'node_modules'), { recursive: true });
+    fs.writeFileSync(path.join(sandbox, 'node_modules', '.package-lock.json'), '{}');
+    sh(path.join(stub, 'systemctl'), `#!/bin/sh\necho "systemctl $*" >> "${calls}"\nexit 0\n`);
+    sh(path.join(stub, 'systemd-run'), `#!/bin/sh\nexit 1\n`);
+    sh(
+      path.join(stub, 'curl'),
+      '#!/bin/sh\n' +
+        `echo "curl $*" >> "${calls}"\n` +
+        'case "$*" in\n' +
+        '  *"pbrun/list"*)\n' +
+        '    case "$*" in\n' +
+        '      *"-o /dev/null"*) printf 200 ;;\n' +
+        '      *) printf \'<html><link rel=stylesheet href="/pbrun/_next/static/css/a.css"></html>\' ;;\n' +
+        '    esac ;;\n' +
+        '  *) printf 200 ;;\n' +
+        'esac\n',
+    );
+    const run = () =>
+      spawnSync('bash', [path.join(sandbox, 'scripts', 'deploy-prod.sh'), '--no-pull'], {
+        cwd: sandbox,
+        encoding: 'utf8',
+        timeout: 60_000,
+        env: { ...process.env, PATH: `${stub}:${process.env.PATH}` },
+      });
+    const log = () => (fs.existsSync(calls) ? fs.readFileSync(calls, 'utf8') : '');
+    const cleanup = () => fs.rmSync(sandbox, { recursive: true, force: true });
+    return { sandbox, calls, sh, run, log, cleanup };
+  };
+
+  test('残留哨兵：上次被强杀留下的 data.link.bak 必须先恢复，且新哨兵打上时间戳', () => {
+    const b = makeSandbox('pbrun-stale-');
+    try {
+      const target = path.join(b.sandbox, 'blk');
+      fs.mkdirSync(target, { recursive: true });
+      // 残留现场：stash 后被 SIGKILL —— app/data 是空目录，哨兵是指向块存储的软链
+      fs.mkdirSync(path.join(b.sandbox, 'app', 'data'), { recursive: true });
+      fs.symlinkSync(target, path.join(b.sandbox, 'app', 'data.link.bak'));
+      fs.mkdirSync(path.join(b.sandbox, '.next'), { recursive: true });
+      fs.writeFileSync(path.join(b.sandbox, '.next', 'BUILD_ID'), 'OLD');
+      // next 桩：成功，并把**构建期间**哨兵的 mtime 记下来（验时间戳是否生效）
+      b.sh(
+        path.join(b.sandbox, 'node_modules', '.bin', 'next'),
+        '#!/bin/sh\n' +
+          `echo "next $*" >> "${b.calls}"\n` +
+          `stat -c %Y "${path.join(b.sandbox, 'app', 'data.link.bak')}" >> "${b.calls}" 2>/dev/null\n` +
+          'exit 0\n',
+      );
+
+      const r = b.run();
+      expect(r.status).toBe(0);
+      expect(r.stdout).toContain('残留哨兵');
+      // 软链已恢复，哨兵消失
+      expect(fs.lstatSync(path.join(b.sandbox, 'app', 'data')).isSymbolicLink()).toBe(true);
+      expect(fs.existsSync(path.join(b.sandbox, 'app', 'data.link.bak'))).toBe(false);
+      // 构建期间哨兵 mtime 是「刚刚」，而不是软链创建时的几十天前
+      const stamps = b
+        .log()
+        .split('\n')
+        .map((l) => Number(l.trim()))
+        .filter((n) => Number.isFinite(n) && n > 1_000_000_000);
+      expect(stamps.length).toBeGreaterThan(0);
+      const ageSec = Math.floor(Date.now() / 1000) - Math.min(...stamps);
+      expect(ageSec).toBeLessThan(120);
+    } finally {
+      b.cleanup();
+    }
+  });
+
+  test('停服后早期失败也必须拉起服务（沙箱：stash 阶段不可写）', () => {
+    const b = makeSandbox('pbrun-guard-');
+    try {
+      const target = path.join(b.sandbox, 'blk');
+      fs.mkdirSync(target, { recursive: true });
+      fs.mkdirSync(path.join(b.sandbox, 'app'), { recursive: true });
+      fs.symlinkSync(target, path.join(b.sandbox, 'app', 'data'));
+      fs.mkdirSync(path.join(b.sandbox, '.next'), { recursive: true });
+      fs.writeFileSync(path.join(b.sandbox, '.next', 'BUILD_ID'), 'OLD');
+      b.sh(path.join(b.sandbox, 'node_modules', '.bin', 'next'), '#!/bin/sh\nexit 0\n');
+      // 让 stash_data_link 的 mv 失败：app/ 不可写（模拟停服后、构建前的失败）
+      fs.chmodSync(path.join(b.sandbox, 'app'), 0o555);
+
+      const r = b.run();
+      expect(r.status).toBe(1);
+      // 产物已回滚（不是半成品，也没被删光）
+      expect(fs.readFileSync(path.join(b.sandbox, '.next', 'BUILD_ID'), 'utf8')).toBe('OLD');
+      // 服务必须被拉起 —— 这是「失败也不能让站点下线」的全部含义
+      expect(b.log()).toMatch(/systemctl --user start pbRun\.service/);
+      expect(r.stderr + r.stdout).toContain('[guard]');
+    } finally {
+      try {
+        fs.chmodSync(path.join(b.sandbox, 'app'), 0o755);
+      } catch {
+        /* ignore */
+      }
+      b.cleanup();
+    }
+  });
+
+  test('并发部署被拒绝：锁被占用时直接退出，且不碰服务', () => {
+    const b = makeSandbox('pbrun-lock-');
+    // detached: 自成进程组 —— flock 的 sleep 子进程会继承锁 fd,
+    // 只 kill 父进程的话锁会继续被子进程持有 30s (Jest 报 open handle)。
+    const holder = spawn('flock', [path.join(b.sandbox, '.deploy.lock'), 'sleep', '30'], {
+      detached: true,
+      stdio: 'ignore',
+    });
+    try {
+      // 等持锁进程真正拿到锁
+      spawnSync('sleep', ['0.3']);
+      const r = b.run();
+      expect(r.status).toBe(1);
+      expect(r.stderr).toContain('拒绝并发部署');
+      expect(b.log()).not.toContain('--user stop');
+    } finally {
+      try {
+        process.kill(-holder.pid!, 'SIGKILL');
+      } catch {
+        /* ignore */
+      }
+      b.cleanup();
+    }
   });
 
   /**

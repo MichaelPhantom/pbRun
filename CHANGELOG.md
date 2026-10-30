@@ -137,6 +137,24 @@
   避免同一条路线的 5K 与 30K 直接对比。详情 UI 的 ±25% fallback 不变。
 
 ### Fixed
+- **部署脚本在**任意**失败点都不会把站点留在停止态**（2026-10-29 事故：构建被 kill 后
+  服务停了 17 小时 48 分，哨兵 `app/data.link.bak` 留在原地让看门狗全程静默）。四条边界：
+  - **全窗口安全网**：`systemctl --user stop` 之后立即 `trap deploy_guard EXIT` —— 恢复
+    `app/data` 软链 → 回滚上一版产物 → 拉起服务 → 健康检查。旧实现只在「构建失败」分支
+    兜底，stash / 软链恢复阶段的失败同样会让服务一直停着。成功路径置 `DEPLOY_OK=1` 空转。
+  - **互斥锁**：`flock -n .deploy.lock`（停服前）。两个会话同时部署会互相 `mv`
+    `.next/.next.prev`，把半成品当成「上一版」备份；锁随进程死亡自动释放（SIGKILL 也一样），
+    不会留下需要人工清的 stale lock。
+  - **残留哨兵自动修复**：持锁后若 `app/data.link.bak` 存在（上次部署被强杀），先恢复
+    `app/data` 再继续 —— 否则 `stash_data_link` 会把新软链覆盖上去，旧哨兵指向的块存储
+    就此失去引用。
+  - **哨兵打时间戳**：`mv`(rename) 不更新 mtime，而软链的 mtime 是它被创建的时刻 ——
+    看门狗按 mtime 判「哨兵存在多久」，不打戳就会永远显示几十天前（2026-10-30 实测
+    46.9 天），30 分钟抑制窗口形同虚设。`stash_data_link` 里补 `touch -h`。
+  - `restore_build` 改幂等：只在备份存在时才动 `.next`（旧实现会先删掉唯一可用产物
+    再报告「没有可回滚的备份」）。
+  - 契约测试 8 → 12 例：锁占用的沙箱真跑、残留哨兵修复 + 时间戳年龄、停服后早期失败
+    拉起服务；变异 4/4 转红。
 - **CI e2e 三引擎从 2026-10-25 起持续失败：`ubuntu-latest` 迁移到 Ubuntu 26，
   而 Playwright 1.59.1 没有对应的依赖表**。`npx playwright install --with-deps`
   按 `hostPlatform.js` 把发行版映射到 `nativeDeps` 的键（只有 ubuntu20.04/22.04/24.04），

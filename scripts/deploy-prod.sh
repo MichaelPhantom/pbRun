@@ -28,6 +28,10 @@ stash_data_link() {
   if [ -L "$ROOT/app/data" ]; then
     echo "      app/data 为软链 (-> $(readlink "$ROOT/app/data"))，构建时临时替身"
     mv "$ROOT/app/data" "$DATA_LINK_BAK"
+    # mv (rename) **不更新 mtime**, 只改 ctime —— 而软链的 mtime 是它被创建的时刻。
+    # 看门狗按 mtime 判「哨兵存在多久」(超过 30min 视为残留), 不打时间戳它就会
+    # 永远显示几十天前 (2026-10-30 实测 46.9 天), 年龄判据等于没有。
+    touch -h "$DATA_LINK_BAK" 2>/dev/null || true
     mkdir -p "$ROOT/app/data"
   fi
 }
@@ -74,8 +78,10 @@ stash_build() {
 }
 
 restore_build() {
-  rm -rf "$BUILD_DIR"
+  # 幂等: 只在备份存在时才动 BUILD_DIR —— 否则「没有可回滚的产物」时
+  # 会先把唯一可用的产物删掉再报告没有备份 (旧实现的真实缺陷)。
   if [ -e "$(prev_dir)" ]; then
+    rm -rf "$BUILD_DIR"
     mv "$(prev_dir)" "$BUILD_DIR"
     echo "      已回滚上一版产物"
   else
@@ -148,6 +154,32 @@ if [ "${1:-}" = "--verify" ]; then
   exit $?
 fi
 
+# ── 部署互斥 (flock) ───────────────────────────────────────────────────
+# 两个会话同时部署会互相 mv .next/.next.prev: 一个在构建, 另一个把半成品当成
+# 「上一版」备份 —— 站点静默 500 (与 2026-10-26 事故同形, 只是触发者不同)。
+# flock 随进程死亡自动释放 (SIGKILL 也一样), 不存在 stale lock 需要人工清。
+if command -v flock >/dev/null 2>&1; then
+  exec 9>"$ROOT/.deploy.lock"
+  if ! flock -n 9; then
+    echo "[✗] 另一个部署正在进行 (.deploy.lock 被占用) —— 拒绝并发部署" >&2
+    exit 1
+  fi
+fi
+
+# ── 残留哨兵修复 ───────────────────────────────────────────────────────
+# 被 SIGKILL 的部署会留下 app/data.link.bak (trap 对 SIGKILL 无效)。带着它部署,
+# stash_data_link 会把新软链 mv 覆盖上去, 旧哨兵指向的块存储就此失去引用。
+# 此刻已持有 flock ⇒ 没有别的部署在跑 ⇒ 这个哨兵必然是残留, 先恢复再继续。
+if [ -e "$DATA_LINK_BAK" ]; then
+  if [ -L "$ROOT/app/data" ]; then
+    echo "[0/5] ⚠ 残留哨兵与 app/data 软链并存 —— 保留现役软链, 清掉哨兵"
+    rm -f "$DATA_LINK_BAK"
+  else
+    echo "[0/5] 发现残留哨兵 (上次部署被强杀?) —— 先恢复 app/data"
+    restore_data_link
+  fi
+fi
+
 if [ "${1:-}" != "--no-pull" ]; then
   echo "[1/5] git pull"
   git pull --rebase
@@ -163,22 +195,48 @@ fi
 echo "[3/5] 停止服务 (避免 next start 持有旧 .next 时被覆盖)"
 systemctl --user stop "$SERVICE"
 
+# ── 失败安全网（覆盖**整个**停服窗口）────────────────────────────────────
+# 2026-10-29 事故: 服务停了 17 小时 48 分, 脚本退出后再也没人拉起。
+# 当时只在「构建失败」分支兜底 —— 而 stash/软链恢复阶段的失败同样会让站点
+# 一直停着。从此刻起, 任何非成功退出都必须: 恢复软链 → 回滚产物 → 拉起服务。
+# 成功路径置 DEPLOY_OK=1, 安全网空转; 已自行兜底的分支置 DEPLOY_GUARD_DONE=1。
+DEPLOY_OK=0
+DEPLOY_GUARD_DONE=0
+deploy_guard() {
+  local rc=$?
+  if [ "$DEPLOY_OK" = "1" ] || [ "$DEPLOY_GUARD_DONE" = "1" ]; then
+    return 0
+  fi
+  echo "[guard] 部署未完成 (rc=$rc) —— 兜底: 恢复软链 / 回滚产物 / 拉起服务" >&2
+  restore_data_link || true
+  if [ -e "$(prev_dir)" ] && [ ! -e "$BUILD_DIR" ]; then
+    restore_build || true
+  fi
+  if [ -L "$ROOT/app/data" ] || [ ! -e "$DATA_LINK_BAK" ]; then
+    systemctl --user start "$SERVICE" || true
+    sleep 2
+    verify || echo "[guard] ✗ 兜底后健康检查仍失败 —— 需要人工介入" >&2
+  else
+    echo "[guard] ✗ app/data 仍不是软链, 拒绝启动 (避免把数据写进仓库目录)" >&2
+  fi
+  return 0
+}
+trap deploy_guard EXIT
+
 echo "[4/5] 构建 (unset NODE_ENV: 防止 Next 16 误判环境)"
 stash_build
 stash_data_link
-trap restore_data_link EXIT
 if ! run_build_in_scope; then
   restore_data_link
-  trap - EXIT
   echo "[4/5] ✗ 构建失败 —— 回滚上一版产物并重启服务（绝不把站点留在 502）" >&2
   restore_build
   systemctl --user start "$SERVICE" || true
   sleep 2
   verify || true
+  DEPLOY_GUARD_DONE=1     # 已兜底, 不让安全网再重复一遍
   exit 1
 fi
 restore_data_link
-trap - EXIT
 # 构建成功才丢弃备份
 rm -rf "$(prev_dir)"
 
@@ -195,4 +253,5 @@ systemctl --user start "$SERVICE"
 
 sleep 2
 verify
+DEPLOY_OK=1          # 成功: 让 EXIT 安全网空转
 echo "部署完成 ✓ (日志: journalctl --user -u pbRun -f)"

@@ -17,6 +17,7 @@
 /.next/
 /.next-e2e/
 /.next.prev/
+/.deploy.lock
 /.next-e2e.prev/
 /out/
 

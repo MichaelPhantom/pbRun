@@ -126,6 +126,23 @@ Error [TurbopackInternalError]: Failed to write app endpoint /page
 
 ---
 
+### 3. 部署的四个硬边界（失败也不能让站点下线）
+
+2026-10-29：一次构建被 kill 的部署让服务停了 **17 小时 48 分**，且脚本留下的
+`app/data.link.bak` 让站点看门狗全程静默。之后 `scripts/deploy-prod.sh` 补成：
+
+| 边界 | 实现 | 为什么 |
+|------|------|--------|
+| 互斥 | `flock -n .deploy.lock`（停服前拿锁） | 两个会话同时部署会互相 `mv .next/.next.prev`，把半成品当成「上一版」备份 |
+| 残留哨兵 | 持锁后若 `app/data.link.bak` 存在则先恢复 `app/data` | 被 SIGKILL 的部署留下哨兵，下次部署会把新软链覆盖上去 |
+| 哨兵时间戳 | `stash_data_link` 里 `touch -h` | `mv` 不更新 mtime（软链 mtime = 创建时刻），不打戳会让看门狗的年龄判据永远显示几十天前 |
+| 全窗口兜底 | 停服后立即 `trap deploy_guard EXIT` | 旧实现只在构建失败分支兜底；stash / 软链阶段失败会让服务一直停着 |
+
+看门狗侧（cft `base/monitor/site-watchdog.sh`）对应：哨兵存在 > 30 分钟视为残留，
+恢复正常巡检并留痕；部署进程同理（`etimes` 超过 30 分钟视为卡死）。
+
+---
+
 ## 磁盘清理白名单
 
 实测一次完整清理：根分区 **90% → 76%**（可用 4.8G → 11G）。
@@ -252,6 +269,8 @@ cat /home/ubuntu/u1rescue-20260914.tar.gz.part-a{a,b} | tar -xzf - -C /restore/t
 | 根分区 90%+ | [磁盘清理白名单](#磁盘清理白名单)；大头通常在 `~/.hermes`、`~/.cache`、`/usr`、`/snap` |
 | 页面数据是旧的 | 同步只写 DB、无需重启；确认同步完成 → `/api/health?deep=1`，同步细节见 [数据同步说明](data-sync.md) |
 | 改了代码但 MCP 行为没变 | `mcp-server/dist` 未重建 → `npm run build:mcp` |
+| 部署报「另一个部署正在进行」 | `flock` 拒绝对并发部署；确认没有真部署再重试（锁随进程退出自动释放，不用手删） |
+| 部署中途被 kill 后服务没起来 | 看门狗 ~10 分钟内会推企微；重跑 `deploy-prod.sh` 会自动修复残留哨兵并恢复站点 |
 
 ---
 
