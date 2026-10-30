@@ -12,7 +12,7 @@ import { ActivityInsightPanel, ROLE_LABEL, ROLE_TONE } from '@/app/lib/component
 import { AiAnalysis } from '@/app/lib/components/ai/AiAnalysis';
 import { activityTypeIcon, activityTypeName, isInformativeTypeValue, isRunningType } from '@/app/lib/sport';
 import { powerIntensity } from '@/app/lib/power';
-import { hrZoneColor } from '@/app/lib/hr-zones';
+import { hrZoneBadgeStyle } from '@/app/lib/hr-zones';
 import { dominantZone } from '@/app/lib/activity-insight';
 import {
   lapBestBadgeLabel,
@@ -442,7 +442,10 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
                     return (
                       <span
                         className="inline-block rounded px-1.5 py-0.5 text-[10px] font-medium leading-none sm:text-[11px]"
-                        style={{ background: `color-mix(in srgb, ${hrZoneColor(z)} 16%, transparent)`, color: hrZoneColor(z) }}
+                        // 徽章样式必须复用 `hrZoneBadgeStyle`: 主色当文字在同色浅底上
+                        // 对比度只有 3.59（< 4.5 AA, axe serious）。此前这里手写了一份
+                        // 「单概念两实现」, e2e a11y 桌面+移动端同时失败。
+                        style={hrZoneBadgeStyle(z, 16)}
                         title={`该段心率主要落在 Z${z}（按逐秒心率推导的 5 区口径）`}
                       >
                         Z{z}

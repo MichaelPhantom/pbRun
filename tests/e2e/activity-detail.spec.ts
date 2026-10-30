@@ -119,10 +119,13 @@ test.describe('活动详情页', () => {
     await page.waitForTimeout(1000);
     // 夹具: total_ascent 25m / min 284m / max 312m → 净高差 28m。
     // 两个数是不同语义, 标签必须能区分, 否则用户以为数据矛盾。
+    // 断言必须**限定在指标卡内**: 「环境可比」卡里也有「本次爬升 25」,
+    // 裸 getByText('25', {exact:true}) 会命中两个元素 (strict mode violation)。
+    const metric = (label: string) => page.getByText(label, { exact: true }).locator('..');
     await expect(page.getByText('累计爬升')).toBeVisible();
-    await expect(page.getByText('25', { exact: true })).toBeVisible();
+    await expect(metric('累计爬升').getByText('25', { exact: true })).toBeVisible();
     await expect(page.getByText('海拔净高差')).toBeVisible();
-    await expect(page.getByText('28', { exact: true })).toBeVisible();
+    await expect(metric('海拔净高差').getByText('28', { exact: true })).toBeVisible();
   });
 
   test('跑步动态应显示最高步频 (241/241 跑步活动有值)', async ({ page }) => {
@@ -150,7 +153,8 @@ test.describe('活动详情页', () => {
     await page.goto('/pbrun/pages/900000001');
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(1000);
-    await expect(page.getByRole('heading', { name: 'AI 教练分析' })).toBeVisible();
+    // 34d9906 起标题区分能力维度: 「AI 单次训练分析」+「单次活动」徽标
+    await expect(page.getByRole('heading', { name: 'AI 单次训练分析' })).toBeVisible();
   });
 
   test('应支持返回列表页', async ({ page }) => {

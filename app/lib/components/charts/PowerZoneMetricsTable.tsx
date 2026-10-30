@@ -2,7 +2,8 @@
 
 import type { PowerZoneReference, PowerZoneStat } from '@/app/lib/types';
 import { formatDuration } from '@/app/lib/format';
-import { powerZoneColor, powerZoneRanges } from '@/app/lib/power-zones';
+import { powerZoneRanges } from '@/app/lib/power-zones';
+import { hrZoneBadgeStyle } from '@/app/lib/hr-zones';
 import { DataTable, type DataTableColumn } from '@/app/components/ui/DataTable';
 
 interface PowerZoneMetricsTableProps {
@@ -73,9 +74,12 @@ export default function PowerZoneMetricsTable({
           key: row.zone,
           cells: {
             zone: (
+              // 与配速/心率区间表同一徽章实现: 16% 同色浅底 + `--zN-text` 文字。
+              // 实心底 + 白字在 Z2/Z3（#1baf7a/#eda100）只有 2.0–2.4:1, Z1 也仅 4.41
+              // （< 4.5 AA）—— axe 报 serious, e2e a11y 连续三引擎失败。
               <span
                 className="inline-block whitespace-nowrap rounded px-1.5 py-0.5 font-medium"
-                style={{ background: powerZoneColor(row.zone), color: '#fff' }}
+                style={hrZoneBadgeStyle(row.zone, 14)}
               >
                 {row.zone_name}
               </span>
