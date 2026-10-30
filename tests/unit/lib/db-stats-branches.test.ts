@@ -32,6 +32,7 @@ jest.mock('better-sqlite3', () =>
 jest.mock('fs', () => ({ existsSync: jest.fn(() => true) }));
 jest.mock('path', () => ({ join: jest.fn((...a: string[]) => a.join('/')) }));
 
+import { LOCAL_TZ_OFFSET_MIN } from '@/app/lib/timezone';
 import {
   getStats,
   getPaceZoneStats,
@@ -71,25 +72,34 @@ describe('getStats 时间口径与兜底', () => {
     expect(res.totalDistance).toBe(30000); // km → m
   });
 
+  /**
+   * SQL 边界是 **UTC 时刻**（本地午夜 = UTC 前一天 16:00, 应用固定 +480）。
+   * 断言必须换算回应用时区再读星期/小时，**不能用 `new Date(iso).getDay()`** ——
+   * 那是「进程时区」的解读：本地 Asia/Shanghai 恰好通过，CI 的 TZ=UTC 读到周日
+   * 16:00 直接失败（2026-10-30 CI 红）。
+   */
+  const localWallClock = (iso: string) =>
+    new Date(new Date(iso).getTime() + LOCAL_TZ_OFFSET_MIN * 60_000);
+
   test('week 口径从当周周一开始 (周一 00:00 之前不计)', () => {
     getStats('week');
     const iso = capturedParams()[0] as string;
-    const start = new Date(iso);
-    expect(start.getDay()).toBe(1); // 周一
-    expect(start.getHours()).toBe(0);
+    const start = localWallClock(iso);
+    expect(start.getUTCDay()).toBe(1); // 周一
+    expect(start.getUTCHours()).toBe(0);
   });
 
   test('month：从当月 1 号开始; year：从 1 月 1 日开始', () => {
     getStats('month');
-    const monthStart = new Date(capturedParams()[0] as string);
-    expect(monthStart.getDate()).toBe(1);
+    const monthStart = localWallClock(capturedParams()[0] as string);
+    expect(monthStart.getUTCDate()).toBe(1);
 
     mockGet.mockClear();
     mockPrepare.mockClear();
     getStats('year');
-    const yearStart = new Date(capturedParams()[0] as string);
-    expect(yearStart.getMonth()).toBe(0);
-    expect(yearStart.getDate()).toBe(1);
+    const yearStart = localWallClock(capturedParams()[0] as string);
+    expect(yearStart.getUTCMonth()).toBe(0);
+    expect(yearStart.getUTCDate()).toBe(1);
   });
 
   test('未传 period → 无时间过滤 (default 分支)', () => {
