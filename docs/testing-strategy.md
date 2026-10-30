@@ -997,6 +997,22 @@ expect(distToTimer).toBeLessThanOrEqual(1);              // ±1s 取整误差
 且不得 > 15pt（防门槛长期不更新）。守护只认**新鲜**的覆盖率产物（产物比最新源文件旧则跳过），
 避免拿旧数据误判。
 
+**e2e 本地复现**（2026-10-30 补齐）：本机可以跑 e2e，前提是**浏览器版本与
+`@playwright/test` 对齐**（`npx playwright install chromium`；缓存里旧版本会在
+`browserType.launch` 直接报 Executable doesn't exist），且**不要重复构建**：
+
+```bash
+node scripts/testing/make-fixture-db.js                       # 夹具库
+DIST_DIR=.next DB_PATH="$(pwd)/tests/fixtures/activities.db" \
+  npx next start -p 3000 -H 127.0.0.1 &                       # 复用最近一次生产构建
+npx playwright test --project=chromium --workers=1            # 单引擎先定位
+```
+
+两个坑：① 部署会**替换 `.next`**，正在跑的旧 `next start` 会读到缺失 chunk，
+表现为大面积失败 —— 部署后必须重启 3000 的服务；② Playwright 报
+`EADDRINUSE` 说明 3000 仍是旧进程（`fuser -k 3000/tcp`），它会静默测到旧产物。
+2026-10-30 用此方式复现出 CI 的 6 个 e2e 失败并修复后 64/64 通过。
+
 **e2e 可诊断性**（2026-09-27）：CI 里 Playwright reporter 为 `line`（控制台逐行输出，
 不下载 artifact 也能定位失败）+ HTML 报告；`trace: on-first-retry`、`screenshot: only-on-failure`；
 工件以 `if: always()` 上传（成功也保留报告便于抽查），`test-results/` 含失败截图与 trace。

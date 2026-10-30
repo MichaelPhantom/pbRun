@@ -110,6 +110,25 @@ describe('可访问性: 区间表格', () => {
     expect(badge.textContent).toMatch(/Z2/);
   });
 
+  /**
+   * 徽章对比度只能有一个实现: 16% 同色浅底 + `--zN-text` 文字
+   * (`hrZoneBadgeStyle`)。功率表曾用「实心底 + 白字」(Z1 4.41 / Z2 2.4 / Z3 2.0,
+   * axe serious), 活动详情分段表曾用「主色当文字」(3.59) —— 都是手写分叉,
+   * 桌面上 e2e a11y 连续三引擎失败。这条测试在组件层守住, 不必等 e2e。
+   */
+  test.each([
+    ['HrZoneMetricsTable', () => render(<HrZoneMetricsTable data={hrRows} />), /var\(--z\d-text\)/],
+    ['PaceZoneMetricsTable', () => render(<PaceZoneMetricsTable data={paceRows} />), /var\(--z\d-text\)/],
+    ['PowerZoneMetricsTable', () => render(<PowerZoneMetricsTable data={powerRows} reference={powerRef} />), /var\(--z\d-text\)/],
+  ])('%s 首列徽章文字用 --zN-text (对比度 AA), 不用白字/主色', (_name, renderTable, re) => {
+    const { container } = renderTable();
+    const badge = container.querySelector('tbody td:first-child span') as HTMLElement;
+    expect(badge).not.toBeNull();
+    expect(badge.style.color).toMatch(re as RegExp);
+    expect(badge.style.color).not.toBe('#fff');
+    expect(badge.style.color).not.toMatch(/var\(--z\d\)$/);
+  });
+
   test('PaceZoneMetricsTable 首列徽章单行', () => {
     const { container } = render(<PaceZoneMetricsTable data={paceRows} />);
     const firstCell = container.querySelector('tbody td:first-child')!;
