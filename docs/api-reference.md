@@ -842,7 +842,7 @@ Content-Type: application/json
 作为【区间环比】注入教练上下文（全部为**跑步口径**，非跑步活动不计入）；无上一区间活动或
 `days=0` 时自动省略。
 
-`model` 只接受白名单值（`app/lib/model-curation.ts`，共 15 项，与本机 opencode 的
+`model` 只接受白名单值（`app/lib/model-curation.ts`，共 11 项，与本机 opencode 的
 freellm provider 一致 —— 详见[可用模型列表](#17-可用模型列表)）：默认 `deepseek-flash-qd`，
 回退目标 `auto`；其余值在服务端清洗为默认模型。
 
@@ -1007,25 +1007,20 @@ GET /api/llm/models
 | 模型 id | 显示名 | 分组 | 思考 | 下发 `reasoning_effort: low` |
 
 > 取值来自 2026-10-29/30 两次网关实测（同提示 A/B，见 `app/lib/model-curation.ts` 文件头）。
-> 探测时不可用的 5 条（`deepseek-v4.1-flash-wb` / `space-bunny-wb` / `step-5-preview-wb` /
-> `glm-5.3-flash-wb` / `hy3-wb`）为保守值；`deepseek/deepseek-v4-flash-juzi` 已于 10-30
-> 复测证实为非思考模型（思考 0 字符）。
+> 探测时不可用的 3 条（`deepseek-v4.1-flash-wb` / `space-bunny-wb` /
+> `step-5-preview-wb`）为保守值。
 
 | `deepseek-flash-qd` | DeepSeek Flash (QD) | DeepSeek | 🧠 | 是 |
 | `deepseek-v4.1-flash-trae` | DeepSeek V4.1 Flash (Trae) | DeepSeek | 🧠 | 是 |
 | `deepseek-v4.1-flash-wb` | DeepSeek V4.1 Flash (WB) | DeepSeek | — | 否 |
-| `deepseek/deepseek-v4-flash-juzi` | DeepSeek V4 Flash (Juzi) | DeepSeek | — | 否 |
 | `glm-5.3-flash-qd` | GLM 5.3 Flash (QD) | GLM | 🧠 | 是 |
 | `glm-5.3-flash-trae` | GLM 5.3 Flash (Trae) | GLM | 🧠 | 否 |
-| `glm-5.3-flash-wb` | GLM 5.3 Flash (WB) | GLM | 🧠 | 否 |
-| `hy3-wb` | Hunyuan 3 (WB) | Hunyuan | 🧠 | 否 |
 | `mimo-v2.6-flash-trae` | MiMo V2.6 Flash (Trae) | MiMo | 🧠 | 是 |
 | `minimax-m3.1-flash-qd` | MiniMax M3.1 (QD) | MiniMax | — | 否 |
 | `minimax-m3.1-flash-trae` | MiniMax M3.1 (Trae) | MiniMax | 🧠 | 否 |
 | `qwen3.8-flash-qd` | Qwen3.8 Flash (QD) | Qwen | 🧠 | 否 |
 | `space-bunny-wb` | Space Bunny (WB) | Space Bunny | — | 否 |
 | `step-5-preview-wb` | Step 5 Preview (WB) | Step | — | 否 |
-| `z.ai/glm-5.2-juzi` | GLM 5.2 (Juzi) | GLM | 🧠 | 否 |
 - `configured`：`FREELLMAPI_KEY` / Base URL 是否就绪；未就绪时 `models` 可能为空，客户端仍可用默认模型。
 - `Cache-Control: no-store`；异常返回 `500 { "error": ... }`。
 

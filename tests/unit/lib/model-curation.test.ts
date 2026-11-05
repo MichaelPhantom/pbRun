@@ -24,24 +24,20 @@ const WHITELIST_IDS = [
   'deepseek-flash-qd',
   'deepseek-v4.1-flash-trae',
   'deepseek-v4.1-flash-wb',
-  'deepseek/deepseek-v4-flash-juzi',
   'glm-5.3-flash-qd',
   'glm-5.3-flash-trae',
-  'glm-5.3-flash-wb',
-  'hy3-wb',
   'mimo-v2.6-flash-trae',
   'minimax-m3.1-flash-qd',
   'minimax-m3.1-flash-trae',
   'qwen3.8-flash-qd',
   'space-bunny-wb',
   'step-5-preview-wb',
-  'z.ai/glm-5.2-juzi',
 ];
 
 describe('白名单常量', () => {
   test('与本机 opencode 的 freellm 清单逐项一致（同集合、同顺序）', () => {
     expect(MODEL_PRESETS.map((m) => m.id)).toEqual(WHITELIST_IDS);
-    expect(MODEL_PRESETS).toHaveLength(15);
+    expect(MODEL_PRESETS).toHaveLength(11);
   });
 
   test('每个 id 只出现一次（同集合）', () => {
@@ -94,16 +90,20 @@ describe('findPreset', () => {
     expect(findPreset('qwen3.8-flash-qd')?.series).toBe('Qwen');
   });
   test('带斜杠的 id 也能命中', () => {
-    expect(findPreset('z.ai/glm-5.2-juzi')?.series).toBe('GLM');
-    expect(findPreset('deepseek/deepseek-v4-flash-juzi')?.series).toBe('DeepSeek');
+    // 2026-11-05 起白名单不再有带斜杠的条目（4 个失效模型剔除后夹具只剩裸 id）；
+    // findPreset 的斜杠兼容是给「网关未来再用带命名空间的 id」留的。
+    expect(findPreset('deepseek/deepseek-v4-flash-juzi')).toBeUndefined();
+    expect(findPreset('z.ai/glm-5.2-juzi')).toBeUndefined();
   });
   test('空与未命中返回 undefined', () => {
     expect(findPreset('')).toBeUndefined();
     expect(findPreset('   ')).toBeUndefined();
     expect(findPreset('gpt-4o')).toBeUndefined();
-    // 已下线的旧白名单条目不再命中
+    // 已下线的旧白名单条目不再命中（含 2026-11-05 剔除的 4 个）
     expect(findPreset('kimi-k3')).toBeUndefined();
     expect(findPreset('gemini-3.7-flash')).toBeUndefined();
+    expect(findPreset('glm-5.3-flash-wb')).toBeUndefined();
+    expect(findPreset('hy3-wb')).toBeUndefined();
   });
 });
 
@@ -133,7 +133,17 @@ describe('resolveRequestedModel', () => {
   test('合法值原样放行 (含 auto)', () => {
     expect(resolveRequestedModel('glm-5.3-flash-qd')).toBe('glm-5.3-flash-qd');
     expect(resolveRequestedModel('auto')).toBe('auto');
-    expect(resolveRequestedModel('z.ai/glm-5.2-juzi')).toBe('z.ai/glm-5.2-juzi');
+  });
+  test('已从网关目录消失的旧白名单 id → 清洗回默认模型（自愈）', () => {
+    // 2026-11-05 剔除的 4 个：用户 localStorage 里存的旧选择不能每次分析都 404。
+    for (const dead of [
+      'deepseek/deepseek-v4-flash-juzi',
+      'glm-5.3-flash-wb',
+      'hy3-wb',
+      'z.ai/glm-5.2-juzi',
+    ]) {
+      expect(resolveRequestedModel(dead)).toBe(DEFAULT_MODEL);
+    }
   });
 });
 
@@ -152,23 +162,24 @@ describe('resolvePresets', () => {
 
   /**
    * 网关 `/models` 未列出 ≠ 不可用：它是「当前可用」的过滤视图（365 条里只列 145），
-   * 而实测 `z.ai/glm-5.2-juzi` 不在列表里却 2.6s 正常返回、`hy3-wb` 返回 429
+   * 历史实测 `z.ai/glm-5.2-juzi` 不在列表里却 2.6s 正常返回、`hy3-wb` 返回 429
    * （限流≠不存在）。按「未列出即置灰」会把能用的模型藏起来。
+   * （这两个模型 2026-11-05 已因目录除名被剔除 —— 政策不变，示例换现存条目。）
    */
   test('网关未列出 → 乐观可用（不把能用的模型藏起来）', () => {
     const out = resolvePresets(raw('deepseek-flash-qd', 'glm-5.3-flash-qd'));
     expect(out.find((m) => m.id === 'deepseek-flash-qd')?.available).toBe(true);
     expect(out.find((m) => m.id === 'glm-5.3-flash-qd')?.available).toBe(true);
-    expect(out.find((m) => m.id === 'hy3-wb')?.available).toBe(true);
+    expect(out.find((m) => m.id === 'step-5-preview-wb')?.available).toBe(true);
   });
 
   test('网关显式 available:false → 置灰（这是唯一可信的不可用信号）', () => {
     const out = resolvePresets([
       { id: 'deepseek-flash-qd', available: true },
-      { id: 'hy3-wb', available: false },
+      { id: 'step-5-preview-wb', available: false },
     ]);
     expect(out.find((m) => m.id === 'deepseek-flash-qd')?.available).toBe(true);
-    expect(out.find((m) => m.id === 'hy3-wb')?.available).toBe(false);
+    expect(out.find((m) => m.id === 'step-5-preview-wb')?.available).toBe(false);
   });
 
   test('网关返回时缺 name 用 preset 兜底显示名', () => {

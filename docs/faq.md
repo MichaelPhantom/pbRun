@@ -202,18 +202,22 @@ systemd-run --user --scope -- bash scripts/deploy-prod.sh   # 挪到无上限的
 - **为什么改**: `model-curation.ts` 原来每轮从网关 298 项里自动策展（每系列最新
   2 版 → 26 项），列表随网关改名漂移，且混入夹具/专用模型；实测默认 `auto`
   与若干思考模型存在失败率高、输出截断、长提示不吐首字节等问题。
-- **现在是什么（2026-10-29 调整）**: **与本机 opencode 的 `providers.freellm.models`
-  逐项一致**的固定白名单（15 项，`MODEL_PRESETS`，顺序即下拉顺序）：
+- **现在是什么（2026-11-05 调整）**: **与本机 opencode 的 `providers.freellm.models`
+  逐项一致**的固定白名单（11 项，`MODEL_PRESETS`，顺序即下拉顺序）：
   - 默认 `deepseek-flash-qd`（实测 2.4s 首字节、1M 上下文、下发 effort 后思考 517 字符）
-  - 其余 14 项：`deepseek-v4.1-flash-trae` / `deepseek-v4.1-flash-wb` /
-    `deepseek/deepseek-v4-flash-juzi` / `glm-5.3-flash-qd` / `glm-5.3-flash-trae` /
-    `glm-5.3-flash-wb` / `hy3-wb` / `mimo-v2.6-flash-trae` /
+  - 其余 10 项：`deepseek-v4.1-flash-trae` / `deepseek-v4.1-flash-wb` /
+    `glm-5.3-flash-qd` / `glm-5.3-flash-trae` / `mimo-v2.6-flash-trae` /
     `minimax-m3.1-flash-qd` / `minimax-m3.1-flash-trae` / `qwen3.8-flash-qd` /
-    `space-bunny-wb` / `step-5-preview-wb` / `z.ai/glm-5.2-juzi`
+    `space-bunny-wb` / `step-5-preview-wb`
   - `auto` 不进下拉，只作为**服务端回退目标**与旧客户端兼容值。
   - 旧默认 `deepseek-v4.1-flash-wb` **已失效**（网关返回 `503 No candidate model
     has a configured, usable provider key`），故默认改为 `deepseek-flash-qd`；
     `tests/unit/lib/model-curation.test.ts` 有回归守卫禁止把默认改回它。
+  - 2026-11-05 剔除 4 个**已从网关目录消失**的模型（`deepseek/deepseek-v4-flash-juzi`、
+    `glm-5.3-flash-wb`、`hy3-wb`、`z.ai/glm-5.2-juzi`，请求一律 404）—— 与限流/过载
+    不同，目录除名不会恢复，留在白名单里会让老用户存的选择每次分析必失败；
+    两侧（opencode.jsonc ↔ 白名单）同步剔除，旧 id 由 `resolveRequestedModel`
+    清洗回默认模型。
 - **服务端清洗**: `resolveRequestedModel` 只放行白名单候选 id 与 `auto`，其余
   （旧版本残留选择、拼写错误、越权传参）在打网关之前就清洗为默认模型，
   避免 400 `model_not_found`。见 `tests/unit/api/analysis-fallback.test.ts`。

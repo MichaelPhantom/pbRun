@@ -104,12 +104,14 @@ describe('白名单模型的 thinking/effort', () => {
       'qwen3.8-flash-qd',
       'minimax-m3.1-flash-trae',
       'minimax-m3.1-flash-qd',
-      'z.ai/glm-5.2-juzi',
       'deepseek-v4.1-flash-wb',
       'auto',
     ]) {
       expect(buildAnalysisRequestBody(id, [])).not.toHaveProperty('reasoning_effort');
     }
+    // 注：`z.ai/glm-5.2-juzi` 曾在「不下发」列（实测无差异），2026-11-05 已因
+    // 网关目录除名剔除白名单 —— 它现在只走启发式路径，生产里 resolveRequestedModel
+    // 会把这类旧 id 清洗为默认模型，buildAnalysisRequestBody 收不到它。
   });
 
   test('非白名单 id 回落启发式（不再有候选别名兜底）', () => {

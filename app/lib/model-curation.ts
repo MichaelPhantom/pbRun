@@ -2,9 +2,10 @@
  * 模型清单 (单一来源) —— **与本机 opencode 的 freellm provider 完全对齐**。
  *
  * 真源: `~/.config/opencode/opencode.jsonc` 的 `providers.freellm.models`。
- * 2026-10-29 起，这里列出的 15 个条目与该配置**逐项一致**（同集合、同顺序）——
+ * 2026-10-29 起，这里列出的条目与该配置**逐项一致**（同集合、同顺序）——
  * 用户在 opencode 里能用哪些模型，pbRun 的下拉里就是哪些，不再出现
  * 「pbRun 有 kimi-k3 / gemini-*，而本机根本没有」这种对不上的情况。
+ * 2026-11-05 两侧同步剔除 4 个已从网关目录消失的模型（见下文「渠道时效性」）。
  *
  * ## 为什么不再从网关 365 项里自动策展
  *
@@ -27,7 +28,6 @@
  * | minimax-m3.1-flash-qd     | 0             | 0             | 不下发（非思考模型） |
  * | minimax-m3.1-flash-trae   | 487           | 501           | 不下发（无差异） |
  * | qwen3.8-flash-qd          | 169           | **347**       | **不下发**（反而翻倍） |
- * | z.ai/glm-5.2-juzi         | 221           | 218           | 不下发（无差异） |
  *
  * 结论：**不能按厂商一刀切**。「deepseek 一律不发」「glm 一律发」都会伤害其中一半
  * 渠道 —— 同一个底模的不同渠道（`-qd` / `-trae` / `-wb`）在思考行为上并不一致。
@@ -36,13 +36,20 @@
  *
  * | 模型 | 2026-10-30 复测 | 结论 |
  * |------|----------------|------|
- * | `deepseek/deepseek-v4-flash-juzi` | 恢复：思考 0 字符 / 正文 63–109 / 4.6–5.7s；发 effort 同样思考 0 | **非思考模型**，effort 无效果 —— 保守值被实测证实，`thinking:false` 从推断转为实测 |
  * | `deepseek-v4.1-flash-wb` | 仍 503（无可用 provider key） | 维持保守值 |
  * | `space-bunny-wb` / `step-5-preview-wb` | 429 冷却后仍 503（×3 轮） | 维持保守值 |
- * | `glm-5.3-flash-wb` / `hy3-wb` | 仍 503 | 维持保守值 |
  *
- * 仍不可用的 5 条保持保守值：`thinking` 按同族证据推断（仅影响 UI 的 🧠 标注），
+ * 仍不可用的 3 条保持保守值：`thinking` 按同族证据推断（仅影响 UI 的 🧠 标注），
  * `effort` **一律 false**（不下发未知行为的参数）。再次恢复后重跑上表即可。
+ *
+ * ## 渠道时效性（2026-11-05 剔除 4 项）
+ *
+ * 网关目录与上游渠道是动态的：`deepseek/deepseek-v4-flash-juzi`（含裸 ID）、
+ * `glm-5.3-flash-wb`、`hy3-wb`、`z.ai/glm-5.2-juzi` 已从 `/v1/models` 目录消失，
+ * 请求一律 404（限流/过载的 429/502/503 都会恢复，「目录除名」不会）。留在白名单里
+ * 的后果：老用户存的选择每次分析必失败。两侧同步剔除后，`resolveRequestedModel`
+ * 把旧 id 清洗回默认模型 —— 自愈。教训：**「网关请求失败」有三种语义
+ * （429 限流 / 5xx 过载 / 404 除名），只有 404 + 目录除名才触发白名单剔除**。
  */
 
 export interface RawModel {
@@ -88,24 +95,21 @@ export const MODEL_PRESETS: ModelPreset[] = [
   // 顺序 = `~/.config/opencode/opencode.jsonc` 里 `providers.freellm.models` 的键序，
   // 也就是下拉顺序。改这张表时**必须同步改那份配置**（tests/unit/lib/model-curation.test.ts
   // 逐项断言，docs/model-docs.test.ts 还会校验文档）。
-  // thinking/effort 的取值见文件头的实测表；探测时不可用的 6 条取保守值。
+  // thinking/effort 的取值见文件头的实测表；探测时不可用的 3 条取保守值。
+  // 渠道时效性: 网关目录除名 (404) 的条目直接剔除, 不留空位 —— 见文件头「渠道时效性」。
   // ---- DeepSeek ----
   { id: 'deepseek-flash-qd', candidates: ['deepseek-flash-qd'], name: 'DeepSeek Flash (QD)', series: 'DeepSeek', thinking: true, effort: true, isDefault: true },
   { id: 'deepseek-v4.1-flash-trae', candidates: ['deepseek-v4.1-flash-trae'], name: 'DeepSeek V4.1 Flash (Trae)', series: 'DeepSeek', thinking: true, effort: true },
   { id: 'deepseek-v4.1-flash-wb', candidates: ['deepseek-v4.1-flash-wb'], name: 'DeepSeek V4.1 Flash (WB)', series: 'DeepSeek', thinking: false, effort: false },
-  { id: 'deepseek/deepseek-v4-flash-juzi', candidates: ['deepseek/deepseek-v4-flash-juzi'], name: 'DeepSeek V4 Flash (Juzi)', series: 'DeepSeek', thinking: false, effort: false },
   // ---- GLM ----
   { id: 'glm-5.3-flash-qd', candidates: ['glm-5.3-flash-qd'], name: 'GLM 5.3 Flash (QD)', series: 'GLM', thinking: true, effort: true },
   { id: 'glm-5.3-flash-trae', candidates: ['glm-5.3-flash-trae'], name: 'GLM 5.3 Flash (Trae)', series: 'GLM', thinking: true, effort: false },
-  { id: 'glm-5.3-flash-wb', candidates: ['glm-5.3-flash-wb'], name: 'GLM 5.3 Flash (WB)', series: 'GLM', thinking: true, effort: false },
-  { id: 'hy3-wb', candidates: ['hy3-wb'], name: 'Hunyuan 3 (WB)', series: 'Hunyuan', thinking: true, effort: false },
   { id: 'mimo-v2.6-flash-trae', candidates: ['mimo-v2.6-flash-trae'], name: 'MiMo V2.6 Flash (Trae)', series: 'MiMo', thinking: true, effort: true },
   { id: 'minimax-m3.1-flash-qd', candidates: ['minimax-m3.1-flash-qd'], name: 'MiniMax M3.1 (QD)', series: 'MiniMax', thinking: false, effort: false },
   { id: 'minimax-m3.1-flash-trae', candidates: ['minimax-m3.1-flash-trae'], name: 'MiniMax M3.1 (Trae)', series: 'MiniMax', thinking: true, effort: false },
   { id: 'qwen3.8-flash-qd', candidates: ['qwen3.8-flash-qd'], name: 'Qwen3.8 Flash (QD)', series: 'Qwen', thinking: true, effort: false },
   { id: 'space-bunny-wb', candidates: ['space-bunny-wb'], name: 'Space Bunny (WB)', series: 'Space Bunny', thinking: false, effort: false },
   { id: 'step-5-preview-wb', candidates: ['step-5-preview-wb'], name: 'Step 5 Preview (WB)', series: 'Step', thinking: false, effort: false },
-  { id: 'z.ai/glm-5.2-juzi', candidates: ['z.ai/glm-5.2-juzi'], name: 'GLM 5.2 (Juzi)', series: 'GLM', thinking: true, effort: false },
 ];
 
 /** 按 id (含候选 id) 查 preset; 未命中返回 undefined。 */
