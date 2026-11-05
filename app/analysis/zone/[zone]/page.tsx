@@ -6,13 +6,14 @@ import { useEffect, useState, useMemo, Suspense } from 'react';
 import ZoneTrendCharts from '@/app/lib/components/charts/ZoneTrendCharts';
 import type { ZoneTrendSeriesPoint } from '@/app/lib/components/charts/ZoneTrendCharts';
 import { HR_ZONE_NAMES, hrZoneBadgeStyle } from '@/app/lib/hr-zones';
+import { todayLocalDate, localDateMinusMonths } from '@/app/lib/timezone';
 
 function getDefaultHalfYearRange(): { startDate: string; endDate: string } {
-  const now = new Date();
-  const endDate = now.toISOString().split('T')[0];
-  const start = new Date(now);
-  start.setMonth(start.getMonth() - 6);
-  const startDate = start.toISOString().split('T')[0];
+  // 业务时区 (+480) 口径: 旧实现 `toISOString().split('T')[0]` 取 UTC 日期,
+  // 在 UTC 16:00 后 (业务时区已次日) 右端少一天, 且 `setMonth` 有月末顺延问题。
+  // 「近半年」= 参考日回推 6 个月 (日越界钳制到目标月末)。
+  const endDate = todayLocalDate();
+  const startDate = localDateMinusMonths(endDate, 6);
   return { startDate, endDate };
 }
 

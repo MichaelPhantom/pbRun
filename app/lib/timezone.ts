@@ -162,6 +162,65 @@ export function todayLocalDate(now: Date = new Date(), offsetMin: number = LOCAL
   return formatWallClock(now.getTime() + offsetMin * MS_PER_MIN).slice(0, 10);
 }
 
+/**
+ * 当前本地月份键 `YYYY-MM` (基于给定的“现在”时刻, 便于测试注入)。
+ *
+ * 为什么必须存在: `now.getFullYear()/getMonth()` 读的是**进程时区**的日历分量 ——
+ * 同一个时刻, GitHub Runner (TZ=UTC) 的 11-30 17:00Z 与生产 (Asia/Shanghai)
+ * 读到的月份不同 (前者 11 月、后者 12 月)。产品契约是固定 +480 业务时区,
+ * 一切日历分量必须经由本模块换算, 而不是读进程分量。
+ */
+export function localMonthKeyOf(now: Date = new Date(), offsetMin: number = LOCAL_TZ_OFFSET_MIN): string {
+  return todayLocalDate(now, offsetMin).slice(0, 7);
+}
+
+/**
+ * 月份键回推 N 个月 `YYYY-MM` (按日历月, 月界安全: 1 月回推 1 = 去年 12 月)。
+ */
+export function localMonthKeyMinusMonths(monthKey: string, months: number): string {
+  const m = /^(\d{4})-(\d{2})$/.exec(monthKey ?? '');
+  if (!m) throw new Error(`localMonthKeyMinusMonths: 非法月份键 "${monthKey}"`);
+  const total = Number(m[1]) * 12 + (Number(m[2]) - 1) - months;
+  const y = Math.floor(total / 12);
+  const month = (total % 12 + 12) % 12;
+  return `${y}-${String(month + 1).padStart(2, '0')}`;
+}
+
+/**
+ * 本地日期回推 N 个月 (按日历月, 日越界钳制到目标月末)。
+ *
+ * 例: `2026-08-31` 回推 1 个月 → `2026-07-31`; `2026-03-31` 回推 1 个月 →
+ * `2026-02-28`。为什么必须钳制: `Date.setMonth` 会把 3/31 的「31」顺延成
+ * 4/1, 使窗口悄悄偏移 (getPersonalRecords 6months 溢出防护的通用化)。
+ */
+export function localDateMinusMonths(dateYmd: string, months: number): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateYmd ?? '');
+  if (!m) throw new Error(`localDateMinusMonths: 非法日期 "${dateYmd}"`);
+  const day = Number(m[3]);
+  const targetKey = localMonthKeyMinusMonths(`${m[1]}-${m[2]}`, months);
+  const [ty, tm] = targetKey.split('-').map(Number);
+  const lastDay = new Date(Date.UTC(ty, tm, 0)).getUTCDate();
+  return `${targetKey}-${String(Math.min(day, lastDay)).padStart(2, '0')}`;
+}
+
+/**
+ * 任意 ISO 时刻/墙钟 → 业务时区 (+480) 墙钟串 `YYYY-MM-DDTHH:MM:SS.sss`。
+ *
+ * 展示层唯一入口: 带时区标记 (`Z`/`±HH:MM`) 的输入按绝对时刻换算到业务时区;
+ * 无标记的输入按项目契约**已是本地墙钟**, 原样规范化 —— 两种情况都不读
+ * 进程时区 (旧实现 `new Date(iso).getHours()` 在 TZ=UTC 的服务器上会把
+ * UTC 时刻原样展示, 与生产 CST 用户看到的时间差 8 小时)。
+ * 日期串 (`YYYY-MM-DD`) 视为当日 00:00。非法输入返回 null。
+ */
+export function toBusinessWallClock(iso: string | null | undefined): string | null {
+  const s = (iso ?? '').trim();
+  if (!s) return null;
+  if (hasExplicitTimezone(s)) return toLocalWallClock(s);
+  const normalized = /^\d{4}-\d{2}-\d{2}$/.test(s) ? `${s}T00:00:00.000` : s;
+  const ms = parseWallClockMillis(normalized);
+  return ms == null ? null : formatWallClock(ms);
+}
+
 /** 由“今天本地日期”回推 N 天的本地日期 (基于日历日, 非固定 86.4e6 毫秒)。 */
 export function localDateMinusDays(baseLocalDate: string, days: number): string {
   const ms = parseWallClockMillis(`${baseLocalDate}T00:00:00.000`);

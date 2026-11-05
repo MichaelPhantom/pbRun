@@ -226,4 +226,31 @@ describe('getPersonalRecords', () => {
     const y = new Date().getFullYear();
     expect(year.startDate).toBe(`${y}-01-01`);
   });
+
+  /**
+   * 契约 (2026-11-06): 「今天/本月/今年」必须按固定业务时区 (+480) 判定,
+   * 不得读进程时区分量 (getFullYear/getMonth/getDate)。
+   * 反例时刻: 2026-11-30T17:00:00Z —— 进程 TZ=UTC 读到 11 月, 业务时区已是
+   * 12-01 01:00。旧实现 (进程分量) 在 UTC 机器上会把「本月」算成 11 月。
+   */
+  test('UTC 深夜 (业务时区已跨月/跨日) 窗口仍按 +480 业务时区判定', () => {
+    jest.useFakeTimers({ now: new Date('2026-11-30T17:00:00Z').getTime() });
+    try {
+      prime([]);
+      // 业务时区此刻是 2026-12-01 (周二) → 「本月」= 12 月
+      const month = getPersonalRecords('month');
+      expect(month.startDate).toBe('2026-12-01');
+      expect(month.endDate).toBe('2026-12-01');
+      const year = getPersonalRecords('year');
+      expect(year.startDate).toBe('2026-01-01');
+      // 6 个月前 = 2026-06-01 (同日钳制前恰为月初)
+      const half = getPersonalRecords('6months');
+      expect(half.startDate).toBe('2026-06-01');
+      // 「近一周」= 日历日回推 7 天
+      const week = getPersonalRecords('week');
+      expect(week.startDate).toBe('2026-11-24');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });

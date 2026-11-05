@@ -31,7 +31,7 @@ import {
 import type { VdotSample } from './insight';
 import { getPaceZoneBoundsFromVdot, getPaceZoneCenterFromVdot } from './vdot-pace';
 import { periodKeyOf, statsPeriodRange } from './date-utils';
-import { localDateRangeToUtc } from './timezone';
+import { localDateRangeToUtc, localDateMinusDays, localMonthKeyMinusMonths, todayLocalDate } from './timezone';
 import { hrZoneOf, resolveMaxHr } from './hr-zones';
 import { POWER_ZONE_NAMES, powerZoneOf } from './power-zones';
 import { resolveFtp } from './power';
@@ -449,33 +449,39 @@ function bestTimeForDistanceMeters(
  */
 export function getPersonalRecords(period: 'week' | 'month' | 'year' | 'total' | '6months'): PersonalRecordsResponse {
   const db = getDatabase();
-  const now = new Date();
-  let startDate: Date;
+  // 「今天」必须走 timezone 模块 (固定 +480 业务时区), 与全站口径一致。
+  // 旧实现 `new Date()` + `getFullYear()/getMonth()` 读的是**进程时区**日历分量:
+  // 生产 (Asia/Shanghai) 碰巧正确, 但 TZ=UTC 的机器上 16:00 后「本月/今年」
+  // 会差一个月/一年 —— 与 statsPeriodRange 同类缺陷, 只是当时没有测试暴露。
+  const now = todayLocalDate();
+  let startDate: string;
   const endDate = now;
   switch (period) {
     case 'week':
-      startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      startDate = localDateMinusDays(endDate, 7);
       break;
     case 'month':
-      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      startDate = `${endDate.slice(0, 7)}-01`;
       break;
     case 'year':
-      startDate = new Date(now.getFullYear(), 0, 1);
+      startDate = `${endDate.slice(0, 4)}-01-01`;
       break;
     case '6months': {
-      // 月末溢出防护: new Date(y, m-6, d) 在 d>目标月天数时会顺延到下月初
-      // (如 7/31 → 3/2), 使窗口悄悄少算数周。改为定位到「6 个月前那一天, 超出则
-      // 取该月最后一天」。
-      const targetMonth = now.getMonth() - 6;
-      const lastDay = new Date(now.getFullYear(), targetMonth + 1, 0).getDate();
-      startDate = new Date(now.getFullYear(), targetMonth, Math.min(now.getDate(), lastDay));
+      // 月末溢出防护: 「6 个月前」那一天若超出目标月天数 (如 8/31 → 2 月),
+      // 钳制到目标月最后一天, 避免窗口悄悄顺延到下月初少算数周。
+      const anchor = endDate.slice(0, 7);                       // 本地月份键
+      const anchorDay = Number(endDate.slice(8, 10));           // 本地几号
+      const targetKey = localMonthKeyMinusMonths(anchor, 6);    // 6 个月前的月份键
+      const [ty, tm] = targetKey.split('-').map(Number);
+      const lastDay = new Date(Date.UTC(ty, tm, 0)).getUTCDate();
+      startDate = `${targetKey}-${String(Math.min(anchorDay, lastDay)).padStart(2, '0')}`;
       break;
     }
     default:
-      startDate = new Date(0);
+      startDate = '1970-01-01';
   }
-  const startStr = localDateYmd(startDate);
-  const endStr = localDateYmd(endDate);
+  const startStr = startDate;
+  const endStr = endDate;
 
   const rows = db.prepare(
     `SELECT activity_id, distance, duration, moving_time, start_time FROM activities
@@ -1265,19 +1271,6 @@ function validateRange(startDate: string, endDate: string, fnName: string): void
   if (!re.test(startDate)) throw new Error(`${fnName}: startDate 格式应为 YYYY-MM-DD, 实际为 "${startDate}"`);
   if (!re.test(endDate)) throw new Error(`${fnName}: endDate 格式应为 YYYY-MM-DD, 实际为 "${endDate}"`);
   if (startDate > endDate) throw new Error(`${fnName}: startDate (${startDate}) 不能晚于 endDate (${endDate})`);
-}
-
-/**
- * `Date` → 本地日期 `YYYY-MM-DD`。
- *
- * 用显式日历分量拼装, 不用 `toISOString()` —— 后者取 UTC 日期,
- * 在本地 00:00–08:00 (Asia/Shanghai) 会得到前一天, 使窗口少算一天。
- */
-function localDateYmd(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
 }
 
 /**

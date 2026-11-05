@@ -33,10 +33,9 @@ import {
   computeTrainingLoadAnalysis,
   downsampleRecords,
   hrZoneRanges,
-  localDateStr,
   offsetToPage,
 } from './analysis';
-import { localDateMinusDays } from '../app/lib/timezone';
+import { localDateMinusDays, todayLocalDate } from '../app/lib/timezone';
 import { resolveMaxHr } from '../app/lib/hr-zones';
 import { powerZoneBoundsLabel, powerZoneRanges } from '../app/lib/power-zones';
 
@@ -246,7 +245,7 @@ export async function registerTools(server: McpServer): Promise<void> {
         year: z.number().int().min(2000).max(2100).optional().describe('年份 (默认当前年)'),
       },
     },
-    (args) => run(() => getDailyDistances(args.year ?? new Date().getFullYear()))
+    (args) => run(() => getDailyDistances(args.year ?? Number(todayLocalDate().slice(0, 4))))
   );
 
 
@@ -482,11 +481,9 @@ export async function registerTools(server: McpServer): Promise<void> {
     (args) =>
       run(() => {
         const days = args.days ?? 28;
-        const today = new Date();
-        const start = new Date(today);
-        start.setDate(start.getDate() - (days - 1));
-        const endDate = localDateStr(today);
-        const startDate = localDateStr(start);
+        // 「今天」走业务时区 (+480) 口径, 与全站一致 (旧 `setDate` 链读进程时区)
+        const endDate = todayLocalDate();
+        const startDate = localDateMinusDays(endDate, days - 1);
         // ACWR 的慢性窗是**定长 28 天**，与分析窗 `days` 无关。`days < 28` 时必须
         // 额外补取慢性窗数据，否则 chronic 只算到 `days` 天 → 缺的天被当 0 →
         // ACWR 虚高（旧实现的 `min(28, days)` 截断就是为此打的补丁，方向反了）。

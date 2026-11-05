@@ -9,6 +9,7 @@
  * 容错纪律: 任何查询失败一律降级 (缺失字段不展示), 绝不阻塞分析主流程。
  */
 import { getActivities, getPersonalRecords, getStats, getTrainingLoads, getVDOTHistory } from './db';
+import { todayLocalDate } from './timezone';
 import { computeTrainingLoads, trainingLoadFetchStart, tsbStatus } from './training-load';
 import { formatDuration } from './format';
 import type { Activity } from './types';
@@ -69,7 +70,8 @@ function activityDay(a: Pick<Activity, 'start_time_local' | 'start_time'>): stri
  * 任何子查询失败都返回 null/空, 不影响整体。
  */
 export function buildRunnerProfile(exclude: Activity): RunnerProfile {
-  const day = activityDay(exclude) || ymd(new Date());
+  // 兜底参考日走业务时区 (+480); 正常路径用 exclude 自身的 start_time_local (契约已是本地日期)。
+  const day = activityDay(exclude) || todayLocalDate();
 
   // ---- 生涯累计 + 习惯 (total) ----
   let lifetimeKm = 0;

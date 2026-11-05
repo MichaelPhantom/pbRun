@@ -179,6 +179,31 @@ describe('format', () => {
     });
   });
 
+  /**
+   * 时区契约 (2026-11-06): 展示时间不读进程/设备时区 —— 带时区标记的输入换算到
+   * 业务时区 (+480), 无标记的本地墙钟透传。旧实现在 TZ=UTC 服务器上把 UTC 时刻
+   * 原样展示, 与 CST 用户差 8 小时; 日期无标记串在 UTC− 负偏移设备上会差一天。
+   */
+  describe('时区无关性 (业务时区 +480)', () => {
+    const originalTz = process.env.TZ;
+    afterEach(() => {
+      if (originalTz === undefined) delete process.env.TZ;
+      else process.env.TZ = originalTz;
+    });
+
+    test.each(['UTC', 'Asia/Shanghai', 'America/New_York'])('TZ=%s 下输出一致', (tz) => {
+      process.env.TZ = tz;
+      // UTC 时刻 → 业务时区 (+8): 2024-03-15T20:30Z → 2024-03-16 04:30
+      expect(formatDateTime('2024-03-15T20:30:00Z')).toBe('2024/03/16 04:30');
+      expect(formatDate('2024-03-15T20:30:00Z')).toBe('2024/03/16');
+      // 2024-03-16 是周六
+      expect(formatListDateTime('2024-03-15T20:30:00Z')).toBe('2024/03/16(周六) 04:30');
+      // 无标记的本地墙钟 (start_time_local 契约) 透传, 不被进程 TZ 拉走
+      expect(formatDateTime('2024-03-15T20:30:00')).toBe('2024/03/15 20:30');
+      expect(formatDate('2024-03-15')).toBe('2024/03/15');
+    });
+  });
+
   describe('formatMonthYear', () => {
     test('应正确格式化年月', () => {
       expect(formatMonthYear('2024-03')).toBe('2024年3月');

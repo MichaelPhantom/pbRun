@@ -6,7 +6,7 @@ import type { PeriodStats, TrainingLoadPoint } from '../app/lib/types';
 import { downsampleRecords } from '../app/lib/sampling';
 import { hrZoneRanges } from '../app/lib/hr-zones';
 import { isValidDateParam } from '../app/lib/query-params';
-import { localDateMinusDays } from '../app/lib/timezone';
+import { localDateMinusDays, todayLocalDate } from '../app/lib/timezone';
 
 export { downsampleRecords, hrZoneRanges };
 
@@ -51,20 +51,16 @@ export function offsetToPage(offset: number, limit: number): number {
 
 /** 本地时区 YYYY-MM-DD */
 export function localDateStr(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+  return todayLocalDate(d);
 }
 
-/** 生成从 startDate 到 endDate (含) 的日期串数组 */
+/** 生成从 startDate 到 endDate (含) 的日期串数组 (纯字符串运算, 无时区依赖) */
 export function eachDay(startDate: string, endDate: string): string[] {
   const out: string[] = [];
-  const cur = new Date(`${startDate}T00:00:00`);
-  const end = new Date(`${endDate}T00:00:00`);
-  while (cur <= end) {
-    out.push(localDateStr(cur));
-    cur.setDate(cur.getDate() + 1);
+  let cur = startDate;
+  while (cur <= endDate) {
+    out.push(cur);
+    cur = localDateMinusDays(cur, -1); // +1 天, 按日历日
   }
   return out;
 }

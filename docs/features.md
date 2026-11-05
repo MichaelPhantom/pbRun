@@ -804,6 +804,38 @@ TSB +20.2。TSB 是「今天有多新鲜」，差一天就已是另一个结论�
 3. **参考日本身必须是本地日期**：首页旧实现用 `ymd(now)`（UTC）而月份用本地
    `getMonth()` —— 本地 00:00–08:00 之间两者不是同一个日历，参考日会退到前一天。
 
+#### 「本地日期」必须出自固定业务时区，不得读进程/设备时区分量（2026-11-06）
+
+上面第 3 条只修了 `ymd(now)`（UTC 日期），但「月份/今天」仍散落着
+`new Date()` + `getFullYear()/getMonth()/getDate()`（**进程时区**分量）与
+`new Date(dateOnly)`（设备时区解析 date-only 串）两种写法。本机 TZ=Asia/Shanghai
+时碰巧全对，掩盖了问题；TZ=UTC 的环境（GitHub Runner、多数 Linux 服务器）
+在 16:00Z 后「本月/今天」会差一个月/一天。缺陷注入方式：jest fake timers 定格
+在 `2026-11-30T17:00Z`（+480 已是 12-01），旧实现读到 11 月 → 红。
+
+**修复面（8 处，全部收敛到 timezone 模块）**：
+
+| 位置 | 旧实现 | 新实现 |
+|---|---|---|
+| `getPersonalRecords` 周期窗口 | `new Date()` + 进程分量 + 私有 `localDateYmd` | `todayLocalDate()` / `localDateMinusDays` / `localDateMinusMonths`（月末钳制保留） |
+| 首页本月/上月 | `getFullYear()/getMonth()` + `new Date(y, m-1, 1)` | `localMonthKeyOf` / `localMonthKeyMinusMonths` |
+| zone 页默认半年窗 | `toISOString().split('T')[0]`（UTC 日期）+ `setMonth` | `todayLocalDate()` / `localDateMinusMonths` |
+| MCP 训练负荷 / 每日里程 | `localDateStr(new Date())`（进程分量） | `todayLocalDate()` / `localDateMinusDays` |
+| MCP `eachDay` | `new Date(start+'T00:00:00')` + `setDate` 链 | 纯字符串 + `localDateMinusDays` |
+| 跑者画像兜底日 | `ymd(new Date())`（UTC 日期） | `todayLocalDate()` |
+| `format.ts` 三个展示函数 | `new Date(iso).getHours()`（设备/进程时区） | `toBusinessWallClock`：带时区标记换算 +480，无标记（本地墙钟契约）透传 |
+| StatsClient 期间标签 | `new Date(dateOnly)`（UTC− 设备差一天） | 字符串分量直接拼装 |
+
+新增 helper：`localMonthKeyOf` / `localMonthKeyMinusMonths` /
+`localDateMinusMonths`（日越界钳制到月末）/ `toBusinessWallClock`。
+`db.ts` 的私有 `localDateYmd`（进程分量拼装）随之删除。
+
+守护：`tests/unit/lib/db-gaps.test.ts`（fake timers 跨月时刻，四个周期窗口逐一断言，
+TZ=UTC 必红于旧实现）、`tests/unit/lib/timezone.test.ts`（新 helper + TZ 无关穷举）、
+`tests/unit/lib/format.test.ts`（TZ=UTC/America/New_York 下输出一致）。
+全量 `TZ=UTC` 与本地双绿（174 套件 / 2819）—— 此前只对 `db-stats-branches` 单文件
+做过 TZ=UTC 验证，本次起全量口径也过一遍。
+
 修后真实库四处一致（3 年基线 46.34）：首页 46.01 / 分析页 46.17 / 跑者画像 46.01 /
 洞察周期化末周 46.1，**最大误差 0.72%**；4 种窗口（7/30/90/180 天）的周期化周 CTL
 最大误差 0.66%。

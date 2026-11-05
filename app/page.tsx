@@ -2,7 +2,7 @@ import Link from "next/link";
 import { getLatestVdot, getTrainingLoads, getActivities, getVDOTHistory, getDailyDistances, getHrZoneStats } from "@/app/lib/db";
 import { predictRaceTimes } from "@/app/lib/vdot-pace";
 import { computeTrainingLoads, trainingLoadFetchStart, tsbStatus } from "@/app/lib/training-load";
-import { todayLocalDate } from "@/app/lib/timezone";
+import { todayLocalDate, localMonthKeyOf, localMonthKeyMinusMonths } from "@/app/lib/timezone";
 import { formatDistance, formatDuration, formatPace } from "@/app/lib/format";
 import { SectionCard } from "@/app/components/ui/SectionCard";
 import { StatCard } from "@/app/components/ui/StatCard";
@@ -17,11 +17,12 @@ import { GlobalCoach } from "@/app/lib/components/ai/GlobalCoach";
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
+  // 月份口径必须走 timezone 模块 (固定 +480): 旧 `getFullYear()/getMonth()` 读进程
+  // 时区, TZ=UTC 的机器 16:00 后「本月/上月」差一个月 (与 getPersonalRecords 同类)。
   const now = new Date();
-  const year = now.getFullYear();
-  const monthStr = `${year}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const prevMonthStr = `${prevMonthDate.getFullYear()}-${String(prevMonthDate.getMonth() + 1).padStart(2, "0")}`;
+  const monthStr = localMonthKeyOf(now);
+  const prevMonthStr = localMonthKeyMinusMonths(monthStr, 1);
+  const year = Number(monthStr.slice(0, 4));
 
   // 参考日 = **本地**今天，取数起点 = 参考日 − `TRAINING_LOAD_WARMUP_DAYS`。
   // 两处旧实现都在这里出错：

@@ -32,11 +32,14 @@ function formatPeriodDateRange(
 ): string {
   if (period === 'total') return '全部';
   if (period === '6months') return '最近6个月';
-  const s = new Date(startDate);
-  const e = new Date(endDate);
-  const fmt = (d: Date) =>
-    `${d.getFullYear()}年${String(d.getMonth() + 1).padStart(2, '0')}月${String(d.getDate()).padStart(2, '0')}日`;
-  return `${fmt(s)}-${String(e.getMonth() + 1).padStart(2, '0')}月${String(e.getDate()).padStart(2, '0')}日`;
+  // 输入是 date-only 串 (YYYY-MM-DD, 本地日期契约)。旧实现 `new Date(s)` 按设备
+  // 时区解析 —— UTC− 负偏移设备 (如 America/New_York) 会把当天读成前一天。
+  // 字符串分量直接拼装, 与设备时区无关。
+  const fmt = (ymd: string) => {
+    const [y, m, d] = ymd.split('-');
+    return `${y}年${m}月${d}日`;
+  };
+  return `${fmt(startDate)}-${fmt(endDate).replace(/^\d{4}年/, '')}`;
 }
 
 interface StatsClientProps {

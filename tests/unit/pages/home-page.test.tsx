@@ -9,7 +9,7 @@
 import { render, screen } from '@testing-library/react';
 import DashboardPage from '@/app/page';
 import { TRAINING_LOAD_WARMUP_DAYS, trainingLoadFetchStart } from '@/app/lib/training-load';
-import { todayLocalDate } from '@/app/lib/timezone';
+import { todayLocalDate, localMonthKeyOf, localMonthKeyMinusMonths } from '@/app/lib/timezone';
 
 // jsdom 无 canvas; 首页 Donut/Sparkline 走 useEchart → mock echarts 实例
 const setOption = jest.fn();
@@ -67,23 +67,23 @@ const db = {
   getHrZoneStats: getHrZoneStats as jest.Mock,
 };
 
-// 与页面同源的月份口径 (页面用本地时间取 current month)
+// 与页面同源的月份口径 (页面用 localMonthKeyOf 业务时区取 current month)
 const now = new Date();
-const monthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+const monthStr = localMonthKeyOf(now);
+const prevMonthStr = localMonthKeyMinusMonths(monthStr, 1);
 const day = (m: number, d: number) =>
-  `${now.getFullYear()}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  `${(m === Number(monthStr.slice(5, 7)) ? monthStr : prevMonthStr).slice(0, 4)}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 
 // 覆盖当月 + 上月的负荷序列 (EWMA/趋势需要一定长度)
 const loadPoints = [
   ...[1, 2, 3, 4, 5, 6, 7].map((d) => ({
-    date: day(now.getMonth() + 1, d),
+    date: day(Number(monthStr.slice(5, 7)), d),
     distance: 8000,
     load: 60,
     duration: 2800,
   })),
   ...[10, 11, 12].map((d) => ({
-    date: day(prevMonthDate.getMonth() + 1, d),
+    date: day(Number(prevMonthStr.slice(5, 7)), d),
     distance: 12000,
     load: 90,
     duration: 4200,

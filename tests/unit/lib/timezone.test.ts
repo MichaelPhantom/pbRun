@@ -23,6 +23,10 @@ import {
   localDateRangeToUtc,
   todayLocalDate,
   localDateMinusDays,
+  localMonthKeyOf,
+  localMonthKeyMinusMonths,
+  localDateMinusMonths,
+  toBusinessWallClock,
   inferOffsetMinutes,
 } from '@/app/lib/timezone';
 
@@ -234,4 +238,52 @@ describe('环境时区无关性 (不得依赖运行机器 TZ)', () => {
       });
     },
   );
+
+  test('localMonthKeyOf: 按固定业务时区取月份, 不读进程 TZ', () => {
+    // 2026-11-30T17:00:00Z 在 +480 业务时区已是 12-01 01:00 → 月份键 2026-12;
+    // 若实现误用进程分量 (getFullYear/getMonth), TZ=UTC 下会读到 2026-11。
+    const t = new Date('2026-11-30T17:00:00Z');
+    for (const tz of ['UTC', 'Asia/Shanghai', 'America/New_York']) {
+      process.env.TZ = tz;
+      expect(localMonthKeyOf(t)).toBe('2026-12');
+    }
+  });
+
+  test('localMonthKeyMinusMonths: 月界安全回推 (跨年) + 非法输入抛错', () => {
+    expect(localMonthKeyMinusMonths('2026-01', 1)).toBe('2025-12');
+    expect(localMonthKeyMinusMonths('2026-03', 3)).toBe('2025-12');
+    expect(localMonthKeyMinusMonths('2026-11', 0)).toBe('2026-11');
+    expect(localMonthKeyMinusMonths('2026-11', 11)).toBe('2025-12');
+    expect(() => localMonthKeyMinusMonths('2026-1', 1)).toThrow(/月份键/);
+    expect(() => localMonthKeyMinusMonths('', 1)).toThrow(/月份键/);
+  });
+
+  test('localDateMinusMonths: 日越界钳制到目标月末 + 非法输入抛错', () => {
+    expect(localDateMinusMonths('2026-08-31', 1)).toBe('2026-07-31');
+    expect(localDateMinusMonths('2026-03-31', 1)).toBe('2026-02-28'); // 平年钳制
+    expect(localDateMinusMonths('2024-03-31', 1)).toBe('2024-02-29'); // 闰年钳制
+    expect(localDateMinusMonths('2026-01-01', 12)).toBe('2025-01-01'); // 跨年
+    expect(() => localDateMinusMonths('2026-08-31T10:00', 1)).toThrow(/非法日期/);
+  });
+
+  test('toBusinessWallClock: 绝对时刻换算 / 本地墙钟透传 / 日期串补零, 不读进程 TZ', () => {
+    // 带时区标记 → 换算到业务时区 (+480)
+    expect(toBusinessWallClock('2026-10-05T23:41:39.000Z')).toBe('2026-10-06T07:41:39.000');
+    expect(toBusinessWallClock('2026-10-05T23:41:39Z')).toBe('2026-10-06T07:41:39.000');
+    // 无标记 → 项目契约是本地墙钟, 规范化透传 (不能被进程 TZ 拉走)
+    expect(toBusinessWallClock('2026-10-06T15:41:39.000')).toBe('2026-10-06T15:41:39.000');
+    expect(toBusinessWallClock('2026-10-06T15:41:39')).toBe('2026-10-06T15:41:39.000');
+    // 日期串 → 当日 00:00
+    expect(toBusinessWallClock('2026-10-06')).toBe('2026-10-06T00:00:00.000');
+    // 非法
+    expect(toBusinessWallClock(null)).toBeNull();
+    expect(toBusinessWallClock('bad')).toBeNull();
+    expect(toBusinessWallClock('')).toBeNull();
+    // TZ 无关
+    for (const tz of ['UTC', 'Asia/Shanghai', 'America/New_York']) {
+      process.env.TZ = tz;
+      expect(toBusinessWallClock('2026-10-05T23:41:39.000Z')).toBe('2026-10-06T07:41:39.000');
+      expect(toBusinessWallClock('2026-10-06T15:41:39.000')).toBe('2026-10-06T15:41:39.000');
+    }
+  });
 });

@@ -26,6 +26,7 @@ jest.mock('echarts', () => ({
 }));
 
 import ZoneTrendPage from '@/app/analysis/zone/[zone]/page';
+import { todayLocalDate } from '@/app/lib/timezone';
 
 const zoneRef: { zone: string } = { zone: '3' };
 const searchRef: { params: URLSearchParams } = { params: new URLSearchParams() };
@@ -189,7 +190,9 @@ describe('app/analysis/zone/[zone]/page.tsx', () => {
     await waitFor(() =>
       expect(screen.getByRole('img', { name: '该心率区间的配速趋势图' })).toBeInTheDocument(),
     );
-    const end = new Date().toISOString().split('T')[0];
+    // 页面用业务时区 (+480) 的「今天」, 测试必须同源 (toISOString 是 UTC 日期,
+    // 业务时区已跨日时两者差一天)
+    const end = todayLocalDate();
     const header = screen.getByText((content, el) =>
       el?.tagName === 'SPAN' && (el.textContent ?? '').includes(`至 ${end}`),
     );

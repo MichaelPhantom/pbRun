@@ -1,6 +1,7 @@
 /**
  * 前端展示用的格式化工具
  */
+import { toBusinessWallClock } from './timezone';
 
 /** 配速：秒/公里 → "5:30" 或 "5:30 /km" */
 export function formatPace(secondsPerKm: number | null | undefined, withUnit = true): string {
@@ -46,42 +47,46 @@ export function formatDurationRecord(seconds: number | null | undefined): string
   return `${pad(h)}:${pad(m)}:${pad(s)}`;
 }
 
-/** 日期时间：ISO 字符串 → 本地日期时间 YYYY/MM/DD HH:MM（确定性格式, 不依赖系统 locale） */
+/**
+ * 日期时间：ISO 字符串 → 本地日期时间 YYYY/MM/DD HH:MM（确定性格式, 不依赖系统 locale）
+ *
+ * 时区契约 (2026-11-06): 不读进程/设备时区。带时区标记的输入 (UTC `start_time`)
+ * 换算到业务时区 (+480); 无标记的输入按项目契约已是本地墙钟 (`start_time_local`)
+ * 直接透传 —— 两种情况在 TZ=UTC 的服务器与 CST 的用户浏览器上结果一致。
+ * 旧实现 `new Date(iso).getHours()` 在 UTC 服务器上会把 UTC 时刻原样展示。
+ */
 export function formatDateTime(iso: string | null | undefined): string {
   if (!iso) return '--';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '--';
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  const h = String(d.getHours()).padStart(2, '0');
-  const min = String(d.getMinutes()).padStart(2, '0');
+  const wall = toBusinessWallClock(iso);
+  if (!wall) return '--';
+  const [datePart, timePart] = wall.split('T');
+  const [y, m, day] = datePart.split('-');
+  const h = timePart.slice(0, 2);
+  const min = timePart.slice(3, 5);
   return `${y}/${m}/${day} ${h}:${min}`;
 }
 
-/** 仅日期：YYYY/MM/DD（确定性格式, 不依赖系统 locale） */
+/** 仅日期：YYYY/MM/DD（确定性格式, 不依赖系统 locale）。时区契约同 formatDateTime。 */
 export function formatDate(iso: string | null | undefined): string {
   if (!iso) return '--';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '--';
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
+  const wall = toBusinessWallClock(iso);
+  if (!wall) return '--';
+  const [y, m, day] = wall.slice(0, 10).split('-');
   return `${y}/${m}/${day}`;
 }
 
 const WEEKDAY_ZH = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 
-/** 列表项日期时间：YYYY/MM/DD(周x) HH:MM */
+/** 列表项日期时间：YYYY/MM/DD(周x) HH:MM。时区契约同 formatDateTime。 */
 export function formatListDateTime(iso: string | null | undefined): string {
   if (!iso) return '--';
-  const d = new Date(iso);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  const week = WEEKDAY_ZH[d.getDay()];
-  const h = String(d.getHours()).padStart(2, '0');
-  const min = String(d.getMinutes()).padStart(2, '0');
+  const wall = toBusinessWallClock(iso);
+  if (!wall) return '--';
+  const [y, m, day] = wall.slice(0, 10).split('-');
+  // 星期由业务时区日期决定: 用 Date.UTC 构造再读 getUTCDay, 避免进程 TZ
+  const week = WEEKDAY_ZH[new Date(Date.UTC(Number(y), Number(m) - 1, Number(day))).getUTCDay()];
+  const h = wall.slice(11, 13);
+  const min = wall.slice(14, 16);
   return `${y}/${m}/${day}(${week}) ${h}:${min}`;
 }
 
