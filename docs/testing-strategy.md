@@ -1008,10 +1008,13 @@ DIST_DIR=.next DB_PATH="$(pwd)/tests/fixtures/activities.db" \
 npx playwright test --project=chromium --workers=1            # 单引擎先定位
 ```
 
-两个坑：① 部署会**替换 `.next`**，正在跑的旧 `next start` 会读到缺失 chunk，
+三个坑：① 部署会**替换 `.next`**，正在跑的旧 `next start` 会读到缺失 chunk，
 表现为大面积失败 —— 部署后必须重启 3000 的服务；② Playwright 报
-`EADDRINUSE` 说明 3000 仍是旧进程（`fuser -k 3000/tcp`），它会静默测到旧产物。
-2026-10-30 用此方式复现出 CI 的 6 个 e2e 失败并修复后 64/64 通过。
+`EADDRINUSE` 说明 3000 仍是旧进程（`fuser -k 3000/tcp`），它会静默测到旧产物；
+③ **受限 cgroup 内（如 opencode 会话）直接 `next build` 会被 memcg OOM kill
+（exit 137）** —— 必须经 `systemd-run --user --scope -p MemoryMax=6G` 挪进
+`user.slice` 构建（同 deploy-prod.sh 的做法），否则 e2e-build/webServer 阶段
+必挂。2026-11-05 用此方式复现出 CI 的 e2e 失败并修复后 64/64 通过。
 
 **e2e 可诊断性**（2026-09-27）：CI 里 Playwright reporter 为 `line`（控制台逐行输出，
 不下载 artifact 也能定位失败）+ HTML 报告；`trace: on-first-retry`、`screenshot: only-on-failure`；
