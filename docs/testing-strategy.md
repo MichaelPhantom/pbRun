@@ -929,6 +929,7 @@ expect(distToTimer).toBeLessThanOrEqual(1);              // ±1s 取整误差
 - uses: actions/checkout@v4
 - uses: actions/setup-node@v4
 - 安装依赖
+- MCP Server 构建(tsc -p mcp-server)
 - 单元测试(TZ=Asia/Shanghai)
 - 单测失败诊断(annotation)
 

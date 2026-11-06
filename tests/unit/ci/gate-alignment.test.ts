@@ -206,6 +206,34 @@ describe('test:ci ↔ CI quality 作业对齐', () => {
     expect(qualitySection).toMatch(/pip install[^\n]*pytest|pytest[^\n]*pip install/);
   });
 
+  /**
+   * quality-tz 腿的前置依赖 (2026-11-06 CI 实测)。
+   *
+   * docs-reality 守护「文档引用的代码文件路径都真实存在」, 而文档 (ops.md /
+   * mcp-design.md) 引用了 `mcp-server/dist/...` 运行产物 —— dist **非 git 追踪**,
+   * 只能由 `build:mcp` 产出。quality 腿在 jest 前已构建所以绿; quality-tz 只装
+   * 依赖就直接 jest → 干净 checkout 上 dist 不存在 → 守护误报「文档虚构文件」。
+   * 教训: 新增 CI 腿时, 必须满足与 quality 相同的「文档引用现实」前置条件。
+   */
+  describe('quality-tz 腿 (TZ=Asia/Shanghai)', () => {
+    const tzSection = workflow.slice(
+      workflow.indexOf('\n  quality-tz:'),
+      workflow.indexOf('\n  e2e:'),
+    );
+
+    test('段落切片有效 (防正则/结构调整静默通过)', () => {
+      expect(tzSection).toContain('TZ: ' + "'Asia/Shanghai'");
+      expect(tzSection).toMatch(/^\s+- name: /m);
+    });
+
+    test('jest 前必须先 build:mcp (docs-reality 引用 mcp-server/dist, 非 git 追踪)', () => {
+      const buildIdx = tzSection.indexOf('npm run build:mcp');
+      const jestIdx = tzSection.indexOf('npx jest');
+      expect(buildIdx).toBeGreaterThan(-1);
+      expect(jestIdx).toBeGreaterThan(buildIdx);
+    });
+  });
+
   test('CONTRIBUTING 逐字描述同一套门禁 (文档不落后于实现)', () => {
     const contributing = read('CONTRIBUTING.md');
     for (const step of ['typecheck', 'build:mcp', 'lint', 'jest', 'next build']) {
