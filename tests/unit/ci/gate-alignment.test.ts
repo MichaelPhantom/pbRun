@@ -20,10 +20,10 @@ const testCi = pkg.scripts['test:ci'];
 const scripts = pkg.scripts;
 const workflow = read('.github/workflows/test.yml');
 
-/** quality 作业段落 (jobs: 之后、e2e 作业之前)。 */
+/** quality 作业段落 (jobs: 之后、quality-tz 作业之前)。 */
 const qualitySection = workflow.slice(
   workflow.indexOf('jobs:'),
-  workflow.indexOf('\n  e2e:'),
+  workflow.indexOf('\n  quality-tz:'),
 );
 
 /**

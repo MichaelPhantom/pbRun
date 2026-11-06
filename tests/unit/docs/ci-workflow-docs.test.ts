@@ -54,6 +54,11 @@ describe('workflow → 文档: 关键能力都被文档提到', () => {
     { name: 'pipefail 坑位', inWorkflow: /set -o pipefail/, inDocs: /pipefail/ },
     { name: '失败诊断 (step summary)', inWorkflow: /GITHUB_STEP_SUMMARY/, inDocs: /GITHUB_STEP_SUMMARY|step summary/ },
     { name: 'jest 输出入库', inWorkflow: /jest-output\.txt/, inDocs: /jest-output\.txt/ },
+    {
+      name: '质量作业双时区腿 (TZ=UTC + TZ=Asia/Shanghai)',
+      inWorkflow: /TZ: 'UTC'[\s\S]*?TZ: 'Asia\/Shanghai'/,
+      inDocs: /双时区腿|quality-tz/,
+    },
   ];
 
   test.each(capabilities)('workflow 里的「$name」在文档中有对应说明', ({ inWorkflow, inDocs, name }) => {
@@ -66,7 +71,7 @@ describe('workflow → 文档: 关键能力都被文档提到', () => {
 
 describe('文档 → workflow: 文档提到的都真实存在', () => {
   test('7.1 提到的作业名必须真实存在', () => {
-    for (const job of ['quality', 'e2e']) {
+    for (const job of ['quality', 'quality-tz', 'e2e']) {
       expect(section71).toContain(job);
       expect(workflow).toMatch(new RegExp(`^  ${job}:`, 'm'));
     }

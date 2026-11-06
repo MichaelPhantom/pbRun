@@ -14,6 +14,12 @@ on:
 jobs:
   quality:
     runs-on: ubuntu-latest
+    # 显式固定 TZ=UTC (runner 默认本就是 UTC, 写死是防默认值漂移的保险 +
+    # 自文档化): 时区类缺陷 (2026-10-30 db-stats-branches / 2026-11-06
+    # getPersonalRecords) 都只在「CI=UTC / 本地=CST」的一侧显形。
+    # 业务时区那一侧由下方 quality-tz 作业补齐, 两腿同时绿才算时区无关。
+    env:
+      TZ: 'UTC'
     permissions:
       contents: read
       # PR 评论需要写权限; push 到 main 时不评论 (无 PR 号)
@@ -116,6 +122,48 @@ jobs:
         env:
           # 构建期占位(真实值在部署环境); 避免缺 env 导致构建失败
           NEXT_TELEMETRY_DISABLED: '1'
+
+  # 业务时区腿: 与 quality 相同的单测, 但 TZ=Asia/Shanghai (+480, 产品固定口径)。
+  # 为什么值得单独一个作业: 时区缺陷只会暴露在「测试环境的 TZ」与「断言假设的 TZ」
+  # 不一致的一侧 —— 主作业固定 UTC, 本机开发是 CST, 两侧各自都会漏掉对方那一侧
+  # (2026-10-30 db-stats-branches 在 CI 红而本地绿; 2026-11-06 getPersonalRecords
+  # 恰好相反, CI 绿而 TZ=UTC 本地红, 靠 fake-timers 注入才抓到)。全量单测在此跑
+  # 一遍即可双向覆盖; 不重复跑 tsc/lint/覆盖率/构建 —— 那些与时区无关, 双倍耗时
+  # 换不来增量缺陷检出。
+  quality-tz:
+    runs-on: ubuntu-latest
+    env:
+      TZ: 'Asia/Shanghai'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 单元测试(TZ=Asia/Shanghai)
+        run: |
+          set -o pipefail
+          npx jest 2>&1 | tee jest-tz-output.txt
+
+      - name: 单测失败诊断(annotation)
+        if: failure()
+        run: |
+          if [ ! -f jest-tz-output.txt ]; then echo "无 jest 输出"; exit 0; fi
+          {
+            echo "### jest 失败诊断 (TZ=Asia/Shanghai, 尾部 60 行)"
+            echo '```'
+            tail -n 60 jest-tz-output.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          FAILED_LINE=$(grep -m1 -E '^(FAIL|✕) ' jest-tz-output.txt || echo '未匹配到 FAIL 行')
+          FAILED_LINE=${FAILED_LINE//'%'/'%25'}
+          FAILED_LINE=${FAILED_LINE//$'\n'/'%0A'}
+          echo "::error title=Jest 失败 (TZ=Asia/Shanghai)::${FAILED_LINE}"
 
   e2e:
     # 固定 24.04 而不是 ubuntu-latest: `ubuntu-latest` 已于 2026-10-19 起迁移到
