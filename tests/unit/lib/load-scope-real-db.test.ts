@@ -552,4 +552,39 @@ describeIfDb('真实库：训练负荷的合并口径 vs 跑步口径', () => {
     // 若两者相等，「85 TL/km」的误读就不会发生，说明也无必要
     expect(row.tlAll).toBeGreaterThan(row.tlRun);
   });
+
+  /**
+   * **第二十六类：同一个 prompt 里两处「训练负荷」口径相反。**
+   *
+   * `buildGlobalCoachMessages` 拼出的 user 消息同时含：
+   *
+   * | 块 | 来源 | 负荷口径 |
+   * |----|------|----------|
+   * | 【全局训练指标】 | `getCombinedTrainingLoads` | **跑步 + 力量** |
+   * | 【区间环比】 | `getPeriodStats`（带 `runningTypeClause`） | **纯跑步** |
+   *
+   * 真实库近 90 天（2026-08-11 ~ 11-08）：跑步负荷 4550 / 合并 4958
+   * （差 408，8.2%）。同一段上下文里两个「训练负荷」，模型无法判断信哪个。
+   *
+   * 若哪天两者相等（区间内没有力量课），说明的必要性消失 —— 本测试会红，
+   * 迫使改动者重新核对示例区间。
+   */
+  test('区间环比：近 90 天跑步负荷 ≠ 合并负荷（力量贡献 408）', () => {
+    const row = db
+      .prepare(
+        `SELECT
+           ROUND(SUM(CASE WHEN ${RUN} THEN COALESCE(training_load, 0) ELSE 0 END), 0) AS runLoad,
+           ROUND(SUM(COALESCE(training_load, 0)), 0) AS combinedLoad,
+           ROUND(SUM(CASE WHEN activity_type = 'strength_training'
+                          THEN COALESCE(training_load, 0) ELSE 0 END), 0) AS strengthLoad
+         FROM activities
+         WHERE substr(start_time_local, 1, 10) BETWEEN '2026-08-11' AND '2026-11-08'`,
+      )
+      .get() as { runLoad: number; combinedLoad: number; strengthLoad: number };
+
+    expect(row.runLoad).toBe(4550);
+    expect(row.combinedLoad).toBe(4958);
+    expect(row.strengthLoad).toBe(408);
+    expect(row.combinedLoad).toBe(row.runLoad + row.strengthLoad);
+  });
 });

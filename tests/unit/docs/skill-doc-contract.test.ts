@@ -547,6 +547,19 @@ describe('skill 的「训练负荷」口径（第十八类缺陷）', () => {
     expect(skill).toMatch(/TL[^\n]{0,40}含力量|含力量[^\n]{0,40}TL/);
   });
 
+  /**
+   * **第二十六类：同一段 prompt 里两个「训练负荷」口径相反。**
+   *
+   * 【全局训练指标】合并（4958）vs 【区间环比】跑步（4550）。
+   */
+  test('skill 必须声明「区间环比块的训练负荷是跑步口径」', () => {
+    expect(skill).toMatch(/区间环比/);
+    expect(skill).toMatch(/4550/);
+    expect(skill).toMatch(/4958/);
+    // 必须点明「一个含力量、一个不含」
+    expect(skill).toMatch(/含力量[^\n]{0,40}不含|不含[^\n]{0,40}含力量/);
+  });
+
   test('skill 必须声明「周期化卡的负荷含力量、跑量与次数只跑步」', () => {
     expect(skill).toMatch(/周期化/);
     // 真实库数字必须点名，否则模型无法自证

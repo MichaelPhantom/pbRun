@@ -580,7 +580,10 @@ export async function registerTools(server: McpServer): Promise<void> {
     {
       title: '跨期对比',
       description:
-        '对比两个日期区间的训练总量与强度差异（B 相对 A 的变化率）。delta.avg_pace_diff 负值表示变快。**跑步口径**。',
+        '对比两个日期区间的训练总量与强度差异（B 相对 A 的变化率）。delta.avg_pace_diff 负值表示变快。**跑步口径**。' +
+        '⚠ 这里的 `totalTrainingLoad` 是**纯跑步负荷**，与 `get_training_load_analysis` 的合并负荷' +
+        '（跑步 + 力量）**不是同一个数** —— 真实库近 90 天跑步 4550 / 合并 4958（差 408，8.2%）。' +
+        '两处都叫「训练负荷」但口径不同, 不要互相校验或换算; 问「含不含力量」时才用合并口径的工具。',
       inputSchema: {
         periodA: z.object({
           startDate: z.string().describe('区间 A 开始日期 YYYY-MM-DD'),

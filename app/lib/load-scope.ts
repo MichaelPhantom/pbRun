@@ -199,3 +199,20 @@ export const INSIGHT_LOAD_SCOPE_HINT = `${LOAD_SCOPE_COMBINED}（急性/慢性�
  * 「急性/慢性」是合并口径，与这张卡的分布恰好相反 —— 共用一句必然有一处说错。
  */
 export const PERIODIZATION_SCOPE_HINT = `负荷与 CTL/ATL/TSB 为${LOAD_SCOPE_COMBINED}（含力量训练）；跑量与次数为${LOAD_SCOPE_RUNNING}（只统计跑步）`;
+
+/**
+ * 【区间环比】块里「训练负荷」那行的口径后缀（第二十六类缺陷）。
+ *
+ * `formatPeriodComparison` 的数据来自 `getPeriodStats`，SQL 带 `runningTypeClause`
+ * —— 跑量/次数/时长/配速/心率/跑力/负荷**全部**是纯跑步口径，块内部自洽。
+ *
+ * 问题不在块内，而在**同一个 prompt 的另一个块**：`formatInsightForCoach` 的
+ * 【全局训练指标】里，负荷/TL/CTL/ATL/TSB 是跑步 + 力量合并（第二十五类刚补的
+ * 说明写着「含力量训练」）。于是模型在同一段 user 消息里读到两个「训练负荷」，
+ * 一个说含力量、一个是纯跑步 —— 无法判断该信哪个。
+ *
+ * 真实库近 90 天（2026-08-11 ~ 11-08）：跑步负荷 4550 / 合并 4958（差 408，8.2%）。
+ *
+ * 故在负荷行尾部点明口径，与【全局训练指标】那句形成对照，而不是矛盾。
+ */
+export const PERIOD_COMPARISON_LOAD_SCOPE_HINT = `${LOAD_SCOPE_RUNNING}，不含力量训练`;

@@ -36,6 +36,7 @@ import {
   STATS_SCOPE_HINT,
   INSIGHT_LOAD_SCOPE_HINT,
   PERIODIZATION_SCOPE_HINT,
+  PERIOD_COMPARISON_LOAD_SCOPE_HINT,
   combinedLoadScopeHint,
   monthLoadScopeHint,
 } from '@/app/lib/load-scope';
@@ -315,5 +316,34 @@ describe('训练负荷口径标签的三处调用方', () => {
     expect(PERIODIZATION_SCOPE_HINT).toContain('CTL');
     // 周期化卡不得出现「峰值周跑量」—— 那是另一张卡的格
     expect(PERIODIZATION_SCOPE_HINT).not.toContain('峰值周跑量');
+  });
+
+  /**
+   * **第二十六类：【区间环比】的负荷是跑步口径，与同一 prompt 的另一块相反。**
+   *
+   * `formatPeriodComparison` 吃 `getPeriodStats`（带 `runningTypeClause`），
+   * 整块自洽 —— 跑量/次数/时长/配速/心率/跑力/负荷全是纯跑步。
+   *
+   * 但它在 `buildGlobalCoachMessages` 里与【全局训练指标】拼进**同一条 user
+   * 消息**，而后者第二十五类刚标注「负荷/TL/CTL/ATL/TSB 为跑步 + 力量合并
+   * （含力量训练）」。两个「训练负荷」在同一段上下文里口径相反。
+   *
+   * 真实库近 90 天（2026-08-11 ~ 11-08）：跑步 4550 / 合并 4958（差 408，8.2%）。
+   */
+  test('PERIOD_COMPARISON_LOAD_SCOPE_HINT 必须是跑步口径且点明不含力量', () => {
+    expect(PERIOD_COMPARISON_LOAD_SCOPE_HINT).toContain(LOAD_SCOPE_RUNNING);
+    expect(PERIOD_COMPARISON_LOAD_SCOPE_HINT).toContain('不含力量训练');
+    // 绝不能写成合并口径 —— 那会与本块其余指标（跑量/次数/配速）自相矛盾
+    expect(PERIOD_COMPARISON_LOAD_SCOPE_HINT).not.toContain(LOAD_SCOPE_COMBINED);
+  });
+
+  test('period-comparison.ts 必须 import 该 hint（不得硬编码口径措辞）', () => {
+    const src = read('app/lib/period-comparison.ts');
+    expect(src).toMatch(
+      /import\s*\{[^}]*PERIOD_COMPARISON_LOAD_SCOPE_HINT[^}]*\}\s*from\s*['"]\.\/load-scope['"]/,
+    );
+    expect(src).toMatch(/\$\{PERIOD_COMPARISON_LOAD_SCOPE_HINT\}/);
+    const code = stripComments(src);
+    expect(code.includes('不含力量训练')).toBe(false);
   });
 });

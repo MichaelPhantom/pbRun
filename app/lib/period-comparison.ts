@@ -9,6 +9,7 @@
  */
 
 import { formatPace } from './format';
+import { PERIOD_COMPARISON_LOAD_SCOPE_HINT } from './load-scope';
 import type { PeriodStats } from './types';
 
 function pct(cur: number, prev: number): number | null {
@@ -103,10 +104,14 @@ export function formatPeriodComparison(
     pct(current.totalTrainingLoad ?? 0, previous.totalTrainingLoad ?? 0),
   );
   if (current.totalTrainingLoad != null || previous.totalTrainingLoad != null) {
+    // 第二十六类缺陷：这行的负荷来自 `getPeriodStats`（SQL 带 `runningTypeClause`），
+    // 是**纯跑步**口径 —— 而同一个 prompt 里【全局训练指标】的负荷是跑步 + 力量
+    // 合并。不标注的话模型会在同一段上下文里读到两个矛盾的「训练负荷」。
+    // 真实库近 90 天跑步 4550 / 合并 4958（差 408，8.2%）。
     lines.push(
       `- 训练负荷: ${Math.round(current.totalTrainingLoad ?? 0)} vs ${Math.round(
         previous.totalTrainingLoad ?? 0,
-      )}${loadDelta}`,
+      )}${loadDelta} · ${PERIOD_COMPARISON_LOAD_SCOPE_HINT}`,
     );
   }
 
