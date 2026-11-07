@@ -125,6 +125,19 @@ describe('MCP tool description 必须声明统计口径', () => {
   });
 
   /**
+   * 分段距离的三态必须写进 description：模型拿到 `distance: 0` 会当成
+   * 「这一段没移动」，而它实际是「该运动/该段没有距离语义」（力量/爬楼/跳绳
+   * 整组为 0；游泳与间歇的休息段也是 0）。真实库 44/79 条游泳 lap 距离为 0。
+   */
+  test('get_activity_laps 声明距离三态 (null / 0 / >0)', () => {
+    const desc = configs.get('get_activity_laps')!.description ?? '';
+    expect(desc).toMatch(/距离三态/);
+    expect(desc).toMatch(/null/);
+    expect(desc).toMatch(/无距离语义/);
+    expect(desc).toMatch(/不要把 `0` 当「没移动」/);
+  });
+
+  /**
    * 课表字段单位契约。`workout_steps` 在旧库里 `duration_sec` 是 FIT 原始**毫秒**
    * （536624700: 2400000 vs 实际 2404 秒）、目标配速是 **mm/s**（2944/3361）。
    * 回填后是秒与秒/公里，但 `target_low/high` 仍保留设备原始 mm/s ——

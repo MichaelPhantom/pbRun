@@ -483,7 +483,19 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
             columns={[
               { key: 'i', label: '#', className: 'w-6' },
               { key: 'role', label: '角色' },
-              { key: 'dist', label: '距离', unit: 'km' },
+              /*
+                距离列的三态：
+                 - 整组 lap 距离**全为 0**（明确写 0）→ 该运动本来就没有距离语义
+                   （爬楼按层、跳绳按次、室内骑行按踏频；真实库 35 个活动如此），
+                   整列不渲染 —— 一列全是 `0.00` 对用户零信息量，还会被读成
+                   「每段只移动 0 米」。
+                 - 有 lap 距离为 `null`（**数据缺失**）→ 保留该列并显示 `--`，
+                   用户需要知道这一段没同步到。
+                 - 部分 lap 为 0 → 也保留（游泳休息段 / 间歇恢复段是真实数据），
+                   单元格照常显示 `0.00`。
+                与卡片/概览/AI prompt 的距离三态同一纪律：`0` 与 `null` 不是一回事。
+              */
+              ...(laps.every((l) => l.distance === 0) ? [] : [{ key: 'dist', label: '距离', unit: 'km' }]),
               // 配速/步频列只对跑步展示: 泳池游泳的 lap 「配速」是每公里游泳时间
               ...(running
                 ? [
@@ -525,7 +537,13 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
                   ) : (
                     <span className="text-fg-muted">--</span>
                   ),
-                  dist: ((lap.distance ?? 0) / 1000).toFixed(2),
+                  // 距离三态：`null`（未同步到）→ `--`；`0`（该段无距离语义，
+                  // 如游泳休息段）→ `0.00`；`>0` → 正常值。
+                  // 旧实现 `(lap.distance ?? 0)` 把「缺失」写成「零」，两者含义相反。
+                  dist:
+                    lap.distance == null
+                      ? '--'
+                      : (Number(lap.distance) / 1000).toFixed(2),
                   pace: <span className={isBest ? 'font-semibold text-[var(--good-text)]' : 'text-fg-secondary'}>{formatPace(lap.average_pace, false)}</span>,
                   // 分段「时长」必须与「配速」同一时间基数（计时器时间）。
                   // 旧实现显示 `lap.duration`（含暂停），配速却由 `moving_time`

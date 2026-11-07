@@ -527,7 +527,7 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
     expect(within(overview).getByText('8.46')).toBeInTheDocument();
   });
 
-  test('分段缺 distance → 表内 0.00 km 兜底 (lap.distance ?? 0 右侧)', async () => {
+  test('分段缺 distance → 表内 -- (缺失不是零)', async () => {
     db.getActivityLaps.mockReturnValue([
       { ...laps[0], id: 9, lap_index: 1, distance: null, average_pace: null, average_heart_rate: null, average_cadence: null, total_ascent: null },
       { ...laps[1], id: 10, lap_index: 2, distance: null, average_pace: null },
@@ -537,9 +537,68 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
     // 概览「距离」走 -- 且单位不渲染 (distance>0 的 false 侧)
     const overview = screen.getByText('活动概览').closest('section')!;
     expect(within(overview).getAllByText('--').length).toBeGreaterThanOrEqual(1);
-    // 分段表仍有行且距离显示 0.00
+    // 分段表的距离列仍渲染（有 null = 数据缺失，用户要知道），单元格是 -- 而非 0.00
     expect(screen.getByText('分段数据')).toBeInTheDocument();
-    expect(screen.getAllByText(/0\.00/).length).toBeGreaterThanOrEqual(1);
+    const table = screen.getByRole('table');
+    expect(within(table).getByRole('columnheader', { name: /距离/ })).toBeInTheDocument();
+    expect(within(table).queryByText('0.00')).not.toBeInTheDocument();
+    expect(within(table).getAllByText('--').length).toBeGreaterThanOrEqual(2);
+  });
+
+  /**
+   * 零距离运动（爬楼 30 条 / 跳绳 3 条 / 室内骑行 1 条 / 室内有氧 1 条）的
+   * 分段表**整列**距离都是 0.00 —— 该运动本来就没有距离语义，这一列对用户
+   * 零信息量，还会被读成「每段只移动了 0 米」的异常数据。
+   *
+   * 与卡片/概览/AI prompt 的距离三态同一纪律：`0` 不渲染，`null` 显示 `--`。
+   * 注意区分**整组全 0**（该运动无距离语义 → 整列不渲染）与**部分 lap 为 0**
+   * （游泳的休息段 / 间歇的恢复段 → 保留 0.00，那是真实数据）。
+   */
+  test('整组分段距离全为 0 → 「距离」列不渲染 (该运动无距离语义)', async () => {
+    db.getActivityLaps.mockReturnValue([
+      { ...laps[0], id: 21, lap_index: 1, distance: 0, average_pace: null, average_cadence: null, average_power: null },
+      { ...laps[1], id: 22, lap_index: 2, distance: 0, average_pace: null, average_cadence: null, average_power: null },
+    ]);
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'floor_climbing',
+      distance: 0,
+      average_pace: null,
+      average_cadence: null,
+      vdot_value: null,
+    });
+    render(await page('1010'));
+    const table = screen.getByRole('table');
+    // 表头里不应出现「距离」列
+    expect(within(table).queryByRole('columnheader', { name: /距离/ })).not.toBeInTheDocument();
+    // 也不该有 0.00 的单元格
+    expect(within(table).queryByText(/0\.00/)).not.toBeInTheDocument();
+    // 其他列仍在（时长/心率），证明是「少一列」而不是整表没渲染
+    expect(within(table).getByRole('columnheader', { name: /时长/ })).toBeInTheDocument();
+  });
+
+  /**
+   * 部分 lap 距离为 0 时必须**保留** 0.00 —— 那是游泳的休息段 / 间歇的恢复段，
+   * 是真实数据，不是「该运动无距离语义」。整列隐藏会把休息段从表里抹掉。
+   */
+  test('部分分段距离为 0 → 「距离」列保留 (休息段是真实数据)', async () => {
+    db.getActivityLaps.mockReturnValue([
+      { ...laps[0], id: 31, lap_index: 1, distance: 400, average_pace: 770, average_cadence: null, average_power: null },
+      { ...laps[1], id: 32, lap_index: 2, distance: 0, average_pace: null, average_cadence: null, average_power: null },
+    ]);
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'lap_swimming',
+      distance: 0.4,
+      average_pace: 770,
+      average_cadence: null,
+      vdot_value: null,
+    });
+    render(await page('1011'));
+    const table = screen.getByRole('table');
+    expect(within(table).getByRole('columnheader', { name: /距离/ })).toBeInTheDocument();
+    expect(within(table).getByText('0.40')).toBeInTheDocument();
+    expect(within(table).getByText('0.00')).toBeInTheDocument();
   });
 
   test('核心字段全缺 (distance/moving_time/duration/pace/cadence/start_time_local) → 概览与标题全兜底', async () => {

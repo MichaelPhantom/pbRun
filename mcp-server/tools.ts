@@ -143,7 +143,12 @@ export async function registerTools(server: McpServer): Promise<void> {
     'get_activity_laps',
     {
       title: '活动分段数据',
-      description: '按 activity_id 返回该活动的分段 (laps) 数据。distance 为米。',
+      description:
+        '按 activity_id 返回该活动的分段 (laps) 数据。distance 为米。' +
+        '**距离三态**：`null` = 未同步到；`0` = 该段无距离语义（力量/爬楼/跳绳/室内骑行' +
+        '整组为 0；游泳/间歇的休息段也是 0）；`>0` = 正常。不要把 `0` 当「没移动」。' +
+        '非跑步活动的 `average_pace` 不是跑步配速（泳池 1670s/km、乒乓 30826s/km），' +
+        '`average_power` 在非跑步 lap 上恒为 null。',
       inputSchema: {
         activityId: z.number().int().positive().describe('活动 ID'),
       },
