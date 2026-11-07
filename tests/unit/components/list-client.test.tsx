@@ -587,6 +587,28 @@ describe('ListClient 活动列表 (交互/筛选/无限滚动)', () => {
     expect(screen.queryByRole('button', { name: /两江新区/ })).not.toBeInTheDocument();
   });
 
+  /**
+   * 本地搜索的类型名匹配必须**大小写不敏感**，与服务端 `matchingTypeKeys` 同口径。
+   *
+   * 类型中文名是 `HIIT`（大写），用户习惯输入小写 `hiit`。若本地用大小写敏感的
+   * `includes`，服务端（已改为不敏感）返回该月、本地却显示「该月无匹配活动」——
+   * 两层给出相反结论，用户看到的是本地那层。
+   */
+  test('本地搜索类型名不区分大小写 (hiit 命中 HIIT)', () => {
+    renderList({
+      initialActivitiesByMonth: {
+        '2026-09': [
+          act({ activity_id: 7101, activity_type: 'hiit', name: '10 分钟 AMRAP 自重训练', distance: 0 }),
+          act({ activity_id: 7102, name: '两江新区 - 基础训练' }),
+        ],
+      },
+    });
+    const search = screen.getByLabelText('搜索活动');
+    fireEvent.change(search, { target: { value: 'hiit' } });
+    expect(screen.getByRole('button', { name: /AMRAP/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /两江新区/ })).not.toBeInTheDocument();
+  });
+
   test('筛选下拉: 活动无 activity_type → 归入「跑步」', () => {
     renderList({
       initialActivitiesByMonth: { '2026-09': [act({ activity_type: '' } as Partial<Activity>)] },

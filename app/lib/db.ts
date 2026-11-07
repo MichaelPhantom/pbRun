@@ -369,10 +369,13 @@ function escapeLike(raw: string): string {
  * `LIKE '%力量%'` 那样误命中名称里恰好含「力量」二字的跑步活动。
  */
 function matchingTypeKeys(q: string): string[] {
-  const needle = q.trim();
+  const needle = q.trim().toLowerCase();
   if (!needle) return [];
   return Object.entries(ACTIVITY_TYPE_LABELS)
-    .filter(([, label]) => label.includes(needle))
+    // 大小写不敏感：SQL 的 `LIKE` 对 ASCII 本来就不区分大小写，类型名路径必须同语义。
+    // 真实库 3 条 HIIT 的类型中文名是大写 `HIIT`，用户习惯输入小写 `hiit` ——
+    // 旧实现用大小写敏感的 `includes`，小写输入命中 0 个类型键，那 3 条搜不到。
+    .filter(([, label]) => label.toLowerCase().includes(needle))
     .map(([key]) => key);
 }
 

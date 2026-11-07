@@ -491,6 +491,33 @@ describe('db.ts 洞察查询 (真实 SQL)', () => {
     expect(db.normalizeTypeFilter('strength_training')).toBe('strength_training');
   });
 
+  /**
+   * 搜索的类型名匹配必须**不区分大小写**，与 SQL `LIKE` 的语义一致。
+   *
+   * 真实库有 3 条 HIIT（名称「10 分钟 AMRAP 自重训练」，不含 hiit 二字）。类型中文名
+   * 是 `HIIT`（大写），而用户输入习惯是小写 `hiit` —— 旧实现用
+   * `label.includes(q)`（大小写敏感），小写输入命中 0 个类型键，那 3 条一条都搜不到，
+   * 而同一句 `name LIKE '%hiit%'` 在 SQLite 里对 ASCII 是不区分大小写的。
+   *
+   * 同一个搜索框，名称路径大小写不敏感、类型名路径敏感 —— 用户无法预测哪种拼写有效。
+   */
+  test('搜索类型中文名不区分大小写 (hiit / HIIT / Hiit 等价)', async () => {
+    const mgr = new DatabaseManager(tmpDb);
+    mgr.upsertActivity({
+      activity_id: 88, name: '10 分钟 AMRAP 自重训练', activity_type: 'hiit',
+      start_time: '2026-09-26T12:00:00.000Z', start_time_local: '2026-09-26T20:00:00',
+      distance: 0, duration: 600, moving_time: 600, elapsed_time: 600,
+    });
+    mgr.close();
+
+    const db = await loadDb();
+    for (const q of ['hiit', 'HIIT', 'Hiit', 'hIiT']) {
+      const hit = db.getMonthSummaries(undefined, undefined, { q }) as { count: number }[];
+      expect(hit).toHaveLength(1);
+      expect(hit[0].count).toBe(1);
+    }
+  });
+
   test('getMonthSummaries 支持 q 名称搜索 (全库范围)', async () => {
     const db = await loadDb();
     const hit = db.getMonthSummaries(undefined, undefined, { q: '泳池' }) as {

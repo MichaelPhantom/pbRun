@@ -331,7 +331,9 @@ export default function ListClient({
       out = out.filter(
         (a) =>
           (a.name || '').toLowerCase().includes(q) ||
-          activityTypeLabel(a.activity_type).includes(searchQuery.trim()),
+          // 类型中文名同样要**大小写不敏感**（与服务端 `matchingTypeKeys` 同口径）：
+          // 类型名 `HIIT` 是大写，用户习惯输入小写 `hiit`，敏感的 includes 会漏掉。
+          activityTypeLabel(a.activity_type).toLowerCase().includes(q),
       );
     }
     // 复制后再排序 —— 否则无过滤时 out === 状态数组, sort 会原地改写 React state。
