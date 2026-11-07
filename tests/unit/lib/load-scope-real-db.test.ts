@@ -310,4 +310,69 @@ describeIfDb('真实库：训练负荷的合并口径 vs 跑步口径', () => {
       expect(Math.abs((recent.v as number) - (year.v as number))).toBeGreaterThan(0.1);
     }
   });
+
+  /**
+   * **第二十类：`/stats` 的累计爬升差值 100% 来自爬楼，力量恒为 0。**
+   *
+   * `STATS_SCOPE_HINT` 旧文案只写「不含力量训练」。但用户拿 Garmin 上的总爬升
+   * 减 `/stats` 的爬升，差的 1312m 全在**爬楼**里 —— 去力量卡永远找不到
+   * （51 条力量训练爬升合计恒为 0）。
+   *
+   * 这条守卫同时钉两件事：
+   *  1. 爬升差值确实非零且量级显著（否则提示可以不提）；
+   *  2. 差值的**全部**来自爬楼，力量贡献精确为 0 —— 这是「必须点爬楼」的证据。
+   *
+   * 若哪天力量训练开始记录爬升（或爬楼被并入跑步口径），本测试会红，
+   * 迫使改动者重新核对提示里的类型清单。
+   */
+  test('累计爬升差值 100% 来自爬楼（力量训练爬升恒为 0）', () => {
+    const row = db
+      .prepare(
+        `SELECT
+           ROUND(SUM(CASE WHEN ${RUN} THEN COALESCE(total_ascent, 0) ELSE 0 END), 2) AS runAsc,
+           ROUND(SUM(COALESCE(total_ascent, 0)), 2) AS allAsc,
+           ROUND(SUM(CASE WHEN activity_type = 'strength_training'
+                          THEN COALESCE(total_ascent, 0) ELSE 0 END), 2) AS strengthAsc,
+           ROUND(SUM(CASE WHEN activity_type = 'floor_climbing'
+                          THEN COALESCE(total_ascent, 0) ELSE 0 END), 2) AS floorAsc
+         FROM activities`,
+      )
+      .get() as { runAsc: number; allAsc: number; strengthAsc: number; floorAsc: number };
+
+    // 真实库：跑步 7853 / 全类型 9165 / 差 1312
+    expect(Math.round(row.runAsc)).toBe(7853);
+    expect(Math.round(row.allAsc)).toBe(9165);
+    expect(Math.round(row.allAsc - row.runAsc)).toBe(1312);
+
+    // 关键反证：力量训练爬升**精确为 0**，1312 全部来自爬楼
+    expect(row.strengthAsc).toBe(0);
+    expect(Math.round(row.floorAsc)).toBe(1312);
+    expect(Math.round(row.allAsc - row.runAsc)).toBe(Math.round(row.floorAsc));
+  });
+
+  /**
+   * **同一句提示要覆盖九格，而九格的差值来源不是同一个类型** —— 这条钉住
+   * 「只点名力量是不够的」这个事实：训练负荷的差值 100% 来自力量、爬升的
+   * 差值 100% 来自爬楼，两者互补且互不重叠。
+   */
+  test('负荷差值 100% 来自力量、爬升差值 100% 来自爬楼（互补且不重叠）', () => {
+    const row = db
+      .prepare(
+        `SELECT
+           ROUND(SUM(CASE WHEN ${RUN} THEN COALESCE(training_load, 0) ELSE 0 END), 2) AS runLoad,
+           ROUND(SUM(CASE WHEN activity_type = 'strength_training'
+                          THEN COALESCE(training_load, 0) ELSE 0 END), 2) AS strengthLoad,
+           ROUND(SUM(CASE WHEN activity_type = 'floor_climbing'
+                          THEN COALESCE(training_load, 0) ELSE 0 END), 2) AS floorLoad
+         FROM activities`,
+      )
+      .get() as { runLoad: number; strengthLoad: number; floorLoad: number };
+
+    // 负荷：差值全部来自力量，爬楼贡献精确为 0
+    expect(Math.round(row.strengthLoad)).toBe(1666);
+    expect(row.floorLoad).toBe(0);
+    // 反过来：爬升差值全部来自爬楼，力量贡献精确为 0（见上一条）
+    // —— 两句合起来证明「只写『不含力量训练』会让爬升的差值无处解释」
+    expect(row.strengthLoad).toBeGreaterThan(0);
+  });
 });

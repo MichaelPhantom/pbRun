@@ -33,6 +33,7 @@ import {
   LOAD_SCOPE_COMBINED,
   LOAD_SCOPE_RUNNING,
   DISTANCE_SCOPE_HINT,
+  STATS_SCOPE_HINT,
   combinedLoadScopeHint,
   monthLoadScopeHint,
 } from '@/app/lib/load-scope';
@@ -103,6 +104,39 @@ describe('训练负荷口径标签', () => {
     expect(combinedLoadScopeHint(0, 0)).toBe('跑步口径（区间内无力量负荷）');
     expect(combinedLoadScopeHint(Number.NaN, Number.NaN)).toBe('跑步口径（区间内无力量负荷）');
     expect(combinedLoadScopeHint(10, 0)).toBe('跑步口径（区间内无力量负荷）');
+  });
+
+  /**
+   * **第二十类缺陷：`/stats` 的口径提示把「差值来源」说错了。**
+   *
+   * `STATS_SCOPE_HINT` 旧文案只写「不含力量训练」。但九格里的**累计爬升**
+   * 差值来源完全不是力量：
+   *
+   * | 指标 | 跑步 | 全类型 | 差值 | 差值来源 |
+   * |------|------|--------|------|----------|
+   * | 累计爬升 | 7853 m | 9165 m | **1312** | **爬楼 100%**（力量 0） |
+   * | 距离 | 2200.9 km | 2212.8 km | 11.9 | 游泳/球类（力量 0） |
+   * | 时长 | 214.4 h | 258.2 h | 43.8 | 力量 26.2 + 爬楼 8.7 + 球类/游泳 |
+   * | 训练负荷 | 18122 | 19788 | 1666 | 力量 100%（爬楼 0） |
+   *
+   * 也就是说：**同一句「不含力量训练」对训练负荷是对的，对累计爬升完全错**
+   * —— 用户拿 Garmin 上的总爬升减 `/stats` 的爬升，差的 1312m 全在爬楼里，
+   * 去力量卡永远找不到。这不是算错，是**限定语点错了类型**。
+   *
+   * 与第十八类同源（措辞与数据不符），只是那次错在「该不该标」，这次错在
+   * 「标的是哪个类型」。
+   */
+  test('口径提示必须点出「爬楼」—— 累计爬升的差值 100% 来自爬楼', () => {
+    expect(STATS_SCOPE_HINT).toContain('爬楼');
+  });
+
+  /**
+   * 反证：提示不能只说力量。若文案里「力量」是**唯一**被点名的非跑步类型，
+   * 用户就会把全部差值都归因到力量。
+   */
+  test('口径提示不得只点名力量（差值来源不止力量）', () => {
+    expect(STATS_SCOPE_HINT).toContain('力量');
+    expect(STATS_SCOPE_HINT).toContain('爬楼');
   });
 });
 

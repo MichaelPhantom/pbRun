@@ -498,6 +498,20 @@ describe('skill 的「训练负荷」口径（第十八类缺陷）', () => {
     expect(Math.round(row.runLoad)).toBe(1715);
     expect(Math.round(row.allLoad)).toBe(2004);
   });
+
+  /**
+   * **第二十类：九格的差值来源不是同一个类型。**
+   *
+   * 旧提示只写「不含力量训练」，但累计爬升的差 1312m 全来自**爬楼**
+   * （力量 51 条爬升合计恒为 0）。模型若照旧文案解释，会让用户去力量卡
+   * 里找那 1312m —— 永远找不到。
+   */
+  test('skill 必须声明「爬升差值来自爬楼，不是力量」', () => {
+    expect(skill).toMatch(/爬楼/);
+    expect(skill).toMatch(/1312/);
+    // 必须明确否掉「爬升差来自力量」这个误读
+    expect(skill).toMatch(/力量[^\n]{0,20}(恒为\s*0|0\s*m)/);
+  });
 });
 
 describe('skill 的分段角色口径必须与设备记录一致（第十二类缺陷）', () => {

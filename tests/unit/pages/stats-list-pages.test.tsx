@@ -209,6 +209,24 @@ describe('app/stats/page.tsx', () => {
   });
 
   /**
+   * **第二十类缺陷：限定语必须点对类型。**
+   *
+   * 旧提示只写「不含力量训练」，但九格里的**累计爬升**差 1312m 全来自
+   * **爬楼**（力量 51 条爬升合计恒为 0）。用户拿 Garmin 总爬升减本页爬升，
+   * 差的 1312m 去力量卡里永远找不到。
+   *
+   * 这条断言的是**用户看到的字面** —— 提示必须同时出现「力量训练」与「爬楼」。
+   */
+  test('口径提示必须同时点名「力量训练」与「爬楼」（差值来源不止一个类型）', async () => {
+    render(await StatsPage({ searchParams: Promise.resolve({ period: 'year' }) }));
+    const hint = screen.getByText(/跑步口径：/);
+    expect(hint).toHaveTextContent('力量训练');
+    expect(hint).toHaveTextContent('爬楼');
+    // 累计爬升这一格在页面上，用户能当场对上号
+    expect(screen.getByText('累计爬升 (米)')).toBeInTheDocument();
+  });
+
+  /**
    * **第十九类缺陷：「当前跑力」固定近一周，其余八格跟随所选周期。**
    *
    * `/stats` 的「当前跑力」来自 `getStats('week').averageVDOT`（页面固定

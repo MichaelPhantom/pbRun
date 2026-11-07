@@ -358,8 +358,12 @@ export async function registerTools(server: McpServer): Promise<void> {
       title: '汇总统计',
       description:
         '指定周期（周/月/年/全部）的汇总统计。**跑步口径**：只统计跑步类活动' +
-        '（running/track_running/treadmill_running），游泳/球类/力量训练不计入。' +
+        '（running/track_running/treadmill_running），游泳/球类/力量训练/爬楼不计入。' +
         'totalDistance 为米, totalDuration 为秒。' +
+        '⚠️ **各指标的「差值来源」不是同一个类型**: totalTrainingLoad 的差全部来自力量' +
+        '(真实库全历史 1666, 爬楼 0); 而 **totalAscent 的差 1312m 全部来自爬楼**' +
+        '(力量训练 51 条爬升合计恒为 0); totalDistance 的差 11.9km 来自游泳/球类。' +
+        '用户拿 Garmin 总爬升与本工具对比时, 多出来的是爬楼, 不是力量。' +
         '⚠️ **totalTrainingLoad 是纯跑步负荷, 不是合并负荷** —— 与 ' +
         'get_training_load_analysis 的合并口径（跑步 + 力量）不同: 真实库 2026-08 ' +
         '这里 1715 而合并口径 2004（差 289 / 17%）、2026 全年 15668 vs 17171（差 1503）。两个口径都对, ' +
