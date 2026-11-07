@@ -1,5 +1,5 @@
 /**
- * pbRun MCP Server — 19 个 tool 的定义与 handler。
+ * pbRun MCP Server — 20 个 tool 的定义与 handler。
  * 直接复用 app/lib/db.ts 的查询函数（只读访问 activities.db）；
  * 纯计算逻辑 (降采样/ACWR/跨期对比) 在 ./analysis.ts, 可单测。
  */
@@ -19,6 +19,7 @@ import {
   getPaceZoneStats,
   getPowerZoneStats,
   getMonthSummaries,
+  getActivityTypes,
   getPeriodStats,
   getCombinedTrainingLoads,
   getStrengthSessions,
@@ -249,6 +250,29 @@ export async function registerTools(server: McpServer): Promise<void> {
       },
     },
     (args) => run(() => getDailyDistances(args.year ?? Number(todayLocalDate().slice(0, 4))))
+  );
+
+  /**
+   * 类型清单：LLM 想按类型筛选时的**唯一可靠入口**。
+   *
+   * 没有它，模型只能从「已取到的活动」里推断类型键 —— 与 Web 记录页此前的缺陷
+   * 完全同源：默认只取最近 20 条（往往全是跑步），于是模型以为库里只有跑步，
+   * 永远不会去 `list_activities({type:'strength_training'})` 查那 51 条力量课。
+   * 与 Web 下拉的 `getActivityTypes()` 是同一个函数，口径自动一致。
+   */
+  await server.registerTool(
+    'get_activity_types',
+    {
+      title: '活动类型清单',
+      description:
+        '返回全库出现过的运动类型与条数（按条数降序），**全类型口径**，与 Web 记录页的筛选下拉同源。' +
+        'type 为原始 activity_type 键（running / strength_training / floor_climbing / lap_swimming…），' +
+        '可直接作为 list_activities 与 get_month_summaries 的 type 参数。' +
+        '空 activity_type 已归入 running（旧库兼容）。**先调本工具再按类型筛选**：' +
+        '不要从 list_activities 的首页结果推断有哪些类型（默认按时间倒序，最近可能全是跑步）。',
+      inputSchema: {},
+    },
+    () => run(() => getActivityTypes())
   );
 
 

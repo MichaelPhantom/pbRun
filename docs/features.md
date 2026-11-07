@@ -25,7 +25,7 @@
 | 统计 | `/stats?period=` | `getStats` / `getPersonalRecords`（跑步口径，见 §1.1） | 汇总 AI，周/月/年/全部映射 | ✅ |
 | 汇总 AI 对话 | `POST /api/insight/coach` | `insight-service.ts` → `formatInsightForCoach` | 区间指标 + 跑者画像 + 趋势 | ✅ |
 | 模型目录 | `GET /api/llm/models` | `model-curation.ts` 固定白名单 | — | ✅ |
-| MCP Server | `mcp-server/`（stdio） | 19 个 tools 复用 `app/lib/db.ts` 与活动深挖服务 | `get_activity_comparables` 直接返回当次可比 `contextText` | ✅ |
+| MCP Server | `mcp-server/`（stdio） | 20 个 tools 复用 `app/lib/db.ts` 与活动深挖服务 | `get_activity_comparables` 直接返回当次可比 `contextText` | ✅ |
 | 力量训练 | 首页卡片 / 分析页卡片 / 活动详情「力量训练分析」/ MCP `get_strength_sessions`·`get_strength_loads` | `app/lib/strength.ts`（纯函数：画像 + 负荷 + 合并），`db.getStrengthLoads/getStrengthSessions/getCombinedTrainingLoads` | 结构化画像（计划名/组数/工作休息比/强度域） | ✅ |
 | 数据同步 | `scripts/garmin` / `scripts/strava` | FIT/GPX → SQLite，VDOT 计算 | — | ✅ |
 
@@ -1544,7 +1544,7 @@ AI 教练有两种**能力维度**，它们的数据单位与结论都不同，*
 | **统计口径：活动日志保留全类型** | `getActivities` / `getMonthSummaries` | `tests/unit/lib/db-insight-integration.test.ts`（月度汇总 count 与列表 total 严格相等） |
 | **统计口径：写入侧也必须筛跑步** | `scripts/garmin/backfill-vdot.js` 的 `isRunningActivity`（VDOT 与 training_load 同口径） | `tests/unit/scripts/backfill-vdot.test.js`（非跑步即便有代表性心率与 >400m lap 也不写 VDOT、旧伪值被清空；缺类型视为跑步；track/treadmill 正常计算） |
 | **跑步类型判定单一来源** | `app/lib/sport.ts`（`RUNNING_ACTIVITY_TYPES` 派生 SQL + 客户端判定） | `tests/unit/lib/sport.test.ts`（类型集合/旧库空值/展示名/图标回落） |
-| **MCP tool description 必须声明统计口径** | `mcp-server/tools.ts`（10 个表现分析工具写「跑步口径」、2 个活动日志工具写「全类型口径」、1 个合并口径工具同时声明「负荷合并 + 里程/次数只统计跑步」、2 个力量工具声明数据边界） | `tests/unit/mcp/tool-scope-contract.test.ts`（逐项断言口径措辞、`list_activities` 不再自称「列出跑步活动」、`get_activity_comparables` 声明 `running=false` 时配速派生字段为 `null`、19 个工具均有非空 title/description） |
+| **MCP tool description 必须声明统计口径** | `mcp-server/tools.ts`（10 个表现分析工具写「跑步口径」、3 个活动日志工具写「全类型口径」、1 个合并口径工具同时声明「负荷合并 + 里程/次数只统计跑步」、2 个力量工具声明数据边界） | `tests/unit/mcp/tool-scope-contract.test.ts`（逐项断言口径措辞、`list_activities` 不再自称「列出跑步活动」、`get_activity_comparables` 声明 `running=false` 时配速派生字段为 `null`、`get_activity_types` 声明「先调本工具再按类型筛选」、20 个工具均有非空 title/description） |
 | **力量训练口径（第三套）** | `app/lib/strength.ts`（画像/强度域/负荷/合并的唯一真源）、`db.getStrengthLoads`·`getStrengthSessions`·`getCombinedTrainingLoads` | `tests/unit/lib/strength.test.ts`（32 例）、`strength-merge.test.ts`（9 例：负荷相加、里程/时长/次数只取跑步、只有力量的日子保留）、`strength-summary.test.ts`（10 例）、`db-strength.test.ts`（12 例：SQL 只查 `strength_training`、分页、空值兜底） |
 | **洞察页负荷口径必须合并** | `insight-service.ts` 的 `getCombinedTrainingLoads` | `tests/unit/lib/insight-services.test.ts`（合并入口被调用、跑步口径 `getDailyLoads` 未被调用、EWMA 预热窗口不变） |
 | **力量负荷双实现一致性** | `app/lib/strength.ts`（TS）↔ `scripts/common/strength-load.js`（JS 镜像，同步脚本用） | `tests/unit/lib/strength-sync-parity.test.ts`（穷举 12×12 TE×HR、11×5 时长×域、7×7 时间基数；任一侧改阈值而另一侧没跟上 → 红灯） |

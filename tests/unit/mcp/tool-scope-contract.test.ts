@@ -45,7 +45,7 @@ const COMBINED_SCOPED = ['get_training_load_analysis'];
 const STRENGTH_SCOPED = ['get_strength_sessions', 'get_strength_loads'];
 
 /** 活动日志口径的工具：必须声明含全部运动类型。 */
-const ALL_TYPE_SCOPED = ['list_activities'];
+const ALL_TYPE_SCOPED = ['list_activities', 'get_activity_types'];
 
 /**
  * **双口径**工具：同一行同时返回跑步口径与全类型口径字段。
@@ -241,7 +241,24 @@ describe('MCP tool description 必须声明统计口径', () => {
     expect(desc).not.toMatch(/VDOT/);
   });
 
-  test('工具总数与文档一致 (19 个: 14 基础 + 3 AI + 2 力量训练)', () => {
-    expect(configs.size).toBe(19);
+  test('工具总数与文档一致 (20 个: 15 基础 + 3 AI + 2 力量训练)', () => {
+    expect(configs.size).toBe(20);
+  });
+
+  /**
+   * 类型清单工具：LLM 按类型筛选时的**唯一可靠入口**。
+   *
+   * 与 Web 记录页的缺陷完全同源：没有这个工具，模型只能从 `list_activities`
+   * 首页结果推断类型 —— 默认按时间倒序、最近往往全是跑步，于是模型以为库里
+   * 只有跑步，永远不会去查那 51 条力量课。description 必须写明「先调本工具
+   * 再按类型筛选」，否则模型不会想到用它。
+   */
+  test('get_activity_types 声明为全库清单 + 先调再筛', () => {
+    const cfg = configs.get('get_activity_types');
+    expect(cfg).toBeDefined();
+    expect(cfg!.description).toMatch(/全库/);
+    expect(cfg!.description).toMatch(/全类型口径/);
+    expect(cfg!.description).toMatch(/先调本工具/);
+    expect(cfg!.description).toMatch(/strength_training/);
   });
 });

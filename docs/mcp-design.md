@@ -1,7 +1,7 @@
 # pbRun MCP Server 设计方案
 
 > 为 AI 客户端（Claude Desktop / opencode 等）提供结构化跑步数据访问能力
-> 状态: 已实施 (2026-08-08), 19 个 tools (含路线轨迹 + 年度里程 + 当次可比样本 + 功率区间
+> 状态: 已实施 (2026-08-08), 20 个 tools (含类型清单 + 路线轨迹 + 年度里程 + 当次可比样本 + 功率区间
 > + 力量训练画像/负荷, 2026-11 新增)
 
 ## 1. 架构
@@ -32,7 +32,7 @@
 pbRun/
 ├── mcp-server/
 │   ├── index.ts              # MCP server 入口 (stdio transport)
-│   ├── tools.ts              # 19 个 tool 定义与 handler
+│   ├── tools.ts              # 20 个 tool 定义与 handler
 │   ├── analysis.ts           # 纯逻辑 (降采样/ACWR/跨期对比, 可单测)
 │   ├── tsconfig.json         # 独立编译配置 (module node16, 输出 dist/)
 │   ├── dist/                 # 编译产物 (已 .gitignore)
@@ -45,9 +45,9 @@ pbRun/
 
 > 部署: 无 systemd unit — stdio 进程由 AI 客户端按需拉起 (见 §6.1)。
 
-## 3. Tools 清单 (19 个)
+## 3. Tools 清单 (20 个)
 
-### 3.1 基础数据 (复用 db.ts, 14 个)
+### 3.1 基础数据 (复用 db.ts, 15 个)
 
 > **口径**：`list_activities` 是**全类型**（活动日志）；`get_month_summaries` 是**双口径同行**
 > （`runDistance`/`runCount` 只跑步，`totalDistance`/`count` 全类型），其余统计类工具均为
@@ -59,9 +59,9 @@ pbRun/
 > 若 description 不声明口径，模型会把「游泳/篮球不计入」的统计当成全部运动的总量来
 > 解读（例如看到 `totalDistance` 只含跑步，却推断「用户几乎不运动」）。这类缺陷不报错、
 > 不让测试变红，只在模型输出里显形。`tests/unit/mcp/tool-scope-contract.test.ts`
-> 逐项断言：10 个表现分析工具必须含「跑步口径」、2 个活动日志工具必须含「全类型口径」、
+> 逐项断言：10 个表现分析工具必须含「跑步口径」、3 个活动日志工具必须含「全类型口径」、
 > 1 个合并口径工具必须同时声明「负荷合并 + 里程/次数只统计跑步」、2 个力量工具必须声明
-> 数据边界（无重量/次数），且所有 19 个工具都有非空 title/description。
+> 数据边界（无重量/次数），且所有 20 个工具都有非空 title/description。
 
 | Tool | db.ts 函数 | 参数 | 输出 | 说明 |
 |------|-----------|------|------|------|
@@ -77,6 +77,7 @@ pbRun/
 | `get_pace_zone_analysis` | `getPaceZoneStats` | `startDate`, `endDate`, `vdot?`(auto=取最新) | `PaceZoneStat[]` | 配速区间分析 (跑步口径) |
 | `get_power_zone_analysis` | `getPowerZoneStats` | `startDate`, `endDate` | `{zones, reference, ranges, boundsLabel}` | 功率区间分析 (**%FTP 五区**, 按各活动自身 FTP 归区; 跑步口径) |
 | `get_month_summaries` | `getMonthSummaries` | `limit?`, `offset?`, `type?`, `q?` | `MonthSummary[]` | 月度汇总 (**双口径同行**): `runDistance`/`runCount` 只跑步, `totalDistance`/`count` 全类型; 可按类型/名称跨月过滤 |
+| `get_activity_types` | `getActivityTypes` | 无 | `{type, count}[]` | 全库运动类型清单 (**全类型口径**, 与 Web 记录页下拉同源); 按类型筛选前先调它拿到真实类型键 |
 | `get_activity_track` | `getActivityTrack` | `activityId` | `{track: ActivityTrack \| null}` | 路线轨迹 (降采样 GPS+海拔+包围盒); 室内为 null |
 | `get_daily_distances` | `getDailyDistances` | `year?`(默认当前年) | `{date, km}[]` | 年度每日里程 (热力图/连续性, 跑步口径) |
 
@@ -283,7 +284,7 @@ DB_PATH=/home/ubuntu/project/pbRun/app/data/activities.db MAX_HR=194 \
 | 4 | 实现 compare_periods (db.ts 新增 getPeriodStats) | ✅ |
 | 5 | 实现 get_training_load_analysis (db.ts 新增 getTrainingLoads, ACWR) | ✅ |
 | 6 | opencode 配置 (已写入 ~/.config/opencode); 确认无需 systemd (stdio 由客户端拉起) | ✅ |
-| 7 | 端到端验证 (stdio 客户端逐一调用 19 个 tool) | ✅ 全部通过 |
+| 7 | 端到端验证 (stdio 客户端逐一调用 20 个 tool) | ✅ 全部通过 |
 | 8 | 打磨: 纯逻辑抽离 analysis.ts (可单测)、结构化错误、日期校验、优雅退出 | ✅ |
 | 9 | 单元测试: db 新函数 10 例 + analysis 纯逻辑 18 例 | ✅ 全部通过 |
 | 10 | 修复 format.ts locale 脆弱性 (toLocaleDateString → 确定性 YYYY/MM/DD) | ✅ 全量测试 271 通过 |
@@ -291,7 +292,7 @@ DB_PATH=/home/ubuntu/project/pbRun/app/data/activities.db MAX_HR=194 \
 
 构建: `npm run build:mcp` (tsc -p mcp-server) → `mcp-server/dist/`
 测试: `npm test -- tests/unit/lib/db-mcp.test.ts tests/unit/mcp/analysis.test.ts`
-说明: 当前 tool 数为 19 (14 基础 + 3 AI + 2 力量训练)。历史笔误记录: 早期设计文档写 "12 个", 实际 16。
+说明: 当前 tool 数为 20 (15 基础 + 3 AI + 2 力量训练)。历史笔误记录: 早期设计文档写 "12 个", 实际 16。
 注意: `next build` 时勿设置 `NODE_ENV=development` (Next 16 已知 bug 会使 /_global-error
 prerender 崩溃, vercel/next.js#85668 等); 正常构建 (不设或 NODE_ENV=production) 无此问题。
 
