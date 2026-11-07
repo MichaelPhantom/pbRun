@@ -57,15 +57,22 @@ beforeEach(() => {
 describe('getMonthSummaries', () => {
   test('不传参 → 返回裸数组 (无分页对象)', () => {
     mockAll.mockReturnValueOnce([
-      { monthKey: '2026-09', totalDistance: 42.5, count: 6 },
-      { monthKey: '2026-08', totalDistance: null, count: null },
+      { monthKey: '2026-09', totalDistance: 42.5, count: 6, runDistance: 42.5, runCount: 6 },
+      { monthKey: '2026-08', totalDistance: null, count: null, runDistance: null, runCount: null },
     ]);
-    const rows = getMonthSummaries() as { monthKey: string; totalDistance: number; count: number }[];
+    const rows = getMonthSummaries() as {
+      monthKey: string; totalDistance: number; count: number; runDistance: number; runCount: number;
+    }[];
     expect(Array.isArray(rows)).toBe(true);
-    expect(rows[0]).toEqual({ monthKey: '2026-09', totalDistance: 42.5, count: 6 });
+    expect(rows[0]).toEqual({
+      monthKey: '2026-09', totalDistance: 42.5, count: 6, runDistance: 42.5, runCount: 6,
+    });
     // NULL → 0 兜底
-    expect(rows[1]).toEqual({ monthKey: '2026-08', totalDistance: 0, count: 0 });
-    expect(mockPrepare).toHaveBeenCalledTimes(1);
+    expect(rows[1]).toEqual({
+      monthKey: '2026-08', totalDistance: 0, count: 0, runDistance: 0, runCount: 0,
+    });
+    // 1 次 PRAGMA table_info (hasActivityColumn) + 1 次业务查询
+    expect(mockPrepare).toHaveBeenCalledTimes(2);
   });
 
   test('传 limit/offset → 分页对象 + total, 并对入参做夹取', () => {
@@ -75,7 +82,7 @@ describe('getMonthSummaries', () => {
     const res = getMonthSummaries(6, 6) as { data: unknown[]; total: number };
     expect(res.total).toBe(14);
     expect(res.data).toHaveLength(1);
-    // LIMIT/OFFSET 原样传入
+    // LIMIT/OFFSET 原样传入 (params 为空时是最后两个实参)
     expect(mockAll).toHaveBeenCalledWith(6, 6);
 
     mockAll.mockClear();
@@ -89,6 +96,54 @@ describe('getMonthSummaries', () => {
     mockAll.mockReturnValueOnce([]);
     getMonthSummaries(500, 3); // limit>100 → 100
     expect(mockAll).toHaveBeenCalledWith(100, 3);
+  });
+
+  /**
+   * 过滤条件必须同时作用在 **data 与 total** 上。
+   *
+   * 若只给 data 加 WHERE 而 total 仍统计全库月份，前端「滚动加载更多」会永远
+   * 判定「还有下一页」，然后拿到空数组 —— 无限滚动卡在空请求里。
+   */
+  test('过滤条件 → WHERE 与参数同时进入 data / total 两条 SQL', () => {
+    mockGet.mockReturnValueOnce({ total: 1 });
+    mockAll.mockReturnValueOnce([]);
+    getMonthSummaries(6, 0, { type: 'strength_training', q: '核心' });
+
+    const sqls = mockPrepare.mock.calls
+      .map((c) => String(c[0]))
+      .filter((s) => !/^\s*PRAGMA\s+table_info/i.test(s));
+    expect(sqls.length).toBe(2);
+    for (const sql of sqls) {
+      // 归一表达式: 空 activity_type 视为 running (与下拉一致)
+      expect(sql).toContain("COALESCE(NULLIF(activity_type, ''), 'running') = ?");
+      expect(sql).toContain('name LIKE ?');
+    }
+    // data 查询的参数顺序: WHERE 参数在前, LIMIT/OFFSET 在后
+    expect(mockAll).toHaveBeenCalledWith('strength_training', '%核心%', '\\', 6, 0);
+    // total 查询只吃 WHERE 参数
+    expect(mockGet).toHaveBeenCalledWith('strength_training', '%核心%', '\\');
+  });
+
+  test('LIKE 通配符被转义 (% / _ 按字面匹配)', () => {
+    mockAll.mockReturnValueOnce([]);
+    getMonthSummaries(undefined, undefined, { q: '100%_x' });
+    expect(mockAll).toHaveBeenCalledWith('%100\\%\\_x%', '\\');
+  });
+
+  /**
+   * 筛「跑步」必须也命中 `activity_type` 为空的行。
+   *
+   * `getActivityTypes` 把空值归入 `running`（下拉里因此有「跑步」选项），
+   * 若筛选 SQL 写成 `activity_type = 'running'`，这些行就永远筛不出来 ——
+   * 下拉里有选项、选中后却是空列表。两处必须用同一个归一规则。
+   */
+  test('筛 running 时把空 activity_type 一并匹配 (与下拉归一一致)', () => {
+    mockAll.mockReturnValueOnce([]);
+    getMonthSummaries(undefined, undefined, { type: 'running' });
+    const sql = mockPrepare.mock.calls
+      .map((c) => String(c[0]))
+      .find((s) => s.includes('FROM activities'))!;
+    expect(sql).toContain("COALESCE(NULLIF(activity_type, ''), 'running') = ?");
   });
 
   test('total 查询缺失 → 0', () => {

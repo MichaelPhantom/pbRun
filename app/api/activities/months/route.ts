@@ -1,7 +1,12 @@
 /**
  * GET /api/activities/months
- * Returns per-month summaries (monthKey, totalDistance, count).
+ * Returns per-month summaries (monthKey, totalDistance, count, runDistance, runCount).
  * Query: limit, offset — 可选，用于分页；不传则返回全部。
+ *        type — 活动类型过滤（原始 activity_type 键）
+ *        q    — 名称模糊搜索
+ *
+ * 过滤必须作用在**月度汇总本身**：只在展开的单月里过滤会让「按类型筛选」退化成
+ * 「在当前月份里筛选」，用户选「力量训练」时当月没有力量课就只看到「无匹配」。
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -30,8 +35,22 @@ export async function GET(request: NextRequest) {
     offset = p.value;
   }
 
+  // 过滤参数: 空串按「不过滤」处理, 长度设上限避免超长 LIKE 拖库
+  const typeRaw = searchParams.get('type');
+  const qRaw = searchParams.get('q');
+  if (typeRaw != null && typeRaw.length > 64) {
+    return NextResponse.json({ error: 'type is too long' }, { status: 400 });
+  }
+  if (qRaw != null && qRaw.length > 200) {
+    return NextResponse.json({ error: 'q is too long' }, { status: 400 });
+  }
+  const filter = {
+    type: typeRaw && typeRaw !== 'all' ? typeRaw : undefined,
+    q: qRaw ? qRaw : undefined,
+  };
+
   try {
-    const result = getMonthSummaries(limit, offset);
+    const result = getMonthSummaries(limit, offset, filter);
     if (Array.isArray(result)) {
       return NextResponse.json({ data: result }, { headers: NO_STORE });
     }

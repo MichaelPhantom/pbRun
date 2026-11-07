@@ -45,7 +45,7 @@
 - **完全免费** 🎉 - 无需购买云数据库，零运营成本
 - **一键部署** 🚀 - 部署到 Vercel，享受全球 CDN 加速
 - **数据离线化** 💾 - SQLite 数据库随代码版本管理，数据永不丢失 *(本 fork: DB 超 GitHub 100MB 限制, 已移出 git, 改由本地 gzip 备份, 见文末「本机部署」)*
-- **自动同步** 🔄 - GitHub Actions 每日自动同步，无需手动操作 *(本 fork: 由 cft/garmin 流水线同步)*
+- **自动同步** 🔄 - 上游走 GitHub Actions（每 8 小时），本 fork 由 cft/garmin 流水线每日 3 次同步（08:30 / 13:30 / 22:30）
 - **隐私安全** 🔒 - 数据存储在自己的 GitHub 仓库，完全掌控
 - **移动端优化** 📱 - 完美适配手机端，随时随地查看数据
 
@@ -102,7 +102,7 @@
 ✓ 双数据源     支持 Garmin FIT 文件和 Strava API 双渠道导入
 ✓ 完全免费     数据库文件随代码提交，无需购买云数据库 (本 fork 已改为本地备份)
 ✓ 数据安全     SQLite 文件存在自己的 GitHub 仓库
-✓ 自动同步     GitHub Actions 每日自动运行 (本 fork 由 cft/garmin 流水线同步)
+✓ 自动同步     上游 GitHub Actions 每 8 小时 (本 fork 由 cft/garmin 流水线每日 3 次同步)
 ✓ 全球加速     Vercel CDN 全球节点，响应 <100ms
 ✓ 版本管理     数据库支持 Git 版本控制，永不丢失
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -115,7 +115,7 @@
 - **数据存储**: SQLite (离线数据库，随代码部署)
 - **Web 框架**: Next.js 16 (App Router + API Routes)
 - **数据可视化**: ECharts (跑力趋势、心率区间、配速分析)
-- **自动化**: GitHub Actions (每日同步 + 自动部署)
+- **自动化**: 上游 GitHub Actions（每 8 小时同步 + 自动部署）；本 fork 由 cft/garmin cron 每日 3 次直写 DB
 - **部署平台**: Vercel (零配置，全球 CDN)
 
 ## 快速开始
@@ -316,11 +316,15 @@ npm run dev
    - 导入你 Fork 的仓库
    - 自动检测 Next.js 项目，一键部署
 
-5. **启动自动同步**
-   - GitHub Actions 会每 8 小时自动运行
+5. **启动自动同步**（上游方案）
+   - GitHub Actions 每 8 小时自动运行（`0 */8 * * *`）
+   - 需先配置 `STRAVA_*` 或 `GARMIN_SECRET_STRING` secrets，否则 `preflight` 会跳过同步作业
    - 支持手动触发并选择数据源（Garmin 或 Strava）
-   - 同步数据后自动提交到仓库
+   - 同步数据后自动提交到仓库（本 fork 已把 DB 移出 git，改为本地 gzip 备份）
    - Vercel 检测到数据库更新后自动重新部署
+
+> **本 fork 实况**：数据由 cft/garmin `sync_cn_daily.sh` 每日 08:30 / 13:30 / 22:30 直接写
+> `app/data/activities.db`，不经过 Actions。见 [数据同步说明](docs/data-sync.md)。
 
 ## 主题与可视化约定 (2026-10-25)
 

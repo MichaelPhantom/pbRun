@@ -75,7 +75,7 @@ pbRun/
 | `get_hr_zone_analysis` | `getHrZoneStats` | `startDate?`, `endDate?`, `groupBy` | `{data, zoneRanges, summary}` | 心率区间分析 (跑步口径) |
 | `get_pace_zone_analysis` | `getPaceZoneStats` | `startDate`, `endDate`, `vdot?`(auto=取最新) | `PaceZoneStat[]` | 配速区间分析 (跑步口径) |
 | `get_power_zone_analysis` | `getPowerZoneStats` | `startDate`, `endDate` | `{zones, reference, ranges, boundsLabel}` | 功率区间分析 (**%FTP 五区**, 按各活动自身 FTP 归区; 跑步口径) |
-| `get_month_summaries` | `getMonthSummaries` | `limit?`, `offset?` | `MonthSummary[]` | 月度汇总 (**全类型口径**) |
+| `get_month_summaries` | `getMonthSummaries` | `limit?`, `offset?`, `type?`, `q?` | `MonthSummary[]` | 月度汇总 (**双口径同行**): `runDistance`/`runCount` 只跑步, `totalDistance`/`count` 全类型; 可按类型/名称跨月过滤 |
 | `get_activity_track` | `getActivityTrack` | `activityId` | `{track: ActivityTrack \| null}` | 路线轨迹 (降采样 GPS+海拔+包围盒); 室内为 null |
 | `get_daily_distances` | `getDailyDistances` | `year?`(默认当前年) | `{date, km}[]` | 年度每日里程 (热力图/连续性, 跑步口径) |
 

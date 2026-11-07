@@ -16,7 +16,7 @@
 | 功能接口 | 用户入口 | 数据与计算 | AI 上下文 | 状态 |
 |---------|---------|-----------|----------|------|
 | 仪表盘 | `/` | `getLatestVdot` / `getTrainingLoads` / `getDailyDistances` | 整体 AI（全部历史） | ✅ |
-| 活动列表 | `/list` | `getMonthSummaries` / `getActivities`（月分页 + 筛选，全类型口径） | 每张卡片直达详情 AI 复盘 | ✅ |
+| 活动列表 | `/list` | `getMonthSummaries`（双口径 + 跨月筛选）/ `getActivities` / `getActivityTypes`（全库类型清单驱动下拉） | 每张卡片直达详情 AI 复盘 | ✅ |
 | 活动详情 | `/pages/[id]` | `getActivityById/Laps/Records/Track` | 单次活动 AI（见 §2） | ✅ |
 | 活动深挖 | `GET /api/activities/[id]/insight` | `activity-insight.ts`：分段角色 / 主课漂移 / 区间 / 解耦 / 同路线对比 / 环境可比性 | 作为活动 AI 的当次指标来源 | ✅ |
 | 活动 AI 对话 | `POST /api/activities/[id]/analysis` | `llm.ts` + `coach-stream.ts` + `runner-profile.ts` + `activity-coach-context.ts` | 当次 + 同路线/同名 + 同距离 ±10% + 同类 | ✅ |
@@ -42,7 +42,7 @@ pbRun 是跑步分析工具，但 Garmin 同步会把篮球/游泳/力量训练�
 | 口径 | 语义 | 覆盖接口 |
 |------|------|---------|
 | **表现分析（只取跑步）** | 配速/心率/步频/VDOT/区间/纪录/负荷/对比只在跑步内部有意义 | `getStats`、`getPeriodStats`、`getPersonalRecords`、`getPaceZoneStats`、`getHrZoneStats`、`getHrZoneTotals`、`getVDOTHistory(+Total)`、`getVDOTTrend`、`getVdotSamples`、`getLatestVdot`、`getLatestThresholdHr`、`getFormSamples`、`getPaceHrSamples`、`getLongRuns`、`getTrainingLoads`、`getDailyDistances`、`getInsightActivityRows`、`getActivityCountInRange`、同路线/同距离/同位置对比 |
-| **活动日志（全类型）** | 用户明确要在列表里看到所有运动，且带 `activity_type` 筛选器 | `getActivities`、`getMonthSummaries` |
+| **活动日志（全类型）** | 用户明确要在列表里看到所有运动，且带 `activity_type` 筛选器 | `getActivities`、`getMonthSummaries`、`getActivityTypes` |
 | **力量训练（第三套）** | 力量课有独立分析语义（组结构/训练效应/恢复建议），但不含距离语义 | `getStrengthLoads`、`getStrengthSessions` |
 | **合并负荷（跨口径）** | 负荷是「身体总消耗」，力量课必须进入 ACWR/CTL/TSB；但里程/时长/次数仍只取跑步 | `getCombinedTrainingLoads`（= 跑步负荷 + 力量负荷，`load` 相加，其余字段只取跑步） |
 
@@ -70,15 +70,21 @@ pbRun 是跑步分析工具，但 Garmin 同步会把篮球/游泳/力量训练�
 | 跑者画像近 28 天 Z1 占比 | 7.6% | 0.6% | 7 条力量训练占满 Z1 |
 
 `/insight` 的「共 N 次活动」与 `/stats` 的「共计跑步 N 次」均按跑步口径计数，与下方
-配速/心率/区间完全一致；`/list` 的月度「N 公里 / N 次」保留全类型，与展开后的卡片
-严格一致（含 1 条游泳的月份显示 4 次，展开也是 4 张卡片）。
+配速/心率/区间完全一致；`/list` 的月度「N 公里 / N 次」拆**双口径**：里程只算跑步
+（`runDistance`），次数给全类型（`count`，与展开后的卡片严格一致），另标「含 N 次其他」。
+真实库 2026-08 全类型 199.60km 而跑步 197.55km（差 2.05km 来自 1 条泳池游泳），
+若里程也用全类型，跑量会虚高；而 2026-09 若次数只用跑步会显示 3 次却列出 4 张卡片。
 
 **展示与 AI 也必须分口径**（否则修复了统计却仍在误导用户）：
 
 | 位置 | 非跑步活动的处理 |
 |------|-----------------|
-| `/list` 类型下拉 | 值仍是原始 `activity_type`，文案走 `activityTypeLabel` 中文名（按拼音排序）；空 `activity_type` 归一成 `running` 键，不再与真实 `running` 分裂成两个同名选项 |
-| 活动卡片 / 仪表盘「最近活动」 | 隐藏配速（泳池 1670s/km、乒乓 30826s/km 不是跑步配速）与「即时跑力 / VDOT」（跑步跑力指标），改显示类型徽标；无名称时按类型兜底命名。训练负荷与心率与运动类型无关，照常展示 |
+| `/list` 类型下拉 | **数据源是全库类型清单**（`getActivityTypes`，按条数降序），不是「已加载月份里出现过的类型」—— 页面默认只预取最近 1 个月，该月只有跑步时下拉就只剩「跑步」（真实库 353 条里 120 条非跑步）。选项带全库条数（「力量训练 (51)」），值仍是原始 `activity_type`，文案走 `activityTypeLabel` 中文名（按拼音排序）；空 `activity_type` 归一成 `running` 键，不再与真实 `running` 分裂成两个同名选项 |
+| `/list` 筛选与搜索 | **跨月生效**：条件作为 SQL `WHERE` 作用在月度汇总本身（`getMonthSummaries(limit, offset, {type, q})`），不匹配的月份不出现，首个匹配月自动展开并取数。只在展开的单月里过滤会让用户选「力量训练」时当月没有力量课就只看到「无匹配」，必须逐月点开找 |
+| `/list` 月卡 | 里程只算跑步且 `0` 时不渲染（按「力量训练」筛选后跑量必然为 0，显示「0.00 公里」像同步失败）；「含 N 次其他」徽标只在未按类型筛选时显示（筛选后这些活动不是「其他」） |
+| `/list` 活动卡片 | 零距离活动（真实库 97/353 条：力量训练 51、爬楼 30、室内有氧 9、HIIT/跳绳/室内骑行各 3/3/1）**不渲染距离块**，只留时长 + 类型徽标 —— `distance = 0` 是「该运动没有距离语义」，`distance = null` 才是数据缺失（仍显示 `--`） |
+| 活动卡片 / 仪表盘「最近活动」 | 隐藏配速（泳池 1670s/km、乒乓 30826s/km 不是跑步配速）与「即时跑力 / VDOT」（跑步跑力指标），改显示类型徽标；无名称时按类型兜底命名。训练负荷与心率与运动类型无关，照常展示。零距离活动不渲染距离块（见上方 `/list` 活动卡片行） |
+| 活动详情页概览 · 距离 | `distance = 0` 时**整格不渲染**（力量训练按组、爬楼按层、HIIT/跳绳按次，恒为 0 的格子显示 `--` 像同步失败，与「平均功率」同一原则）；`distance = null`（数据缺失）仍显示 `--` |
 | **类型名（AI 数据块 + 详情页徽标）** | 走 `activityTypeName` 单一来源：真实库 **269/348** 条活动 `sub_sport_type='通用'`（227 跑步 + 篮球/爬楼/HIIT/跳绳/乒乓/羽毛球 42 条），旧实现 `sub_sport_type \|\| sport_type \|\| label` 让它 truthy 胜出 —— AI 数据块对 **77%** 的活动输出「类型: 通用」，详情页则并列渲染「通用」「训练」两个零信息徽标。见下方 §1.3 |
 | 活动详情页概览 | 隐藏「即时跑力 / 平均配速 / 步频 / 步幅」整列（不是显示 `--`，那会让人以为数据缺失）；「平均功率」同样按字段存在性渲染 —— 真实库 107 条非跑步活动功率全为 NULL（0/107），旧实现无条件渲染会永远显示 `--` |
 | 仪表盘「本月概览」 | 「跑步天数」而非「活动天数」—— 数据源 `getTrainingLoads` 是跑步口径，真实库 2026-10 有 16 个活动日但只有 15 个跑步日（多出力量训练/爬楼）；旧标签会让人以为漏了一天 |

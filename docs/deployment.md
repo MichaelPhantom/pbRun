@@ -191,6 +191,8 @@ GitHub Actions 配置了以下触发条件：
 - **代码推送**: 推送到 main 分支时 (排除仅 DB 变更)
 - **Webhook 触发**: 通过 API 触发 (可用于其他自动化场景)
 
+> **本 fork 实况**：未配置 `STRAVA_CLIENT_ID` / `GARMIN_SECRET_STRING`，`preflight` 输出 `enabled=false`，`sync` 作业长期 `skipped`；数据库由 cft/garmin `sync_cn_daily.sh` 本地写入（每日 08:30 / 13:30 / 22:30，见 [数据同步说明](data-sync.md#本机u2实际生效的渠道)）。
+
 同步流程：
 
 ```

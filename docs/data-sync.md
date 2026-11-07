@@ -17,15 +17,31 @@
 
 ### 数据来源
 
-本项目支持三种 Garmin 数据获取方式，通过统一的数据源抽象层 (`scripts/garmin/sources/`) 实现，`sync.js` 无差别消费：
+本项目有 **两大数据渠道家族**：Garmin（三种取数方式，统一走 `scripts/garmin/sources/`，`sync.js` 无差别消费）与 Strava（`scripts/strava/`，独立管线）。
 
-| 数据源 | 适用场景 | 依赖 | 环境变量 |
-|--------|---------|------|---------|
-| **`api`** | 国际区 Garmin Connect | OAuth Token (garth) | `GARMIN_SECRET_STRING` |
-| **`local`** | 国区，已有 CDP 导出目录 | 本地 `fit/*.fit` + `activities.json` | `GARMIN_CN_EXPORT_DIR` |
-| **`cdp`** | 国区，直连浏览器在线下载 | 已登录 garmin.cn 的 Chrome CDP | `GARMIN_CN_CDP` |
+| 渠道 | 取数方式 | 适用场景 | 依赖 | 环境变量 |
+|------|---------|---------|------|---------|
+| Garmin | **`api`** | 国际区 Garmin Connect | OAuth Token (garth) | `GARMIN_SECRET_STRING` |
+| Garmin | **`local`** | 国区，已有 CDP 导出目录 | 本地 `fit/*.fit` + `activities.json` | `GARMIN_CN_EXPORT_DIR` |
+| Garmin | **`cdp`** | 国区，直连浏览器在线下载 | 已登录 garmin.cn 的 Chrome CDP | `GARMIN_CN_CDP` |
+| Strava | **`strava`** | 已授权 Strava 账号 | `stravalib` + OAuth refresh token | `STRAVA_CLIENT_ID` / `STRAVA_CLIENT_SECRET` / `STRAVA_REFRESH_TOKEN` |
 
 > 国际区与国区账号无法互通 API（国区 garminconnect 库不可用），故国区用户需使用 `local` 或 `cdp` 源。
+> Strava 渠道只拉活动列表 + 流数据并自行生成 GPX（无原始 FIT），字段覆盖弱于 Garmin（见 [Strava 集成设计](strava-integration-design.md)）。
+
+### 本机（u2）实际生效的渠道
+
+生产库（`app/data/activities.db`，353 条 / 2025-11-05 ~ 2026-11-05）当前**只由 Garmin 国区 `local` 源写入**，链路是 cft/garmin 的 `sync_cn_daily.sh`：
+
+```
+cron (30 8,13,22 * * *)
+  └─ cn_export.py  ──CDP──► connect.garmin.cn      导出 fit + state.json 去重
+  └─ sync.js --source local --fit-dir <export>/fit  解析 FIT → 写 SQLite（DB 去重）
+  └─ gzip 备份 activities.db（保留 14 份）
+  └─ oci os object put（增量上传 fit 到 garmin-fit-backup 桶）
+```
+
+Strava / `api` / `cdp` 三个渠道在本机**未启用**：`api` 缺国际区 token，`cdp` 仅作为 `sync-cn.sh --cdp` 的应急直连（正常走 `local`），Strava 缺 OAuth 凭证（CI 的 preflight 因此跳过同步作业）。
 
 #### 国际区 API (`api`)
 
@@ -283,13 +299,14 @@ node scripts/sync-garmin.js --force
 
 ### GitHub Actions 自动同步
 
-配置完成后，GitHub Actions 会：
+`.github/workflows/sync_running_data.yml` 的触发条件：
 
-- **每日自动运行** (UTC 00:00)
-- **推送到 main 分支时运行** (排除仅 DB 变更)
-- **支持手动触发** (Actions 页面点击 Run workflow)
+- **定时** `cron: '0 */8 * * *'` — 每 8 小时（UTC 00:00 / 08:00 / 16:00，即北京时间 08:00 / 16:00 / 次日 00:00）
+- **推送到 main**（`paths-ignore: app/data/activities.db`）
+- **手动触发** `workflow_dispatch`（可选源 `strava` / `garmin`）
+- **`repository_dispatch`**（type `sync-running-data`，供外部 Webhook 调用）
 
-同步完成后，会自动提交数据库并推送到 GitHub，触发 Vercel 重新部署。
+默认源 `DEFAULT_SYNC_SOURCE: 'strava'`。作业前置 `preflight` 检查 `STRAVA_CLIENT_ID` / `GARMIN_SECRET_STRING` 是否存在，缺失即 `enabled=false` 并**跳过 sync 作业**（本 fork 未配 secrets，故长期 `completed skipped`；数据由 cft/garmin 本地流水线同步）。上游启用时，同步完成会 `git commit + push` 数据库并触发 Vercel 重新部署。
 
 ### 国区每日 cron 同步 (u2 自部署, 推荐)
 
@@ -297,13 +314,15 @@ node scripts/sync-garmin.js --force
 
 ```bash
 # u2 上 (一次性部署)
-bash ~/project/cft/garmin/install_cron.sh     # 每日 12:30 增量同步
+bash ~/project/cft/garmin/install_cron.sh     # 默认每日 08:30 / 13:30 / 22:30 增量同步
 
-# 手动
-bash ~/project/cft/garmin/sync_cn_daily.sh    # 幂等, 可重复跑
+# 手动 (幂等, 可重复跑)
+bash ~/project/cft/garmin/sync_cn_daily.sh
 ```
 
-流程: `cn_export.py` (CDP 直连国区增量导出 fit, state.json 去重) → `sync.js --source local` (DB 去重) → 条件 git 提交 `activities.db`。会话过期时自动 `ws_login.py` 重登 (CSRF 刷新 + 重试), 无需人工。统计类分析为同步后实时计算, 无需缓存重建。详见 `cft/garmin/README.cn-daily-sync.md`。
+流程: `cn_export.py` (CDP 直连国区增量导出 fit, `state.json` 的 `done_ids`/`latest_start` 去重) → `sync.js --source local` (按 DB 已有 `activity_id` 去重) → 有新活动才 gzip 备份 `activities.db`（保留 14 份）→ 增量上传 fit 到 OCI 桶 `garmin-fit-backup`。**DB 已移出 git**（超 GitHub 100MB 限制），流水线不再提交数据库。会话过期时自动 `ws_login.py` 重登 (CSRF 刷新 + 重试), 无需人工。统计类分析为同步后实时计算, 无需缓存重建。详见 `cft/garmin/README.cn-daily-sync.md`。
+
+> 三次调度点选在晨跑后、午间、晚间，覆盖全天新增运动；夜间静默降低风控暴露。全流程 `flock` 单实例锁，任意阶段中断后重跑安全。
 
 ---
 

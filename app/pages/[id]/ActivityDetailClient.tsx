@@ -177,7 +177,19 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
     ...(running
       ? [{ value: activity.vdot_value != null ? activity.vdot_value.toFixed(1) : '--', label: '即时跑力' }]
       : []),
-    { value: distanceKm > 0 ? (distanceKm % 1 === 0 ? String(distanceKm) : distanceKm.toFixed(2)) : '--', unit: distanceKm > 0 ? 'km' : undefined, label: '距离' },
+    // 距离格: `> 0` 才渲染。`0` 表示**该运动没有距离语义**（力量训练按组、
+    // 爬楼按层、HIIT/跳绳按次；真实库 97/353 条活动 distance=0），恒为 0 的
+    // 格子显示 '--' 会让人以为同步失败 —— 与下方「平均功率」同一原则。
+    // `null`（数据缺失）仍要显示 '--'，那是真的缺数据。
+    ...(distanceKm > 0
+      ? [{
+          value: distanceKm % 1 === 0 ? String(distanceKm) : distanceKm.toFixed(2),
+          unit: 'km',
+          label: '距离',
+        }]
+      : activity.distance == null
+        ? [{ value: '--', label: '距离' }]
+        : []),
     ...(running
       ? [{
           value: activity.average_pace != null ? formatPace(activity.average_pace, false) : '--',

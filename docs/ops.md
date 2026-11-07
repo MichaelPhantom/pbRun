@@ -182,9 +182,9 @@ Error [TurbopackInternalError]: Failed to write app endpoint /page
 
 ### 1. 每日滚动备份 `app/data/.backups/`
 
-- 形如 `activities-YYYYMMDD-HHMMSS.db.gz`（约 25MB/份），随数据同步流程生成
-- **保留策略：最近 3 份即可**。实测删除 11 份旧备份释放 347M；
-  注意备份在块存储盘（`/mnt/oci-block`，49G 仅用 4%），清它**不省根盘空间**
+- 形如 `activities-YYYYMMDD-HHMMSS.db.gz`（约 25MB/份），**仅在有新增活动时**由 `sync_cn_daily.sh` 生成
+- **脚本保留策略：最近 14 份**（`ls -1t | tail -n +15 | xargs rm`）
+- 实测 14 份约 420M；块存储盘 `/mnt/oci-block`（49G 仅用 4%），清它**不省根盘空间**。空间紧张时可手工降到最近 3 份（释放约 347M）
 
 ```bash
 # 恢复（先停服）

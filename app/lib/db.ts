@@ -216,43 +216,135 @@ export function getActivities(
 }
 
 /**
+ * 月度汇总的过滤条件。
+ *
+ * `type` / `q` 必须作用在**月度汇总本身**（SQL 的 WHERE），而不是只过滤展开后那一个
+ * 月的卡片 —— 后者会让「按类型筛选」退化成「在当前展开的月份里筛选」，用户选
+ * 「力量训练」时当月没有力量课就只会看到「该月无匹配」，必须逐月点开才能找到。
+ */
+export interface MonthSummaryFilter {
+  /** 活动类型（原始 `activity_type` 键）。 */
+  type?: string;
+  /** 名称模糊搜索（不区分大小写）。 */
+  q?: string;
+}
+
+/**
  * Get per-month summaries (month key, total distance, count) for activity list.
  * Uses start_time_local for month; distance is stored in km.
  * When limit/offset provided, returns only that page and total count for pagination.
+ *
+ * **双口径（同一行同时给两种语义，调用方按用途取）**：
+ *  - `totalDistance` / `count`：**过滤后的全类型**。与展开后的卡片严格一致
+ *    （`/list` 是活动日志口径，用户要看到所有运动）。
+ *  - `runDistance` / `runCount`：**只跑步**。月度头部的「N 公里」若用全类型，会把
+ *    泳池游泳的距离加进跑量 —— 真实库 2026-08 因此多出 2.05km（199.60 vs 197.55），
+ *    而同一行的「31 次」又含 8 次力量/游泳，两个数字互相矛盾。
+ *
+ * 这两个口径**不能**只留一个：留全类型 → 跑量虚高；留跑步 → 「N 次」与展开的卡片
+ * 数不符（真实库 2026-09 会显示 3 次却列出 4 张卡）。
  */
-export function getMonthSummaries(limit?: number, offset?: number): MonthSummary[] | { data: MonthSummary[]; total: number } {
+export function getMonthSummaries(
+  limit?: number,
+  offset?: number,
+  filter?: MonthSummaryFilter,
+): MonthSummary[] | { data: MonthSummary[]; total: number } {
   const db = getDatabase();
+  const hasType = hasActivityColumn('activity_type');
+  const runTypes = RUNNING_ACTIVITY_TYPES.map((t) => `'${t}'`).join(',');
+  const runCountExpr = hasType
+    ? `SUM(CASE WHEN activity_type IN (${runTypes}) THEN 1 ELSE 0 END)`
+    : 'COUNT(*)';
+  const runDistanceExpr = hasType
+    ? `SUM(CASE WHEN activity_type IN (${runTypes}) THEN distance ELSE 0 END)`
+    : 'SUM(distance)';
+
+  // 过滤条件与分页 total 必须**共用同一段 WHERE**，否则 total 与 data 会不同口径
+  const where: string[] = ['start_time_local IS NOT NULL', 'length(start_time_local) >= 7'];
+  const params: string[] = [];
+  if (filter?.type) {
+    // 归一规则必须与 `getActivityTypes` / UI `typeKeyOf` 一致: 空 `activity_type`
+    // 视为 `running`。若写成 `activity_type = ?`, 下拉里选「跑步」会漏掉这些行
+    // —— 下拉有选项、选中后却是空列表。
+    where.push("COALESCE(NULLIF(activity_type, ''), 'running') = ?");
+    params.push(filter.type);
+  }
+  if (filter?.q) {
+    // 大小写不敏感: SQLite 的 LIKE 对 ASCII 已不区分, 中文按字面匹配
+    where.push('name LIKE ? ESCAPE ?');
+    params.push(`%${escapeLike(filter.q)}%`, '\\');
+  }
+  const whereClause = `WHERE ${where.join(' AND ')}`;
+
   const baseSelect = `
     SELECT
       substr(start_time_local, 1, 7) AS monthKey,
       SUM(distance) AS totalDistance,
-      COUNT(*) AS count
+      COUNT(*) AS count,
+      ${runDistanceExpr} AS runDistance,
+      ${runCountExpr} AS runCount
     FROM activities
-    WHERE start_time_local IS NOT NULL AND length(start_time_local) >= 7
+    ${whereClause}
     GROUP BY monthKey
     ORDER BY monthKey DESC
   `;
-  if (limit == null && offset == null) {
-    const rows = db.prepare(baseSelect).all() as { monthKey: string; totalDistance: number; count: number }[];
-    return rows.map((r) => ({
-      monthKey: r.monthKey,
-      totalDistance: r.totalDistance ?? 0,
-      count: r.count ?? 0,
-    }));
-  }
-  const totalRow = db.prepare(
-    `SELECT COUNT(*) AS total FROM (SELECT 1 FROM activities WHERE start_time_local IS NOT NULL AND length(start_time_local) >= 7 GROUP BY substr(start_time_local, 1, 7))`
-  ).get() as { total: number };
-  const total = totalRow?.total ?? 0;
-  const limitVal = Math.max(1, Math.min(100, limit ?? 6));
-  const offsetVal = Math.max(0, offset ?? 0);
-  const rows = db.prepare(`${baseSelect} LIMIT ? OFFSET ?`).all(limitVal, offsetVal) as { monthKey: string; totalDistance: number; count: number }[];
-  const data = rows.map((r) => ({
+  const mapRow = (r: {
+    monthKey: string;
+    totalDistance: number | null;
+    count: number;
+    runDistance: number | null;
+    runCount: number | null;
+  }): MonthSummary => ({
     monthKey: r.monthKey,
     totalDistance: r.totalDistance ?? 0,
     count: r.count ?? 0,
-  }));
-  return { data, total };
+    runDistance: r.runDistance ?? 0,
+    runCount: r.runCount ?? 0,
+  });
+  if (limit == null && offset == null) {
+    const rows = db.prepare(baseSelect).all(...params) as Parameters<typeof mapRow>[0][];
+    return rows.map(mapRow);
+  }
+  const totalRow = db.prepare(
+    `SELECT COUNT(*) AS total FROM (SELECT 1 FROM activities ${whereClause} GROUP BY substr(start_time_local, 1, 7))`
+  ).get(...params) as { total: number };
+  const total = totalRow?.total ?? 0;
+  const limitVal = Math.max(1, Math.min(100, limit ?? 6));
+  const offsetVal = Math.max(0, offset ?? 0);
+  const rows = db.prepare(`${baseSelect} LIMIT ? OFFSET ?`).all(...params, limitVal, offsetVal) as Parameters<typeof mapRow>[0][];
+  return { data: rows.map(mapRow), total };
+}
+
+/** 转义 LIKE 通配符（用户输入的 `%` / `_` 应按字面匹配）。 */
+function escapeLike(raw: string): string {
+  return raw.replace(/[\\%_]/g, (c) => `\\${c}`);
+}
+
+/**
+ * 全库出现过的活动类型清单（类型 + 条数，按条数降序）。
+ *
+ * 为什么需要独立查询：`/list` 的类型筛选下拉此前由「已加载月份里出现过的类型」推导
+ * —— 页面默认只预取最近 1 个月，若该月恰好只有跑步，下拉就只有「跑步」一个选项，
+ * 用户会以为库里只有跑步数据（实际 353 条里 120 条非跑步）。筛选器必须由**全库**
+ * 清单驱动，与当前展开到哪个月无关。
+ *
+ * 缺 `activity_type` 列的旧库返回空数组（调用方回落到「只有跑步」的默认选项）。
+ */
+export function getActivityTypes(): { type: string; count: number }[] {
+  if (!hasActivityColumn('activity_type')) return [];
+  const db = getDatabase();
+  // 空 `activity_type` 归入 `running`（与 UI 的 `typeKeyOf` 严格一致）：
+  // 旧库未迁移该列时所有活动都是跑步，若这里把它们排除在外，用户就无法通过
+  // 下拉筛选到它们（下拉里没有选项，列表里却有数据）。
+  const rows = db.prepare(
+    `SELECT
+       CASE WHEN activity_type IS NULL OR activity_type = '' THEN 'running' ELSE activity_type END AS type,
+       COUNT(*) AS count
+     FROM activities
+     GROUP BY type
+     ORDER BY count DESC, type ASC`
+  ).all() as { type: string; count: number }[];
+  return rows.map((r) => ({ type: r.type, count: r.count ?? 0 }));
 }
 
 /**

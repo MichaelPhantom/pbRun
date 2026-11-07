@@ -260,8 +260,18 @@ export interface ActivityQueryParams {
 
 export interface MonthSummary {
   monthKey: string;                              // YYYY-MM
-  totalDistance: number;                          // 总距离（公里，与 activities.distance 一致）
-  count: number;                                 // 活动次数
+  totalDistance: number;                          // 全类型总距离（公里，与 activities.distance 一致）
+  count: number;                                 // 全类型活动次数
+  /**
+   * **只跑步**的里程（公里）。
+   *
+   * 月度头部的「N 公里」必须用它：全类型会把泳池游泳的距离加进跑量（真实库
+   * 2026-08 因此多 2.05km）。`totalDistance` 留给「全部运动总里程」这类明确
+   * 声明全类型的场景，不要拿来当跑量。
+   */
+  runDistance?: number;
+  /** **只跑步**的次数。头部「N 次」若用 `count` 会含力量/游泳/球类。 */
+  runCount?: number;
 }
 
 export interface PaginatedResponse<T> {

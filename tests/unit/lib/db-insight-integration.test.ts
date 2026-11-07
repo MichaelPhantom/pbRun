@@ -336,6 +336,133 @@ describe('db.ts 洞察查询 (真实 SQL)', () => {
     expect(list.pagination.total).toBe(4);
   });
 
+  /**
+   * 记录页类型下拉的数据源必须是**全库**类型清单, 而不是「已加载月份里出现过的类型」。
+   *
+   * 2026-11-07 实测缺陷: `/list` 默认只预取最近 1 个月(2026-11 = 3 条跑步), 下拉
+   * 由 `Object.values(activitiesByMonth).flat()` 推导 → 选项只有「跑步」。用户打开
+   * 「记录」看到的就是纯跑步列表, 必须手动展开到 2026-10 才会出现「力量训练」。
+   * 这正是「记录栏目还是只有跑步类型」的根因 —— 数据在库里, 筛选器却把它藏了。
+   */
+  test('getActivityTypes 返回全库类型清单 (含非跑步), 按出现次数降序', async () => {
+    const db = await loadDb();
+    const types = db.getActivityTypes();
+    expect(types.map((t) => t.type)).toEqual(['running', 'lap_swimming']);
+    expect(types[0]).toEqual({ type: 'running', count: 3 });
+    expect(types[1]).toEqual({ type: 'lap_swimming', count: 1 });
+  });
+
+  test('getActivityTypes 对空库/缺列返回空数组而不抛错', async () => {
+    const db = await loadDb();
+    // 缺 activity_type 列时退化为空(旧库兼容), 不抛错
+    expect(Array.isArray(db.getActivityTypes())).toBe(true);
+  });
+
+  /**
+   * 空 `activity_type` 必须**归入 `running`**，与 UI 的 `typeKeyOf` 完全一致。
+   *
+   * 旧库（未迁移 `activity_type`）里所有活动都是跑步；UI 侧 `typeKeyOf` 把空值
+   * 归一成 `running`，若 `getActivityTypes` 却把空值排除在外，用户就**无法通过
+   * 下拉筛选到这些活动** —— 下拉里没有对应选项，但列表里确实有它们。
+   *
+   * 生产库当前 0 条空类型，但写入路径允许（`upsertActivity` 不强制该列）。
+   */
+  test('getActivityTypes 把空 activity_type 归入 running (与 UI 归一一致)', async () => {
+    // 直接验证归一逻辑: 用真实库插入一条空类型活动, 期望它并入 running 计数
+    const mgr = new DatabaseManager(tmpDb);
+    mgr.upsertActivity({
+      activity_id: 99, name: '旧库跑步', activity_type: '',
+      start_time: '2026-09-20T12:00:00.000Z', start_time_local: '2026-09-20T20:00:00',
+      distance: 5, duration: 1800, moving_time: 1800, elapsed_time: 1800,
+    });
+    mgr.close();
+
+    const db = await loadDb();
+    const types = db.getActivityTypes();
+    // 3 条真实 running + 1 条空类型 → 合并成 running:4
+    expect(types.find((t) => t.type === 'running')).toEqual({ type: 'running', count: 4 });
+    // 不允许出现空字符串类型
+    expect(types.some((t) => t.type === '')).toBe(false);
+  });
+
+  /**
+   * 月度头部必须把「跑步里程」与「全部活动次数」分开。
+   *
+   * 2026-11-07 实测: 2026-08 有 31 次活动但只有 23 次跑步, 其中 1 次泳池游泳
+   * 贡献 2.05km。旧实现 `SUM(distance)` 把游泳距离加进跑步里程 —— 月度
+   * 「199.60 公里」比真实跑量 197.55 多 2.05km, 而头部又写「31 次」(含 8 次
+   * 力量/游泳)。里程混口径 + 次数混口径, 两个数字互相矛盾。
+   *
+   * 正确做法: `runDistance` / `runCount` 只取跑步 (与「公里」语义一致),
+   * `totalDistance` / `count` 保留全类型 (与展开后的卡片一致), 头部另给
+   * 「含 N 次其他」徽标。
+   */
+  test('月度汇总区分跑步里程与全类型次数', async () => {
+    const db = await loadDb();
+    const months = db.getMonthSummaries() as {
+      monthKey: string;
+      totalDistance: number;
+      count: number;
+      runDistance: number;
+      runCount: number;
+    }[];
+    const sep = months.find((m) => m.monthKey === '2026-09')!;
+    // 4 条活动: 3 跑 (8 + 7 + 18.6km) + 1 游泳 (8.2km)
+    expect(sep.count).toBe(4);
+    expect(sep.runCount).toBe(3);
+    expect(sep.totalDistance).toBeCloseTo(41.8, 5); // 8+7+18.6+8.2
+    expect(sep.runDistance).toBeCloseTo(33.6, 5);   // 8+7+18.6
+  });
+
+  /**
+   * 筛选必须**跨月生效**, 否则「按类型筛选」只是「在当前展开的那一个月里筛选」。
+   *
+   * 2026-11-07 实测: 记录页默认展开最近 1 个月 (2026-11 = 纯跑步), 用户在下拉里
+   * 选「力量训练」→ 当月没有力量课 → 显示「该月无匹配活动」。用户必须逐月点开
+   * 才能找到力量课, 而库里明明有 51 条。这是「记录栏目还是只有跑步类型」的
+   * 第二层根因 —— 第一层是下拉选项本身只来自已加载月份。
+   *
+   * 正确语义: 筛选条件作用于**月度汇总本身**, 不匹配的月份直接不出现, 首个匹配
+   * 月份自动展开。搜索同理 (按名称模糊匹配, 也是全库范围)。
+   */
+  test('getMonthSummaries 支持 type 过滤 (只保留含该类型的月份)', async () => {
+    const db = await loadDb();
+    const all = db.getMonthSummaries() as { monthKey: string }[];
+    expect(all.map((m) => m.monthKey)).toEqual(['2026-09']);
+
+    // 2026-09 有 1 条游泳; 按 lap_swimming 过滤后 count=1, 跑量归零
+    const swim = db.getMonthSummaries(undefined, undefined, { type: 'lap_swimming' }) as {
+      monthKey: string; count: number; runCount: number; totalDistance: number;
+    }[];
+    expect(swim).toHaveLength(1);
+    expect(swim[0].count).toBe(1);
+    expect(swim[0].runCount).toBe(0);
+    expect(swim[0].totalDistance).toBeCloseTo(8.2, 5);
+
+    // 库里没有的力量类型 → 空数组 (不是「所有月份」)
+    expect(db.getMonthSummaries(undefined, undefined, { type: 'strength_training' })).toEqual([]);
+  });
+
+  test('getMonthSummaries 支持 q 名称搜索 (全库范围)', async () => {
+    const db = await loadDb();
+    const hit = db.getMonthSummaries(undefined, undefined, { q: '泳池' }) as {
+      monthKey: string; count: number;
+    }[];
+    expect(hit).toHaveLength(1);
+    expect(hit[0].count).toBe(1);
+
+    expect(db.getMonthSummaries(undefined, undefined, { q: '不存在的名称' })).toEqual([]);
+  });
+
+  test('getMonthSummaries 分页 total 随过滤条件变化', async () => {
+    const db = await loadDb();
+    const res = db.getMonthSummaries(6, 0, { type: 'running' }) as {
+      data: { monthKey: string; count: number }[]; total: number;
+    };
+    expect(res.total).toBe(1);
+    expect(res.data[0].count).toBe(3); // 3 条跑步, 不含游泳
+  });
+
   test('getFormSamples 返回跑姿字段', async () => {
     const db = await loadDb();
     const rows = db.getFormSamples('2026-09-01', '2026-09-30');

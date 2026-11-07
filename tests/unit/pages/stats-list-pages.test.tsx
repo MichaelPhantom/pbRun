@@ -14,6 +14,7 @@ jest.mock('@/app/lib/db', () => ({
   getPersonalRecords: jest.fn(),
   getMonthSummaries: jest.fn(),
   getActivities: jest.fn(),
+  getActivityTypes: jest.fn(() => []),
 }));
 
 jest.mock('@/app/lib/components/ai/GlobalCoach', () => ({

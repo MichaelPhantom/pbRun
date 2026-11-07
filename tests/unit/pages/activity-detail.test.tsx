@@ -603,6 +603,43 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
     expect(within(overview).getByText('分')).toBeInTheDocument();
   });
 
+  /**
+   * 零距离活动（力量训练 51 条、爬楼 30 条等）的「距离」格必须**整格不渲染**，
+   * 而不是显示 `--`。
+   *
+   * 与「平均功率」同一原则（见上一条测试）：一个恒为空的数据格会让人以为数据
+   * 缺失/同步失败，而不是「这项运动没有距离语义」。真实库 97/353 条活动
+   * `distance = 0`，其中 51 条力量训练、30 条爬楼。
+   *
+   * 注意与 `distance = null`（数据缺失）区分：那种情况仍显示 `--`。
+   */
+  test('零距离活动 (力量训练): 概览不渲染「距离」格, 时长/心率/负荷照常', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'strength_training',
+      sport_type: '力量训练',
+      sub_sport_type: '通用',
+      name: '核心稳定性1',
+      distance: 0,
+      duration: 3609,
+      moving_time: 3609,
+      average_pace: null,
+      average_cadence: null,
+      average_stride_length: null,
+      vdot_value: null,
+      average_heart_rate: 73,
+      training_load: 60,
+      average_power: null,
+    });
+    render(await page('2002'));
+
+    const overview = screen.getByText('活动概览').closest('section')!;
+    expect(within(overview).queryByText('距离')).toBeNull();
+    for (const label of ['时长', '平均心率', '训练负荷']) {
+      expect(within(overview).getByText(label)).toBeInTheDocument();
+    }
+  });
+
   test('非跑步活动 (泳池游泳): 隐藏配速/步频/步幅/跑力, 保留距离/时长/心率/负荷, 标题带类型徽标', async () => {
     db.getActivityById.mockReturnValue({
       ...activity,

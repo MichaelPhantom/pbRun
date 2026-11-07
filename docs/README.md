@@ -89,8 +89,8 @@
 Garmin Connect → 数据同步 → SQLite 数据库 → API 服务 → Web 界面
 ```
 
-1. **Garmin Connect**: 运动数据的来源
-2. **数据同步**: 通过 GitHub Actions 每日自动同步
+1. **Garmin Connect**: 运动数据的来源（本 fork 为国区 `local` 源）
+2. **数据同步**: 上游走 GitHub Actions（每 8 小时）；本 fork 由 cft/garmin cron 每日 3 次直写 DB
 3. **SQLite 数据库**: 离线存储，随代码部署
 4. **API 服务**: Next.js API Routes 提供 RESTful 接口
 5. **Web 界面**: ECharts 可视化展示
@@ -217,9 +217,14 @@ node scripts/sync-garmin.js --limit 10
 # 增量同步新活动
 node scripts/sync-garmin.js
 
-# 强制重新解析所有活动
-node scripts/sync-garmin.js --force
+# 国区: 复用 cft/garmin 导出目录 (生产实际用法)
+node scripts/garmin/sync.js --source local --fit-dir ~/project/cft/garmin/export/fit
+
+# 国区: CDP 直连应急
+node scripts/garmin/sync.js --source cdp --cdp http://127.0.0.1:9995 --all-types
 ```
+
+> 同步按 `activity_id` 去重，**没有** `--force` 重解析开关；要重新解析已有活动需先删库行或直接跑 `npm run init:data`。
 
 ### 数据库管理
 

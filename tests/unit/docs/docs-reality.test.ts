@@ -135,4 +135,50 @@ describe('文档 ↔ 仓库现实一致性', () => {
     const unindexed = all.filter((f) => !index.includes(f));
     expect(unindexed).toEqual([]);
   });
+
+  /**
+   * 同步频率 ↔ workflow 一致性。
+   *
+   * 2026-11-07 实测漂移: `docs/data-sync.md` 写「GitHub Actions 每日自动运行 (UTC 00:00)」,
+   * 实际 workflow 是 `0 * / 8 * * *`(每 8 小时); 国区 cron 段又写「每日 12:30」,
+   * 实际 `install_cron.sh` 是 `30 8,13,22 * * *`(08:30/13:30/22:30); `docs/ops.md`
+   * 的备份保留策略写「最近 3 份」, 脚本实际 `tail -n +15`(保留 14 份)。
+   * 频率/份数写错不会让任何测试变红 —— 读者按文档排查会走空。
+   *
+   * 本测试把 workflow 的 cron 作为**唯一真源**, 文档里的「每 N 小时」必须与之相等。
+   */
+  test('文档里的同步频率与 workflow cron 一致', () => {
+    const wf = read('.github/workflows/sync_running_data.yml');
+    const m = /cron:\s*'0\s*\*\/(\d+)\s*\*\s*\*\s*\*'/.exec(wf);
+    expect(m).not.toBeNull(); // workflow 结构变了要同步改这里
+    const hours = Number(m![1]);
+
+    const ghosts: string[] = [];
+    for (const file of currentDocs) {
+      // 排除围栏代码块: 里面的 cron 是**示例**(如「想改成每 6 小时就写这样」),
+      // 不是对现状的陈述。不排除会让「给出可复制示例」反而触发漂移告警。
+      const prose = read(file).replace(/```[\s\S]*?```/g, '');
+      for (const raw of prose.matchAll(/每\s*(\d+)\s*小时/g)) {
+        if (Number(raw[1]) !== hours) ghosts.push(`${file}: 每 ${raw[1]} 小时 (workflow 实际 ${hours})`);
+      }
+    }
+    expect(ghosts).toEqual([]);
+  });
+
+  test('文档里的国区 cron 时刻与 install_cron 默认调度一致 (08:30/13:30/22:30)', () => {
+    const SCHED = '08:30 / 13:30 / 22:30';
+    // 声明本机同步调度的文档必须逐字写出三个时刻
+    for (const file of ['docs/ops.md', 'docs/data-sync.md', 'README.md']) {
+      const src = read(file);
+      if (!src.includes('sync_cn_daily') && !src.includes('cft cron') && !src.includes('cft/garmin')) continue;
+      expect({ file, ok: src.includes(SCHED) }).toEqual({ file, ok: true });
+    }
+  });
+
+  test('备份保留份数文档与脚本一致 (14 份)', () => {
+    // 脚本: ls -1t ... | tail -n +15  → 保留 14
+    const src = read('docs/ops.md');
+    expect(src).toMatch(/保留.*14 份|14 份/);
+    expect(src).not.toMatch(/保留策略：最近 3 份即可/);
+  });
 });

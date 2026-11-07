@@ -163,7 +163,10 @@ describe('/api/activities/months', () => {
   test('不传 limit/offset → 返回全部 (数组 → {data})', async () => {
     mockDb.getMonthSummaries.mockReturnValue([{ monthKey: '2026-09', count: 3 }]);
     const res = await monthsGET(req('/api/activities/months'));
-    expect(mockDb.getMonthSummaries).toHaveBeenCalledWith(undefined, undefined);
+    expect(mockDb.getMonthSummaries).toHaveBeenCalledWith(undefined, undefined, {
+      type: undefined,
+      q: undefined,
+    });
     expect((await res.json()).data).toHaveLength(1);
     expect(res.headers.get('Cache-Control')).toBe('no-store');
   });
@@ -171,8 +174,31 @@ describe('/api/activities/months', () => {
   test('传 limit/offset → 透传整数; 分页对象 → 带 total', async () => {
     mockDb.getMonthSummaries.mockReturnValue({ data: [{ monthKey: '2026-09' }], total: 14 });
     const body = await (await monthsGET(req('/api/activities/months?limit=6&offset=12'))).json();
-    expect(mockDb.getMonthSummaries).toHaveBeenCalledWith(6, 12);
+    expect(mockDb.getMonthSummaries).toHaveBeenCalledWith(6, 12, {
+      type: undefined,
+      q: undefined,
+    });
     expect(body.total).toBe(14);
+  });
+
+  test('type / q 过滤参数透传 (空串与 all 视为不过滤)', async () => {
+    mockDb.getMonthSummaries.mockReturnValue([]);
+    await monthsGET(req('/api/activities/months?type=strength_training&q=%E6%A0%B8%E5%BF%83'));
+    expect(mockDb.getMonthSummaries).toHaveBeenLastCalledWith(undefined, undefined, {
+      type: 'strength_training',
+      q: '核心',
+    });
+
+    await monthsGET(req('/api/activities/months?type=all&q='));
+    expect(mockDb.getMonthSummaries).toHaveBeenLastCalledWith(undefined, undefined, {
+      type: undefined,
+      q: undefined,
+    });
+  });
+
+  test('超长 type / q → 400 (防超长 LIKE 拖库)', async () => {
+    expect((await monthsGET(req(`/api/activities/months?type=${'a'.repeat(65)}`))).status).toBe(400);
+    expect((await monthsGET(req(`/api/activities/months?q=${'a'.repeat(201)}`))).status).toBe(400);
   });
 
   test('越界/非法参数 → 400', async () => {

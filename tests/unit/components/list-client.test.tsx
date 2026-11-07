@@ -251,11 +251,142 @@ describe('ListClient 活动列表 (交互/筛选/无限滚动)', () => {
     expect(card).not.toHaveTextContent('即时跑力');
   });
 
+  /**
+   * 零距离活动（力量课 51 条、爬楼 30 条、HIIT/跳绳/室内有氧等共 97 条）不能显示
+   * 「0.00 公里」。
+   *
+   * 2026-11-07 实测: 真实库 97/353 条活动 `distance = 0`。旧实现 `distance != null`
+   * 判定为真 → 卡片显示「0.00 公里」，读起来像「这次只跑了 0 米」的异常数据，
+   * 而实际上是**该运动本来就没有距离语义**（力量训练按组做、爬楼按层数）。
+   * 正确做法: 距离为 0 时不渲染距离块，只留时长 + 类型徽标。
+   */
+  test('零距离活动不显示「0.00 公里」, 只显示时长与类型徽标', () => {
+    renderList({
+      initialActivitiesByMonth: {
+        '2026-09': [
+          act({
+            activity_type: 'strength_training',
+            name: '核心稳定性1',
+            distance: 0,
+            duration: 3609,
+            moving_time: 3609,
+            training_load: 60,
+          }),
+        ],
+      },
+    });
+    const card = screen.getByRole('button', { name: /核心稳定性1/ });
+    expect(card).not.toHaveTextContent('0.00 公里');
+    expect(card).toHaveTextContent('1:00:09');
+    expect(card).toHaveTextContent('力量训练');
+  });
+
   test('无名称活动用时间兜底命名', () => {
     renderList({
       initialActivitiesByMonth: { '2026-09': [act({ name: '' })] },
     });
     expect(screen.getByRole('button', { name: /跑步 2026/ })).toBeInTheDocument();
+  });
+
+  /**
+   * 月卡头部「N 公里」必须只算跑步，且零跑量时**不能**显示「0.00 公里」。
+   *
+   * 真实库 2026-09 共 25 次活动（21 跑步 + 4 力量），按「力量训练」筛选后
+   * `runDistance = 0` —— 旧实现无条件渲染 `toFixed(2) 公里`，用户会看到
+   * 「0.00 公里 4 次」，读起来像同步失败。
+   */
+  test('月卡: 筛选到非跑步类型时跑量为 0 → 不显示「0.00 公里」', () => {
+    renderList({
+      initialMonthSummaries: [
+        {
+          monthKey: '2026-09',
+          totalDistance: 0,
+          count: 4,
+          runDistance: 0,
+          runCount: 0,
+        },
+      ],
+      initialActivitiesByMonth: { '2026-09': [act()] },
+    });
+    const monthBtn = screen.getByRole('button', { name: /2026年9月/ });
+    expect(monthBtn).not.toHaveTextContent('0.00 公里');
+    expect(monthBtn).toHaveTextContent('4 次');
+  });
+
+  /**
+   * 月卡「含 N 次其他」徽标只在**未按类型筛选**时有意义。
+   *
+   * 用户选了「力量训练」后，那 4 次全都是力量训练 —— 再标「含 4 次其他」是
+   * 自相矛盾（对当前筛选条件来说它们不是「其他」）。
+   */
+  test('月卡: 按类型筛选时不显示「含 N 次其他」徽标', () => {
+    renderList({
+      initialMonthSummaries: [
+        {
+          monthKey: '2026-09',
+          totalDistance: 33.6,
+          count: 25,
+          runDistance: 33.6,
+          runCount: 21,
+        },
+      ],
+      initialActivitiesByMonth: { '2026-09': [act()] },
+      availableTypes: [{ type: 'strength_training', count: 51 }],
+    });
+    // 未筛选: 显示徽标
+    expect(screen.getByRole('button', { name: /2026年9月/ })).toHaveTextContent('含 4 次其他');
+
+    // 筛选「力量训练」后, 那 4 次就是用户要找的, 不再算「其他」
+    fireEvent.change(screen.getByLabelText('活动类型筛选'), { target: { value: 'strength_training' } });
+    expect(screen.getByRole('button', { name: /2026年9月/ })).not.toHaveTextContent('次其他');
+  });
+
+  test('月卡: 全跑步月份不显示「含 N 次其他」徽标', () => {
+    renderList({
+      initialMonthSummaries: [
+        {
+          monthKey: '2026-09',
+          totalDistance: 33.6,
+          count: 21,
+          runDistance: 33.6,
+          runCount: 21,
+        },
+      ],
+      initialActivitiesByMonth: { '2026-09': [act()] },
+    });
+    const monthBtn = screen.getByRole('button', { name: /2026年9月/ });
+    expect(monthBtn).toHaveTextContent('33.60 公里');
+    expect(monthBtn).toHaveTextContent('21 次');
+    expect(monthBtn).not.toHaveTextContent('次其他');
+  });
+
+  /**
+   * 筛选后自动展开的月份**必须真的取数**。
+   *
+   * 2026-11-07 实测缺陷: 条件变化时只 `setExpandedMonth(list[0].monthKey)` 并把
+   * `activitiesByMonth` 清空，却没人去 fetch 那个月 —— 于是自动展开的首月显示
+   * 「该月暂无活动」，用户以为筛选没结果。筛选本来是为了**更快找到**，结果变成
+   * 必须再手点一次月份才出数据。
+   */
+  test('筛选后自动展开的首月会拉取当月活动', async () => {
+    const fetchMock = global.fetch as unknown as jest.Mock;
+    fetchMock.mockImplementation((url: string) => {
+      if (url.includes('/api/activities/months?')) {
+        return jsonResponse([{ monthKey: '2026-01', totalDistance: 0, count: 16, runDistance: 0, runCount: 0 }]);
+      }
+      if (url.includes('/api/activities?')) {
+        return jsonResponse([
+          act({ activity_id: 5001, activity_type: 'strength_training', name: '爬楼训练', distance: 0 }),
+        ]);
+      }
+      return jsonResponse([]);
+    });
+
+    renderList({ availableTypes: [{ type: 'strength_training', count: 51 }] });
+    fireEvent.change(screen.getByLabelText('活动类型筛选'), { target: { value: 'strength_training' } });
+
+    expect(await screen.findByRole('button', { name: /爬楼训练/ })).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/api/activities?'));
   });
 
   test('无限滚动: 触底加载下一页并去重, 重复触发被 ref 锁挡住', async () => {
@@ -375,12 +506,95 @@ describe('ListClient 活动列表 (交互/筛选/无限滚动)', () => {
     expect(screen.queryByRole('button', { name: /两江新区/ })).not.toBeInTheDocument();
   });
 
+  /**
+   * 下拉选项必须带**全库条数**，这样用户打开「记录」就能看到「力量训练 (51)」
+   * 确实存在，而不是只看到「跑步」一个选项却不知道库里还有别的运动。
+   */
+  test('类型下拉带全库条数 (availableTypes 驱动, 与已加载月份无关)', () => {
+    renderList({
+      availableTypes: [
+        { type: 'running', count: 233 },
+        { type: 'strength_training', count: 51 },
+        { type: 'floor_climbing', count: 30 },
+      ],
+    });
+    const select = screen.getByRole('combobox', { name: '活动类型筛选' });
+    const labels = within(select).getAllByRole('option').map((o) => o.textContent);
+    expect(labels).toContain('跑步 (233)');
+    expect(labels).toContain('力量训练 (51)');
+    expect(labels).toContain('爬楼 (30)');
+    // 下拉里出现「力量训练」与当前月份是否含力量课无关 (默认只预取 1 个月)
+    expect(labels).not.toContain('力量训练');
+  });
+
+  /**
+   * 筛选变化时必须丢弃**上一世代**在途的「加载更多」响应。
+   *
+   * 场景：用户滚动到底部触发加载更多（无过滤），请求在途时用户选了「力量训练」。
+   * 若不丢弃，旧响应返回后会把 2026-08/07/06… 等月份追加进已过滤的列表 ——
+   * 页面看起来「筛选了但还是混进别的月份」，而每个月份卡本身又显示正确的
+   * 「0 次力量训练」，自相矛盾。
+   */
+  test('筛选变化后, 在途的「加载更多」响应被丢弃 (不混入旧条件月份)', async () => {
+    const pending: ((v: unknown) => void)[] = [];
+    const fetchMock = global.fetch as unknown as jest.Mock;
+    fetchMock.mockImplementation((url: string) => {
+      if (url.includes('/api/activities/months?')) {
+        // 第一个「加载更多」请求挂起, 由测试手动 resolve
+        return new Promise((res) => pending.push(res));
+      }
+      return jsonResponse([]);
+    });
+
+    renderList({ initialTotalMonths: 20 });
+    // 触发加载更多 (无过滤条件)
+    ioCallback!([{ isIntersecting: true }]);
+    expect(pending.length).toBe(1);
+
+    // 用户此时切换到「力量训练」→ 新世代
+    fireEvent.change(screen.getByLabelText('活动类型筛选'), { target: { value: 'strength_training' } });
+
+    // 旧请求现在返回未过滤的月份
+    pending[0]({
+      ok: true,
+      json: () => Promise.resolve({ data: [{ monthKey: '2026-06', totalDistance: 150, count: 22 }] }),
+    });
+
+    // 旧月份不得出现在列表里
+    await waitFor(() => expect(screen.queryByRole('button', { name: /2026年6月/ })).not.toBeInTheDocument());
+  });
+
   test('筛选下拉: 活动无 activity_type → 归入「跑步」', () => {
     renderList({
       initialActivitiesByMonth: { '2026-09': [act({ activity_type: '' } as Partial<Activity>)] },
     });
     const opt = screen.getByRole('option', { name: '跑步' });
     expect(opt).toHaveAttribute('value', 'running');
+  });
+
+  /**
+   * 顶部摘要必须让用户**一进来就看到库里有多少种运动**。
+   *
+   * 用户反馈「记录栏目还是只有跑步类型」的直接观感来源：默认展开月（2026-11）
+   * 恰好只有 3 条跑步，页面上没有任何提示说「库里还有 11 种其他运动」。
+   * 下拉带条数是第一层（要看下拉才发现），摘要行是零成本的第二层。
+   */
+  test('顶部摘要显示全库活动数与运动类型数', () => {
+    const { container } = renderList({
+      availableTypes: [
+        { type: 'running', count: 233 },
+        { type: 'strength_training', count: 51 },
+        { type: 'floor_climbing', count: 30 },
+      ],
+    });
+    // 数字包在 <span> 里, 用 textContent 整段匹配
+    expect(container.textContent).toContain('全库共 314 次活动');
+    expect(container.textContent).toContain('3 种运动');
+  });
+
+  test('无 availableTypes 时不渲染顶部摘要 (旧调用方/单测)', () => {
+    renderList({ availableTypes: [] });
+    expect(screen.queryByText(/共 \d+ 次活动/)).not.toBeInTheDocument();
   });
 
   test('类型筛选为「跑步」时, 无 activity_type 的活动被保留 (旧库兼容)', () => {

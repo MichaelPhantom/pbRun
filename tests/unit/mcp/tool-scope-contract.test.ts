@@ -45,7 +45,16 @@ const COMBINED_SCOPED = ['get_training_load_analysis'];
 const STRENGTH_SCOPED = ['get_strength_sessions', 'get_strength_loads'];
 
 /** 活动日志口径的工具：必须声明含全部运动类型。 */
-const ALL_TYPE_SCOPED = ['list_activities', 'get_month_summaries'];
+const ALL_TYPE_SCOPED = ['list_activities'];
+
+/**
+ * **双口径**工具：同一行同时返回跑步口径与全类型口径字段。
+ *
+ * `get_month_summaries` 不再能简单归入「全类型口径」—— 它的 `runDistance`/`runCount`
+ * 只算跑步，`totalDistance`/`count` 算全类型。若 description 只声明一种，模型会把
+ * 「月度跑量」当成全部运动总里程（真实库 2026-08 因此差 2.05km，来自 1 条泳池游泳）。
+ */
+const DUAL_SCOPED = ['get_month_summaries'];
 
 describe('MCP tool description 必须声明统计口径', () => {
   test.each(RUNNING_SCOPED)('%s 声明「跑步口径」', (name) => {
@@ -74,6 +83,16 @@ describe('MCP tool description 必须声明统计口径', () => {
     const cfg = configs.get(name);
     expect(cfg).toBeDefined();
     expect(cfg!.description).toMatch(/全类型口径/);
+  });
+
+  test.each(DUAL_SCOPED)('%s 同时声明双口径 (跑步字段 + 全类型字段)', (name) => {
+    const cfg = configs.get(name);
+    expect(cfg).toBeDefined();
+    // 必须点名跑步字段, 否则模型会把 runDistance 当成全类型里程
+    expect(cfg!.description).toMatch(/runDistance/);
+    expect(cfg!.description).toMatch(/runCount/);
+    expect(cfg!.description).toMatch(/totalDistance/);
+    expect(cfg!.description).toMatch(/全类型/);
   });
 
   test('list_activities 不再自称「列出跑步活动」(实际返回全类型)', () => {

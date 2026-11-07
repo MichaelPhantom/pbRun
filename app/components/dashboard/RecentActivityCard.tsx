@@ -31,7 +31,18 @@ export function RecentActivityCard({ activity }: { activity: Activity }) {
         </time>
       </div>
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
-        <span className="tnum text-lg font-semibold text-fg">{formatDistance(km)}</span>
+        {/*
+          距离三态必须分开（真实库 97/353 条活动 `distance = 0`）：
+          - `null` → `--`（数据缺失，用户需要知道没同步到）
+          - `0` → 不渲染（力量训练按组、爬楼按层、HIIT/跳绳按次，本来就没有
+            距离语义；`formatDistance(0)` 会输出「0.00 km」，读起来像异常数据）
+          - `> 0` → 正常里程
+        */}
+        {km == null ? (
+          <span className="tnum text-lg font-semibold text-fg">--</span>
+        ) : km > 0 ? (
+          <span className="tnum text-lg font-semibold text-fg">{formatDistance(km)}</span>
+        ) : null}
         <span className="tnum text-xs text-fg-secondary">
           {formatDuration(duration)}
           {/* 配速只对跑步有意义: 游泳/篮球的 average_pace 不是跑步配速 */}

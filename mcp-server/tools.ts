@@ -430,14 +430,25 @@ export async function registerTools(server: McpServer): Promise<void> {
     {
       title: '月度汇总',
       description:
-        '按月汇总总距离与活动次数（倒序, 默认最近 12 个月, 可用 limit/offset 扩展）。' +
-        '**全类型口径**（活动日志，与 list_activities 一致，含非跑步）。totalDistance 为公里（与 activities.distance 一致）。',
+        '按月汇总里程与活动次数（倒序, 默认最近 12 个月, 可用 limit/offset 扩展）。' +
+        '**双口径同行返回**：runDistance/runCount 只算跑步（月度跑量必须用它）, ' +
+        'totalDistance/count 为全类型（与 list_activities 展开的卡片数一致）。' +
+        '可按 type（原始 activity_type 键, 如 strength_training）与 q（名称模糊搜索）跨月过滤,' +
+        '不匹配的月份不会出现。距离单位为公里。',
       inputSchema: {
         limit: z.number().int().min(1).max(100).optional().describe('返回月份数 (默认 12)'),
         offset: z.number().int().min(0).optional().describe('偏移量 (默认 0)'),
+        type: z.string().max(64).optional().describe('活动类型过滤, 如 running / strength_training'),
+        q: z.string().max(200).optional().describe('名称模糊搜索'),
       },
     },
-    (args) => run(() => getMonthSummaries(args.limit ?? 12, args.offset ?? 0))
+    (args) =>
+      run(() =>
+        getMonthSummaries(args.limit ?? 12, args.offset ?? 0, {
+          type: args.type || undefined,
+          q: args.q || undefined,
+        }),
+      )
   );
 
   await server.registerTool(

@@ -78,6 +78,33 @@ describe('RecentActivityCard', () => {
     expect(screen.getByText('60.0')).toBeInTheDocument();
   });
 
+  /**
+   * 零距离活动（力量训练 51 条、爬楼 30 条、HIIT/跳绳/室内有氧等共 97 条）
+   * 不能显示「0.00 km」—— 该运动本来就没有距离语义，读起来却像异常数据。
+   *
+   * 与 `/list` 的 `ActivityCard` 同一纪律（`formatDistance(0)` 会输出 `0.00 km`，
+   * 因此必须在调用前区分「缺失」与「零」）。
+   */
+  test('零距离活动不显示「0.00 km」, 只留时长与类型徽标', () => {
+    const { container } = render(
+      <RecentActivityCard
+        activity={act({
+          activity_type: 'strength_training',
+          name: '核心稳定性1',
+          distance: 0,
+          duration: 3609,
+          moving_time: 3609,
+          average_heart_rate: 73,
+        })}
+      />,
+    );
+    expect(container.textContent).not.toContain('0.00 km');
+    expect(container.textContent).toContain('1:00:09');
+    expect(screen.getByText('力量训练')).toBeInTheDocument();
+    // 心率与距离无关, 仍然展示
+    expect(screen.getByText('73')).toBeInTheDocument();
+  });
+
   test('旧库空 activity_type 按跑步处理: 展示配速, 不显示类型徽标', () => {
     const { container } = render(
       <RecentActivityCard activity={act({ activity_type: '', average_pace: 330 })} />,
