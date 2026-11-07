@@ -447,4 +447,50 @@ describeIfDb('真实库：训练负荷的合并口径 vs 跑步口径', () => {
     // 每个月的 runCount 都必须 ≤ count（不能出现「跑步次数多于总次数」）
     for (const r of rows) expect(r.runN).toBeLessThanOrEqual(r.n);
   });
+
+  /**
+   * **第二十三类：`/insight`「周期化分析」表同一行也是两种口径。**
+   *
+   * `computePeriodization` 吃的 `dailyLoads` 来自 `getCombinedTrainingLoads`，
+   * 但 `aggregateWeeklyLoad` 四个列各取不同字段：
+   *
+   * | 列 | 字段 | 口径 |
+   * |----|------|------|
+   * | 跑量 km | `distanceMeters` | **纯跑步** |
+   * | 次数 n | `runs` | **纯跑步** |
+   * | 负荷 tl | `load` | **跑步 + 力量** |
+   * | CTL/ATL/TSB | `computeTrainingLoads` | **跑步 + 力量** |
+   *
+   * 这条守卫钉住「同一周里两个口径确实不同」：ISO 周 2026-W43
+   * （10-19..10-25）合并负荷 256 / 跑步负荷 196（差 60，全来自力量），
+   * 而同一周的跑量 28.32km 与次数 3 都是纯跑步。
+   *
+   * 若哪天两者相等（该周没有力量课），hint 的必要性就消失 —— 本测试会红，
+   * 迫使改动者重新核对示例周。
+   */
+  test('/insight 周期化：同一 ISO 周内合并负荷 ≠ 跑步负荷，但跑量/次数只算跑步', () => {
+    const row = db
+      .prepare(
+        `SELECT
+           ROUND(SUM(COALESCE(training_load, 0)), 1) AS tlAll,
+           ROUND(SUM(CASE WHEN ${RUN} THEN COALESCE(training_load, 0) ELSE 0 END), 1) AS tlRun,
+           ROUND(SUM(CASE WHEN activity_type = 'strength_training'
+                          THEN COALESCE(training_load, 0) ELSE 0 END), 1) AS sl,
+           ROUND(SUM(CASE WHEN ${RUN} THEN COALESCE(distance, 0) ELSE 0 END), 2) AS km,
+           SUM(CASE WHEN ${RUN} THEN 1 ELSE 0 END) AS n
+         FROM activities
+         WHERE substr(start_time_local, 1, 10) BETWEEN '2026-10-19' AND '2026-10-25'`,
+      )
+      .get() as { tlAll: number; tlRun: number; sl: number; km: number; n: number };
+
+    // 合并负荷 = 跑步 + 力量（这是周期化表 tl 列的口径）
+    expect(Math.abs(row.tlAll - (row.tlRun + row.sl))).toBeLessThan(0.01);
+    expect(row.tlAll).toBe(256);
+    expect(row.tlRun).toBe(196);
+    expect(row.sl).toBe(60);
+
+    // 跑量与次数是纯跑步口径（合并规则只加 load，distance/runs 保留跑步值）
+    expect(row.km).toBe(28.32);
+    expect(row.n).toBe(3);
+  });
 });

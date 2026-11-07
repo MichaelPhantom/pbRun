@@ -161,10 +161,14 @@ describe('InsightClient', () => {
    */
   test('负荷卡必须标注两种口径（急性/慢性含力量，峰值周跑量不含）', () => {
     render(<InsightClient insight={insight} timeRangeDays={90} />);
-    const hint = screen.getByText(/含力量训练/);
+    // 页面上现在有两条口径提示（负荷卡 + 周期化卡），都含「含力量训练」。
+    // 用「峰值周跑量」在**提示文本内**区分 —— 那是负荷卡独有的措辞。
+    const hints = screen.getAllByText(/含力量训练/).map((h) => h.textContent ?? '');
+    const loadHint = hints.find((t) => t.includes('峰值周跑量'));
+    expect(loadHint).toBeDefined();
     // 必须同时说清第三格是跑步口径，否则用户会以为峰值周跑量也含力量
-    expect(hint).toHaveTextContent('峰值周跑量');
-    expect(hint).toHaveTextContent('跑步');
+    expect(loadHint).toContain('跑步');
+    expect(loadHint).toContain('急性');
   });
 
   /**
@@ -173,9 +177,54 @@ describe('InsightClient', () => {
    */
   test('负荷卡口径提示不得只写合并口径（同卡还有跑步口径的格）', () => {
     render(<InsightClient insight={insight} timeRangeDays={90} />);
-    const hint = screen.getByText(/含力量训练/);
-    expect(hint.textContent).not.toBe('合并口径');
-    expect(hint.textContent).toMatch(/跑步/);
+    const hints = screen.getAllByText(/含力量训练/).map((h) => h.textContent ?? '');
+    const loadHint = hints.find((t) => t.includes('峰值周跑量')) ?? '';
+    expect(loadHint).not.toBe('合并口径');
+    expect(loadHint).toMatch(/跑步/);
+  });
+
+  /**
+   * **第二十三类：`/insight`「周期化分析」表同一行也是两种口径。**
+   *
+   * 周期化卡的数据来自 `computePeriodization(dailyLoads, ...)`，而 `dailyLoads`
+   * 是 `getCombinedTrainingLoads`（跑步 + 力量）。但 `aggregateWeeklyLoad` 里：
+   *
+   * | 列 | 字段 | 口径 |
+   * |----|------|------|
+   * | 跑量 km | `distanceMeters` | **纯跑步**（合并时 distance 只取跑步） |
+   * | 次数 n | `runs` | **纯跑步**（合并时 runs 只取跑步） |
+   * | 负荷 tl | `load` | **跑步 + 力量** |
+   * | CTL/ATL/TSB | `computeTrainingLoads` | **跑步 + 力量** |
+   *
+   * 真实库 2026-W43（ISO 周 10-19..10-25）：合并负荷 256 / 跑步 196
+   * （差 60，全来自力量），
+   * 而同一行的跑量 28.32km 与次数 3 都是纯跑步。
+   *
+   * 更糟的是**趋势图把两个口径画在同一坐标系**：「周跑量 (km)」是跑步口径、
+   * 「TSB」是合并口径 —— 用户会以为它们可以互相解释。
+   *
+   * 上一类（第二十一类）修的是这张卡上方的三格，这里漏了同一页的第四张卡。
+   */
+  test('周期化卡必须标注「负荷含力量、跑量与次数只跑步」', () => {
+    render(<InsightClient insight={insight} timeRangeDays={90} />);
+    const hints = screen.getAllByText(/含力量训练/).map((h) => h.textContent ?? '');
+    // 周期化卡的 hint 是唯一同时提到「跑量」与「次数」的那条
+    const periodHint = hints.find((t) => t.includes('跑量') && t.includes('次数'));
+    expect(periodHint).toBeDefined();
+    expect(periodHint).toContain('含力量训练');
+  });
+
+  /**
+   * 反证：周期化卡的口径提示不能与上方负荷卡共用同一句 ——
+   * 那张卡的「峰值周跑量」是跑步口径，这张卡的「负荷」是合并口径，
+   * 两者恰好相反。共用一句话必然有一处说错。
+   */
+  test('周期化卡口径提示不得复用负荷卡的 INSIGHT_LOAD_SCOPE_HINT 原文', () => {
+    render(<InsightClient insight={insight} timeRangeDays={90} />);
+    const hints = screen.getAllByText(/含力量训练/);
+    const texts = hints.map((h) => h.textContent ?? '');
+    // 至少两处不同的口径说明（负荷卡 + 周期化卡）
+    expect(new Set(texts).size).toBeGreaterThanOrEqual(2);
   });
 
   test('强度分布标题由非零区间派生 (不写死 Z1–Z6)', () => {

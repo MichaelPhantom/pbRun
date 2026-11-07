@@ -172,3 +172,30 @@ export const CURRENT_VDOT_SCOPE_HINT = '近一周';
  * （那是纯跑步），只说「跑步」则与急性/慢性两格直接矛盾。
  */
 export const INSIGHT_LOAD_SCOPE_HINT = `${LOAD_SCOPE_COMBINED}（急性/慢性负荷含力量训练）；峰值周跑量为${LOAD_SCOPE_RUNNING}（不含力量训练）`;
+
+/**
+ * `/insight`「周期化分析」卡的 hint —— **同一行里负荷合并、跑量/次数只跑步**
+ * （第二十三类缺陷）。
+ *
+ * 这张表的数据来自 `computePeriodization(dailyLoads, ...)`，而 `dailyLoads`
+ * 是 `getCombinedTrainingLoads`（跑步 + 力量）。但 `aggregateWeeklyLoad` 里
+ * 四个列各取不同字段，口径并不一致：
+ *
+ * | 列 | 字段 | 口径 |
+ * |----|------|------|
+ * | 跑量 km | `distanceMeters` | **纯跑步**（合并规则只加 `load`，distance 保留跑步值） |
+ * | 次数 n | `runs` | **纯跑步**（同上） |
+ * | 负荷 tl | `load` | **跑步 + 力量** |
+ * | CTL/ATL/TSB | `computeTrainingLoads` | **跑步 + 力量** |
+ *
+ * 真实库 2026-W43（ISO 周，10-19..10-25）：合并负荷 256 / 跑步负荷 196
+ * （差 60，全来自力量训练），而同一行的跑量 28.32km 与次数 3 都是纯跑步。
+ *
+ * 更糟的是**趋势图把两个口径画在同一坐标系**：「周跑量 (km)」是跑步口径、
+ * 「TSB」是合并口径 —— 用户会以为二者能互相解释（「跑量没变，为什么 TSB 掉了」
+ * 的答案可能是力量课）。
+ *
+ * 与 `INSIGHT_LOAD_SCOPE_HINT` **不能共用**：那张卡里「峰值周跑量」是跑步口径、
+ * 「急性/慢性」是合并口径，与这张卡的分布恰好相反 —— 共用一句必然有一处说错。
+ */
+export const PERIODIZATION_SCOPE_HINT = `负荷与 CTL/ATL/TSB 为${LOAD_SCOPE_COMBINED}（含力量训练）；跑量与次数为${LOAD_SCOPE_RUNNING}（只统计跑步）`;

@@ -12,7 +12,7 @@ import { InsightBarChart } from '@/app/lib/components/charts/InsightBarChart';
 import { GlobalCoach } from '@/app/lib/components/ai/GlobalCoach';
 import { TIME_RANGE_DAYS_OPTIONS, TIME_RANGE_LABELS, type TimeRangeDays } from '@/app/lib/date-utils';
 import { hrZoneColor, zoneRangeLabel } from '@/app/lib/hr-zones';
-import { INSIGHT_LOAD_SCOPE_HINT } from '@/app/lib/load-scope';
+import { INSIGHT_LOAD_SCOPE_HINT, PERIODIZATION_SCOPE_HINT } from '@/app/lib/load-scope';
 import type { InsightFinding, InsightResponse } from '@/app/lib/types';
 
 const SEVERITY_TONE: Record<InsightFinding['severity'], 'good' | 'brand' | 'warn' | 'crit'> = {
@@ -403,6 +403,14 @@ export default function InsightClient({
               hint="越小越稳定"
             />
           </div>
+          {/*
+            第二十三类缺陷：这张表**同一行两种口径** —— 跑量/次数是纯跑步
+            （`mergeStrengthIntoTrainingLoads` 只加 load，distance/runs 保留跑步值），
+            负荷与 CTL/ATL/TSB 是跑步 + 力量。真实库 2026-W42 合并负荷 256 vs
+            跑步 196（差 60），而同一行跑量 28.32km、次数 3 都只算跑步。
+            趋势图更危险：「周跑量 (km)」与「TSB」画在同一坐标系却是两种口径。
+          */}
+          <div className="mb-3 text-[11px] leading-relaxed text-fg-muted">{PERIODIZATION_SCOPE_HINT}</div>
           <InsightTrendChart
             x={periodizationChart.x}
             series={[

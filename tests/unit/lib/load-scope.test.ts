@@ -35,6 +35,7 @@ import {
   DISTANCE_SCOPE_HINT,
   STATS_SCOPE_HINT,
   INSIGHT_LOAD_SCOPE_HINT,
+  PERIODIZATION_SCOPE_HINT,
   combinedLoadScopeHint,
   monthLoadScopeHint,
 } from '@/app/lib/load-scope';
@@ -277,5 +278,42 @@ describe('训练负荷口径标签的三处调用方', () => {
     const code = stripComments(src);
     // 不得自己拼口径措辞
     expect(code.includes('急性/慢性负荷含力量训练')).toBe(false);
+  });
+
+  /**
+   * **第二十三类：`/insight`「周期化分析」卡与负荷卡口径分布相反。**
+   *
+   * | 卡 | 合并口径的格 | 跑步口径的格 |
+   * |----|--------------|--------------|
+   * | 训练负荷与周期 | 急性 / 慢性 | 峰值周跑量 |
+   * | 周期化分析 | 负荷 / CTL / ATL / TSB | 跑量 / 次数 |
+   *
+   * 两卡恰好相反，故**必须各有各的 hint**，共用一句必然有一处说错。
+   */
+  test('周期化卡必须用 PERIODIZATION_SCOPE_HINT（与负荷卡的 hint 不同）', () => {
+    const src = read('app/insight/InsightClient.tsx');
+    expect(src).toMatch(
+      /import\s*\{[^}]*PERIODIZATION_SCOPE_HINT[^}]*\}\s*from\s*['"]@\/app\/lib\/load-scope['"]/,
+    );
+    expect(src).toMatch(/\{PERIODIZATION_SCOPE_HINT\}/);
+    const code = stripComments(src);
+    expect(code.includes('负荷与 CTL/ATL/TSB 为')).toBe(false);
+  });
+
+  /**
+   * 两条 hint 的措辞必须能**互相区分**：否则页面上出现两段几乎一样的说明，
+   * 用户分不清哪句管哪张卡（正是「同一规则两处各写一遍」的温床）。
+   */
+  test('两条洞察页 hint 必须互不相同且各自点名本卡的格', () => {
+    expect(PERIODIZATION_SCOPE_HINT).not.toBe(INSIGHT_LOAD_SCOPE_HINT);
+    // 负荷卡说「急性/慢性」与「峰值周跑量」
+    expect(INSIGHT_LOAD_SCOPE_HINT).toContain('急性');
+    expect(INSIGHT_LOAD_SCOPE_HINT).toContain('峰值周跑量');
+    // 周期化卡说「跑量」与「次数」+ CTL/ATL/TSB
+    expect(PERIODIZATION_SCOPE_HINT).toContain('跑量');
+    expect(PERIODIZATION_SCOPE_HINT).toContain('次数');
+    expect(PERIODIZATION_SCOPE_HINT).toContain('CTL');
+    // 周期化卡不得出现「峰值周跑量」—— 那是另一张卡的格
+    expect(PERIODIZATION_SCOPE_HINT).not.toContain('峰值周跑量');
   });
 });
