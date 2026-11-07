@@ -708,6 +708,87 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
     expect(within(table).getByText('0.00')).toBeInTheDocument();
   });
 
+  /**
+   * 分段表「爬升」列 —— 第三十四类缺陷（与「距离」列同一纪律）。
+   *
+   * 真实库实证：**8 类运动**的 lap `total_ascent` 整类全为 NULL ——
+   * `treadmill_running` 68/68、`lap_swimming` 79/79、`basketball` 3/3、
+   * `jump_rope` 3/3、`table_tennis` 2/2、`badminton` 1/1、`indoor_cycling` 1/1、
+   * `indoor_cardio` 1/1（室内/泳池/球类设备不写海拔）。
+   *
+   * 旧实现无条件渲染 `{ key: 'asc', label: '爬升', unit: 'm' }`，于是这 8 类
+   * 活动的分段表右侧永远挂着一列全 `--`，读起来像同步失败 —— 与「累计爬升」
+   * 在 85 条活动上恒为 `--`（第十六类）是同一个错误的另一种形态。
+   *
+   * 但「整列全空」≠「这次没测到」：跑步/田径场/爬楼的 lap 爬升是**有值**的，
+   * 个别 lap 缺值时必须保留该列并显示 `--`（下面的第二条用例守住反向）。
+   */
+  test('整组分段爬升全为 NULL → 「爬升」列不渲染 (该运动不产出海拔)', async () => {
+    db.getActivityLaps.mockReturnValue([
+      { ...laps[0], id: 41, lap_index: 1, total_ascent: null, average_pace: 344, average_cadence: 142, average_power: 263 },
+      { ...laps[1], id: 42, lap_index: 2, total_ascent: null, average_pace: 235, average_cadence: 186, average_power: 378 },
+    ]);
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'treadmill_running',
+      total_ascent: null,
+      total_descent: null,
+    });
+    render(await page('1012'));
+    const table = screen.getByRole('table');
+    // 表头里不应出现「爬升」列
+    expect(within(table).queryByRole('columnheader', { name: /爬升/ })).not.toBeInTheDocument();
+    // 其他列仍在（时长/心率/功率），证明是「少一列」而不是整表没渲染
+    expect(within(table).getByRole('columnheader', { name: /时长/ })).toBeInTheDocument();
+    expect(within(table).getByRole('columnheader', { name: /心率/ })).toBeInTheDocument();
+    expect(within(table).getByRole('columnheader', { name: /功率/ })).toBeInTheDocument();
+  });
+
+  /**
+   * 反向：**部分** lap 缺爬升时必须保留该列并显示 `--`。
+   *
+   * 「有 lap 为 null」= 数据缺失（用户需要知道这一段没同步到），
+   * 与「整组全 null」= 该运动不产出，是两件不同的事。
+   * 整列隐藏会把「缺了哪一段」这个事实抹掉。
+   */
+  test('部分分段爬升缺失 → 「爬升」列保留并显示 -- (缺失不是不产出)', async () => {
+    db.getActivityLaps.mockReturnValue([
+      { ...laps[0], id: 51, lap_index: 1, total_ascent: 10 },
+      { ...laps[1], id: 52, lap_index: 2, total_ascent: null },
+    ]);
+    render(await page('1013'));
+    const table = screen.getByRole('table');
+    expect(within(table).getByRole('columnheader', { name: /爬升/ })).toBeInTheDocument();
+    // 第一段 10m 照常显示；第二段缺失显示 --
+    expect(within(table).getByText('10')).toBeInTheDocument();
+    expect(within(table).getAllByText('--').length).toBeGreaterThanOrEqual(1);
+  });
+
+  /**
+   * 第三态：整组 lap 爬升**全为 0**（真的没爬升）→ 必须**保留**该列并显示 `0`。
+   *
+   * 这一条与距离列**故意相反**：距离整组全 0 只可能是「该运动没有距离语义」，
+   * 而爬升全 0 对跑步是合法事实（真实库 5 条：田径场 `539341292` 6 段全 0、
+   * 4 条平路跑）。隐藏它会让用户把「这次是平路」读成「海拔没同步到」。
+   * 0 是答案，不是缺失。
+   */
+  test('整组分段爬升全为 0 → 「爬升」列保留并显示 0 (平路是真实答案)', async () => {
+    db.getActivityLaps.mockReturnValue([
+      { ...laps[0], id: 61, lap_index: 1, total_ascent: 0 },
+      { ...laps[1], id: 62, lap_index: 2, total_ascent: 0 },
+    ]);
+    db.getActivityById.mockReturnValue({ ...activity, total_ascent: 0, total_descent: 0 });
+    render(await page('1014'));
+    const table = screen.getByRole('table');
+    expect(within(table).getByRole('columnheader', { name: /爬升/ })).toBeInTheDocument();
+    // 两段的爬升单元格都必须是 0（不是 --）
+    const rows = within(table).getAllByRole('row').slice(1);
+    for (const r of rows) {
+      const cells = within(r).getAllByRole('cell');
+      expect(cells[cells.length - 1]).toHaveTextContent('0');
+    }
+  });
+
   test('核心字段全缺 (distance/moving_time/duration/pace/cadence/start_time_local) → 概览与标题全兜底', async () => {
     db.getActivityTrack.mockReturnValue(null);
     db.getActivityRecords.mockReturnValue([]);

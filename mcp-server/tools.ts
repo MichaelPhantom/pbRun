@@ -205,6 +205,11 @@ export async function registerTools(server: McpServer): Promise<void> {
         '按 activity_id 返回该活动的分段 (laps) 数据。distance 为米。' +
         '**距离三态**：`null` = 未同步到；`0` = 该段无距离语义（力量/爬楼/跳绳/室内骑行' +
         '整组为 0；游泳/间歇的休息段也是 0）；`>0` = 正常。不要把 `0` 当「没移动」。' +
+        '**`total_ascent` 三态（与 distance 的判定不同）**：`null` = 设备不写海拔或未同步到' +
+        '（真实库 8 类运动的 lap 爬升整类全 null：跑步机 68/68、泳池 79/79、篮球/跳绳/乒乓/' +
+        '羽毛球/室内骑行/室内有氧各 1–3 段 —— 室内与球类设备不记海拔，这不是「这次没测到」）；' +
+        '`0` = **该段真的没爬升**（平路跑、田径场是合法事实，真实库 5 条活动整场 lap 全 0）；' +
+        '`>0` = 正常。不要把 `0` 读成「缺数据」，也不要因为整组为 null 就说「海拔同步失败」。' +
         '非跑步活动的 `average_pace` 不是跑步配速（泳池 1670s/km、乒乓 30826s/km），' +
         '`average_power` 在非跑步 lap 上恒为 null。' +
         '**游泳（lap_swimming/open_water）的配速语言是秒/100m**：本工具返回的 `average_pace` ' +

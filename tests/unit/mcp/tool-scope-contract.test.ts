@@ -172,6 +172,29 @@ describe('MCP tool description 必须声明统计口径', () => {
   });
 
   /**
+   * 分段爬升的三态必须写进 description，**且必须与距离三态的判定区分开**。
+   *
+   * 真实库 8 类运动（跑步机 68/68、泳池 79/79、篮球/跳绳/乒乓/羽毛球/室内骑行/
+   * 室内有氧各 1–3 段）的 lap `total_ascent` **整类全 null** —— 室内与球类设备
+   * 不记海拔。这与「这次没测到」不同：模型若说「海拔同步失败」就是在编造问题。
+   *
+   * 反向陷阱同样要写：真实库 5 条活动（田径场 `539341292` 6 段 + 4 条平路跑）
+   * 的 lap 爬升**整组全 0**，那是「真的没爬升」，不是缺数据 —— 0 是答案。
+   */
+  test('get_activity_laps 声明 total_ascent 三态，且与 distance 判定不同', () => {
+    const desc = configs.get('get_activity_laps')!.description ?? '';
+    expect(desc).toMatch(/`total_ascent` 三态/);
+    // 必须点明「与 distance 的判定不同」—— 同一个「全 0」在两种语义下结论相反
+    expect(desc).toMatch(/与 distance 的判定不同/);
+    // 整类全 null = 设备不写海拔（不是「这次没测到」）
+    expect(desc).toMatch(/8 类运动/);
+    expect(desc).toMatch(/设备不记海拔|设备不写海拔/);
+    // 全 0 = 真的没爬升（平路合法事实）
+    expect(desc).toMatch(/真的没爬升/);
+    expect(desc).toMatch(/不要.*读成「缺数据」/);
+  });
+
+  /**
    * 课表字段单位契约。`workout_steps` 在旧库里 `duration_sec` 是 FIT 原始**毫秒**
    * （536624700: 2400000 vs 实际 2404 秒）、目标配速是 **mm/s**（2944/3361）。
    * 回填后是秒与秒/公里，但 `target_low/high` 仍保留设备原始 mm/s ——

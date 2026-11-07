@@ -1232,6 +1232,7 @@ GET /api/llm/models
 | `activities.est_sweat_loss` | **毫升（设备估算）** | `1794` = 约 1794 ml（有 ~1000 ml/h 速率上限） |
 | `activity_laps.intensity` | **设备记录的原始字符串**（不是角色枚举） | `warmup` / `interval` / `recovery` / `rest` / `cooldown` / `active`；角色映射走 `app/lib/lap-intensity.ts` |
 | `activity_laps.swim_stroke` | **泳姿原始枚举**；**仅 lap 级有效** | `freestyle` / `backstroke` / `breaststroke` / `butterfly` / `drill` / `mixed` / `im`。`activities.swim_stroke` **恒 255（无效）**，不要读；`mixed` 是「这一段混合了多种泳姿」（真实取值，**不是未知**），但它构成未知 → **不要算每 100m 效率**；`im`/`drill` 同理。中文名与汇总走 `app/lib/swim-stroke.ts` |
+| `activity_laps.total_ascent` | **米；三态，且判定与 `distance` 不同** | `null` = 设备不写海拔（真实库 8 类运动**整类全 null**：跑步机 68/68、泳池 79/79、篮球/跳绳/乒乓/羽毛球/室内骑行/室内有氧各 1–3 段 —— 室内与球类不记海拔，**不是「这次没测到」**）；`0` = **该段真的没爬升**（平路跑/田径场是合法事实，真实库 5 条活动整场全 0）；`>0` = 正常。**`0` 是答案，不是缺数据** |
 
 换算速记：DB 的 `activities.distance` 是公里，`activity_laps.distance` 是米，
 `activity_records.distance` 又是公里。聚合前务必按上表换算。
