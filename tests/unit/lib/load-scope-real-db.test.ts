@@ -404,4 +404,47 @@ describeIfDb('真实库：训练负荷的合并口径 vs 跑步口径', () => {
     expect(row.combinedLoad).toBeGreaterThan(row.runLoad);
     expect(row.strengthLoad).toBeGreaterThan(0);
   });
+
+  /**
+   * **第二十二类：`/list` 月卡的「里程」是跑步口径、「次数」是全类型口径。**
+   *
+   * 真实库 2026-09 卡片显示「200.84 公里 · 25 次」：200.84km 只来自 21 次跑步，
+   * 25 次是全部活动（21 跑步 + 2 力量 + 1 爬楼 + 1 游泳）。两个数字并列，
+   * 读者自然算出「平均 8.03 km/次」，而真实跑步均距 9.56 km —— 差 19%。
+   *
+   * 这条守卫钉住「count 与 runCount 确实不同」这个事实（若某天相等，
+   * 次数标注就成了噪音），并给出具体的差值量级。
+   */
+  test('/list 月卡：count（全类型）> runCount（跑步），差值来自非跑步活动', () => {
+    const rows = db
+      .prepare(
+        `SELECT substr(start_time_local, 1, 7) AS m,
+                COUNT(*) AS n,
+                SUM(CASE WHEN ${RUN} THEN 1 ELSE 0 END) AS runN
+         FROM activities
+         WHERE start_time_local IS NOT NULL
+         GROUP BY m
+         ORDER BY m`,
+      )
+      .all() as { m: string; n: number; runN: number }[];
+
+    // 前提自证：真实库里存在「同月两种计数不等」的月份
+    const mismatched = rows.filter((r) => r.n > r.runN);
+    expect(mismatched.length).toBeGreaterThanOrEqual(8);
+
+    // 2026-09 是文档里引用的例子：25 次 vs 21 跑步
+    const sep = rows.find((r) => r.m === '2026-09');
+    expect(sep).toBeDefined();
+    expect(sep!.n).toBe(25);
+    expect(sep!.runN).toBe(21);
+
+    // 2026-02 是最极端的月份（16 条爬楼）：37 次 vs 19 跑步
+    const feb = rows.find((r) => r.m === '2026-02');
+    expect(feb).toBeDefined();
+    expect(feb!.n).toBe(37);
+    expect(feb!.runN).toBe(19);
+
+    // 每个月的 runCount 都必须 ≤ count（不能出现「跑步次数多于总次数」）
+    for (const r of rows) expect(r.runN).toBeLessThanOrEqual(r.n);
+  });
 });

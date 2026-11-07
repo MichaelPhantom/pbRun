@@ -561,7 +561,32 @@ export default function ListClient({
                       return sec > 0 ? <span>{formatDuration(sec)}</span> : null;
                     })()}
                     {/* 次数给全类型: 与展开后的卡片数严格一致, 另标出其中非跑步的条数 */}
-                    <span>{summary.count} 次</span>
+                    <span>
+                      {summary.count} 次
+                      {/*
+                        第二十二类缺陷：**里程是跑步口径、次数是全类型**。
+                        真实库 2026-09 卡片显示「200.84 公里 · 25 次」——
+                        200.84km 只来自 21 次跑步，25 次是全部活动（21 跑步 +
+                        2 力量 + 1 爬楼 + 1 游泳）。两个数字并列，读者自然算出
+                        「平均 8.03 km/次」，而真实跑步均距 9.56 km（差 19%）。
+                        2026-02 更极端：「219.30 公里 · 37 次」里 16 条是爬楼。
+
+                        次数给全类型是**对的**（要与展开后的卡片数严格一致），
+                        错的是没说清这 25 次里有几次有里程。故在次数后直接标出
+                        跑步那部分 —— 用户一眼就能对上「里程 ÷ 跑步次数」。
+
+                        全是跑步时不标（`4 次` 已经足够，「4 次 · 跑步 4」是噪音）。
+                      */}
+                      {(() => {
+                        const runCount = Number(summary.runCount ?? 0);
+                        const allCount = Number(summary.count ?? 0);
+                        // 缺 `runCount`（旧 API 响应）或全是跑步 → 不加标注
+                        if (!(runCount > 0) || runCount >= allCount) return null;
+                        return (
+                          <span className="ml-1 text-[11px] text-fg-muted">（跑步 {runCount}）</span>
+                        );
+                      })()}
+                    </span>
                     {/*
                       非跑步构成。只在**没有任何筛选**时有意义 —— 用户选了
                       「力量训练」或搜了「力量」之后，这些活动对当前视图来说

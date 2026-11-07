@@ -97,14 +97,15 @@ describe('docs/faq.md —— 缺陷 25 与判别式第二十问', () => {
     expect(faq).toMatch(/另一个消息层级/);
   });
 
-  test('判别式从十九句扩到二十五句', () => {
-    expect(faq).toMatch(/问二十五句/);
+  test('判别式从十九句扩到二十六句', () => {
+    expect(faq).toMatch(/问二十六句/);
     expect(faq).not.toMatch(/问十九句/);
     expect(faq).not.toMatch(/问二十句/);
     expect(faq).not.toMatch(/问二十一句/);
     expect(faq).not.toMatch(/问二十二句/);
     expect(faq).not.toMatch(/问二十三句/);
     expect(faq).not.toMatch(/问二十四句/);
+    expect(faq).not.toMatch(/问二十五句/);
   });
 
   test('第二十问存在且指向消息层级', () => {
@@ -135,6 +136,11 @@ describe('docs/faq.md —— 缺陷 25 与判别式第二十问', () => {
   test('第二十五问存在且指向「反向搜数据源」（缺陷 34）', () => {
     expect(faq).toMatch(/^25\.\s/m);
     expect(faq).toMatch(/25\.[^\n]{0,80}反向搜/);
+  });
+
+  test('第二十六问存在且指向「同一行数字的分母」（缺陷 35）', () => {
+    expect(faq).toMatch(/^26\.\s/m);
+    expect(faq).toMatch(/26\.[^\n]{0,80}分母/);
   });
 });
 

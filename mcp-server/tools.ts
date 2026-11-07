@@ -553,6 +553,10 @@ export async function registerTools(server: McpServer): Promise<void> {
         '用来说明「这个月除了跑步还有什么」—— 只在未筛选时完整。' +
         'totalDuration 是该月**全类型总时长（秒）**，时间基数为计时器时间（moving_time 优先），' +
         '与 count 同口径 —— 力量训练/爬楼/HIIT/跳绳的 distance 恒为 0，时长是它们唯一的训练量。' +
+        '⚠ **count 与 runCount 不是同一个基数, 不能相除**: 真实库 2026-09 count=25 而 ' +
+        'runCount=21（多出 2 力量 + 1 爬楼 + 1 游泳）, 2026-02 是 37 vs 19（16 条爬楼）。' +
+        '算均距必须用 runDistance / runCount（2026-09 = 9.56 km/次）, 用 runDistance / count ' +
+        '会算出 8.03 km/次（差 19%）。回答时要说「21 次跑步」而不是「25 次」。' +
         '可按 type（原始 activity_type 键, 如 strength_training）与 q（名称或运动类型中文名）' +
         '跨月过滤, 不匹配的月份不会出现。type 传 `all` 或留空 = 不过滤。距离单位为公里。',
       inputSchema: {

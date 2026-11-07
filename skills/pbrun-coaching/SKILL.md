@@ -28,6 +28,11 @@ description: 分析 pbRun (Garmin) 跑步数据出教练诊断报告、查最新
    ⚠️ **`typeBreakdown` 用来说「这个月除了跑步还有什么」**（`[{type, count}]`，降序）。
    只在**未筛选**时完整 —— 按 `type`/`q` 筛过后返回的就是被筛的那部分，「其他」不存在了。
    解读非跑步月份时先看它，不要用 `list_activities` 首页结果推断类型构成。
+   ⚠️ **`count` 与 `runCount` 不是同一个基数，不能相除**：真实库 2026-09 `count=25`
+   而 `runCount=21`（多出 2 力量 + 1 爬楼 + 1 游泳），2026-02 是 37 vs 19（16 条爬楼）。
+   算均距必须用 `runDistance / runCount`（真实库 2026-09 = 9.56 km/次），
+   用 `runDistance / count` 会算出 8.03 km/次（差 19%）。网站月卡已在次数后标
+   「（跑步 21）」，模型回答时也要说明是「21 次跑步」而不是「25 次」。
 2. **能力趋势**：`get_vdot_trend groupBy=week` + `get_vdot_history`（默认 50 条，返回带 total/returned，没取全用 offset 翻）。
 3. **强度结构**：`get_hr_zone_analysis groupBy=month startDate/endDate`（返回里的 zoneRanges 基于**该跑者 MAX_HR** 的 BPM 边界，不是通用值）+ `get_pace_zone_analysis startDate/endDate`（vdot 缺省取最新活动）。
 4. **负荷/恢复**：`get_training_load_analysis days=28` → ACWR、连续训练/休息日、每日负荷。

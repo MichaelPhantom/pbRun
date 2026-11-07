@@ -1006,10 +1006,74 @@ describe('ListClient 活动列表 (交互/筛选/无限滚动)', () => {
     expect(monthBtn).toHaveTextContent('力量训练 2');
     expect(monthBtn).toHaveTextContent('爬楼 1');
     expect(monthBtn).toHaveTextContent('泳池游泳 1');
-    // 跑步本身不算「其他」，不能出现在构成里
-    expect(monthBtn).not.toHaveTextContent('跑步 21');
+    // 跑步本身不算「其他」，不能出现在**构成徽标**里
+    // （注：次数后现在会标「（跑步 21）」—— 那是里程口径的对账，不是构成徽标）
+    expect(monthBtn).not.toHaveTextContent('含 跑步');
+    expect(monthBtn).not.toHaveTextContent('跑步 21 ·');
     // 旧的含糊徽标不应再出现（信息量已升级）
     expect(monthBtn).not.toHaveTextContent('次其他');
+  });
+
+  /**
+   * **第二十二类：同一张月卡里「里程」是跑步口径、「次数」是全类型口径。**
+   *
+   * 真实库 2026-09 卡片显示「200.84 公里 · 25 次」—— 200.84km 只来自 21 次跑步，
+   * 而 25 次是全部活动（21 跑步 + 2 力量 + 1 爬楼 + 1 游泳）。两个数字并列，
+   * 读者自然算出「平均 8.03 km/次」，而真实的跑步均距是 9.56 km —— 差 19%。
+   *
+   * 更糟的是**这两个数字会互相矛盾**：2026-02 显示「219.30 公里 · 37 次」，
+   * 37 次里有 18 条非跑步活动（16 爬楼 + 7 力量等），平均只有 5.9km/次。
+   *
+   * 次数给全类型本身是**对的**（要与展开后的卡片数严格一致，否则用户以为漏了），
+   * 错的是**没说这 25 次里有 4 次没有里程**。修法：次数旁直接标出跑步那部分。
+   */
+  test('月卡: 次数必须标出其中跑步几次（里程是跑步口径，次数是全类型）', () => {
+    renderList({
+      initialMonthSummaries: [
+        {
+          monthKey: '2026-09',
+          totalDistance: 200.84,
+          count: 25,
+          runDistance: 200.84,
+          runCount: 21,
+          typeBreakdown: [
+            { type: 'running', count: 21 },
+            { type: 'strength_training', count: 2 },
+            { type: 'floor_climbing', count: 1 },
+            { type: 'lap_swimming', count: 1 },
+          ],
+        },
+      ],
+      initialActivitiesByMonth: { '2026-09': [act()] },
+    });
+    const monthBtn = screen.getByRole('button', { name: /2026年9月/ });
+    // 全类型次数仍在（与展开后的卡片数一致）
+    expect(monthBtn).toHaveTextContent('25 次');
+    // 但必须点出其中跑步几次 —— 否则用户会拿 25 去除里程
+    expect(monthBtn).toHaveTextContent('跑步 21');
+  });
+
+  /**
+   * 反证：全是跑步的月份**不加**冗余标注（`25 次` 就够了，
+   * 写成「25 次 · 跑步 25」是噪音）。
+   */
+  test('月卡: 全部是跑步时不多写「跑步 N」', () => {
+    renderList({
+      initialMonthSummaries: [
+        {
+          monthKey: '2026-11',
+          totalDistance: 49.13,
+          count: 4,
+          runDistance: 49.13,
+          runCount: 4,
+          typeBreakdown: [{ type: 'running', count: 4 }],
+        },
+      ],
+      initialActivitiesByMonth: { '2026-11': [act()] },
+    });
+    const monthBtn = screen.getByRole('button', { name: /2026年11月/ });
+    expect(monthBtn).toHaveTextContent('4 次');
+    expect(monthBtn).not.toHaveTextContent('跑步 4');
   });
 
   /**
