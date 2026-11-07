@@ -148,3 +148,27 @@ export const STATS_SCOPE_HINT = `${LOAD_SCOPE_RUNNING}：距离/配速/负荷/�
  * 这里说的是「哪个时间窗」，故用最短的「近一周」。
  */
 export const CURRENT_VDOT_SCOPE_HINT = '近一周';
+
+/**
+ * `/insight` 负荷卡的 hint —— **同一张卡里两格合并、一格跑步**（第二十一类缺陷）。
+ *
+ * 洞察页的「训练负荷与周期」卡有三格：
+ *
+ * | 格 | 数据源 | 口径 |
+ * |----|--------|------|
+ * | 急性负荷 (7天) | `getCombinedTrainingLoads` | **跑步 + 力量** |
+ * | 慢性负荷 (28天周均) | `getCombinedTrainingLoads` | **跑步 + 力量** |
+ * | 峰值周跑量 | `periodization`（`getInsightActivityRows`） | **纯跑步** |
+ *
+ * 真实库近 28 天：合并 1047 vs 跑步 987（力量 60）。三个数并排却是两种口径，
+ * 旧实现一个字都没标 —— 与首页「本月概览」四格、`/analysis` 负荷卡同一形态，
+ * 是第十八类漏掉的**第三处消费面**。
+ *
+ * 为什么不能复用 `combinedLoadScopeHint`：那个函数需要「力量负荷 N」才能给出
+ * 占比，而 `LoadInsight` 只带合并后的 `acute`/`chronic`，没有力量分量。
+ * 硬凑一个数会引入第四份「力量负荷怎么算」的实现 —— 宁可只说明口径，不编数。
+ *
+ * 措辞必须**同时**点出两种口径：只说「合并」会让用户以为峰值周跑量也含力量
+ * （那是纯跑步），只说「跑步」则与急性/慢性两格直接矛盾。
+ */
+export const INSIGHT_LOAD_SCOPE_HINT = `${LOAD_SCOPE_COMBINED}（急性/慢性负荷含力量训练）；峰值周跑量为${LOAD_SCOPE_RUNNING}（不含力量训练）`;

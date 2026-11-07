@@ -146,6 +146,38 @@ describe('InsightClient', () => {
     expect(screen.queryByRole('img', { name: '训练类别活动数分布' })).toBeNull();
   });
 
+  /**
+   * **第二十一类：`/insight` 的负荷卡是第十八类漏掉的第三处消费面。**
+   *
+   * `insight-service.ts:67` 明确用 `getCombinedTrainingLoads`（跑步 + 力量），
+   * 而同一张卡第三格「峰值周跑量」来自 `periodization` 的跑步口径
+   * （`getInsightActivityRows` 带 `runningTypeClause`）。
+   *
+   * 真实库近 28 天：合并 1047 vs 跑步 987（力量 60）。用户在这张卡上看到
+   * 「急性负荷 / 慢性负荷 / 峰值周跑量」三个数并排，却是两种口径，
+   * 一个字都没标 —— 与首页「本月概览」四格同一形态。
+   *
+   * 首页 / 分析页 / `/stats` 都已补口径说明，唯独这里漏了。
+   */
+  test('负荷卡必须标注两种口径（急性/慢性含力量，峰值周跑量不含）', () => {
+    render(<InsightClient insight={insight} timeRangeDays={90} />);
+    const hint = screen.getByText(/含力量训练/);
+    // 必须同时说清第三格是跑步口径，否则用户会以为峰值周跑量也含力量
+    expect(hint).toHaveTextContent('峰值周跑量');
+    expect(hint).toHaveTextContent('跑步');
+  });
+
+  /**
+   * 反证：提示不得只说「合并口径」而不点出哪一格是跑步口径 ——
+   * 那张卡里恰恰是「三格两个口径」，只说一半等于没说。
+   */
+  test('负荷卡口径提示不得只写合并口径（同卡还有跑步口径的格）', () => {
+    render(<InsightClient insight={insight} timeRangeDays={90} />);
+    const hint = screen.getByText(/含力量训练/);
+    expect(hint.textContent).not.toBe('合并口径');
+    expect(hint.textContent).toMatch(/跑步/);
+  });
+
   test('强度分布标题由非零区间派生 (不写死 Z1–Z6)', () => {
     // 夹具 zDistribution 只有 Z3/Z4 → 标题应为「强度分布（Z3–Z4）」
     render(<InsightClient insight={insight} timeRangeDays={90} />);

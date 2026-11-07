@@ -375,4 +375,33 @@ describeIfDb('真实库：训练负荷的合并口径 vs 跑步口径', () => {
     // —— 两句合起来证明「只写『不含力量训练』会让爬升的差值无处解释」
     expect(row.strengthLoad).toBeGreaterThan(0);
   });
+
+  /**
+   * **第二十一类：`/insight` 负荷卡的三格是两个口径。**
+   *
+   * 急性/慢性来自 `getCombinedTrainingLoads`（跑步 + 力量），峰值周跑量来自
+   * `periodization`（`getInsightActivityRows` 带 `runningTypeClause`，纯跑步）。
+   *
+   * 这条守卫证明「两个口径确实不同」，否则提示存在的必要性就消失。
+   * 用最近 28 天窗口（与 ACWR 的慢性窗同一区间）。
+   */
+  test('/insight 负荷卡：近 28 天合并负荷 ≠ 跑步负荷（力量贡献显著）', () => {
+    const row = db
+      .prepare(
+        `SELECT
+           ROUND(SUM(CASE WHEN ${RUN} THEN COALESCE(training_load, 0) ELSE 0 END), 2) AS runLoad,
+           ROUND(SUM(COALESCE(training_load, 0)), 2) AS combinedLoad,
+           ROUND(SUM(CASE WHEN activity_type = 'strength_training'
+                          THEN COALESCE(training_load, 0) ELSE 0 END), 2) AS strengthLoad
+         FROM activities
+         WHERE start_time_local >= date('now', '-27 days')`,
+      )
+      .get() as { runLoad: number; combinedLoad: number; strengthLoad: number };
+
+    // 合并 ≡ 跑步 + 力量（这是 LoadInsight 的 acute/chronic 的口径）
+    expect(Math.abs(row.combinedLoad - (row.runLoad + row.strengthLoad))).toBeLessThan(0.01);
+    // 两个数必须不同 —— 若相等说明该窗口没有力量课，提示就无从验证
+    expect(row.combinedLoad).toBeGreaterThan(row.runLoad);
+    expect(row.strengthLoad).toBeGreaterThan(0);
+  });
 });

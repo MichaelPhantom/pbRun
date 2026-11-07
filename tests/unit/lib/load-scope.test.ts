@@ -34,6 +34,7 @@ import {
   LOAD_SCOPE_RUNNING,
   DISTANCE_SCOPE_HINT,
   STATS_SCOPE_HINT,
+  INSIGHT_LOAD_SCOPE_HINT,
   combinedLoadScopeHint,
   monthLoadScopeHint,
 } from '@/app/lib/load-scope';
@@ -138,6 +139,28 @@ describe('训练负荷口径标签', () => {
     expect(STATS_SCOPE_HINT).toContain('力量');
     expect(STATS_SCOPE_HINT).toContain('爬楼');
   });
+
+  /**
+   * **`/insight` 负荷卡：三格两个口径，必须同时点出**（第二十一类缺陷）。
+   *
+   * 急性/慢性是合并口径（`getCombinedTrainingLoads`），峰值周跑量是纯跑步
+   * （`periodization` 来自 `getInsightActivityRows`）。只说「合并」会让用户
+   * 以为峰值周跑量也含力量；只说「跑步」则与另两格直接矛盾。
+   */
+  test('洞察页 hint 必须同时点出合并与跑步两种口径', () => {
+    expect(INSIGHT_LOAD_SCOPE_HINT).toContain(LOAD_SCOPE_COMBINED);
+    expect(INSIGHT_LOAD_SCOPE_HINT).toContain(LOAD_SCOPE_RUNNING);
+    // 必须点名哪一格是哪个口径，否则「两种口径」仍然要用户自己猜
+    expect(INSIGHT_LOAD_SCOPE_HINT).toContain('急性');
+    expect(INSIGHT_LOAD_SCOPE_HINT).toContain('峰值周跑量');
+  });
+
+  /** 措辞不得暗示峰值周跑量含力量 —— 那是最容易产生的误读。 */
+  test('洞察页 hint 不得让峰值周跑量看起来含力量', () => {
+    // 「含力量训练」必须限定在急性/慢性上，不能紧跟峰值周跑量
+    expect(INSIGHT_LOAD_SCOPE_HINT).toMatch(/急性\/慢性[^；]*含力量训练/);
+    expect(INSIGHT_LOAD_SCOPE_HINT).toMatch(/峰值周跑量[^；]*不含力量训练/);
+  });
 });
 
 /**
@@ -237,5 +260,22 @@ describe('训练负荷口径标签的三处调用方', () => {
     // 剥注释后不得再出现裸的「近一周」字面量
     const code = stripComments(src);
     expect(code.includes("hint=\"近一周\"")).toBe(false);
+  });
+
+  /**
+   * **`/insight` 是第十八类漏掉的第三处消费面**（第二十一类缺陷）。
+   *
+   * 洞察页的负荷卡三格里，急性/慢性是合并口径、峰值周跑量是纯跑步口径 ——
+   * 首页 / 分析页 / `/stats` 都补了口径说明，唯独这里漏了。
+   */
+  test('/insight 负荷卡必须用 INSIGHT_LOAD_SCOPE_HINT（不得硬编码）', () => {
+    const src = read('app/insight/InsightClient.tsx');
+    expect(src).toMatch(
+      /import\s*\{[^}]*INSIGHT_LOAD_SCOPE_HINT[^}]*\}\s*from\s*['"]@\/app\/lib\/load-scope['"]/,
+    );
+    expect(src).toMatch(/\{INSIGHT_LOAD_SCOPE_HINT\}/);
+    const code = stripComments(src);
+    // 不得自己拼口径措辞
+    expect(code.includes('急性/慢性负荷含力量训练')).toBe(false);
   });
 });

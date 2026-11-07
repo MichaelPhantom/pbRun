@@ -12,6 +12,7 @@ import { InsightBarChart } from '@/app/lib/components/charts/InsightBarChart';
 import { GlobalCoach } from '@/app/lib/components/ai/GlobalCoach';
 import { TIME_RANGE_DAYS_OPTIONS, TIME_RANGE_LABELS, type TimeRangeDays } from '@/app/lib/date-utils';
 import { hrZoneColor, zoneRangeLabel } from '@/app/lib/hr-zones';
+import { INSIGHT_LOAD_SCOPE_HINT } from '@/app/lib/load-scope';
 import type { InsightFinding, InsightResponse } from '@/app/lib/types';
 
 const SEVERITY_TONE: Record<InsightFinding['severity'], 'good' | 'brand' | 'warn' | 'crit'> = {
@@ -324,6 +325,14 @@ export default function InsightClient({
             hint={peakWeek?.week}
           />
         </div>
+        {/*
+          第二十一类缺陷：这张卡三格两个口径 —— 急性/慢性是**合并口径**
+          （`insight-service.ts` 用 `getCombinedTrainingLoads`），峰值周跑量是
+          **纯跑步**（`periodization` 来自 `getInsightActivityRows`，带
+          `runningTypeClause`）。真实库近 28 天合并 1047 vs 跑步 987（力量 60）。
+          旧实现一个字都没标 —— 是第十八类漏掉的第三处消费面。
+        */}
+        <div className="mb-3 text-[11px] leading-relaxed text-fg-muted">{INSIGHT_LOAD_SCOPE_HINT}</div>
         {load.weekly.length > 1 ? (
           <InsightTrendChart
             x={weeklyTrend.x}
