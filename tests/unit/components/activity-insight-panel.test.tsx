@@ -96,6 +96,44 @@ describe('空数据与主课摘要', () => {
     expect(screen.getByText('+8')).toBeInTheDocument();
   });
 
+  /**
+   * 「主课段数」的 hint 是主课总距离。零距离运动（爬楼 30 / 跳绳 3 / 室内骑行 1
+   * / 室内有氧 1 共 35 个活动）的 lap 距离全为 0 —— 旧实现无条件
+   * `${(workDistanceMeters / 1000).toFixed(2)} km`，卡片上显示「0 段 · 0.00 km」，
+   * 读起来像同步失败。
+   *
+   * 与卡片/概览/分段表/AI prompt 的距离三态同一纪律：`0`（无距离语义）不渲染，
+   * `null`/缺失才显示 `--`。生产实证：爬楼活动 551500889 的 insight 返回
+   * workLaps 0 / workDistanceMeters 0。
+   */
+  test('主课距离为 0 → hint 不显示「0.00 km」(该运动无距离语义)', () => {
+    render(
+      <ActivityInsightPanel
+        data={base({
+          running: false,
+          lapAnalysis: {
+            ...base().lapAnalysis,
+            laps: [
+              { lapIndex: 0, distanceMeters: 0, paceSecPerKm: null, heartRate: 120, cadence: null, power: null, hrZoneSeconds: null, powerZoneSeconds: null, role: 'steady' },
+            ],
+            workLaps: 1,
+            workDistanceMeters: 0,
+            workAvgPaceSecPerKm: null,
+            bestPaceSecPerKm: null,
+            bestLapIndex: null,
+          },
+        })}
+      />,
+    );
+    expect(screen.getByText('主课段数')).toBeInTheDocument();
+    expect(screen.queryByText(/0\.00 km/)).not.toBeInTheDocument();
+  });
+
+  test('主课距离 > 0 → hint 正常显示', () => {
+    render(<ActivityInsightPanel data={base()} />);
+    expect(screen.getByText('6.00 km')).toBeInTheDocument();
+  });
+
   test('跑步(running=true 或未声明)保留配速卡片', () => {
     render(<ActivityInsightPanel data={base({ running: true })} />);
     expect(screen.getByText('最快分段')).toBeInTheDocument();

@@ -243,7 +243,14 @@ function performanceLines(insight: ActivityInsightResponse | null): string[] {
   if (lap && lap.laps.length > 0) {
     const bits = [`${lap.laps.length} 段`];
     if (lap.workLaps > 0) {
-      bits.push(`主课 ${lap.workLaps} 段 / ${(lap.workDistanceMeters / 1000).toFixed(2)}km`);
+      // 主课距离三态：`> 0` 才输出 km 数。零距离运动（爬楼/跳绳/室内骑行）
+      // 的 lap 距离全为 0，旧实现会写「主课 1 段 / 0.00km」，模型读成
+      // 「主课几乎没移动」。没有距离语义时不写这个数，而不是写 0。
+      bits.push(
+        lap.workDistanceMeters > 0
+          ? `主课 ${lap.workLaps} 段 / ${(lap.workDistanceMeters / 1000).toFixed(2)}km`
+          : `主课 ${lap.workLaps} 段`,
+      );
       // 配速绝对值只对跑步输出: `insight.running` 是服务端已判定的口径,
       // 这里再按它把关 (而不是信任 lapAnalysis 里是否恰好为 null), 避免
       // 任何上游字段回填把泳池的「每公里时间」当成配速泄给模型。

@@ -234,7 +234,7 @@ export function ActivityInsightPanel({ data }: { data: ActivityInsightResponse |
         {isRunning && (
           <StatCard value={lapAnalysis.bestPaceSecPerKm != null ? fmtPace(lapAnalysis.bestPaceSecPerKm) : '--'} unit="/km" label="最快分段" accent hint={bestHint ?? undefined} />
         )}
-        <StatCard value={String(lapAnalysis.workLaps)} label="主课段数" hint={`${(lapAnalysis.workDistanceMeters / 1000).toFixed(2)} km`} />
+        <StatCard value={String(lapAnalysis.workLaps)} label="主课段数" hint={lapAnalysis.workDistanceMeters > 0 ? `${(lapAnalysis.workDistanceMeters / 1000).toFixed(2)} km` : undefined} />
         {isRunning && (
           <StatCard value={lapAnalysis.workAvgPaceSecPerKm != null ? fmtPace(lapAnalysis.workAvgPaceSecPerKm) : '--'} unit="/km" label="主课均配速" />
         )}

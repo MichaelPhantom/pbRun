@@ -212,6 +212,44 @@ describe('formatActivityContext', () => {
     expect(text).not.toContain('最快分段');
   });
 
+  /**
+   * 主课距离为 0 时**不能**写 `0.00km`。
+   *
+   * 零距离运动（爬楼 30 / 跳绳 3 / 室内骑行 1 / 室内有氧 1 共 35 个活动）的 lap
+   * 距离全为 0。旧实现无条件拼 `主课 N 段 / 0.00km`，模型读到会以为「主课几乎没
+   * 移动」—— 与该运动「按层/按次计时」的真实语义完全相反。
+   *
+   * 与卡片/概览/分段表同一纪律：`0` 是无距离语义，不输出；`>0` 才给数。
+   */
+  test('主课距离为 0 → 只写段数, 不写 0.00km', () => {
+    const text = formatActivityContext({
+      insight: insight({
+        running: false,
+        lapAnalysis: {
+          laps: [
+            { lapIndex: 0, distanceMeters: 0, paceSecPerKm: null, heartRate: 110, cadence: null, power: null, role: 'warmup' },
+            { lapIndex: 1, distanceMeters: 0, paceSecPerKm: null, heartRate: 150, cadence: null, power: null, role: 'work' },
+          ],
+          workLaps: 1,
+          workDistanceMeters: 0,
+          workAvgPaceSecPerKm: null,
+          workAvgHeartRate: 150,
+          workHrDrift: 4,
+          bestPaceSecPerKm: null,
+          bestLapIndex: null,
+        },
+        decouplingPct: null,
+        hrZoneBreakdown: [],
+        powerZoneBreakdown: [],
+        ftpWatts: null,
+      }),
+      routeComparison: null,
+      distanceComparison: null,
+    });
+    expect(text).toContain('主课 1 段');
+    expect(text).not.toContain('0.00km');
+  });
+
   test('非跑步: 不输出配速/等价平路行, 且口径说明改为非跑步语义', () => {
     // 泳池游泳真实形态: average_pace 是每公里游泳时间。若把 1670s/km 交给模型
     // 当「配速」, 它会得出「慢得离谱」的结论 —— 这是本轮修复的核心缺陷。
