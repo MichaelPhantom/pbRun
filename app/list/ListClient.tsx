@@ -11,7 +11,7 @@ import {
 import type { Activity } from '@/app/lib/types';
 import type { MonthSummary } from '@/app/lib/types';
 import { monthToRange } from '@/app/lib/date-utils';
-import { activityTypeLabel, activityTypeIcon, isRunningType, isSwimmingType } from '@/app/lib/sport';
+import { activityTypeLabel, activityTypeIcon, isRunningType, isSwimmingType, needsTypeBadge } from '@/app/lib/sport';
 import { effectiveTimeSec, paceSecPer100m, formatPacePer100m, speedKmh } from '@/app/lib/pace';
 
 const MONTHS_PAGE_SIZE = 6;
@@ -613,7 +613,13 @@ function ActivityCard({
       </div>
 
       <div className="tnum flex flex-wrap gap-4 text-sm">
-        {!running && (
+        {/*
+          徽标不能写 `!running`：`track_running` / `treadmill_running` 属于跑步口径，
+          旧条件把它们当普通路跑而**不显示任何类型**（真实库 13 条）。用户看不出
+          这是操场绕圈还是跑步机 —— 两者的配速可比性不同（田径场每圈 400m 可精确
+          对标；跑步机无 GPS 无风阻）。判定走 `needsTypeBadge` 单一来源。
+        */}
+        {needsTypeBadge(a.activity_type) && (
           <span className="rounded-md bg-[var(--surface-2)] border border-[var(--border)] px-1.5 py-0.5 text-[11px] text-fg-secondary">
             {activityTypeLabel(a.activity_type)}
           </span>

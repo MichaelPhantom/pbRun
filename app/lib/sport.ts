@@ -148,6 +148,29 @@ export function activityTypeName(
   return canonical;
 }
 
+/**
+ * 是否需要在卡片/详情页上显示「运动类型徽标」。
+ *
+ * ## 为什么不能直接写 `!running`
+ *
+ * 旧实现三处（详情页 / `/list` 卡片 / 首页最近活动）都写 `!isRunningType(...)`。
+ * 但跑步口径是**三个类型**（`running` / `track_running` / `treadmill_running`），
+ * 于是后两者被当成普通路跑 —— **真实库 13 条活动（田径场 6 + 跑步机 7）
+ * 在页面上没有任何类型标识**，用户看不出这是操场绕圈还是跑步机。
+ *
+ * 这不是「细节」：跑步机的 `avg_altitude` / `total_ascent` / GPS 轨迹全为 NULL，
+ * 配速也不含风阻与坡度；田径场的配速可精确对标（每圈 400m），而路跑受 GPS 漂移
+ * 影响。三种跑步的可比性不同，标识必须显示。
+ *
+ * 空值按跑步处理（旧库兼容，与 `isRunningType` 同向）且不显示徽标 —— 那不是
+ * 「有信息量的子类型」，而是「没写类型」。
+ */
+export function needsTypeBadge(type: string | null | undefined): boolean {
+  if (!type) return false;
+  if (!isRunningType(type)) return true;
+  return type !== 'running';
+}
+
 /** 子类型/运动类型是否值得展示（过滤设备只写「通用」的情况）。 */
 export function isInformativeTypeValue(
   raw: string | null | undefined,

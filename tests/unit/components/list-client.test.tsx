@@ -246,6 +246,42 @@ describe('ListClient 活动列表 (交互/筛选/无限滚动)', () => {
     expect(swim).not.toHaveTextContent('/km');
   });
 
+  /**
+   * 田径场跑 / 跑步机必须显示类型徽标 —— 它们 `isRunningType=true`，
+   * 旧条件 `!running` 会让真实库 13 条活动完全没有类型标识。
+   */
+  test('田径场跑卡片显示「田径场跑」徽标 (属于跑步口径但需区分)', () => {
+    renderList({
+      initialActivitiesByMonth: {
+        '2026-09': [
+          act({
+            activity_type: 'track_running',
+            name: '田径场课',
+            distance: 5,
+            average_pace: 300,
+            duration: 1500,
+            moving_time: 1500,
+          }),
+        ],
+      },
+    });
+    const card = screen.getByRole('button', { name: /田径场课/ });
+    expect(card).toHaveTextContent('田径场跑');
+    // 仍按跑步展示配速（不是秒/100m）
+    expect(card).toHaveTextContent("5'00''");
+    expect(card).not.toHaveTextContent('/100m');
+  });
+
+  test('普通路跑卡片不显示类型徽标 (避免每条都挂「跑步」噪音)', () => {
+    renderList({
+      initialActivitiesByMonth: {
+        '2026-09': [act({ activity_type: 'running', name: '晨跑' })],
+      },
+    });
+    const card = screen.getByRole('button', { name: /晨跑/ });
+    expect(card).not.toHaveTextContent('跑步');
+  });
+
   test('非游泳非跑步卡片不给 100m 配速 (篮球/力量没有 100m 语义)', () => {
     renderList({
       initialActivitiesByMonth: {

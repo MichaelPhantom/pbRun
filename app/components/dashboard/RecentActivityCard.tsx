@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { Activity } from "@/app/lib/types";
 import { formatDistance, formatDuration, formatPaceShort, formatListDateTime } from "@/app/lib/format";
-import { activityTypeLabel, isRunningType, isSwimmingType } from "@/app/lib/sport";
+import { activityTypeLabel, isRunningType, isSwimmingType, needsTypeBadge } from "@/app/lib/sport";
 import { effectiveTimeSec, paceSecPer100m, formatPacePer100m, speedKmh } from "@/app/lib/pace";
 
 /** 仪表盘「最近活动」紧凑卡 (server component)。 */
@@ -57,7 +57,9 @@ export function RecentActivityCard({ activity }: { activity: Activity }) {
           {/* 游泳换成本行话的秒/100m（不是秒/公里 —— 量级差 10 倍）。 */}
           {!running && swimPace100 && ` · ${swimPace100}/100m`}
         </span>
-        {!running && (
+        {/* 徽标走 `needsTypeBadge`（不能写 `!running`）：田径场/跑步机属于跑步口径，
+            旧条件会让这 13 条活动在首页卡片上完全没有类型标识。 */}
+        {needsTypeBadge(activity.activity_type) && (
           <span className="rounded-md bg-[var(--surface-2)] border border-[var(--border)] px-1.5 py-0.5 text-[10px] text-fg-secondary">
             {activityTypeLabel(activity.activity_type)}
           </span>

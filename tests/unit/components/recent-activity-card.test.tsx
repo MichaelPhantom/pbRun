@@ -104,6 +104,24 @@ describe('RecentActivityCard', () => {
     expect(container.textContent).toContain('4:29/100m');
   });
 
+  /** 田径场跑属于跑步口径, 但仍需类型徽标 (真实库 6 条)。 */
+  test('田径场跑显示类型徽标, 配速仍按跑步展示', () => {
+    const { container } = render(
+      <RecentActivityCard
+        activity={act({ activity_type: 'track_running', name: '田径场课' })}
+      />,
+    );
+    expect(container.textContent).toContain('田径场跑');
+    expect(container.textContent).toContain("5'00''");
+  });
+
+  test('普通路跑不显示类型徽标', () => {
+    const { container } = render(
+      <RecentActivityCard activity={act({ activity_type: 'running', name: '晨跑' })} />,
+    );
+    expect(container.textContent).not.toContain('跑步');
+  });
+
   test('非游泳非跑步不给 100m 配速 (篮球/力量没有 100m 语义)', () => {
     const { container } = render(
       <RecentActivityCard

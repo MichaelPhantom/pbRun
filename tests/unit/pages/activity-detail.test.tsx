@@ -806,6 +806,45 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
     }
   });
 
+  /**
+   * 田径场跑 / 跑步机必须显示类型徽标 —— 它们属于跑步口径（`isRunningType` 为真），
+   * 旧条件 `!running` 会让这 13 条活动**完全没有类型标识**。
+   *
+   * 为什么这不是「细节」：跑步机的 avg_altitude / total_ascent / GPS 轨迹全为 NULL，
+   * 配速不含风阻与坡度；田径场每圈 400m，配速可精确对标。三种跑步的可比性不同。
+   */
+  test('田径场跑 (track_running) 属于跑步口径但仍显示类型徽标', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'track_running',
+      sport_type: '跑步',
+      sub_sport_type: '田径场',
+    });
+    render(await page('4001'));
+    expect(screen.getByText('田径场跑')).toBeInTheDocument();
+    // 仍按跑步渲染：配速/步频/步幅照常
+    const overview = screen.getByText('活动概览').closest('section')!;
+    expect(within(overview).getByText('平均配速')).toBeInTheDocument();
+    expect(within(overview).getByText('步频')).toBeInTheDocument();
+  });
+
+  test('跑步机 (treadmill_running) 属于跑步口径但仍显示类型徽标', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'treadmill_running',
+      sport_type: '跑步',
+      sub_sport_type: '跑步机',
+    });
+    render(await page('4002'));
+    expect(screen.getByText('跑步机')).toBeInTheDocument();
+  });
+
+  test('普通路跑 (running) 不渲染类型徽标 (避免每条都是「跑步」噪音)', async () => {
+    render(await page('4003'));
+    // 概览里有「平均配速」等，但徽标区不应出现「跑步」这个 Badge
+    expect(screen.queryByText('跑步')).toBeNull();
+  });
+
   test('非跑步活动 (泳池游泳): 隐藏配速/步频/步幅/跑力, 保留距离/时长/心率/负荷, 标题带类型徽标', async () => {
     db.getActivityById.mockReturnValue({
       ...activity,

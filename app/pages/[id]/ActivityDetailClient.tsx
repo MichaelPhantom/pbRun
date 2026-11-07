@@ -11,7 +11,7 @@ import { DataTable } from '@/app/components/ui/DataTable';
 import ActivityTrendCharts, { trendChartTitle } from '@/app/lib/components/charts/ActivityTrendCharts';
 import { ActivityInsightPanel, ROLE_LABEL, ROLE_TONE } from '@/app/lib/components/charts/ActivityInsightPanel';
 import { AiAnalysis } from '@/app/lib/components/ai/AiAnalysis';
-import { activityTypeIcon, activityTypeName, isInformativeTypeValue, isRunningType, isSwimmingType } from '@/app/lib/sport';
+import { activityTypeIcon, activityTypeName, isInformativeTypeValue, isRunningType, isSwimmingType, needsTypeBadge } from '@/app/lib/sport';
 import { powerIntensity } from '@/app/lib/power';
 import { hrZoneBadgeStyle } from '@/app/lib/hr-zones';
 import { dominantZone } from '@/app/lib/activity-insight';
@@ -363,7 +363,14 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
         </h1>
         <div className="flex flex-wrap items-center gap-2 text-xs text-fg-secondary">
           <span>{formatListDateTime(activity.start_time_local ?? activity.start_time)}</span>
-          {!running && (
+          {/*
+            徽标条件不能写 `!running`：跑步口径是**三个类型**，`track_running` /
+            `treadmill_running` 会被判为「普通跑步」而**完全不显示类型**（真实库
+            13 条）。用户看不出这是操场绕圈还是跑步机 —— 而两者的可比性不同
+            （跑步机无 GPS 无风阻、田径场每圈 400m 配速可精确对标）。
+            判定走 `needsTypeBadge` 单一来源，与列表卡片/首页同口径。
+          */}
+          {needsTypeBadge(activity.activity_type) && (
             <Badge variant="neutral">
               <span aria-hidden className="mr-1">{activityTypeIcon(activity.activity_type)}</span>
               {typeLabel}

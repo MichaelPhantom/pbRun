@@ -16,6 +16,7 @@ import {
   isInformativeTypeValue,
   isRunningType,
   isSwimmingType,
+  needsTypeBadge,
 } from '@/app/lib/sport';
 
 describe('RUNNING_ACTIVITY_TYPES', () => {
@@ -253,5 +254,56 @@ describe('isSwimmingType', () => {
     expect(isSwimmingType('')).toBe(false);
     expect(isRunningType(null)).toBe(true);
     expect(isRunningType('') && isSwimmingType('')).toBe(false);
+  });
+});
+
+/**
+ * `needsTypeBadge` —— 「这个活动需不需要显示类型徽标」的唯一判定。
+ *
+ * 旧实现三处（详情页 / `/list` 卡片 / 首页最近活动）都写 `!isRunningType(...)`。
+ * 但跑步口径是**三个类型**，于是 `track_running` / `treadmill_running` 被当成
+ * 普通路跑 —— 真实库 **13 条活动（田径场 6 + 跑步机 7）在页面上没有任何类型
+ * 标识**，用户看不出这是操场绕圈还是跑步机。
+ *
+ * 两者的可比性不同：跑步机的 avg_altitude / total_ascent / GPS 轨迹全为 NULL，
+ * 配速不含风阻与坡度；田径场每圈 400m，配速可精确对标。标识必须显示。
+ */
+describe('needsTypeBadge', () => {
+  test.each([
+    'strength_training',
+    'basketball',
+    'lap_swimming',
+    'open_water',
+    'floor_climbing',
+    'indoor_cardio',
+    'hiit',
+    'jump_rope',
+    'table_tennis',
+    'badminton',
+    'indoor_cycling',
+    'track_running',
+    'treadmill_running',
+  ])('%s 需要类型徽标', (t) => {
+    expect(needsTypeBadge(t)).toBe(true);
+  });
+
+  test('普通路跑 (running) 不需要徽标 —— 否则每条都挂一个「跑步」纯噪音', () => {
+    expect(needsTypeBadge('running')).toBe(false);
+  });
+
+  test('null / undefined / 空串不显示徽标 (旧库兼容按跑步处理, 但没有信息量)', () => {
+    expect(needsTypeBadge(null)).toBe(false);
+    expect(needsTypeBadge(undefined)).toBe(false);
+    expect(needsTypeBadge('')).toBe(false);
+  });
+
+  test('判定与 isRunningType 同源: 非跑步恒需徽标, 跑步里只有 running 不需要', () => {
+    for (const t of [...RUNNING_ACTIVITY_TYPES, 'basketball', 'lap_swimming']) {
+      if (isRunningType(t)) {
+        expect(needsTypeBadge(t)).toBe(t !== 'running');
+      } else {
+        expect(needsTypeBadge(t)).toBe(true);
+      }
+    }
   });
 });
