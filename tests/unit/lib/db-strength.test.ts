@@ -25,14 +25,22 @@ jest.mock('path', () => ({ join: jest.fn((...a: string[]) => a.join('/')) }));
 
 import { getStrengthLoads, getStrengthSessions, closeDatabase } from '@/app/lib/db';
 
-/** 14 步循环课表: 40s 做 + 20s 歇 ×7（真实库「核心稳定性1」结构）。 */
-const CORE_STEPS = JSON.stringify(
-  Array.from({ length: 14 }, (_, i) => ({
-    duration_type: 'time',
-    duration_sec: i % 2 === 0 ? 40 : 20,
-    intensity: i % 2 === 0 ? 'active' : 'rest',
-  })),
-);
+/**
+ * 复刻**真实库**「核心稳定性1」课表（activity 652761578, 14 步）：
+ * 6×(40s 做 + 20s 歇) + 40s 做 + **open 休息（无 `duration_sec`）** = 计划 400s。
+ *
+ * ⚠ 不要写成整齐的 7×(40 做 + 20 歇)：那会算成 420s、工作:休息 2.0:1，而生产是
+ * 400s / 2.3:1。夹具比生产「干净」时，缺陷在测试里被合法化
+ * （`docs/testing-strategy.md` §6.5 纪律 6）。
+ */
+const CORE_STEPS = JSON.stringify([
+  ...Array.from({ length: 6 }, () => [
+    { duration_type: 'time', duration_sec: 40, intensity: 'active' },
+    { duration_type: 'time', duration_sec: 20, intensity: 'rest' },
+  ]).flat(),
+  { duration_type: 'time', duration_sec: 40, intensity: 'active' },
+  { duration_type: 'open', duration_sec: null, intensity: 'rest' },
+]);
 
 const row = (over: Record<string, unknown> = {}) => ({
   activity_id: 1,
@@ -93,6 +101,21 @@ describe('getStrengthLoads', () => {
   test('非法/逆序日期 → 抛清晰错误', () => {
     expect(() => getStrengthLoads('2026-11-01', '2026/11/30')).toThrow(/YYYY-MM-DD/);
     expect(() => getStrengthLoads('2026-11-30', '2026-11-01')).toThrow(/startDate/);
+  });
+
+  /**
+   * FIT 的 `repeat_until_*` 是循环控制步（无时长），不是训练段。真实库 3 条课表
+   * 末尾带 `repeat_until_steps_cmplt`；旧实现按 `intensity === 'active'` 判定，
+   * 会把「本月有效组数」算多 1 —— 那是给用户看的数字。
+   */
+  test('循环控制步不得让聚合组数虚高 (真实库 3 条课表)', () => {
+    const withRepeat = JSON.stringify([
+      ...JSON.parse(CORE_STEPS),
+      { duration_type: 'repeat_until_steps_cmplt', duration_sec: null, intensity: 'active' },
+    ]);
+    mockAll.mockReturnValueOnce([row({ workout_steps: withRepeat })]);
+    const [p] = getStrengthLoads('2026-11-01', '2026-11-30');
+    expect(p.workingSets).toBe(7);
   });
 
   test('空值兜底不产生 NaN', () => {

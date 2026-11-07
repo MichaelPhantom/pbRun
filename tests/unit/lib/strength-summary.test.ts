@@ -13,10 +13,11 @@ const s = (over: Record<string, unknown> = {}) => ({
   planName: '全身循环1',
   workingSets: 7,
   restSets: 7,
-  plannedSeconds: 420,
+  // 真实库「全身循环1」形态: 6×(40+20) + 40 + open → 计划 400s、工作 280s、休息 120s
+  plannedSeconds: 400,
   workingSeconds: 280,
-  restSeconds: 140,
-  workRestRatio: 2,
+  restSeconds: 120,
+  workRestRatio: 2.33,
   structure: 'intervals' as const,
   intensityDomain: 'base' as const,
   durationSeconds: 1800,
@@ -114,9 +115,9 @@ describe('summarizeStrengthSessions', () => {
   });
 
   test('实际总时长 vs 计划时长: 计划是一轮模板, 汇总只累计实际时长', () => {
-    // 真实库「核心稳定性1」: plannedSeconds 420, 实际 3609 —— 课表是一轮模板,
-    // 用户做了多轮。汇总绝不能把 plannedSeconds 当实际时长。
-    const r = summarizeStrengthSessions([s({ plannedSeconds: 420, durationSeconds: 3609 })]);
+    // 真实库「核心稳定性1」: plannedSeconds 400（末段 open 无时长）, 实际 3609 ——
+    // 课表是一轮模板, 用户做了多轮。汇总绝不能把 plannedSeconds 当实际时长。
+    const r = summarizeStrengthSessions([s({ plannedSeconds: 400, durationSeconds: 3609 })]);
     expect(r.totalSeconds).toBe(3609);
     expect(r.avgSeconds).toBe(3609);
   });

@@ -60,7 +60,11 @@ export interface WorkoutStepLike {
 export interface StrengthProfile {
   /** 训练计划名（`workout_name`）；缺失时回落活动名。 */
   planName: string | null;
-  /** **有效（工作）组数** —— `intensity` 为 `active`/`interval` 的步骤数。 */
+  /**
+   * **有效（工作）组数** —— `intensity` 为 `active`/`interval` 且不是循环控制步
+   * （`repeat_until_*`）的步骤数。真实库 3 条课表末尾带 `repeat_until_steps_cmplt`
+   * 控制步，不排除会把组数算多 1（那是给用户看的数字）。
+   */
   workingSets: number;
   /** 休息段数。 */
   restSets: number;
@@ -159,14 +163,36 @@ export function parseWorkoutSteps(raw: unknown): WorkoutStepLike[] {
   return value.filter((v): v is WorkoutStepLike => v != null && typeof v === 'object');
 }
 
-/** 判断某一步是否为「工作段」（active 或 interval）。 */
+/**
+ * 是否为 FIT 的**循环控制步**（`repeat_until_*`）。
+ *
+ * FIT 用这类步骤表达「回跳到前面第 N 步，直到满足条件」，它**本身不是训练段**：
+ * `duration_sec` 恒为 `null`（时长写在 `reps`/`duration_value` 里，语义是「重复几次」）。
+ *
+ * 真实库 3 条课表末尾带一步 `duration_type='repeat_until_steps_cmplt', intensity='active'`
+ * —— 旧实现只看 `intensity === 'active'`，于是把控制步算成第 8 个工作段：
+ *   - 「本月有效组数」虚高（7 → 8），那是**给用户看的数字**；
+ *   - 结构描述尾巴多出「→ ? 连续」（`stepSeconds` 为 0 → 格式化成 `?`）。
+ *
+ * 用前缀匹配而不是枚举单值：FIT 有 8 种 `repeat_until_*`（time/distance/calories/
+ * hr_less_than/hr_greater_than/power_less_than/power_greater_than/steps_cmplt），
+ * 写死一个值必然漏掉其余变体。
+ */
+function isRepeatControlStep(step: WorkoutStepLike): boolean {
+  const t = (step.duration_type ?? '').trim();
+  return t.startsWith('repeat_until_');
+}
+
+/** 判断某一步是否为「工作段」（active 或 interval，且不是循环控制步）。 */
 function isWorkingStep(step: WorkoutStepLike): boolean {
+  if (isRepeatControlStep(step)) return false;
   const i = (step.intensity ?? '').trim();
   return i === 'active' || i === 'interval';
 }
 
-/** 判断某一步是否为「休息段」。 */
+/** 判断某一步是否为「休息段」（rest 或 recovery，且不是循环控制步）。 */
 function isRestStep(step: WorkoutStepLike): boolean {
+  if (isRepeatControlStep(step)) return false;
   const i = (step.intensity ?? '').trim();
   return i === 'rest' || i === 'recovery';
 }

@@ -95,7 +95,14 @@ describe('strengthIntensityDomain', () => {
 });
 
 describe('buildStrengthProfile', () => {
-  /** 真实库样本: 「核心稳定性1」40s 做 + 20s 歇 ×7 */
+  /**
+   * 算术夹具：**整齐的** 7×(40 做 + 20 歇) = 420s。
+   *
+   * ⚠ 这不是生产形态（真实「核心稳定性1」末段休息是 `open` → 400s）。这里保留整齐
+   * 形态是为了让「组数 × 时长」的算术断言一眼可验（7×40=280、7×20=140）；
+   * **真实形态的回归在下面的「真实库回归」与 `activity-detail.test.tsx` 里**。
+   * 若要改这里，先确认不是把真实形态用例也一起「整齐化」。
+   */
   const coreSteps = JSON.stringify(
     Array.from({ length: 14 }, (_, i) => ({
       duration_type: 'time',
@@ -252,16 +259,19 @@ describe('中文标签', () => {
 });
 
 describe('真实库回归 (51 条力量训练)', () => {
-  test('样本画像与生产库字段一致 (核心稳定性1: 40s×7 + 20s×7)', () => {
+  test('样本画像与生产库字段一致 (核心稳定性1: 真实 14 步/400s)', () => {
     // 该活动真实值: duration 3609s, avg_hr 73, TE 0.1, recovery_time 2089min
+    // 课表真实形态: 6×(40 做 + 20 歇) + 40 做 + **open 休息(无时长)** = 400s
     const p = buildStrengthProfile({
       workout_name: '核心稳定性1',
-      workout_steps: JSON.stringify(
-        Array.from({ length: 14 }, (_, i) => ({
-          duration_sec: i % 2 === 0 ? 40 : 20,
-          intensity: i % 2 === 0 ? 'active' : 'rest',
-        })),
-      ),
+      workout_steps: JSON.stringify([
+        ...Array.from({ length: 6 }, () => [
+          { duration_type: 'time', duration_sec: 40, intensity: 'active' },
+          { duration_type: 'time', duration_sec: 20, intensity: 'rest' },
+        ]).flat(),
+        { duration_type: 'time', duration_sec: 40, intensity: 'active' },
+        { duration_type: 'open', duration_sec: null, intensity: 'rest' },
+      ]),
       duration: 3609,
       moving_time: 3609,
       average_heart_rate: 73,
@@ -269,10 +279,69 @@ describe('真实库回归 (51 条力量训练)', () => {
       total_anaerobic_training_effect: 0,
     });
     expect(p.workingSets).toBe(7);
-    expect(p.plannedSeconds).toBe(420);
-    // 计划 420s 而实际 3609s: 课表是「一轮」的模板, 用户做了多轮 —— 画像只报
+    // 末段 open 休息无时长 → 计划 400s 而非整齐的 420s
+    expect(p.plannedSeconds).toBe(400);
+    // 工作 280s / 休息 120s（open 不计秒）→ 2.33
+    expect(p.workRestRatio).toBeCloseTo(2.33, 2);
+    // 计划 400s 而实际 3609s: 课表是「一轮」的模板, 用户做了多轮 —— 画像只报
     // 计划结构, 不推断实际轮数 (后者需 set 消息, 不可得)
     expect(p.structure).toBe('intervals');
+  });
+
+  /**
+   * FIT 的 `repeat_until_*` 是**循环控制步**（回跳到前面某一步，本身没有时长），
+   * 不是训练段。真实库 3 条课表（「全身肌群循环式训练 3」「核心肌群稳定性训练 4」）
+   * 末尾带一步 `duration_type='repeat_until_steps_cmplt', intensity='active', duration_sec=null`。
+   *
+   * 旧实现只按 `intensity === 'active'` 判工作段，于是：
+   *   - 有效组数 7 → **8**（凭空多一组）
+   *   - 休息段 7 → **8**
+   *   - 结构描述尾巴多出「→ ? 连续」（`stepSeconds` 为 0 → 格式化成 `?`）
+   * 组数虚高会直接进首页/分析页的「本月有效组数」，是**给用户看的数字**。
+   */
+  test('repeat_until_* 循环控制步不得计入工作段 (真实库 3 条课表)', () => {
+    const real = JSON.stringify([
+      ...Array.from({ length: 6 }, () => [
+        { duration_type: 'time', duration_sec: 40, intensity: 'interval' },
+        { duration_type: 'time', duration_sec: 20, intensity: 'rest' },
+      ]).flat(),
+      { duration_type: 'time', duration_sec: 40, intensity: 'interval' },
+      { duration_type: 'open', duration_sec: null, intensity: 'rest' },
+      { duration_type: 'repeat_until_steps_cmplt', duration_sec: null, intensity: 'active' },
+    ]);
+    const p = buildStrengthProfile({ workout_name: '全身肌群循环式训练 3', workout_steps: real, duration: 3600 });
+    expect(p.workingSets).toBe(7);
+    expect(p.restSets).toBe(7);
+    expect(p.plannedSeconds).toBe(400);
+    // 结构描述同样不得出现「? 连续」噪音
+    expect(describeStrengthStructure(real)).toBe('40s 做 / 20s 歇 × 6 → 40s 连续');
+  });
+
+  test('其它 repeat_until_* 变体同样不计入 (不写死单一枚举值)', () => {
+    for (const type of [
+      'repeat_until_time',
+      'repeat_until_distance',
+      'repeat_until_calories',
+      'repeat_until_hr_greater_than',
+      'repeat_until_power_less_than',
+    ]) {
+      const p = buildStrengthProfile({
+        workout_steps: JSON.stringify([
+          { duration_type: 'time', duration_sec: 30, intensity: 'active' },
+          { duration_type: type, duration_sec: null, intensity: 'active' },
+        ]),
+        duration: 1800,
+      });
+      expect(p.workingSets).toBe(1);
+      expect(
+        describeStrengthStructure(
+          JSON.stringify([
+            { duration_type: 'time', duration_sec: 30, intensity: 'active' },
+            { duration_type: type, duration_sec: null, intensity: 'active' },
+          ]),
+        ),
+      ).toBe('30s 连续');
+    }
   });
 });
 
@@ -324,7 +393,7 @@ describe('describeStrengthStructure (组结构可读描述)', () => {
   });
 
   test('轮数上限: 只报「一轮的组结构」, 不推断实际做了几轮', () => {
-    // 真实库「核心稳定性1」计划 420s 而实际 3609s —— 用户做了多轮, 但 FIT 无 set
+    // 真实库「核心稳定性1」计划 400s 而实际 3609s —— 用户做了多轮, 但 FIT 无 set
     // 消息, 无法知道真实轮数。描述只讲课表本身。
     const d = describeStrengthStructure(alternating(40, 20, 7));
     expect(d).toContain('× 7');

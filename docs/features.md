@@ -1061,6 +1061,28 @@ avgPaceSecPerKm: 350 }` 三个数互相矛盾（350×7=2450≠2520），而 `Wea
 （`describeStrengthStructure` 输出「40s 做 / 20s 歇 × 6 → 40s 连续」—— 末段休息是 `open`
 无时长，故不是整齐的 ×7），**不推断「做了 8 轮」**。
 
+#### `repeat_until_*` 是循环控制步，不是训练段
+
+FIT 用 `duration_type` 为 `repeat_until_*` 的步骤表达「回跳到前面第 N 步，直到满足条件」，
+它**本身不是训练段**：`duration_sec` 恒为 `null`。真实库有 **3 条**课表末尾带
+`repeat_until_steps_cmplt`（「全身肌群循环式训练 3」×2、「核心肌群稳定性训练 4」×1）。
+
+旧实现只按 `intensity === 'active'` 判工作段，于是这 3 条被算成第 8 个（虚构的）工作段：
+
+| 指标 | 正确值 | 旧实现 | 后果 |
+|---|---|---|---|
+| `workingSets` | 7 | **8** | 「本月有效组数」虚高（给用户看的数字） |
+| `restSets` | 7 | **8** | 同上 |
+| 结构描述 | `40s 做 / 20s 歇 × 6 → 40s 连续` | 末尾多出 `→ ? 连续` | 页面出现 `?` 噪音 |
+
+修复用**前缀匹配** `duration_type.startsWith('repeat_until_')`，而不是写死
+`repeat_until_steps_cmplt` —— FIT 有 8 种 `repeat_until_*` 变体（time/distance/calories/
+hr_less_than/hr_greater_than/power_less_than/power_greater_than/steps_cmplt），写死必然漏掉其余。
+真实库复验：51 条课表工作段总数 **352 → 349**（正是那 3 条虚高）。
+
+守护：`tests/unit/lib/strength.test.ts`（真实课表 + 5 种 `repeat_until_*` 变体）、
+`tests/unit/lib/db-strength.test.ts`（聚合层组数不虚高）。
+
 #### AI 上下文（力量课不走「非跑步」通用分支的默认值）
 
 力量课在 `buildAnalysisMessages` 里走「非跑步」分支，但**必须**额外注入四项专属数据，
@@ -1483,6 +1505,7 @@ AI 教练有两种**能力维度**，它们的数据单位与结论都不同，*
 | **力量训练口径（第三套）** | `app/lib/strength.ts`（画像/强度域/负荷/合并的唯一真源）、`db.getStrengthLoads`·`getStrengthSessions`·`getCombinedTrainingLoads` | `tests/unit/lib/strength.test.ts`（32 例）、`strength-merge.test.ts`（9 例：负荷相加、里程/时长/次数只取跑步、只有力量的日子保留）、`strength-summary.test.ts`（10 例）、`db-strength.test.ts`（12 例：SQL 只查 `strength_training`、分页、空值兜底） |
 | **洞察页负荷口径必须合并** | `insight-service.ts` 的 `getCombinedTrainingLoads` | `tests/unit/lib/insight-services.test.ts`（合并入口被调用、跑步口径 `getDailyLoads` 未被调用、EWMA 预热窗口不变） |
 | **力量负荷双实现一致性** | `app/lib/strength.ts`（TS）↔ `scripts/common/strength-load.js`（JS 镜像，同步脚本用） | `tests/unit/lib/strength-sync-parity.test.ts`（穷举 12×12 TE×HR、11×5 时长×域、7×7 时间基数；任一侧改阈值而另一侧没跟上 → 红灯） |
+| **FIT 循环控制步不得计入训练段** | `app/lib/strength.ts` 的 `isRepeatControlStep`（`repeat_until_*` 前缀匹配，排除 8 种变体） | `tests/unit/lib/strength.test.ts`（真实库 3 条课表工作段 7 而非 8、结构描述无 `? 连续`、5 种 `repeat_until_*` 变体逐一验证）+ `tests/unit/lib/db-strength.test.ts`（聚合组数不虚高） |
 | **力量课 AI 数据块必须注入真实可推导项** | `llm.ts` 的 `isStrengthType` 分支（计划名 / 组结构 / 有效组数·休息段·工作:休息 / 计划时长 vs 实际时长 / 强度域 / 数据边界句） | `tests/unit/lib/llm.test.ts`（5 例：含计划名与组结构、计划 6:40 与实际 1:00:09 分行、禁止编造容量、无课表不输出组结构行、跑步不出现力量专属行） |
 | **提示词不得引用数据里不存在/已新增的量** | `coach-prompts.ts` 的 `SINGLE_NON_RUNNING_PROMPT`（区分「只有力量训练有派生负荷」与「游泳/球类/爬楼不计算」；禁止编造重量次数；要求引用组结构/强度域） | `tests/unit/lib/coach-prompt-data-alignment.test.ts`（4 例：不再声称非跑步不计算负荷、要求引用派生负荷、要求引用组结构/强度域、禁止编造容量） |
 | **追问建议必须按运动类型分流** | `followup-suggestions.ts` 的 `strength` 标志 + `AiAnalysis.tsx` 接线 | `tests/unit/components/followup-suggestions.test.ts`（6 例：力量课不问心率漂移/有氧能力、改问组结构/强度域/负荷竞争、不出现「交叉训练」泛泛说法、安全兜底恒最后、`strength` 缺省行为不变） |

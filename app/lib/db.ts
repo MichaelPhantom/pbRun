@@ -1191,7 +1191,8 @@ export function getTrainingLoads(startDate: string, endDate: string): TrainingLo
  * 三类型开放（`runnableTypes2`），于是 51 条力量课的 `training_load` 全为 NULL，
  * ACWR/CTL/TSB 完全看不见它们。本函数与 `strength.strengthLoadOf` 一起补上这条线。
  *
- * `workingSets` 由 `workout_steps` 的 active/interval 步数派生（真实库 49/51 有课表）。
+ * `workingSets` 由 `workout_steps` 的 active/interval 步数派生（真实库 49/51 有课表），
+ * **排除 `repeat_until_*` 循环控制步**（它们没有时长，不是训练段；详见 `strength.ts`）。
  *
  * @throws 日期格式非法或 startDate > endDate 时抛出清晰错误
  */
