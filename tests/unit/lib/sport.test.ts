@@ -207,6 +207,66 @@ describe('isInformativeTypeValue', () => {
     expect(isInformativeTypeValue('泳池', 'lap_swimming')).toBe(false); // 泳池游泳 已含
     expect(isInformativeTypeValue('室内骑行', 'indoor_cycling')).toBe(false);
   });
+
+  /**
+   * **第三十三类缺陷：同一个 `activity_type` 下，两个同等具体的子类型被区别对待。**
+   *
+   * 真实库 354 条里 `activity_type='running'` 却有具体子类型的两条：
+   *
+   * | activity_id | `sub_sport_type` | 详情页徽标 | 组合名 |
+   * |-------------|------------------|-----------|--------|
+   * | `543568996` | 田径场 | **显示** | 跑步（田径场） |
+   * | `549890376` | 跑步机 | **不显示** | 跑步 |
+   *
+   * 同一份数据、同一个 `activity_type`、同样具体的子类型，一个能看到、一个被吞掉。
+   * 用户点开 `549890376` 只知道「跑步」，看不出这是**跑步机**（无 GPS、无风阻、
+   * 配速不可与路跑对比）—— 而这正是 `needsTypeBadge` 注释里论证过「必须显示」的理由。
+   *
+   * 根因在判定顺序：`CANONICAL_TYPE_NAMES.has('跑步机') === true`
+   * （`ACTIVITY_TYPE_LABELS.treadmill_running === '跑步机'`），于是「跑步机」被当成
+   * 「上位规范名」在 `isInformativeTypeValue` 里被 `CANONICAL_TYPE_NAMES.has(v)` 直接
+   * 拒掉；而「田径场」不在规范名表里，侥幸通过。**「跑步机」既是某个类型的规范名，
+   * 又是另一个类型的合法子类型** —— 这条重叠让同一个过滤器对两者给出相反答案。
+   *
+   * 判别式：**同一 `activity_type` 下、同等具体程度的子类型，展示粒度必须一致**
+   * （要么都显示，要么都不显示），不允许一个靠「恰好不在规范名表里」侥幸显示。
+   */
+  test('同一 running 下的具体子类型展示粒度必须对称（田径场 vs 跑步机）', () => {
+    // 自证前提：两条活动在真实库里确实存在（见 docs/faq.md 缺陷 46）
+    const track = isInformativeTypeValue('田径场', 'running');
+    const treadmill = isInformativeTypeValue('跑步机', 'running');
+    expect(track).toBe(treadmill);
+    // 且两者都必须显示 —— 它们是「比 running 更具体」的信息，不是上位大类
+    expect(track).toBe(true);
+    expect(treadmill).toBe(true);
+  });
+
+  test('组合名也必须对称：两个具体子类型都要进括号', () => {
+    expect(activityTypeName('running', '田径场', '跑步')).toBe('跑步（田径场）');
+    expect(activityTypeName('running', '跑步机', '跑步')).toBe('跑步（跑步机）');
+  });
+
+  test('「跑步机」是规范名这件事不能让 running 的子类型被吞掉', () => {
+    // 自证重叠确实存在：'跑步机' 同时是 treadmill_running 的规范名
+    expect(ACTIVITY_TYPE_LABELS.treadmill_running).toBe('跑步机');
+    // 但对 treadmill_running 自己，'跑步机' 仍应被判为冗余（不重复拼）
+    expect(isInformativeTypeValue('跑步机', 'treadmill_running')).toBe(false);
+    expect(activityTypeName('treadmill_running', '跑步机', '跑步')).toBe('跑步机');
+  });
+
+  /**
+   * 反方向：不能为了对称而把**真正冗余**的组合放出来。
+   * `泳池` 之于 `lap_swimming`（规范名「泳池游泳」已含「泳池」）、
+   * `室内骑行` 之于 `indoor_cycling`（规范名就是「室内骑行」）必须继续为 false。
+   */
+  test('对称性修复不得放出真正的冗余组合', () => {
+    expect(isInformativeTypeValue('泳池', 'lap_swimming')).toBe(false);
+    expect(isInformativeTypeValue('室内骑行', 'indoor_cycling')).toBe(false);
+    expect(isInformativeTypeValue('力量训练', 'strength_training')).toBe(false);
+    // 上位大类（`sport_type='跑步'` 之于 track_running）继续不显示
+    expect(isInformativeTypeValue('跑步', 'track_running')).toBe(false);
+    expect(isInformativeTypeValue('跑步', 'treadmill_running')).toBe(false);
+  });
 });
 
 /**

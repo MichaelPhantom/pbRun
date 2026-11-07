@@ -97,8 +97,9 @@ describe('docs/faq.md —— 缺陷 25 与判别式第二十问', () => {
     expect(faq).toMatch(/另一个消息层级/);
   });
 
-  test('判别式从十九句扩到三十六句', () => {
-    expect(faq).toMatch(/问三十六句/);
+  test('判别式从十九句扩到三十七句', () => {
+    expect(faq).toMatch(/问三十七句/);
+    expect(faq).not.toMatch(/问三十六句/);
     expect(faq).not.toMatch(/问三十五句/);
     expect(faq).not.toMatch(/问三十四句/);
     expect(faq).not.toMatch(/问十九句/);
@@ -201,6 +202,18 @@ describe('docs/faq.md —— 缺陷 25 与判别式第二十问', () => {
   test('第三十六问存在且指向「周期词是否只有一个窗口函数」（缺陷 45）', () => {
     expect(faq).toMatch(/^36\.\s/m);
     expect(faq).toMatch(/36\.[^\n]{0,60}窗口/);
+  });
+
+  test('第三十七问存在且指向「子类型展示粒度是否对称 / 筛选键是否同向细化」（缺陷 46）', () => {
+    expect(faq).toMatch(/^37\.\s/m);
+    expect(faq).toMatch(/37\.[^\n]{0,80}子类型/);
+    expect(faq).toMatch(/37\.[^\n]{0,200}对称/);
+  });
+
+  test('缺陷 46 存在且讲的是「同一 activity_type 下两个同等具体子类型被区别对待」', () => {
+    expect(faq).toMatch(/^\| 46 \|/m);
+    expect(faq).toMatch(/46[^\n]{0,200}同等具体/);
+    expect(faq).toMatch(/46[^\n]{0,2000}跑步机/);
   });
 });
 

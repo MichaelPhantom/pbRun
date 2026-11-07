@@ -88,7 +88,14 @@ function inferSubSportFromName(activityName) {
   if (name.includes('跑步机') || name.includes('treadmill')) return '跑步机';
   if (name.includes('路跑') || name.includes('street') || name.includes('户外') || name.includes('outdoor') || name.includes('outside') || (name.includes('run') && name.includes('road'))) return '路跑';
   if (name.includes('越野') || name.includes('trail')) return '越野';
-  if (name.includes('田径') || name.includes('track')) return '田径场';
+  // 关键词必须匹配「场地」而不是「赛事」（第三十三类缺陷）。
+  //
+  // 旧实现用 `name.includes('田径')`，于是「南岸区 - **中国田径10公里精英赛**
+  // 重庆站」被判成田径场 —— 那是路跑赛事，不是操场绕圈。实证：
+  // FIT `sub_sport` 是「通用」，GPS 包围盒 **4601m × 1027m**（真实田径场
+  // 156–350m），每公里配速极差 **36s/km**（真实田径场 10s/km）。
+  // 收紧到「田径场」三字后，只有真的写了场地名的活动才会命中。
+  if (name.includes('田径场') || name.includes('track')) return '田径场';
   if (name.includes('室内') || name.includes('indoor run') || name.includes('indoor running')) return '室内跑步';
   return null;
 }
@@ -115,6 +122,22 @@ function inferSubSportFromGpsAndElevation(activityMeta) {
   }
   return null;
 }
+
+/**
+ * 子类型 → 更具体的 `activity_type`。
+ *
+ * 只列**跑步内部**的细化：`running` 是宽泛键，`treadmill_running` /
+ * `track_running` 是它更具体的两个类型。其它运动（篮球/力量/游泳）的
+ * 子类型不映射到跑步类型，故不在表内。
+ *
+ * 为什么需要它：Garmin 导出元数据里的 `type` 有时只写宽泛的 `running`，
+ * 而 FIT 原生 `sub_sport` 已经明确是「跑步机」/「田径场」。若 `activity_type`
+ * 不跟着细化，筛选下拉里的「跑步机」就筛不到这条真跑步机（真实库 `549890376`）。
+ */
+const SUB_SPORT_TO_ACTIVITY_TYPE = {
+  跑步机: 'treadmill_running',
+  田径场: 'track_running',
+};
 
 /** 从 Garmin 活动项得到运动时间文案：年月日 + 时分 + 时长，如 "2026-02-13 16:30 · 45:20" */
 function formatActivityTime(activity) {
@@ -372,6 +395,22 @@ class GarminSync {
       if (fromApi) activityData.sub_sport_type = fromApi;
       else if (fromName) activityData.sub_sport_type = fromName;
       else if (fromGps) activityData.sub_sport_type = fromGps;
+    }
+
+    // **类型细化（第三十三类缺陷）**：`activity_type` 是筛选下拉的键，
+    // `sub_sport_type` 是它的细化。当子类型已明确指向跑步的一个**更具体类型**，
+    // 而 `activity_type` 还停在宽泛的 `running` 时，筛选与展示会各说一套。
+    //
+    // 真实库 `549890376`：FIT 原生 `sub_sport = 跑步机`（非推断），但导出元数据
+    // 的 `type` 是 `"running"`。于是「跑步机 (7)」筛不到它，「跑步 (234)」却
+    // 把它当路跑 —— 而它 `start_lat`/`start_lng`/`total_ascent`/`track` 全为 NULL，
+    // 正是跑步机特征。用户在记录页按「跑步机」找它，永远找不到。
+    //
+    // 只在 `running` 这一层细化：更具体的类型已经自带正确键，其它运动
+    // （篮球/力量/游泳）不参与 —— 它们的子类型不会映射到跑步类型。
+    if (activityData.activity_type === 'running') {
+      const refined = SUB_SPORT_TO_ACTIVITY_TYPE[activityData.sub_sport_type];
+      if (refined) activityData.activity_type = refined;
     }
 
     // VDOT：仅在“代表性强度”时段计算（避免把恢复/有氧慢跑平均强度当成能力值）

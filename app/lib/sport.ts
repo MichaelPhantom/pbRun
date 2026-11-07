@@ -112,6 +112,59 @@ const DEGENERATE_TYPE_VALUES = new Set(['通用', '训练', '其他', '未知'])
 const CANONICAL_TYPE_NAMES = new Set(Object.values(ACTIVITY_TYPE_LABELS));
 
 /**
+ * 类型层级：更具体的类型 → 它的父类型。
+ *
+ * ## 为什么需要这张表（第三十三类缺陷）
+ *
+ * 「某个值是**上位大类**」与「某个值是**更具体的下位类型**」是两件事，但
+ * `CANONICAL_TYPE_NAMES` 只能回答前者 —— 它是一张扁平集合。于是当同一个字符串
+ * **既是某类型的规范名、又是另一类型的合法子类型**时，判定会自相矛盾。
+ *
+ * 真实库实证（354 条）：`activity_type='running'` 却带具体子类型的两条活动 ——
+ *
+ * | activity_id | `sub_sport_type` | 详情页徽标 | 组合名 |
+ * |-------------|------------------|-----------|--------|
+ * | `543568996` | 田径场 | **显示** | 跑步（田径场） |
+ * | `549890376` | 跑步机 | **不显示** | 跑步 |
+ *
+ * 差别不在数据，在字符串：`田径场` 不在 `ACTIVITY_TYPE_LABELS` 里，侥幸通过；
+ * `跑步机` 恰好是 `treadmill_running` 的规范名，被 `CANONICAL_TYPE_NAMES.has(v)`
+ * 当成「上位大类」直接拒掉。同一 `activity_type`、同等具体程度，一个能看见、
+ * 一个被吞掉 —— 用户点开 `549890376` 只知道「跑步」，看不出这是跑步机
+ * （无 GPS、无风阻、配速不可与路跑对比，正是 `needsTypeBadge` 论证过必须区分的）。
+ *
+ * 有了这张表，`跑步机` 对 `running` 就能被正确识别为「下位类型」（显示），
+ * 而 `跑步` 对 `track_running` 仍被识别为「上位大类」（不显示）。
+ */
+const PARENT_TYPE: Record<string, string> = {
+  track_running: 'running',
+  treadmill_running: 'running',
+};
+
+/** 规范类型名 → 类型键（反向查表；非规范名返回 `null`）。 */
+function typeKeyOfLabel(label: string): string | null {
+  for (const [key, value] of Object.entries(ACTIVITY_TYPE_LABELS)) {
+    if (value === label) return key;
+  }
+  return null;
+}
+
+/**
+ * 这个值是否是 `type` 的**下位（更具体）类型名**？
+ *
+ * 例：`('跑步机', 'running')` → true（`treadmill_running` 的父类型是 `running`）；
+ * `('跑步', 'track_running')` → false（`running` 是父，不是子）。
+ */
+function isMoreSpecificTypeName(
+  label: string,
+  type: string | null | undefined,
+): boolean {
+  if (!type) return false;
+  const key = typeKeyOfLabel(label);
+  return key != null && PARENT_TYPE[key] === type;
+}
+
+/**
  * 活动的**完整类型名** —— AI 数据块、详情页徽标共用的唯一来源。
  *
  * 为什么不能直接 `sub_sport_type || sport_type`：真实库里 269/348 条活动的
@@ -136,13 +189,29 @@ export function activityTypeName(
     if (DEGENERATE_TYPE_VALUES.has(detail)) continue;
     // 别的**规范类型名**（`sport_type='跑步'` 而 activity_type 是田径场跑）：它说的是
     // 上一级运动大类，不是更细的子类型，拼进去只会得到「田径场跑（跑步）」。
-    if (CANONICAL_TYPE_NAMES.has(detail) && detail !== canonical) continue;
+    //
+    // 但「规范名」不等于「上位大类」：`跑步机` 是 `treadmill_running` 的规范名，
+    // 同时又是 `running` 的**合法下位子类型**（第三十三类）。若一律按「别的规范名」
+    // 跳过，`running` + `跑步机` 就只剩「跑步」，而同样具体的 `running` + `田径场`
+    // 却是「跑步（田径场）」—— 同一 activity_type 两种粒度。
+    if (
+      CANONICAL_TYPE_NAMES.has(detail) &&
+      detail !== canonical &&
+      !isMoreSpecificTypeName(detail, type)
+    )
+      continue;
     if (detail === canonical) continue;
     if (detail === type) continue;
     // 设备原始枚举（`floor_climbing` / `tennis`）未翻译，加进去只是噪音。
     if (/^[A-Za-z0-9_ -]+$/.test(detail)) continue;
-    // 规范名已含该细节（田径场跑/田径场、跑步机/跑步机、泳池游泳/泳池、力量训练/力量）
-    if (canonical.includes(detail) || detail.includes(canonical)) continue;
+    // 规范名已含该细节（田径场跑/田径场、泳池游泳/泳池、力量训练/力量）→ 冗余。
+    //
+    // 但**反向包含不等于冗余**：`跑步机`.includes(`跑步`) 成立，可「跑步机」是
+    // `running` 的下位类型，不是「跑步」的啰嗦写法 —— 若按字符串包含就跳过，
+    // 同一个 `activity_type='running'` 下「田径场」能进括号、「跑步机」不能，
+    // 正是第三十三类缺陷。下位类型一律放行。
+    const isMoreSpecific = isMoreSpecificTypeName(detail, type);
+    if (!isMoreSpecific && (canonical.includes(detail) || detail.includes(canonical))) continue;
     return `${canonical}（${detail}）`;
   }
   return canonical;
@@ -223,7 +292,10 @@ export function isInformativeTypeValue(
   if (!v) return false;
   if (DEGENERATE_TYPE_VALUES.has(v)) return false;
   if (v === type) return false;
-  if (CANONICAL_TYPE_NAMES.has(v)) return false;
+  // 「别的规范类型名」通常是上位大类（`跑步` 之于 `track_running`），不展示；
+  // 但若它其实是本类型的**下位子类型**（`跑步机` 之于 `running`），必须展示 ——
+  // 否则同一个 `activity_type` 下的具体子类型会被区别对待（第三十三类缺陷）。
+  if (CANONICAL_TYPE_NAMES.has(v) && !isMoreSpecificTypeName(v, type)) return false;
   if (/^[A-Za-z0-9_ -]+$/.test(v)) return false;
   return !activityTypeLabel(type).includes(v);
 }

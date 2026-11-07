@@ -11,7 +11,7 @@ import {
 import type { Activity } from '@/app/lib/types';
 import type { MonthSummary } from '@/app/lib/types';
 import { monthToRange } from '@/app/lib/date-utils';
-import { activityTypeLabel, activityTypeIcon, isRunningType, isSwimmingType, needsTypeBadge } from '@/app/lib/sport';
+import { activityTypeLabel, activityTypeIcon, isInformativeTypeValue, isRunningType, isSwimmingType, needsTypeBadge } from '@/app/lib/sport';
 import { effectiveTimeSec, paceSecPer100m, formatPacePer100m, speedKmh } from '@/app/lib/pace';
 import { typeMetricsOf } from '@/app/lib/type-metrics';
 import { activityDetailPath } from '@/app/lib/routes';
@@ -841,6 +841,19 @@ function ActivityCard({
         {needsTypeBadge(a.activity_type) && (
           <span className="rounded-md bg-[var(--surface-2)] border border-[var(--border)] px-1.5 py-0.5 text-[11px] text-fg-secondary">
             {activityTypeLabel(a.activity_type)}
+          </span>
+        )}
+        {/*
+          第三十三类缺陷：`running` 也可能带**更具体的子类型**（真实库
+          `543568996` 田径场 / `549890376` 跑步机）。它们的 `activity_type` 就是
+          `running`，`needsTypeBadge` 返回 false，于是卡片上一个字都不显示 ——
+          与普通路跑完全一样。详情页走 `activityTypeName` 还能给出「跑步（田径场）」，
+          记录页连这条路都没有。判定复用同一份 `isInformativeTypeValue`
+          （与详情页徽标同源），不在这里另写一套过滤。
+        */}
+        {a.sub_sport_type && isInformativeTypeValue(a.sub_sport_type, a.activity_type) && (
+          <span className="rounded-md bg-[var(--surface-2)] border border-[var(--border)] px-1.5 py-0.5 text-[11px] text-fg-secondary">
+            {a.sub_sport_type}
           </span>
         )}
         {a.training_load != null && (

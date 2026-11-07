@@ -282,6 +282,67 @@ describe('ListClient 活动列表 (交互/筛选/无限滚动)', () => {
     expect(card).not.toHaveTextContent('跑步');
   });
 
+  /**
+   * **第三十三类缺陷：`/list` 卡片从不读 `sub_sport_type`。**
+   *
+   * 上一类修的是 `activity_type` 层面的区分（`track_running` / `treadmill_running`
+   * 要有徽标）。但真实库 354 条里有 2 条 `activity_type='running'` 却带着
+   * **更具体的子类型** —— `543568996`（田径场）、`549890376`（跑步机）。
+   * 它们的 `activity_type` 就是 `running`，所以 `needsTypeBadge` 返回 false，
+   * 卡片上**一个字都不显示**，与普通路跑完全一样。
+   *
+   * 详情页至少还走 `activityTypeName` 能给出「跑步（田径场）」，记录页连这条
+   * 路都没有 —— 用户在记录列表里根本看不出这两条是操场绕圈还是跑步机。
+   *
+   * 判别式：**同一份数据在详情页能说清的，列表卡片不能一个字都不说**。
+   */
+  test('running + 具体子类型在卡片上必须显示该子类型（田径场）', () => {
+    renderList({
+      initialActivitiesByMonth: {
+        '2026-09': [
+          act({
+            activity_type: 'running',
+            sub_sport_type: '田径场',
+            sport_type: '跑步',
+            name: '南岸区精英赛',
+          }),
+        ],
+      },
+    });
+    const card = screen.getByRole('button', { name: /南岸区精英赛/ });
+    expect(card).toHaveTextContent('田径场');
+  });
+
+  test('running + 具体子类型在卡片上必须显示该子类型（跑步机）', () => {
+    renderList({
+      initialActivitiesByMonth: {
+        '2026-09': [
+          act({
+            activity_type: 'running',
+            sub_sport_type: '跑步机',
+            sport_type: '跑步',
+            name: '十二月课',
+          }),
+        ],
+      },
+    });
+    const card = screen.getByRole('button', { name: /十二月课/ });
+    expect(card).toHaveTextContent('跑步机');
+  });
+
+  test('普通路跑（sub=通用）仍然不显示任何类型徽标', () => {
+    renderList({
+      initialActivitiesByMonth: {
+        '2026-09': [
+          act({ activity_type: 'running', sub_sport_type: '通用', sport_type: '跑步', name: '晨跑' }),
+        ],
+      },
+    });
+    const card = screen.getByRole('button', { name: /晨跑/ });
+    expect(card).not.toHaveTextContent('跑步');
+    expect(card).not.toHaveTextContent('通用');
+  });
+
   test('非游泳非跑步卡片不给 100m 配速 (篮球/力量没有 100m 语义)', () => {
     renderList({
       initialActivitiesByMonth: {

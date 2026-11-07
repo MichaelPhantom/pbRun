@@ -115,6 +115,40 @@ describe('RecentActivityCard', () => {
     expect(container.textContent).toContain("5'00''");
   });
 
+  /**
+   * **第三十三类：`running` + 具体子类型在首页卡片上也必须显示。**
+   *
+   * `/list` 卡片与详情页都修了，首页 `RecentActivityCard` 是**第三处消费面** ——
+   * 同一份 `sub_sport_type`，三处不能只有两处看得到（第二十一类：修完多处消费面
+   * 要反向搜数据源）。真实库 2 条：`543568996` 田径场、`549890376` 跑步机。
+   */
+  test('running + 田径场在首页卡片上显示子类型', () => {
+    const { container } = render(
+      <RecentActivityCard
+        activity={act({ activity_type: 'running', sub_sport_type: '田径场', sport_type: '跑步' })}
+      />,
+    );
+    expect(container.textContent).toContain('田径场');
+  });
+
+  test('running + 跑步机在首页卡片上显示子类型', () => {
+    const { container } = render(
+      <RecentActivityCard
+        activity={act({ activity_type: 'running', sub_sport_type: '跑步机', sport_type: '跑步' })}
+      />,
+    );
+    expect(container.textContent).toContain('跑步机');
+  });
+
+  test('普通路跑 (sub=通用) 仍然不显示子类型徽标', () => {
+    const { container } = render(
+      <RecentActivityCard
+        activity={act({ activity_type: 'running', sub_sport_type: '通用', sport_type: '跑步' })}
+      />,
+    );
+    expect(container.textContent).not.toContain('通用');
+  });
+
   test('普通路跑不显示类型徽标', () => {
     const { container } = render(
       <RecentActivityCard activity={act({ activity_type: 'running', name: '晨跑' })} />,

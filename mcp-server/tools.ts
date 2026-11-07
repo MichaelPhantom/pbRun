@@ -87,7 +87,7 @@ export async function registerTools(server: McpServer): Promise<void> {
         '只查名称会 0 条命中, 以为库里没有力量训练。' +
         '⚠ **`q` 与 `type` 的 pagination.total 是不同口径, 不要互相校验**: ' +
         '`q=力量` 与 `type=strength_training` 在真实库都返回 51 条, 但 ' +
-        '`q=跑步` 会命中全部跑步活动的**名称**里的「跑步」字样（不等于 `type=running` 的 234 条）。',
+        '`q=跑步` 会命中全部跑步活动的**名称**里的「跑步」字样（不等于 `type=running` 的 233 条）。',
       inputSchema: {
         limit: z.number().int().min(1).max(100).optional().describe('每页数量 (1-100, 默认 20)'),
         offset: z.number().int().min(0).optional().describe('偏移量 (默认 0)'),

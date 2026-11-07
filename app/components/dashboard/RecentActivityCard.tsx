@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { Activity } from "@/app/lib/types";
 import { formatDistance, formatDuration, formatPaceShort, formatListDateTime } from "@/app/lib/format";
-import { activityTypeLabel, isRunningType, isSwimmingType, needsTypeBadge } from "@/app/lib/sport";
+import { activityTypeLabel, isInformativeTypeValue, isRunningType, isSwimmingType, needsTypeBadge } from "@/app/lib/sport";
 import { effectiveTimeSec, paceSecPer100m, formatPacePer100m, speedKmh } from "@/app/lib/pace";
 import { typeMetricsOf } from "@/app/lib/type-metrics";
 import { formatTrainingEffect, TRAINING_EFFECT_LABEL } from "@/app/lib/training-effect";
@@ -75,6 +75,14 @@ export function RecentActivityCard({ activity }: { activity: Activity }) {
         {needsTypeBadge(activity.activity_type) && (
           <span className="rounded-md bg-[var(--surface-2)] border border-[var(--border)] px-1.5 py-0.5 text-[10px] text-fg-secondary">
             {activityTypeLabel(activity.activity_type)}
+          </span>
+        )}
+        {/* 第三十三类：`running` 也可能带更具体的子类型（真实库 543568996 田径场 /
+            549890376 跑步机）。与 `/list` 卡片、详情页徽标同一份判定
+            `isInformativeTypeValue`，三处消费面不许只修两处。 */}
+        {activity.sub_sport_type && isInformativeTypeValue(activity.sub_sport_type, activity.activity_type) && (
+          <span className="rounded-md bg-[var(--surface-2)] border border-[var(--border)] px-1.5 py-0.5 text-[10px] text-fg-secondary">
+            {activity.sub_sport_type}
           </span>
         )}
       </div>

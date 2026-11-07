@@ -549,6 +549,137 @@ describe('sub_sport 推断关键词全谱', () => {
     );
   });
 
+  /**
+   * **第三十三类：名称推断把「赛事名」当成了「场地名」。**
+   *
+   * `543568996` 的活动名是「南岸区 - **中国田径10公里精英赛**重庆站」——
+   * 这是**路跑赛事**，不是操场绕圈。旧 `inferSubSportFromName` 用
+   * `name.includes('田径')` 命中，写死 `sub_sport_type='田径场'`，于是：
+   *
+   * | 事实 | 值 |
+   * |------|-----|
+   * | FIT `sub_sport` | **通用**（设备没说这是田径场） |
+   * | GPS 包围盒 | **4601m × 1027m**（真实田径场 156–350m） |
+   * | 每公里配速极差 | **36s/km**（真实田径场 10s/km，操场绕圈几乎恒定） |
+   *
+   * 用户看到「田径场」徽标，会以为这是一次操场训练，拿 4:55/km 去对标
+   * 400m 圈速 —— 而它其实是城市路跑赛道。
+   *
+   * 判别式：**关键词必须匹配「场地」，不能匹配「赛事」**。「中国田径10公里
+   * 精英赛」里的「田径」是赛事名的一部分，不是场地。
+   */
+  test('赛事名里的「田径」不得推断成田径场 (中国田径10公里精英赛)', async () => {
+    mockFs.readFile.mockResolvedValue(Buffer.from('FIT'));
+    mockParseFitFile.mockResolvedValueOnce({
+      activity: { average_heart_rate: 160, sub_sport_type: '通用', distance: 10, duration: 3600 },
+      laps: [],
+      records: [],
+    });
+    const sync = new GarminSync({ source: 'cdp' });
+    await sync._syncActivity(
+      activity({ activityName: '南岸区 - 中国田径10公里精英赛重庆站', activityType: undefined }),
+      '/tmp/dir',
+    );
+    expect(mockDb.upsertActivity).toHaveBeenLastCalledWith(
+      expect.not.objectContaining({ sub_sport_type: '田径场' }),
+    );
+  });
+
+  test('真正的「田径场」字样仍然推断为田径场 (不误伤)', async () => {
+    mockFs.readFile.mockResolvedValue(Buffer.from('FIT'));
+    mockParseFitFile.mockResolvedValueOnce({
+      activity: { average_heart_rate: 160, sub_sport_type: '通用', distance: 10, duration: 3600 },
+      laps: [],
+      records: [],
+    });
+    const sync = new GarminSync({ source: 'cdp' });
+    await sync._syncActivity(
+      activity({ activityName: '奥体 田径场训练', activityType: undefined }),
+      '/tmp/dir',
+    );
+    expect(mockDb.upsertActivity).toHaveBeenLastCalledWith(
+      expect.objectContaining({ sub_sport_type: '田径场' }),
+    );
+  });
+
+  /**
+   * **第三十三类（核心）：`activity_type` 与 `sub_sport_type` 自相矛盾。**
+   *
+   * 真实库 `549890376`：FIT 原生 `sub_sport = 跑步机`（不是推断），
+   * 但 `activity_type = 'running'`（来自导出元数据 `type: "running"`）。
+   * 于是筛选栏里：
+   *
+   * | 下拉项 | 是否含 `549890376` |
+   * |--------|-------------------|
+   * | 跑步机 (7) | **否** |
+   * | 跑步 (234) | **是** |
+   *
+   * 用户筛「跑步机」看不到这条真跑步机，筛「跑步」却会把它当路跑。
+   * 它的 `start_lat` / `start_lng` / `total_ascent` / `track` **全为 NULL**
+   * —— 正是跑步机的特征（无 GPS、无爬升、无轨迹）。
+   *
+   * 判别式：**`activity_type` 是筛选的键，`sub_sport_type` 是它的细化。
+   * 当 FIT 原生给出了一个「更具体的类型」，筛选键必须跟着细化**，
+   * 否则同一个事实在「展示」和「筛选」两处各说一套。
+   */
+  test('FIT 原生 sub_sport=跑步机 时 activity_type 必须细化为 treadmill_running', async () => {
+    mockFs.readFile.mockResolvedValue(Buffer.from('FIT'));
+    mockParseFitFile.mockResolvedValueOnce({
+      activity: {
+        average_heart_rate: 160,
+        sub_sport_type: '跑步机',
+        distance: 9.47,
+        duration: 3064,
+      },
+      laps: [],
+      records: [],
+    });
+    const sync = new GarminSync({ source: 'cdp' });
+    await sync._syncActivity(activity({ activityName: '冲刺训练', activityType: { typeKey: 'running' } }), '/tmp/dir');
+    expect(mockDb.upsertActivity).toHaveBeenLastCalledWith(
+      expect.objectContaining({ activity_type: 'treadmill_running' }),
+    );
+  });
+
+  test('FIT 原生 sub_sport=田径场 时 activity_type 细化为 track_running', async () => {
+    mockFs.readFile.mockResolvedValue(Buffer.from('FIT'));
+    mockParseFitFile.mockResolvedValueOnce({
+      activity: { average_heart_rate: 160, sub_sport_type: '田径场', distance: 7.5, duration: 2000 },
+      laps: [],
+      records: [],
+    });
+    const sync = new GarminSync({ source: 'cdp' });
+    await sync._syncActivity(activity({ activityName: '基础训练', activityType: { typeKey: 'running' } }), '/tmp/dir');
+    expect(mockDb.upsertActivity).toHaveBeenLastCalledWith(
+      expect.objectContaining({ activity_type: 'track_running' }),
+    );
+  });
+
+  test('已是 treadmill_running 不被重复细化; 非跑步类型不细化', async () => {
+    mockFs.readFile.mockResolvedValue(Buffer.from('FIT'));
+    mockParseFitFile.mockResolvedValueOnce({
+      activity: { average_heart_rate: 160, sub_sport_type: '跑步机', distance: 9, duration: 3000 },
+      laps: [],
+      records: [],
+    });
+    const sync = new GarminSync({ source: 'cdp' });
+    await sync._syncActivity(activity({ activityType: { typeKey: 'treadmill_running' } }), '/tmp/dir');
+    expect(mockDb.upsertActivity).toHaveBeenLastCalledWith(
+      expect.objectContaining({ activity_type: 'treadmill_running' }),
+    );
+
+    // 篮球 + sub=通用 不能被细化成跑步类
+    mockParseFitFile.mockResolvedValueOnce({
+      activity: { average_heart_rate: 120, sub_sport_type: '通用', distance: 2, duration: 3000 },
+      laps: [],
+      records: [],
+    });
+    await sync._syncActivity(activity({ activityType: { typeKey: 'basketball' } }), '/tmp/dir');
+    expect(mockDb.upsertActivity).toHaveBeenLastCalledWith(
+      expect.objectContaining({ activity_type: 'basketball' }),
+    );
+  });
+
   test('已有明确 sub_sport_type → 不推断 (保留原值)', async () => {
     mockFs.readFile.mockResolvedValue(Buffer.from('FIT'));
     mockParseFitFile.mockResolvedValueOnce({
