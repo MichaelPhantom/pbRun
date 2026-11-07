@@ -100,6 +100,10 @@ const activity = {
   training_load: 180.5,
   total_ascent: 64.4,
   total_descent: 61.2,
+  avg_altitude: 282.7,
+  min_altitude: 280.6,
+  max_altitude: 286.4,
+  average_temperature: 24.5,
   total_training_effect: 3.6,
   total_anaerobic_training_effect: 0.8,
   calories: 542,
@@ -568,6 +572,14 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
     expect(within(overview).getByText('Garmin VO2max')).toBeInTheDocument();
     expect(within(overview).getByText('51.4')).toBeInTheDocument();
     expect(within(overview).getByText('即时跑力')).toBeInTheDocument();
+    // 平均海拔 238/353、平均温度 231/353 —— 数据块给了模型，页面也必须有出处。
+    // 海拔是「同配速为什么更累」的基准线（重庆 250–300m vs 昆明 1890m）；
+    // 温度是提示词要求引用的「环境可比」输入。
+    expect(within(overview).getByText('平均海拔')).toBeInTheDocument();
+    expect(within(overview).getByText('283')).toBeInTheDocument(); // 282.7 → round
+    expect(within(overview).getByText('平均温度')).toBeInTheDocument();
+    expect(within(overview).getByText('24.5')).toBeInTheDocument();
+    expect(within(overview).getByText('°C')).toBeInTheDocument();
   });
 
   test('无氧训练效果 = 0 时不渲染该格 (有氧课为 0 是常态, 显示 0.0 像缺数据)', async () => {
@@ -914,6 +926,30 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
     // 与运动类型无关的官方字段仍展示（这是非跑步唯一的强度量化手段）
     expect(within(overview).getByText('有氧训练效果')).toBeInTheDocument();
     expect(within(overview).getByText('热量')).toBeInTheDocument();
+  });
+
+  test('非跑步活动不渲染平均海拔/平均温度 (非跑步 0/107 有值, 室内无 GPS 无环境温度)', async () => {
+    // 真实库 `avg_altitude` / `average_temperature` 在 107 条非跑步活动上全为 NULL
+    // （写入口限定跑步类型）。即使库里被写入脏值，也不该出现在力量/球类页面上。
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'strength_training',
+      sport_type: '力量训练',
+      sub_sport_type: '通用',
+      name: '核心稳定性1',
+      distance: 0,
+      average_pace: null,
+      average_cadence: null,
+      average_stride_length: null,
+      vdot_value: null,
+      average_power: null,
+      avg_altitude: null,
+      average_temperature: null,
+    });
+    render(await page('3011'));
+    const overview = screen.getByText('活动概览').closest('section')!;
+    expect(within(overview).queryByText('平均海拔')).toBeNull();
+    expect(within(overview).queryByText('平均温度')).toBeNull();
   });
 
   test('传感器尖峰 (max_power 12.6 倍均值) 不展示, 不给模型/用户怪物数据', async () => {

@@ -260,6 +260,23 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
     ...(span
       ? [{ value: String(span.spanM), unit: 'm', label: '海拔净高差' }]
       : []),
+    // 平均海拔。真实库 **238/353** 有值（跑步 238；非跑步 0/107 —— 室内/球类
+    // 没有 GPS 海拔）。AI 数据块早就输出「平均海拔」（`fmtNumIf(avg_altitude)`），
+    // 但详情页只有注释提到它、从不渲染 —— 与「最大心率」同源的第四类缺陷。
+    // 它是解读「同样配速为什么更累」的基准线：重庆城区 250–300m，昆明 1890m，
+    // 同一个配速在两地的生理成本完全不同。
+    ...(activity.avg_altitude != null
+      ? [{ value: String(Math.round(activity.avg_altitude)), unit: 'm', label: '平均海拔' }]
+      : []),
+    // 平均温度。真实库 **231/353**（跑步 231；非跑步 0/107 —— 室内活动没有
+    // 环境温度）。提示词明确要求「引用环境可比段中的温度差」，数据块也给了
+    // 「温度: 24.0°C」，但详情页概览此前完全没有这一格 —— 用户在 AI 复盘里
+    // 读到「24°C 下心率漂移偏高」，页面上找不到温度出处。
+    // 与「温度漂移」（首尾温差，在深挖面板）不同：这一格是**整课平均**，
+    // 标签必须写「平均温度」而不是「温度」，否则两个数会被当成矛盾。
+    ...(activity.average_temperature != null
+      ? [{ value: activity.average_temperature.toFixed(1), unit: '°C', label: '平均温度' }]
+      : []),
     ...(running
       ? [
           { value: activity.average_cadence != null ? String(Math.round(activity.average_cadence)) : '--', unit: activity.average_cadence != null ? 'spm' : undefined, label: '步频' },
