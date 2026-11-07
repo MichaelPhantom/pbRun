@@ -101,6 +101,10 @@ description: 分析 pbRun (Garmin) 跑步数据出教练诊断报告、查最新
   `app/lib/timezone.ts`**（`formatDate` / `formatDateTime` / `formatListDateTime`）。真实库
   `2026-10-31T23:38:57.000Z`（那场半马）的业务日期是 **2026-11-01**，不是 10-31。
   用户问「我哪天跑的」时，**别把 UTC 日期当答案**；跨日的记录（约 1/3 的清晨跑）会差一天。
+- ⚠️ **活动详情页的 URL 是 `/pages/{activity_id}`，不是 `/{activity_id}`**（后者 404）。
+  站内所有活动链接走 `app/lib/routes.ts` 的 `activityDetailPath()`。真实库近 90 天洞察页
+  曾因写成 `/${id}` 产生 24 个死链（第二十八类）。给用户贴链接/写报告引用时按
+  `/pages/{id}` 拼，别按「根路径 + id」的习惯写。
 - **`total_training_effect`（TE）是**所有运动类型都有的强度量化字段**（含全部非跑步活动；库内无一活动缺该值）**。非跑步活动 `training_load` 普遍为 NULL（设备只对跑步三类型 + 力量课产出负荷），**判强度只能靠 TE + 心率区间 + 热量**。两个陷阱：① **`TE = 0` 是有效值**（羽毛球 `560273729` 精确为 0、跳绳 3 条 0–0.1），代表「这课基本没有训练刺激」，不要当成缺失跳过；② TE 与 `training_load` **是两套口径**，不要互相换算，也不要把 TE 当负荷分并入 ACWR/CTL/TSB。
 
 ## 教练诊断框架

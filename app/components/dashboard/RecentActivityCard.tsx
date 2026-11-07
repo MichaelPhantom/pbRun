@@ -5,6 +5,7 @@ import { activityTypeLabel, isRunningType, isSwimmingType, needsTypeBadge } from
 import { effectiveTimeSec, paceSecPer100m, formatPacePer100m, speedKmh } from "@/app/lib/pace";
 import { typeMetricsOf } from "@/app/lib/type-metrics";
 import { formatTrainingEffect, TRAINING_EFFECT_LABEL } from "@/app/lib/training-effect";
+import { activityDetailPath } from "@/app/lib/routes";
 
 /** 仪表盘「最近活动」紧凑卡 (server component)。 */
 export function RecentActivityCard({ activity }: { activity: Activity }) {
@@ -37,7 +38,7 @@ export function RecentActivityCard({ activity }: { activity: Activity }) {
 
   return (
     <Link
-      href={`/pages/${activity.activity_id}`}
+      href={activityDetailPath(activity.activity_id)}
       className="card-hover group relative flex min-w-0 flex-col gap-1.5 overflow-hidden rounded-xl border border-border bg-surface p-3.5"
     >
       <div className="flex items-start justify-between gap-2">

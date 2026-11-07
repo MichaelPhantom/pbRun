@@ -14,6 +14,7 @@ import { monthToRange } from '@/app/lib/date-utils';
 import { activityTypeLabel, activityTypeIcon, isRunningType, isSwimmingType, needsTypeBadge } from '@/app/lib/sport';
 import { effectiveTimeSec, paceSecPer100m, formatPacePer100m, speedKmh } from '@/app/lib/pace';
 import { typeMetricsOf } from '@/app/lib/type-metrics';
+import { activityDetailPath } from '@/app/lib/routes';
 import { formatTrainingEffect, TRAINING_EFFECT_LABEL } from '@/app/lib/training-effect';
 
 const MONTHS_PAGE_SIZE = 6;
@@ -659,7 +660,7 @@ export default function ListClient({
                             <ActivityCard
                               key={a.activity_id}
                               activity={a}
-                              onSelect={() => router.push(`/pages/${a.activity_id}`)}
+                              onSelect={() => router.push(activityDetailPath(a.activity_id))}
                             />
                           ))
                         )}

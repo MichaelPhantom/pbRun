@@ -323,6 +323,51 @@ describe('InsightClient', () => {
     expect(screen.getByText('239 次有地点轨迹')).toBeInTheDocument();
   });
 
+  /**
+   * **第二十八类：洞察页的活动链接全部 404。**
+   *
+   * 路由表里详情页是 `app/pages/[id]/page.tsx` —— URL 是 `/pages/{id}`。
+   * 而 `InsightClient` 的两处活动链接写的是 `/${activityId}`：
+   *
+   * | 位置 | 代码 | 结果 |
+   * |------|------|------|
+   * | 常跑路线卡的「最佳」徽章 | `href={\`/${r.best.activityId}\`}` | 404 |
+   * | 「最近 5 次」的配速链接 | `href={\`/${x.activityId}\`}` | 404 |
+   *
+   * 生产实测：`/pbrun/659795962` → **404**，`/pbrun/pages/659795962` → 200。
+   * 近 90 天洞察页有 **24 个**这样的死链（6 条路线 × (1 最佳 + ≤5 最近)）。
+   * 用户点「最佳 5:14/km」想看是哪一次跑，得到的是 404 页。
+   *
+   * **为什么测试拦不住**：夹具里 `best: null, recent: []` —— 恰好把两条
+   * 分支永久跳过。分支永远不被执行，写错的路由也就永远不被发现。
+   * 这与「按函数写死的守卫看不见另一个消费面」同源：**夹具的默认值把分支藏了**。
+   */
+  test('活动链接必须指向 /pages/{id}（不能是 /{id}，那是 404）', () => {
+    const withLinks: InsightResponse = {
+      ...insight,
+      routes: {
+        routes: [
+          {
+            ...insight.routes!.routes[0],
+            best: { activityId: 653862644, date: '2026-10-22', paceSecPerKm: 326 },
+            recent: [
+              { activityId: 650784874, date: '2026-10-11', paceSecPerKm: 340, heartRate: 150 },
+              { activityId: 653425461, date: '2026-10-18', paceSecPerKm: 335, heartRate: 152 },
+            ],
+          },
+        ],
+      },
+    } as InsightResponse;
+    const { container } = render(<InsightClient insight={withLinks} timeRangeDays={90} />);
+    const hrefs = Array.from(container.querySelectorAll('a')).map((a) => a.getAttribute('href') ?? '');
+    const activityLinks = hrefs.filter((h) => /^\/\d+$/.test(h) || /^\/pages\/\d+$/.test(h));
+    // 两条分支都必须真的渲染出来，否则本测试会退化成空断言
+    expect(activityLinks.length).toBeGreaterThanOrEqual(3);
+    for (const h of activityLinks) {
+      expect(h).toMatch(/^\/pages\/\d+$/);
+    }
+  });
+
   test('缺 stravaLikeCount → 不渲染数字徽章 (不编造)', () => {
     render(<InsightClient insight={insight} timeRangeDays={90} />);
     expect(screen.queryByText(/次有地点轨迹/)).toBeNull();

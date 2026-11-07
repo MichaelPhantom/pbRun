@@ -97,8 +97,8 @@ describe('docs/faq.md —— 缺陷 25 与判别式第二十问', () => {
     expect(faq).toMatch(/另一个消息层级/);
   });
 
-  test('判别式从十九句扩到三十一句', () => {
-    expect(faq).toMatch(/问三十一句/);
+  test('判别式从十九句扩到三十二句', () => {
+    expect(faq).toMatch(/问三十二句/);
     expect(faq).not.toMatch(/问十九句/);
     expect(faq).not.toMatch(/问二十句/);
     expect(faq).not.toMatch(/问二十一句/);
@@ -111,6 +111,7 @@ describe('docs/faq.md —— 缺陷 25 与判别式第二十问', () => {
     expect(faq).not.toMatch(/问二十八句/);
     expect(faq).not.toMatch(/问二十九句/);
     expect(faq).not.toMatch(/问三十句/);
+    expect(faq).not.toMatch(/问三十一句/);
   });
 
   test('第二十问存在且指向消息层级', () => {
@@ -171,6 +172,11 @@ describe('docs/faq.md —— 缺陷 25 与判别式第二十问', () => {
   test('第三十一问存在且指向「契约是否被静态守住」（缺陷 40）', () => {
     expect(faq).toMatch(/^31\.\s/m);
     expect(faq).toMatch(/31\.[^\n]{0,90}静态/);
+  });
+
+  test('第三十二问存在且指向「链接的路由是否存在」（缺陷 41）', () => {
+    expect(faq).toMatch(/^32\.\s/m);
+    expect(faq).toMatch(/32\.[^\n]{0,90}路由/);
   });
 });
 

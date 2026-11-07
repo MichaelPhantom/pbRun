@@ -564,6 +564,18 @@ describe('skill 的「训练负荷」口径（第十八类缺陷）', () => {
     expect(skill).toMatch(/UTC[^\n]{0,40}(日期|不是)|业务日期/);
   });
 
+  /**
+   * **第二十八类：洞察页活动链接全部 404。**
+   *
+   * 详情页是 `/pages/{id}`，`/insight` 写成 `/${id}` —— 近 90 天 24 个死链。
+   */
+  test('skill 必须声明「活动详情页是 /pages/{id}」', () => {
+    expect(skill).toMatch(/\/pages\/\{activity_id\}|\/pages\/\{id\}/);
+    // 必须点明「根路径 + id 会 404」
+    expect(skill).toMatch(/404/);
+    expect(skill).toMatch(/activityDetailPath/);
+  });
+
   test('skill 必须声明「区间环比块的训练负荷是跑步口径」', () => {
     expect(skill).toMatch(/区间环比/);
     expect(skill).toMatch(/4550/);

@@ -13,6 +13,7 @@ import { GlobalCoach } from '@/app/lib/components/ai/GlobalCoach';
 import { TIME_RANGE_DAYS_OPTIONS, TIME_RANGE_LABELS, type TimeRangeDays } from '@/app/lib/date-utils';
 import { hrZoneColor, zoneRangeLabel } from '@/app/lib/hr-zones';
 import { INSIGHT_LOAD_SCOPE_HINT, PERIODIZATION_SCOPE_HINT } from '@/app/lib/load-scope';
+import { activityDetailPath } from '@/app/lib/routes';
 import type { InsightFinding, InsightResponse } from '@/app/lib/types';
 
 const SEVERITY_TONE: Record<InsightFinding['severity'], 'good' | 'brand' | 'warn' | 'crit'> = {
@@ -542,7 +543,7 @@ export default function InsightClient({
                       /* `r.best` 带 activityId —— 徽章可直达那次最快跑。旧实现只有
                          配速数字，用户看到「最佳 5:14/km」却无法确认是哪一次。 */
                       r.best ? (
-                        <Link href={`/${r.best.activityId}`} className="rounded hover:opacity-80">
+                        <Link href={activityDetailPath(r.best.activityId)} className="rounded hover:opacity-80">
                           <Badge variant="good">
                             最佳 {fmtPace(r.bestPaceSecPerKm)}/km · {r.best.date}
                           </Badge>
@@ -572,7 +573,7 @@ export default function InsightClient({
                       {r.recent.map((x) => (
                         <Link
                           key={x.activityId}
-                          href={`/${x.activityId}`}
+                          href={activityDetailPath(x.activityId)}
                           className="tnum rounded text-fg-secondary hover:text-fg hover:underline"
                           title={`${x.date}${x.heartRate != null ? ` · ${Math.round(x.heartRate)}bpm` : ''}`}
                         >
