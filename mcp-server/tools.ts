@@ -463,7 +463,7 @@ export async function registerTools(server: McpServer): Promise<void> {
         '按月汇总里程与活动次数（倒序, 默认最近 12 个月, 可用 limit/offset 扩展）。' +
         '**双口径同行返回**：runDistance/runCount 只算跑步（月度跑量必须用它）, ' +
         'totalDistance/count 为全类型（与 list_activities 展开的卡片数一致）。' +
-        '⚠ 按非跑步 type 筛选时 runDistance/runCount 恒为 0 —— 此时该类活动的里程在 ' +
+        '⚠ 按非跑步 type 筛选或搜索非跑步关键词时 runDistance/runCount 恒为 0 —— 此时该类活动的里程在 ' +
         'totalDistance 里，不要读成「这个月没运动」。' +
         '可按 type（原始 activity_type 键, 如 strength_training）与 q（名称或运动类型中文名）' +
         '跨月过滤, 不匹配的月份不会出现。type 传 `all` 或留空 = 不过滤。距离单位为公里。',

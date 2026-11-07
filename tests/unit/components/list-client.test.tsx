@@ -356,6 +356,40 @@ describe('ListClient 活动列表 (交互/筛选/无限滚动)', () => {
   });
 
   /**
+   * **按搜索词筛选时，月卡里程同样必须跟着筛选走**。
+   *
+   * 搜索与类型筛选是同一类操作（都是「我要看这一类」），里程口径不能只认
+   * `typeFilter`。真实库实证：
+   *   `months?q=游泳`  → 2026-08 totalDistance 2.05 / runDistance 0
+   *   `months?q=篮球`  → 2026-02 totalDistance 2.60 / runDistance 0
+   *   `months?q=爬楼`  → 2026-02 totalDistance 0    （该项确实无距离语义）
+   * 旧实现只在 `typeFilter !== 'all'` 时切口径，搜「游泳」后月卡只剩「1 次」，
+   * 游泳里程整块消失 —— 用户搜的就是游泳，最想看的数字反而没有。
+   */
+  test('月卡: 按搜索词筛选时显示匹配活动的里程 (runDistance 为 0 不隐藏)', async () => {
+    const fetchMock = global.fetch as unknown as jest.Mock;
+    fetchMock.mockImplementation((url: string) => {
+      if (url.includes('/api/activities/months')) {
+        return jsonResponse([
+          { monthKey: '2026-08', totalDistance: 2.05, count: 1, runDistance: 0, runCount: 0 },
+        ]);
+      }
+      return jsonResponse([act({ activity_type: 'lap_swimming', distance: 2.05 })]);
+    });
+    renderList({
+      initialMonthSummaries: [
+        { monthKey: '2026-08', totalDistance: 2.05, count: 1, runDistance: 0, runCount: 0 },
+      ],
+      initialActivitiesByMonth: { '2026-08': [act({ activity_type: 'lap_swimming', distance: 2.05 })] },
+      availableTypes: [{ type: 'lap_swimming', count: 4 }],
+    });
+    fireEvent.change(screen.getByLabelText('搜索活动'), { target: { value: '游泳' } });
+    const monthBtn = await screen.findByRole('button', { name: /2026年8月/ });
+    await waitFor(() => expect(monthBtn).toHaveTextContent('2.05 公里'));
+    expect(monthBtn).toHaveTextContent('1 次');
+  });
+
+  /**
    * 月卡「含 N 次其他」徽标只在**未按类型筛选**时有意义。
    *
    * 用户选了「力量训练」后，那 4 次全都是力量训练 —— 再标「含 4 次其他」是
@@ -381,6 +415,42 @@ describe('ListClient 活动列表 (交互/筛选/无限滚动)', () => {
     // 筛选「力量训练」后, 那 4 次就是用户要找的, 不再算「其他」
     fireEvent.change(screen.getByLabelText('活动类型筛选'), { target: { value: 'strength_training' } });
     expect(screen.getByRole('button', { name: /2026年9月/ })).not.toHaveTextContent('次其他');
+  });
+
+  /**
+   * **按搜索词筛选时同样不能显示「含 N 次其他」**。
+   *
+   * 搜索与类型筛选是同一类操作。真实库 `months?q=力量` 返回的每个月都是
+   * `count 2~7 / runCount 0` —— 若仍按「未筛选」渲染徽标，卡片会写成
+   * 「2 次 含 2 次其他」，而这两次**全都是**用户正在找的力量课，语义自相矛盾。
+   */
+  test('月卡: 按搜索词筛选时不显示「含 N 次其他」徽标', async () => {
+    const fetchMock = global.fetch as unknown as jest.Mock;
+    fetchMock.mockImplementation((url: string) => {
+      if (url.includes('/api/activities/months')) {
+        return jsonResponse([
+          { monthKey: '2026-09', totalDistance: 0, count: 4, runDistance: 0, runCount: 0 },
+        ]);
+      }
+      return jsonResponse([]);
+    });
+    renderList({
+      initialMonthSummaries: [
+        { monthKey: '2026-09', totalDistance: 0, count: 4, runDistance: 0, runCount: 0 },
+      ],
+      initialActivitiesByMonth: { '2026-09': [act()] },
+      availableTypes: [{ type: 'strength_training', count: 51 }],
+    });
+    fireEvent.change(screen.getByLabelText('搜索活动'), { target: { value: '力量' } });
+    // 搜索有 300ms 防抖，必须等到**服务端请求真的发出**（即 appliedFilter 已生效）
+    // 再断言 —— 否则读到的是筛选前的首屏。
+    await waitFor(
+      () => expect(fetchMock.mock.calls.some(([u]) => String(u).includes('q=%E5%8A%9B%E9%87%8F'))).toBe(true),
+      { timeout: 3000 },
+    );
+    const monthBtn = screen.getByRole('button', { name: /2026年9月/ });
+    expect(monthBtn).toHaveTextContent('4 次');
+    expect(monthBtn).not.toHaveTextContent('次其他');
   });
 
   test('月卡: 全跑步月份不显示「含 N 次其他」徽标', () => {

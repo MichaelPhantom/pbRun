@@ -90,6 +90,16 @@ export default function ListClient({
    * （effect 里同步 setState → 级联渲染），而这里本来就是**事件驱动**的。
    */
   const appliedFilterRef = useRef<{ type?: string; q?: string }>({});
+
+  /**
+   * 已生效条件的 **state 副本**（供渲染期读取）。
+   *
+   * 月卡的里程口径必须跟着「当前这批 monthSummaries 是用什么条件取回来的」走，
+   * 而那是**已生效**条件 —— 不能读输入框里的即时值：搜索防抖 300ms 期间两者不同，
+   * 用即时值会让里程在防抖窗口里先按新条件算一遍（此时数据还是旧的）。
+   * ref 在渲染期读取不安全（变更不触发渲染），故单独维护一份 state。
+   */
+  const [appliedFilter, setAppliedFilter] = useState<{ type?: string; q?: string }>({});
   /** 搜索防抖定时器（`searchQuery` 每敲一个字都变，不能每次都打库）。 */
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -115,6 +125,7 @@ export default function ListClient({
       q: rawQuery.trim() || undefined,
     };
     appliedFilterRef.current = filter;
+    setAppliedFilter(filter);
     // 作废所有在途请求（含「加载更多」）
     const epoch = ++filterEpochRef.current;
     // 作废后立刻释放「加载更多」锁，否则旧请求的 finally 之前 observer 全被挡住
@@ -438,35 +449,43 @@ export default function ListClient({
                   </span>
                   <span className="tnum flex items-center gap-3 text-sm text-fg-muted">
                     {/*
-                      里程口径**跟着筛选走**：
+                      里程口径**跟着筛选走**（类型筛选与搜索词都算筛选）：
                        - 未筛选 → 只算跑步（`runDistance`）。全类型会把游泳距离
                          加进跑量（真实库 2026-08 多 2.05km）。
-                       - 按某类型筛选 → 用 `totalDistance`。此时它就是「该类活动
-                         的里程」；若仍取 `runDistance`，筛选游泳/篮球/爬楼后
-                         `runDistance` 恒为 0，里程整块消失 —— 用户主动选了
-                         「泳池游泳」，最想看的游泳里程反而看不到。真实库实证
-                         `months?type=lap_swimming` 的 totalDistance 为
-                         2.05 / 3.28 / 0.78km 而 runDistance 全 0。
+                       - 有筛选（`type` 或 `q`）→ 用 `totalDistance`。此时它就是
+                         「匹配到的这类活动的里程」；若仍取 `runDistance`，
+                         筛游泳/篮球/爬楼后 `runDistance` 恒为 0，里程整块消失
+                         —— 用户主动选了「泳池游泳」或搜了「游泳」，最想看的
+                         游泳里程反而看不到。真实库实证：
+                           `months?type=lap_swimming` → 2.05 / 3.28 / 0.78km
+                           `months?q=游泳`            → 2.05 / 3.28 / 0.78km
+                         而两者 runDistance 全为 0。
                        - 里程为 0 时**整块不渲染**而不是显示「0.00 公里」——
-                         力量训练本来就没有距离语义，显示出来像同步失败。
+                         力量训练/爬楼本来就没有距离语义，显示出来像同步失败。
                       缺 `runDistance`（旧调用方/旧 API 响应）时回落到 `totalDistance`。
+                      判定用**已生效**的 `appliedFilter`（而非输入框即时值）：
+                      搜索防抖 300ms 内两者不同，用即时值会让里程在窗口期按
+                      新条件重算一遍而数据仍是旧的。
                     */}
                     {(() => {
                       const km = Number(
-                        typeFilter === 'all'
-                          ? summary.runDistance ?? summary.totalDistance
-                          : summary.totalDistance,
+                        appliedFilter.type || appliedFilter.q
+                          ? summary.totalDistance
+                          : summary.runDistance ?? summary.totalDistance,
                       );
                       return km > 0 ? <span>{km.toFixed(2)} 公里</span> : null;
                     })()}
                     {/* 次数给全类型: 与展开后的卡片数严格一致, 另标出其中非跑步的条数 */}
                     <span>{summary.count} 次</span>
                     {/*
-                      「含 N 次其他」只在**未按类型筛选**时有意义: 用户选了
-                      「力量训练」后，这些活动对当前筛选条件来说不是「其他」，
-                      再标「含 4 次其他」是自相矛盾。
+                      「含 N 次其他」只在**没有任何筛选**时有意义。
+                      用户选了「力量训练」或搜了「力量」之后，这些活动对当前
+                      视图来说不是「其他」—— 再标「含 4 次其他」是自相矛盾
+                      （真实库 `months?q=力量` 每个月都是 count 2~7 / runCount 0，
+                      会渲染成「2 次 含 2 次其他」）。判定必须覆盖 `q`，不能只看 type。
                     */}
-                    {typeFilter === 'all' &&
+                    {!appliedFilter.type &&
+                      !appliedFilter.q &&
                       summary.runCount != null &&
                       summary.count > summary.runCount && (
                         <span className="rounded bg-[var(--surface-2)] px-1.5 py-0.5 text-[10px] text-fg-secondary">
