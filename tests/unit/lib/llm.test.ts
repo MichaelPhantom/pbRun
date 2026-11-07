@@ -353,6 +353,24 @@ describe('buildAnalysisMessages', () => {
     expect(user.content).toContain('0.0-1.0km 12:39 131bpm 188spm 241W');
   });
 
+  /**
+   * `average_temperature` 是**整课均值**，而 contextBlock 里还有一行
+   * 「温度漂移: 22.0°C → 27.5°C（+5.5°C）」（首尾温差）。两行同处一个 prompt。
+   *
+   * 旧实现数据块写「温度: 24.0°C」，模型会把它和「温度漂移 +5.5°C」当成同一
+   * 指标的两个矛盾答案（与详情页概览「平均温度」不一致 —— 第四类缺陷：数据块
+   * 给了模型的数字，页面上要能找到出处）。
+   */
+  test('数据块用「平均温度」而不是「温度」(与「温度漂移」区分)', () => {
+    const [, user] = buildAnalysisMessages(
+      fakeActivity({ average_temperature: 24.3 }),
+      fakeLaps(),
+    );
+    expect(user.content).toContain('平均温度: 24.3°C');
+    // 裸「温度:」不得出现 —— 它是歧义标签（负向断言：前面不能是「平均」以外的字符）
+    expect(user.content).not.toMatch(/(?<!平均)温度: 24\.3/);
+  });
+
   test('非跑步分段不输出功率 (真实库 0/255 非跑步 lap 有 average_power)', () => {
     const laps = [
       { activity_id: 1, lap_index: 0, distance: 500, duration: 620, average_pace: 1240, average_heart_rate: 130, average_cadence: 30, average_power: 120 },

@@ -477,7 +477,12 @@ export function buildAnalysisMessages(
     statRow([
       ['平均海拔', fmtNumIf(activity.avg_altitude, 0, 'm')],
       ['热量', fmtNum(activity.calories, 0, 'kcal')],
-      ['温度', fmtNumIf(activity.average_temperature, 1, '°C')],
+      // 标签必须是「平均温度」而不是「温度」：`average_temperature` 是**整课均值**，
+      // 而 contextBlock 里还有一行「温度漂移: 22.0°C → 27.5°C（+5.5°C）」（首尾温差）。
+      // 两行同处一个 prompt，若这里只写「温度」，模型会把「平均 24°C」和
+      // 「漂移 +5.5°C」当成同一指标的两个矛盾答案。详情页概览已用「平均温度」，
+      // 此处与它同源（第四类缺陷：数据块给了模型的数字，页面上要能找到出处）。
+      ['平均温度', fmtNumIf(activity.average_temperature, 1, '°C')],
     ]),
     // 区间时间现在 348/348 全覆盖（本地 5 区口径由逐秒心率推导），标签恒有值；
     // 保留 `fmtZoneTimes` 的 `--` 兜底只为旧库/异常活动（无心率记录时写入侧不落值）。
