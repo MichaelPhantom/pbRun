@@ -62,13 +62,15 @@ pbRun/
 > 逐项断言：10 个表现分析工具必须含「跑步口径」、3 个活动日志工具必须含「全类型口径」、
 > 1 个合并口径工具必须同时声明「负荷合并 + 里程/次数只统计跑步」、2 个力量工具必须声明
 > 数据边界（无重量/次数）、3 个活动日志工具必须声明 **distance 三态**（`null` 缺失 /
-> `0` 无语义 / `>0` 正常），且所有 20 个工具都有非空 title/description。
+> `0` 无语义 / `>0` 正常）**且声明游泳的秒/100m 换算**（`average_pace ÷ 10` 只对秒/公里
+> 成立，`average_speed` 是 km/h 要 `360 ÷ 速度`），且所有 20 个工具都有非空
+> title/description。
 
 | Tool | db.ts 函数 | 参数 | 输出 | 说明 |
 |------|-----------|------|------|------|
 | `list_activities` | `getActivities` | `limit`(1-100), `offset`, `type?`, `startDate?`, `endDate?` | `{data: Activity[], total: number}` | 活动列表 (**全类型口径**), 支持 limit 上限 100 (防 token 爆炸); `distance` **三态**（`null` 缺失 / `0` 无距离语义 / `>0` 正常） |
 | `get_activity` | `getActivityById` | `activityId` | `Activity \| null` | 单条活动完整指标; `distance` **三态** |
-| `get_activity_laps` | `getActivityLaps` | `activityId` | `{laps: ActivityLap[]}` | 分段数据; `distance`（米）**三态** |
+| `get_activity_laps` | `getActivityLaps` | `activityId` | `{laps: ActivityLap[]}` | 分段数据; `distance`（米）**三态**; 游泳 lap 的秒/100m = `average_pace ÷ 10`（休息段为 null） |
 | `get_activity_records` | `getActivityRecords` + 采样 | `activityId`, `samplingInterval?`(默认1), `maxPoints?`(默认500) | `{records: ActivityRecord[], total_original, sampled}` | 逐秒记录, 支持降采样 |
 | `get_stats` | `getStats` | `period`(week/month/year/total) | `StatsResponse` | 汇总统计 (跑步口径) |
 | `get_personal_records` | `getPersonalRecords` | `period` | `PersonalRecordsResponse` | PB (1.6K~全马, 跑步口径) |

@@ -76,6 +76,48 @@ export function speedKmh(distanceKm: number | null | undefined, seconds: number 
   return pace == null ? null : 3600 / pace;
 }
 
+/**
+ * 每 100 米配速（秒/100m）—— **游泳等按 100m 计量的运动**的唯一换算。
+ *
+ * ## 为什么必须单独成函数
+ *
+ * 提示词此前写的是「由平均速度换算每 100m 配速（÷10 即秒/100m）」，这句话
+ * **两处都错**：
+ *
+ *  1. **÷10 只能作用于「秒/公里」**：`paceSecPerKm / 10` 才是秒/100m
+ *     （100m = 0.1km）。而数据块里非跑步分支给的是 `average_speed`（km/h），
+ *     不是配速 —— 对 km/h 做 ÷10 得到 0.25，会被读成「每 100 米 0.25 秒」
+ *     （= 400 m/s）。
+ *  2. 正确换算是 `3600 / 速度(km/h) / 10 = 360 / 速度`。真实库四条游泳
+ *     验算：2.535 km/h → 142.0 s/100m（= 2:22）、1.336 km/h → 269.4 s/100m
+ *     （= 4:29），与 `average_pace / 10` 完全一致（两者本就互为倒数）。
+ *
+ * 保留这个函数而不是让每个调用方自己写：换算方向（速度→配速→每 100m）跨三步，
+ * 任一步写错都只表现为「数字看着不合理」，不会报错。
+ *
+ * @param speedKmhValue 平均速度（公里/小时）
+ * @returns 秒/100m；非正/非有限时返回 null（不造 0）
+ */
+export function paceSecPer100m(speedKmhValue: number | null | undefined): number | null {
+  if (speedKmhValue == null || !Number.isFinite(speedKmhValue) || speedKmhValue <= 0) return null;
+  // 3600 秒/小时 ÷ 速度(km/h) = 秒/公里；再 ÷10 = 秒/100m。
+  return 360 / speedKmhValue;
+}
+
+/**
+ * 秒/100m → `2:22` 风格的展示串（不含单位）。
+ *
+ * 与 `formatPace` 分开是因为后者固定按「分:秒 /公里」输出 —— 对游泳套用
+ * 「2:22 /km」会把 100m 配速说成公里配速，量级差 10 倍。
+ */
+export function formatPacePer100m(secondsPer100m: number | null | undefined): string | null {
+  if (secondsPer100m == null || !Number.isFinite(secondsPer100m) || secondsPer100m <= 0) return null;
+  const total = Math.round(secondsPer100m);
+  const min = Math.floor(total / 60);
+  const sec = total % 60;
+  return `${min}:${sec.toString().padStart(2, '0')}`;
+}
+
 // ---------------------------------------------------------------------------
 // 一组活动的聚合（**均配速不是一个"平均值"**）
 // ---------------------------------------------------------------------------

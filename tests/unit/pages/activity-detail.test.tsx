@@ -727,6 +727,20 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
     for (const label of ['距离', '时长', '平均心率', '训练负荷']) {
       expect(within(overview).getByText(label)).toBeInTheDocument();
     }
+    // 游泳专属: 秒/100m 而不是秒/公里。1670 s/km 直接展示是「27:50 /km」,
+    // 量级与真实能力差 10 倍且不是游泳者的语言。1.5km / 2750s = 1.9636 km/h
+    // → 360/1.9636 = 183.3 s/100m → 3:03。
+    expect(within(overview).getByText('每 100m 配速')).toBeInTheDocument();
+    expect(within(overview).getByText('3:03')).toBeInTheDocument();
+    expect(within(overview).getByText('/100m')).toBeInTheDocument();
+    // 划频（次/分）: 真实库 4/4 条游泳有 average_cadence（44/48/48/46）。
+    // 旧实现 running 门控把「步频」整格藏掉 → 连划频也消失。
+    expect(within(overview).getByText('划频')).toBeInTheDocument();
+    expect(within(overview).getByText('次/分')).toBeInTheDocument();
+    expect(within(overview).getByText('32')).toBeInTheDocument();
+    // 但绝不能把它当步频（spm）展示
+    expect(within(overview).queryByText('步频')).toBeNull();
+    expect(within(overview).queryByText('spm')).toBeNull();
     // 平均功率: 真实库 107 条非跑步活动全部无功率(0/107) → 整格不渲染,
     // 而不是永远显示 '--' 让人以为同步失败
     expect(within(overview).queryByText('平均功率')).toBeNull();
@@ -887,6 +901,42 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
     expect(within(table).getByText('时长')).toBeInTheDocument();
   });
 
+  test('游泳分段表展示「每 100m 配速」列 (秒/公里对游泳无意义), 休息段为 --', async () => {
+    // 真实库 630387237：400m/308s（4.68 km/h → 1:17/100m）、0m/60s 休息段、
+    // 250m/344s（2.62 km/h → 2:18/100m）。旧实现整列隐藏，游泳页只能看时长。
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'lap_swimming',
+      sport_type: '游泳',
+      sub_sport_type: '泳池游泳',
+      name: '泳池游泳',
+      distance: 2.05,
+      average_pace: 1420,
+      average_cadence: 30,
+    });
+    db.getActivityLaps.mockReturnValue([
+      { id: 1, activity_id: 1001, lap_index: 0, duration: 308, cumulative_time: 308, distance: 400, average_pace: 770, average_speed: 4.6753 },
+      { id: 2, activity_id: 1001, lap_index: 1, duration: 60, cumulative_time: 368, distance: 0, average_pace: null, average_speed: null },
+      { id: 3, activity_id: 1001, lap_index: 2, duration: 344, cumulative_time: 712, distance: 250, average_pace: 1376, average_speed: 2.6163 },
+    ]);
+    render(await page('2005'));
+
+    const table = screen.getByRole('table', { name: '分段明细数据' });
+    expect(within(table).getByText('配速')).toBeInTheDocument();
+    expect(within(table).getByText('/100m')).toBeInTheDocument();
+    // 400m/308s → 360/(0.4/308*3600) = 360/4.6753 = 77.0 → 1:17
+    expect(within(table).getByText('1:17')).toBeInTheDocument();
+    // 250m/344s → 2.6163 km/h → 137.6 s/100m → 2:18
+    expect(within(table).getByText('2:18')).toBeInTheDocument();
+    // 休息段没有配速语义 → --（不是 0:00，也不是空）。该行还有其它 --（角色/心率），
+    // 故按列位断言：列序 # / 角色 / 距离 / 配速 / 时长 / 心率 / 主要区间 / 爬升。
+    const restCells = within(within(table).getAllByRole('row')[2]).getAllByRole('cell');
+    expect(restCells[3]).toHaveTextContent('--');
+    expect(restCells[3]).not.toHaveTextContent('0:00');
+    // 跑步的秒/公里配速列不该出现
+    expect(within(table).queryByText('/km')).toBeNull();
+  });
+
   test('非跑步活动的趋势图标题不宣称配速/步频', async () => {
     db.getActivityById.mockReturnValue({ ...activity, activity_type: 'indoor_cardio', name: '室内有氧' });
     render(await page('2003'));
@@ -905,7 +955,10 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
     render(await page('2004'));
     expect(screen.getByText('心率 趋势')).toBeInTheDocument();
     expect(screen.queryByText(/海拔 趋势/)).toBeNull();
-    expect(screen.queryByText(/配速/)).toBeNull();
+    // 趋势图标题不得承诺配速（游泳的逐秒 pace 恒为 null）。
+    // 注意不能全局查「配速」：游泳**应该**有「每 100m 配速」概览格与分段配速列
+    // （见下方游泳用例），那是秒/100m 口径，不是跑步配速。
+    expect(screen.queryByText(/配速 趋势/)).toBeNull();
   });
 
   test('gct_balance 缺失但有触地时间/垂直摆动 → 跑步动态仍渲染(真实库 348/348 全是这种)', async () => {

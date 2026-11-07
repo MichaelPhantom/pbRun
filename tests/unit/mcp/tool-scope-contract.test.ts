@@ -309,3 +309,51 @@ describe('MCP tool description 必须声明统计口径', () => {
     expect(cfg!.description).toMatch(/strength_training/);
   });
 });
+
+/**
+ * 游泳「每 100m 配速」的单位契约（2026-11 修）。
+ *
+ * 游泳的行业口径是**秒/100m**，而 MCP 三个活动日志工具返回的 `average_pace`
+ * 是秒/公里 —— 量级差 10 倍。旧 description 只写「配速为秒/公里」，模型拿到
+ * 泳池 1670 s/km 会直接说「你游泳配速 27:50/km」，与游泳者的语言完全错位。
+ *
+ * 更危险的是换算方向：`average_speed` 是 km/h，对 km/h 做 ÷10 得 0.25
+ * （读成「每 100 米 0.25 秒」）。所以 description 必须写清「÷10 只对秒/公里成立」。
+ */
+describe('游泳每 100m 配速的单位声明', () => {
+  test.each(['get_activity', 'get_activity_laps', 'get_activity_comparables'])(
+    '%s 声明游泳用秒/100m 且 ÷10 只对秒/公里成立',
+    (name) => {
+      const desc = configs.get(name)!.description ?? '';
+      expect(desc).toMatch(/100m|100 米/);
+      expect(desc).toMatch(/÷ ?10/);
+      // 必须点明 km/h 的换算不是 ÷10, 否则模型会套错公式
+      expect(desc).toMatch(/km\/h/);
+      expect(desc).toMatch(/360/);
+    },
+  );
+
+  test('get_activity_laps 声明休息段配速为 null 不是 0', () => {
+    const desc = configs.get('get_activity_laps')!.description ?? '';
+    expect(desc).toMatch(/休息段/);
+    expect(desc).toMatch(/没有配速语义/);
+  });
+});
+
+/**
+ * 游泳划频的单位声明（2026-11 修）。
+ *
+ * 真实库 4/4 条游泳活动都有 `average_cadence`（44/48/48/46 次/分）——
+ * 是**划频**，不是跑步的步频（spm）。模型若把它当步频解读，会得出
+ * 「步频 44，严重偏低」这种完全错误的结论（跑步正常 160–190 spm）。
+ */
+describe('游泳划频的单位声明', () => {
+  test.each(['get_activity', 'get_activity_comparables'])(
+    '%s 声明 average_cadence 对游泳是划频不是步频',
+    (name) => {
+      const desc = configs.get(name)!.description ?? '';
+      expect(desc).toMatch(/划频/);
+      expect(desc).toMatch(/不是步频|非步频/);
+    },
+  );
+});

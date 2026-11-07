@@ -90,9 +90,12 @@ pbRun 是跑步分析工具，但 Garmin 同步会把篮球/游泳/力量训练�
 | `/list` 筛选与搜索 | **跨月生效**：条件作为 SQL `WHERE` 作用在月度汇总本身（`getMonthSummaries(limit, offset, {type, q})`），不匹配的月份不出现，首个匹配月自动展开并取数。只在展开的单月里过滤会让用户选「力量训练」时当月没有力量课就只看到「无匹配」，必须逐月点开找。**搜索同时匹配名称与运动类型中文名**（`q=力量` 命中 51 条「全身循环2」这类名称不含「力量」的力量课），且**大小写不敏感**（`q=hiit` 命中 `HIIT`，与 SQL `LIKE` 同语义）—— 本地即时过滤与服务端 SQL 必须同一口径，否则服务端返回该月、本地却显示「无匹配」 |
 | `/list` 类型归一 | 空 `activity_type` 视为 `running`，**四处必须同表达式**：下拉清单 `getActivityTypes`、月度筛选 `COALESCE(NULLIF(activity_type,''),'running') = ?`、活动列表 `getActivities({type})`、UI `typeKeyOf`。任一处写成 `activity_type = ?` 都会让「下拉里有跑步选项、选中后少几条」 |
 | `/list` 的 `type=all` | UI 的「所有类型」选项值是字面量 `all`，**不是库里的类型键**（生产库 353 条无一条叫 `all`）。归一收在 `db.normalizeTypeFilter` 单一来源（`all`/空串/纯空白 → `undefined` = 不过滤），`getActivities` 与 `getMonthSummaries` 都经过它，因此 Web 两个端点与 MCP 两个工具语义自动一致。曾经只有 months 端点做了归一，用户选「所有类型」后月份列表正常、展开的卡片全部消失（`activity_type = 'all'` 命中 0 行） |
+| `/list` 的搜索词归一 | 与上一行同一纪律：**纯空白等于没有输入**。归一收在 `db.normalizeQueryFilter`（`''` / `' '` / `'\t'` → `undefined`），`getMonthSummaries` 的 `q` 经过它。旧实现 `if (filter?.q)` 会让 `q=' '` 变成一个 `name LIKE '% %'` 的有效过滤 —— 生产库实测 `months?q=%20` 返回 13 个月、每月只剩名称里恰好带空格的 2~21 条活动（真实库名称多为「两江新区 - 基础训练」），是一个既非全部、也非空的静默错位结果。UI 自己 trim 过，所以缺陷只在直连 API / MCP 时显形 |
 | `/list` 月卡 | 里程口径**跟着筛选走**（`type` 与 `q` **都算筛选**）：无筛选用 `runDistance`（只跑步，`0` 时不渲染 —— 全类型会把游泳距离加进跑量，真实库 2026-08 多 2.05km）；有任一筛选改用 `totalDistance`（此时它就是匹配活动的里程，仍用 `runDistance` 会让游泳/篮球/爬楼的里程整块消失 —— 真实库 `months?type=lap_swimming` 与 `months?q=游泳` 的 totalDistance 都是 2.05 / 3.28 / 0.78km 而 runDistance 全 0）；「含 N 次其他」徽标只在**完全无筛选**时显示（筛选后这些活动不是「其他」—— `months?q=力量` 每个月 count 2~7 / runCount 0，会渲染成「2 次 含 2 次其他」）。口径判定读**已生效**的 `appliedFilter` 而非输入框即时值（搜索防抖 300ms 内两者不同） |
 | `/list` 活动卡片 | 零距离活动（真实库 97/353 条：力量训练 51、爬楼 30、室内有氧 9、HIIT/跳绳/室内骑行各 3/3/1）**不渲染距离块**，只留时长 + 类型徽标 —— `distance = 0` 是「该运动没有距离语义」，`distance = null` 才是数据缺失（仍显示 `--`） |
 | 活动卡片 / 仪表盘「最近活动」 | 隐藏配速（泳池 1670s/km、乒乓 30826s/km 不是跑步配速）与「即时跑力 / VDOT」（跑步跑力指标），改显示类型徽标；无名称时按类型兜底命名。训练负荷与心率与运动类型无关，照常展示。零距离活动不渲染距离块（见上方 `/list` 活动卡片行） |
+| 游泳「每 100m 配速」 | 游泳的行业口径是**秒/100m**（池长 25/50m），而全站其它运动是秒/公里 —— 直接把泳池 `average_pace`（真实库 1670 s/km）当配速展示，量级差 10 倍且不是游泳者的语言。换算收进 `pace.paceSecPer100m`（`360 ÷ 速度(km/h)`）+ `formatPacePer100m`（`2:22` 风格）唯一实现，判定走 `sport.isSwimmingType` 单一来源。**四处展示**：详情页概览「每 100m 配速」格、详情页分段表「配速 /100m」列（`distance = 0` 的休息段为 `--`）、`/list` 活动卡片、首页「最近活动」卡；AI 数据块非跑步分支新增「每 100m 配速: 2:22/100m」行。真实库验算：2.535 km/h → 142.0 s/100m、1.336 → 269.4、3.322 → 108.4、1.602 → 224.7，与 `average_pace ÷ 10` 完全一致 |
+| MCP 游泳单位声明 | `get_activity` / `get_activity_laps` / `get_activity_comparables` 三个活动日志工具的 description 声明「游泳看秒/100m：`average_pace ÷ 10`（÷10 只对秒/公里成立），`average_speed` 是 km/h 要 `360 ÷ 速度`」—— 不写这句，模型会拿 km/h 做 ÷10 得 0.25，输出「每 100 米 0.25 秒」 |
 | 活动详情页概览 · 距离 | `distance = 0` 时**整格不渲染**（力量训练按组、爬楼按层、HIIT/跳绳按次，恒为 0 的格子显示 `--` 像同步失败，与「平均功率」同一原则）；`distance = null`（数据缺失）仍显示 `--` |
 | 详情页「深度分析」· 主课段数 | hint 是主课总距离，`workDistanceMeters = 0` 时**不渲染 hint**（零距离运动 lap 距离全为 0，旧实现写「0 段 · 0.00 km」像同步失败）。生产实证爬楼活动 551500889 返回 `workLaps 0 / workDistanceMeters 0` |
 | AI 可比上下文 · 主课行 | `主课 N 段 / 0.00km` 改为 `主课 N 段`（`workDistanceMeters = 0` 时不写 km 数）—— 模型会把 0.00km 读成「主课几乎没移动」，与该运动按层/按次计时的真实语义相反 |
@@ -106,7 +109,8 @@ pbRun 是跑步分析工具，但 Garmin 同步会把篮球/游泳/力量训练�
 | 丹尼尔斯页「当前跑力」说明 | 「近一周跑步活动的 VDOT 平均值」并注明「只含跑步，游泳/球类不参与」—— 同源 `getStats('week')` |
 | `/stats` 个人纪录「单次最长距离」 | 「单次跑步最长距离」而非「单次训练最长距离」—— `getPersonalRecords` 带 `runningTypeClause`，游泳/球类不计入 |
 | 全局教练【区间环比】次数行 | 「跑步次数」而非「次数」—— `getPeriodStats` 是跑步口径，模型若读成全部活动数会误判训练频率 |
-| 活动详情页分段表 | 隐藏配速与步频列，不给「最快段」徽章 |
+| 活动详情页分段表 | 隐藏配速与步频列，不给「最快段」徽章；游泳改展示「配速 /100m」列（`distance = 0` 的休息段为 `--`） |
+| 活动详情页概览 · 划频 | 游泳展示「划频（次/分）」而不是隐藏 —— 真实库 **4/4** 条游泳有 `average_cadence`（44/48/48/46），是划水频率；旧 `running` 门控把「步频」整格藏掉，连划频也一起消失。跑步仍走「步频（spm）」，两者单位与语义不同 |
 | `/analysis` 区间表（配速/心率） | 展示「时长 / 距离 / 次数」三列。数据层算好的 `activity_count` / `total_duration` / `total_distance` 此前**从未露出** —— 心率区间表只给「Z2 平均配速 5:40」，用户看不到这个区间到底占了多少训练量。距离由**米**换算成公里（`total_distance` 是 lap 距离累加），时长走 `formatDuration`，空区间显示 `--` 而非 `0:00` |
 | 活动详情页「跑步动态」 | 展示条件为**触地平衡 / 触地时间 / 垂直摆动 / 垂直振幅比 四项任一非空且为跑步**。垂直振幅比（= 垂直摆动/步幅）在真实库 **241/241** 条跑步活动都有值（6.69–10.48%），此前 UI 与活动 AI prompt 都未使用 —— 数据在库里却拿不到。旧实现只判 `average_gct_balance`，而真实库 **348/348 条活动该字段全为 NULL**（Garmin 仅部分高阶手表/双传感器配置写入），触地时间与垂直摆动却在 **241/241 条跑步活动**里都有值 —— 结果这张卡片在生产环境**从未渲染过**，已有的跑姿数据用户永远看不到。非跑步活动四项全 NULL（0/107），且额外按 `running` 门控（步态指标对游泳/球类无语义） |
 | 活动详情页趋势图 | 不渲染配速/步频/步幅三图（非跑步记录的 `cadence` 是划水/踏频/移动步频，真实库篮球最高 250、乒乓 214、羽毛球 154，套进「步频 100–220 步/分」区间毫无意义）；卡片标题由 `trendChartTitle` **按实际可渲染的图派生**，不再写死 —— 真实库 107 条非跑步活动 `altitude` 全为 0/null（0/107），旧标题「心率 / 海拔 趋势」是空承诺 |
@@ -1053,7 +1057,8 @@ avgPaceSecPerKm: 350 }` 三个数互相矛盾（350×7=2450≠2520），而 `Wea
 3. **力量训练是例外而非同类**：力量课有**可复现的派生负荷算法**
    （`strengthLoadOf` = 时间基数 × 强度域系数，由 TE 判定强度域），与跑步
    `training_load` 同量纲、可逐项验证；游泳/球类的强度无法从现有字段稳定推导
-   （泳姿、划频、球类间歇密度都不在 FIT 里）。
+   （**泳姿与总划水次数**不在 FIT 里、球类间歇密度无法从逐秒记录稳定切分 ——
+   注意**划频可得**：真实库 4/4 条游泳都有 `average_cadence` 44/48/48/46 次/分）。
 
 **用户可见性**：这些活动在 `/list` 全类型日志、详情页、AI 单次复盘里都完整可见
 （AI 走 `SINGLE_NON_RUNNING_PROMPT` 按各运动专项解读），只是不进入 ACWR/CTL/TSB
@@ -1061,8 +1066,8 @@ avgPaceSecPerKm: 350 }` 三个数互相矛盾（350×7=2450≠2520），而 `Wea
 「负荷合并含力量训练」，不声称含全部运动。守护：
 `tests/unit/mcp/tool-scope-contract.test.ts` 的 `COMBINED_SCOPED` 断言。
 
-若将来要纳入游泳/球类，必须先解决「强度从哪来」—— 在 FIT 补上泳姿/划频/球类间歇
-数据之前，自制系数只会让 ACWR 失去可比性。
+若将来要纳入游泳/球类，必须先解决「强度从哪来」—— 在 FIT 补上泳姿/总划水次数/球类
+间歇数据之前，自制系数只会让 ACWR 失去可比性。
 
 **消费方清单（必须全部走合并入口，漏一个就分叉）**：首页 `/`、分析页 `/analysis`、
 洞察页 `/insight`（`insight-service.getInsight` 的 `getCombinedTrainingLoads`）、
@@ -1546,6 +1551,10 @@ AI 教练有两种**能力维度**，它们的数据单位与结论都不同，*
 | **统计口径：活动日志保留全类型** | `getActivities` / `getMonthSummaries` | `tests/unit/lib/db-insight-integration.test.ts`（月度汇总 count 与列表 total 严格相等） |
 | **统计口径：写入侧也必须筛跑步** | `scripts/garmin/backfill-vdot.js` 的 `isRunningActivity`（VDOT 与 training_load 同口径） | `tests/unit/scripts/backfill-vdot.test.js`（非跑步即便有代表性心率与 >400m lap 也不写 VDOT、旧伪值被清空；缺类型视为跑步；track/treadmill 正常计算） |
 | **跑步类型判定单一来源** | `app/lib/sport.ts`（`RUNNING_ACTIVITY_TYPES` 派生 SQL + 客户端判定） | `tests/unit/lib/sport.test.ts`（类型集合/旧库空值/展示名/图标回落） |
+| **游泳类型判定单一来源** | `app/lib/sport.ts`（`SWIMMING_ACTIVITY_TYPES` + `isSwimmingType`，含预置的 `open_water`） | `tests/unit/lib/sport.test.ts`（2 个类型、13 个非游泳、空值 false 且不与 `isRunningType` 同时为真） |
+| **游泳每 100m 配速换算单一来源** | `app/lib/pace.ts`（`paceSecPer100m` = `360 ÷ 速度(km/h)`、`formatPacePer100m` = `2:22`） | `tests/unit/lib/pace-group.test.ts`（真实库 4 条游泳逐一验算并与 `average_pace ÷ 10` 交叉校验；`÷10` 旧公式反向断言；null/0/负数/非有限 → null；秒补零与 359.6→6:00） |
+| **提示词不得让模型自己做单位换算** | `coach-prompts.ts` 的游泳条目（引用数据块「每 100m 配速」行 + 写明 `360 ÷ 速度`）+ `llm.ts` 非跑步分支产出该行 | `tests/unit/lib/coach-prompt-data-alignment.test.ts`（不得含 `÷10 即秒/100m`、必须含「每 100m 配速」与 `360`、数据块真的产出 `2:22/100m`）+ `tests/unit/lib/llm.test.ts`（游泳有该行且用计时器时间、缺 distance 用 average_speed 兜底、两者皆缺整行不输出、非游泳不输出） |
+| **筛选参数归一单一来源** | `db.normalizeTypeFilter`（`all`/空串/空白 → 不过滤）+ `db.normalizeQueryFilter`（纯空白 → 不过滤） | `tests/unit/lib/db-insight-integration.test.ts`（两个归一函数单点定义；`q='' / ' ' / '\t'` 与不过滤逐月相等；`' 游泳 '` 仍命中） |
 | **MCP tool description 必须声明统计口径** | `mcp-server/tools.ts`（10 个表现分析工具写「跑步口径」、3 个活动日志工具写「全类型口径」、1 个合并口径工具同时声明「负荷合并 + 里程/次数只统计跑步」、2 个力量工具声明数据边界） | `tests/unit/mcp/tool-scope-contract.test.ts`（逐项断言口径措辞、`list_activities` 不再自称「列出跑步活动」、`get_activity_comparables` 声明 `running=false` 时配速派生字段为 `null`、`get_activity_types` 声明「先调本工具再按类型筛选」、20 个工具均有非空 title/description） |
 | **力量训练口径（第三套）** | `app/lib/strength.ts`（画像/强度域/负荷/合并的唯一真源）、`db.getStrengthLoads`·`getStrengthSessions`·`getCombinedTrainingLoads` | `tests/unit/lib/strength.test.ts`（32 例）、`strength-merge.test.ts`（9 例：负荷相加、里程/时长/次数只取跑步、只有力量的日子保留）、`strength-summary.test.ts`（10 例）、`db-strength.test.ts`（12 例：SQL 只查 `strength_training`、分页、空值兜底） |
 | **洞察页负荷口径必须合并** | `insight-service.ts` 的 `getCombinedTrainingLoads` | `tests/unit/lib/insight-services.test.ts`（合并入口被调用、跑步口径 `getDailyLoads` 未被调用、EWMA 预热窗口不变） |

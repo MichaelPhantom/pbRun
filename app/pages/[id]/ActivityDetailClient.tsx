@@ -11,7 +11,7 @@ import { DataTable } from '@/app/components/ui/DataTable';
 import ActivityTrendCharts, { trendChartTitle } from '@/app/lib/components/charts/ActivityTrendCharts';
 import { ActivityInsightPanel, ROLE_LABEL, ROLE_TONE } from '@/app/lib/components/charts/ActivityInsightPanel';
 import { AiAnalysis } from '@/app/lib/components/ai/AiAnalysis';
-import { activityTypeIcon, activityTypeName, isInformativeTypeValue, isRunningType } from '@/app/lib/sport';
+import { activityTypeIcon, activityTypeName, isInformativeTypeValue, isRunningType, isSwimmingType } from '@/app/lib/sport';
 import { powerIntensity } from '@/app/lib/power';
 import { hrZoneBadgeStyle } from '@/app/lib/hr-zones';
 import { dominantZone } from '@/app/lib/activity-insight';
@@ -22,7 +22,7 @@ import {
   lapTableCaption,
 } from '@/app/lib/lap-label';
 import { elevationSpan } from '@/app/lib/elevation';
-import { effectiveTimeSec } from '@/app/lib/pace';
+import { effectiveTimeSec, paceSecPer100m, formatPacePer100m, speedKmh } from '@/app/lib/pace';
 import { evaluateWorkoutExecution, formatWorkoutPlan } from '@/app/lib/workout';
 import {
   STRENGTH_DOMAIN_LABELS,
@@ -72,6 +72,9 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
   // 库里同时有篮球/游泳/力量训练: 配速/步频/步幅只在跑步内部可比
   // (泳池 1670s/km、乒乓球 30826s/km、篮球步频 16 展示成「配速」「步频」纯属误导)。
   const running = isRunningType(activity.activity_type);
+  // 游泳的配速语言是**秒/100m**（池长 25/50m），与全站其它运动的秒/公里不同量纲。
+  // 判定走 `sport.isSwimmingType` 单一来源，与 AI 数据块、MCP 同源。
+  const swimming = isSwimmingType(activity.activity_type);
   // 类型名走 `activityTypeName`: 真实库 269/348 条活动 `sub_sport_type` 是「通用」,
   // 旧实现 `activityTypeLabel(activity_type)` 对篮球/爬楼/HIIT 已经正确, 但漏掉了
   // 「跑步（田径场）」这类**有价值的细节**; 而 AI 数据块此前用 `sub_sport_type` 优先
@@ -197,6 +200,20 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
           label: '平均配速',
         }]
       : []),
+    // 游泳专属: 秒/100m 是游泳的行业惯例口径（池长 25/50m），而 `average_pace`
+    // 是秒/公里 —— 2.05 km 用了 2911 s，即 1420 s/km，直接展示成「23:40 /km」
+    // 对游泳者没有意义，且量级与真实能力差 10 倍。换算走 `pace.ts` 的唯一实现
+    // （`speedKmh` → `paceSecPer100m`），与 AI 数据块同一来源。
+    // 三项任一缺失就不渲染（而不是显示 '--'：那是「数据缺失」的信号，游泳不适用）。
+    ...(isSwimmingType(activity.activity_type)
+      ? (() => {
+          const speed = speedKmh(activity.distance, effectiveTimeSec(activity)) ?? activity.average_speed;
+          const text = formatPacePer100m(paceSecPer100m(speed));
+          return text == null
+            ? []
+            : [{ value: text, unit: '/100m', label: '每 100m 配速' }];
+        })()
+      : []),
     { value: durationMinutes > 0 ? (durationMinutes % 1 === 0 ? String(Math.round(durationMinutes)) : durationMinutes.toFixed(1)) : '--', unit: durationMinutes > 0 ? '分' : undefined, label: '时长' },
     { value: activity.average_heart_rate != null ? String(Math.round(activity.average_heart_rate)) : '--', unit: activity.average_heart_rate != null ? 'bpm' : undefined, label: '平均心率' },
     { value: activity.training_load != null ? activity.training_load.toFixed(1) : '--', label: '训练负荷' },
@@ -214,6 +231,12 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
           { value: activity.average_cadence != null ? String(Math.round(activity.average_cadence)) : '--', unit: activity.average_cadence != null ? 'spm' : undefined, label: '步频' },
           { value: activity.average_stride_length != null ? activity.average_stride_length.toFixed(2) : '--', unit: activity.average_stride_length != null ? 'm' : undefined, label: '步幅' },
         ]
+      : []),
+    // 游泳专属: 划频（次/分）。真实库 4/4 条游泳都有 `average_cadence`
+    // （44/48/48/46）。旧的 `running` 门控把「步频」整格藏掉了 —— 对游泳是对的
+    // （spm 语义不成立），但结果连**划频**也一起消失，用户看不到划水频率。
+    ...(swimming && activity.average_cadence != null
+      ? [{ value: String(Math.round(activity.average_cadence)), unit: '次/分', label: '划频' }]
       : []),
     // 平均功率按字段存在性渲染: 真实库 241/241 条跑步活动都有功率, 107 条非跑步
     // 活动全部为 NULL(0/107)。旧实现无条件渲染该格, 非跑步页会永远显示 '--' ——
@@ -507,6 +530,11 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
                     { key: 'pw', label: '功率', unit: 'W' },
                   ]
                 : []),
+              // 游泳的 lap 配速是**秒/100m**，不是秒/公里（池长 25/50m 是游泳的
+              // 计量单位）。真实库 4 条游泳共 79 段，含 0 距离休息段 —— 休息段
+              // 没有配速语义，显示 `--`；其余段按 `pace.paceSecPer100m` 唯一换算。
+              // 旧实现整列隐藏，于是游泳页只能看「时长」，看不出「哪一趟最快」。
+              ...(swimming ? [{ key: 'pace100', label: '配速', unit: '/100m' }] : []),
               // 分段「时长」单位必须与单元格渲染格式一致：`formatDuration` 输出
               // `5:40` / `1:02:30`，即 `h:mm:ss`（与三个区间表同一写法）。旧文案写
               // `min`，而值是「分:秒」—— 「5:40 min」会被读成 5.67 分钟。
@@ -545,6 +573,18 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
                       ? '--'
                       : (Number(lap.distance) / 1000).toFixed(2),
                   pace: <span className={isBest ? 'font-semibold text-[var(--good-text)]' : 'text-fg-secondary'}>{formatPace(lap.average_pace, false)}</span>,
+                  // 游泳 lap 配速：秒/100m。`distance = 0` 的休息段没有配速语义
+                  // （真实库 79 段里有 0 距离段）→ `--`；其余按唯一换算函数。
+                  // 与活动级「每 100m 配速」同一来源（`pace.paceSecPer100m`）。
+                  pace100: (() => {
+                    const sec = effectiveTimeSec(lap);
+                    // lap.distance 是**米**（活动级是公里），先归一成公里再算速度
+                    const speed = speedKmh((lap.distance ?? 0) / 1000, sec);
+                    const text = formatPacePer100m(paceSecPer100m(speed));
+                    return text == null
+                      ? <span className="text-fg-muted">--</span>
+                      : <span className="text-fg-secondary">{text}</span>;
+                  })(),
                   // 分段「时长」必须与「配速」同一时间基数（计时器时间）。
                   // 旧实现显示 `lap.duration`（含暂停），配速却由 `moving_time`
                   // 推出 —— 同一个 lap 里「时长 × 配速」对不上距离。真实库

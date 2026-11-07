@@ -365,6 +365,79 @@ describe('buildAnalysisMessages', () => {
   });
 
   /**
+   * 游泳的「每 100m 配速」必须由**数据块给出**，不能让模型自己换。
+   *
+   * 旧提示词写「由平均速度换算每 100m 配速（÷10 即秒/100m）」，两处都错：
+   * 数据块给的是 `average_speed`（km/h），而 ÷10 只对「秒/公里」成立 ——
+   * 对 2.535 km/h 做 ÷10 得 0.25，模型会输出「每 100 米 0.25 秒」。
+   * 正确换算是 `360 ÷ 速度(km/h)`：2.535 → 142.0 s/100m = 2:22。
+   *
+   * 真实库 630387237：2.05 km / 2911 s（计时器）→ 2.535 km/h → 2:22/100m。
+   */
+  test('游泳输出「每 100m 配速」(真实库 2.05km/2911s → 2:22)', () => {
+    const [, user] = buildAnalysisMessages(
+      fakeActivity({
+        activity_type: 'lap_swimming',
+        sport_type: '游泳',
+        sub_sport_type: '泳池游泳',
+        distance: 2.05,
+        duration: 3425,
+        moving_time: 2911,
+        average_speed: 2.5352112676056335,
+        average_pace: 1420.0000000000002,
+        average_cadence: 30,
+      }),
+      [],
+    );
+    expect(user.content).toContain('每 100m 配速: 2:22/100m');
+    // 时间基数必须是计时器时间（2911s），不是经过时间（3425s = 2:47/100m）
+    expect(user.content).not.toContain('2:47/100m');
+    // 平均速度行保留（km/h 对游泳仍是有意义的外部参照），但不能只有它
+    expect(user.content).toContain('平均速度: 2.54 km/h');
+  });
+
+  test('游泳缺 distance 时用 average_speed 兜底 (仍不给模型自己换算)', () => {
+    const [, user] = buildAnalysisMessages(
+      fakeActivity({
+        activity_type: 'open_water',
+        distance: null as never,
+        moving_time: 0,
+        duration: 1800,
+        average_speed: 1.3362068965517242,
+        average_pace: 2694.1935483870966,
+      }),
+      [],
+    );
+    expect(user.content).toContain('每 100m 配速: 4:29/100m');
+  });
+
+  test('游泳两者皆缺 → 整行不输出 (不留「--/100m」噪音)', () => {
+    const [, user] = buildAnalysisMessages(
+      fakeActivity({
+        activity_type: 'lap_swimming',
+        distance: null as never,
+        moving_time: 0,
+        duration: 0,
+        average_speed: undefined,
+        average_pace: undefined,
+      }),
+      [],
+    );
+    expect(user.content).not.toContain('每 100m 配速');
+    expect(user.content).not.toContain('--/100m');
+  });
+
+  test('非游泳活动不输出「每 100m 配速」(跑步/篮球/力量都没有 100m 语义)', () => {
+    for (const t of ['running', 'basketball', 'strength_training', 'floor_climbing']) {
+      const [, user] = buildAnalysisMessages(
+        fakeActivity({ activity_type: t, average_speed: 2.535 }),
+        [],
+      );
+      expect(user.content).not.toContain('每 100m 配速');
+    }
+  });
+
+  /**
    * 类型名缺陷：真实库 348 条活动里 `sub_sport_type='通用'` 有 **269 条**
    * （227 跑步 + 篮球 3 / 爬楼 30 / HIIT 3 / 跳绳 3 / 乒乓 2 / 羽毛球 1）。
    * 旧实现 `sub_sport_type || sport_type || label` 让它 truthy 胜出 —— AI 数据块
@@ -690,5 +763,51 @@ describe('buildAnalysisMessages — 力量训练', () => {
     const [, user] = buildAnalysisMessages(fakeActivity(), fakeLaps());
     expect(user.content).not.toMatch(/组结构:/);
     expect(user.content).not.toMatch(/强度域:/);
+  });
+});
+
+/**
+ * 游泳划频 —— 数据里**真实存在**，提示词却说「本数据源不提供」。
+ *
+ * 真实库 4/4 条游泳活动都有 `average_cadence`（44/48/48/46 次/分，即划水频率）。
+ * 提示词要求模型「不要提划频」，等于让它忽略一个它拿得到的字段：要么违反指令
+ * 引用，要么装看不见 —— 两条路都在伤害可信度（与「力量训练不计算负荷」同源缺陷）。
+ *
+ * 注意单位：`average_cadence` 对跑步是 spm（步/分），对游泳是**次/分划频**。
+ * 所以这里写「划频: 44 次/分」而不是 `44spm`（见上一条分段用例的反向断言）。
+ */
+describe('游泳划频', () => {
+  test('游泳数据块输出划频 (次/分), 不是 spm', () => {
+    const [, user] = buildAnalysisMessages(
+      fakeActivity({
+        activity_type: 'lap_swimming',
+        distance: 2.05,
+        moving_time: 2911,
+        average_speed: 2.5352112676056335,
+        average_cadence: 44,
+      }),
+      [],
+    );
+    expect(user.content).toContain('划频: 44 次/分');
+    expect(user.content).not.toContain('44spm');
+  });
+
+  test('缺划频 → 整行不输出 (不留「-- 次/分」噪音)', () => {
+    const [, user] = buildAnalysisMessages(
+      fakeActivity({
+        activity_type: 'lap_swimming',
+        distance: 2.05,
+        moving_time: 2911,
+        average_cadence: undefined,
+      }),
+      [],
+    );
+    expect(user.content).not.toContain('划频');
+  });
+
+  test('非游泳不输出划频 (跑步的 cadence 是步频, 已在跑步分支以 spm 输出)', () => {
+    const [, user] = buildAnalysisMessages(fakeActivity({ average_cadence: 188 }), []);
+    expect(user.content).not.toContain('划频');
+    expect(user.content).toContain('188spm');
   });
 });

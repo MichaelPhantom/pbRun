@@ -11,8 +11,8 @@ import {
 import type { Activity } from '@/app/lib/types';
 import type { MonthSummary } from '@/app/lib/types';
 import { monthToRange } from '@/app/lib/date-utils';
-import { activityTypeLabel, activityTypeIcon, isRunningType } from '@/app/lib/sport';
-import { effectiveTimeSec } from '@/app/lib/pace';
+import { activityTypeLabel, activityTypeIcon, isRunningType, isSwimmingType } from '@/app/lib/sport';
+import { effectiveTimeSec, paceSecPer100m, formatPacePer100m, speedKmh } from '@/app/lib/pace';
 
 const MONTHS_PAGE_SIZE = 6;
 
@@ -549,6 +549,11 @@ function ActivityCard({
   onSelect: () => void;
 }) {
   const running = isRunningType(a.activity_type);
+  // 游泳的配速语言是秒/100m。列表卡此前对游泳只显示时长与类型徽标，
+  // 「游得多快」无处可看（详情页有，但要逐个点开）。换算与详情页/AI 数据块同源。
+  const swimPace100 = isSwimmingType(a.activity_type)
+    ? formatPacePer100m(paceSecPer100m(speedKmh(a.distance, effectiveTimeSec(a)) ?? a.average_speed))
+    : null;
   // 无名称时按运动类型兜底 (而不是一律「跑步」—— 篮球/力量训练也被同步进库)
   const name = a.name || `${activityTypeLabel(a.activity_type)} ${formatListDateTime(a.start_time_local ?? a.start_time)}`;
   // 时长走唯一口径（计时器时间优先，见 `app/lib/pace.ts`）。
@@ -602,6 +607,8 @@ function ActivityCard({
           {formatDuration(duration)}
           {/* 配速只对跑步有意义: 泳池 1670s/km、乒乓球 30826s/km 展示出来只会误导 */}
           {running && ` ${formatPaceShort(a.average_pace)}`}
+          {/* 游泳用秒/100m（行业惯例），不是秒/公里 */}
+          {!running && swimPace100 && ` ${swimPace100}/100m`}
         </span>
       </div>
 

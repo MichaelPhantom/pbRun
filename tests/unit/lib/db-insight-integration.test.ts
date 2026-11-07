@@ -492,6 +492,49 @@ describe('db.ts 洞察查询 (真实 SQL)', () => {
   });
 
   /**
+   * 搜索词同样要归一：**纯空白 = 没有输入**，不是「匹配名称里含空格的活动」。
+   *
+   * 缺陷形态与 `type='all'` 完全同源（缺陷 8），只是发生在另一个参数上：
+   * `getMonthSummaries` 旧实现写 `if (filter?.q)`，而 route 只做了
+   * `qRaw ? qRaw : undefined`（不 trim）。生产库实测 `months?q=%20`（一个空格）
+   * 返回 **13 个月**，每月只剩名称里恰好带空格的 2~21 条活动 —— 真实库名称
+   * 多为「两江新区 - 基础训练」，所以看着「像有结果」，实际是一个既非全部、
+   * 也非空的静默错位集合。用户与模型都不会察觉筛选生效了。
+   *
+   * UI 侧 `ListClient.applyFilter` 自己 trim 过，所以这个缺陷只在直连 API /
+   * MCP 时显形 —— 而 MCP 是模型唯一的数据入口。
+   */
+  test('q 纯空白归为不过滤 (不能变成 name LIKE "% %")', async () => {
+    const db = await loadDb();
+    const unfiltered = db.getMonthSummaries() as { monthKey: string; count: number }[];
+
+    for (const q of ['', ' ', '   ', '\t', null, undefined]) {
+      const got = db.getMonthSummaries(undefined, undefined, { q: q as never }) as {
+        monthKey: string; count: number;
+      }[];
+      expect(got).toEqual(unfiltered);
+    }
+
+    // 归一不能把真实搜索词吞掉
+    const named = db.getMonthSummaries(undefined, undefined, { q: '游泳' }) as {
+      monthKey: string; count: number;
+    }[];
+    expect(named).toHaveLength(1);
+    expect(named[0].count).toBe(1);
+  });
+
+  test('normalizeQueryFilter 单点定义 (空白 → undefined, 其余 trim 后保留)', async () => {
+    const db = await loadDb();
+    expect(db.normalizeQueryFilter('')).toBeUndefined();
+    expect(db.normalizeQueryFilter(null)).toBeUndefined();
+    expect(db.normalizeQueryFilter(undefined)).toBeUndefined();
+    expect(db.normalizeQueryFilter('   ')).toBeUndefined();
+    expect(db.normalizeQueryFilter('\t\n')).toBeUndefined();
+    expect(db.normalizeQueryFilter(' 游泳 ')).toBe('游泳');
+    expect(db.normalizeQueryFilter('hiit')).toBe('hiit');
+  });
+
+  /**
    * 搜索的类型名匹配必须**不区分大小写**，与 SQL `LIKE` 的语义一致。
    *
    * 真实库有 3 条 HIIT（名称「10 分钟 AMRAP 自重训练」，不含 hiit 二字）。类型中文名

@@ -23,6 +23,7 @@ import {
   STATISTICS_PROMPTS,
 } from '@/app/lib/coach-prompts';
 import { formatInsightForCoach, formatZoneStructureForCoach, type ZoneRowLike } from '@/app/lib/insight-coach';
+import { buildAnalysisMessages } from '@/app/lib/llm';
 import { formatPeriodComparison } from '@/app/lib/period-comparison';
 import { formatRunnerProfile, type RunnerProfile } from '@/app/lib/runner-profile';
 import type { InsightResponse, PeriodStats } from '@/app/lib/types';
@@ -259,5 +260,97 @@ describe('力量训练数据块 ↔ 提示词对齐 (2026-11 新增)', () => {
   test('非跑步 prompt 明确禁止编造重量/次数 (FIT 无 set 消息)', () => {
     expect(SINGLE_NON_RUNNING_PROMPT).toMatch(/重量|次数/);
     expect(SINGLE_NON_RUNNING_PROMPT).toMatch(/不可得|不要编造|编造/);
+  });
+});
+
+/**
+ * 游泳「每 100m 配速」的换算口径（2026-11 修）。
+ *
+ * 旧文案：「由「平均速度」换算每 100m 配速（÷10 即秒/100m）」—— **两处都错**：
+ *
+ *  1. **÷10 只对秒/公里成立**（100 m = 0.1 km）。而数据块非跑步分支给的是
+ *     `average_speed`（km/h），对 2.535 km/h 做 ÷10 得 **0.25**，模型会写成
+ *     「每 100 米 0.25 秒」（等价 400 m/s）。
+ *  2. 即使方向对了，换算也跨两步：`3600 / 速度(km/h) / 10 = 360 / 速度`。
+ *
+ * 正确做法是**数据块直接给答案**（`每 100m 配速: 2:22/100m`，由
+ * `pace.paceSecPer100m` + `formatPacePer100m` 唯一实现），提示词只引用、不换算。
+ * 真实库四条游泳验算：2.535→2:22、1.336→4:29、3.322→1:48、1.602→3:45。
+ */
+describe('游泳每 100m 配速：提示词与数据块对齐', () => {
+  test('提示词不得再写「÷10 即秒/100m」(对 km/h 是错的)', () => {
+    expect(SINGLE_NON_RUNNING_PROMPT).not.toContain('÷10 即秒/100m');
+    expect(SINGLE_NON_RUNNING_PROMPT).not.toContain('÷ 10 即秒/100m');
+  });
+
+  test('提示词引用数据块的「每 100m 配速」行, 并禁止自行换算', () => {
+    expect(SINGLE_NON_RUNNING_PROMPT).toContain('每 100m 配速');
+    expect(SINGLE_NON_RUNNING_PROMPT).toMatch(/不要自己换算|不要自行换算/);
+    // 正确的换算系数必须写出来, 否则模型仍会自己猜
+    expect(SINGLE_NON_RUNNING_PROMPT).toContain('360');
+  });
+
+  test('数据块真的产出这一行 (不是「要求模型分析不存在的数据」)', () => {
+    const [, user] = buildAnalysisMessages(
+      {
+        activity_id: 630387237,
+        name: '泳池游泳',
+        activity_type: 'lap_swimming',
+        start_time: '2026-08-30T10:00:00.000Z',
+        start_time_local: '2026-08-30T18:00:00',
+        distance: 2.05,
+        duration: 3425,
+        moving_time: 2911,
+        elapsed_time: 3425,
+        average_speed: 2.5352112676056335,
+        average_pace: 1420.0000000000002,
+      } as never,
+      [],
+    );
+    expect(user.content).toContain('每 100m 配速: 2:22/100m');
+  });
+});
+
+/**
+ * 游泳划频 —— 数据里有，提示词却说「不提供」（2026-11 修）。
+ *
+ * 真实库 **4/4** 条游泳活动都有 `average_cadence`（44/48/48/46 次/分 = 划水频率）。
+ * 旧文案「划频/划水次数本数据源不提供，不要提」把两个概念绑在一起，结果要求模型
+ * 忽略一个它拿得到的字段 —— 与「非跑步活动不计算训练负荷」同源：提示词让模型
+ * 无视真实数据，模型要么违反指令，要么装看不见。
+ *
+ * 正确拆分：**划频可得**（数据块输出「划频: N 次/分」），**总划水次数不可得**。
+ */
+describe('游泳划频：数据块与提示词对齐', () => {
+  test('提示词不再声称「划频本数据源不提供」', () => {
+    expect(SINGLE_NON_RUNNING_PROMPT).not.toContain('划频/划水次数本数据源不提供');
+    expect(SINGLE_NON_RUNNING_PROMPT).not.toContain('划频/划水次数');
+  });
+
+  test('提示词允许用划频, 只把「划水次数」列为不提供', () => {
+    expect(SINGLE_NON_RUNNING_PROMPT).toContain('划频');
+    expect(SINGLE_NON_RUNNING_PROMPT).toContain('划水次数');
+    expect(SINGLE_NON_RUNNING_PROMPT).toMatch(/划水次数.*不提供/);
+  });
+
+  test('数据块真的产出划频行 (不是「要求模型分析不存在的数据」)', () => {
+    const [, user] = buildAnalysisMessages(
+      {
+        activity_id: 630387237,
+        name: '泳池游泳',
+        activity_type: 'lap_swimming',
+        start_time: '2026-08-21T09:16:15.000Z',
+        start_time_local: '2026-08-21T17:16:15',
+        distance: 2.05,
+        duration: 3425,
+        moving_time: 2911,
+        elapsed_time: 3425,
+        average_speed: 2.5352112676056335,
+        average_pace: 1420.0000000000002,
+        average_cadence: 44,
+      } as never,
+      [],
+    );
+    expect(user.content).toContain('划频: 44 次/分');
   });
 });

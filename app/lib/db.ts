@@ -178,6 +178,24 @@ export function normalizeTypeFilter(type?: string | null): string | undefined {
 }
 
 /**
+ * 把「搜索词」的输入归一成**真正要匹配的字符串**（`undefined` = 不过滤）。
+ *
+ * 与 `normalizeTypeFilter` 同一纪律：**纯空白等于没有输入**，不能当成一个
+ * 有效的 LIKE 模式。旧实现只 trim 了类型、没 trim 搜索词 —— 生产库实测
+ * `months?q=%20`（一个空格）会返回 13 个月、每月只剩「名称里含空格」的
+ * 2~21 条活动（真实库名称形如「两江新区 - 基础训练」，恰好都带空格），
+ * 于是用户/模型拿到的是一个**静默错位**的筛选结果：既不是全部，也不是空。
+ *
+ * UI 侧（`ListClient.applyFilter`）自己 trim 过，所以这个缺陷只在直连
+ * API / MCP 时显形 —— 而那正是 MCP 模型唯一的数据入口，必须在这一层收口。
+ */
+export function normalizeQueryFilter(q?: string | null): string | undefined {
+  if (!q) return undefined;
+  const trimmed = q.trim();
+  return trimmed || undefined;
+}
+
+/**
  * Get activities with pagination and filtering.
  */
 export function getActivities(
@@ -293,7 +311,13 @@ export function getMonthSummaries(
     where.push("COALESCE(NULLIF(activity_type, ''), 'running') = ?");
     params.push(typeFilter);
   }
-  if (filter?.q) {
+  // 搜索词同样要归一：**纯空白 = 没有输入**。旧实现直接 `if (filter?.q)` 判定，
+  // 于是 `q=' '` 会变成一个 `name LIKE '% %'` 的有效过滤 —— 生产库实测
+  // `months?q=%20` 返回 13 个月、每月只剩名称里恰好带空格的 2~21 条活动
+  // （真实库名称多为「两江新区 - 基础训练」）。用户看到的是一个既非全部、
+  // 也非空的静默错位结果，且不报错。
+  const qFilter = normalizeQueryFilter(filter?.q);
+  if (qFilter) {
     // 大小写不敏感: SQLite 的 LIKE 对 ASCII 已不区分, 中文按字面匹配。
     //
     // **必须同时匹配运动类型的中文名**：真实库 51 条力量课的名称是「全身循环2」
@@ -301,14 +325,14 @@ export function getMonthSummaries(
     // 最自然的输入就是「力量」，若只查 `name LIKE`，这 51 条一条都搜不到。
     // 类型名匹配用 `IN` 精确列出（而不是把中文名拼进 LIKE），因为类型名是
     // 有限集合（`ACTIVITY_TYPE_LABELS`），精确匹配不会误命中。
-    const typeNames = matchingTypeKeys(filter.q);
+    const typeNames = matchingTypeKeys(qFilter);
     const nameCond = 'name LIKE ? ESCAPE ?';
     if (typeNames.length > 0) {
       where.push(`(${nameCond} OR COALESCE(NULLIF(activity_type, ''), 'running') IN (${typeNames.map(() => '?').join(',')}))`);
-      params.push(`%${escapeLike(filter.q)}%`, '\\', ...typeNames);
+      params.push(`%${escapeLike(qFilter)}%`, '\\', ...typeNames);
     } else {
       where.push(nameCond);
-      params.push(`%${escapeLike(filter.q)}%`, '\\');
+      params.push(`%${escapeLike(qFilter)}%`, '\\');
     }
   }
   const whereClause = `WHERE ${where.join(' AND ')}`;
@@ -365,7 +389,7 @@ function escapeLike(raw: string): string {
  * 只查 `name LIKE`，这 51 条一条都搜不到，用户会以为库里没有力量训练。
  *
  * 返回类型**键**（如 `strength_training`），由调用方拼成 SQL `IN (...)`：
- * 类型名是有限集合（`ACTIVITY_TYPE_LABELS` 的 13 项），精确匹配不会像
+ * 类型名是有限集合（`ACTIVITY_TYPE_LABELS`，14 项含预置的 `open_water`），精确匹配不会像
  * `LIKE '%力量%'` 那样误命中名称里恰好含「力量」二字的跑步活动。
  */
 function matchingTypeKeys(q: string): string[] {

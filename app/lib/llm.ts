@@ -9,10 +9,10 @@
 import type { Activity, ActivityLap } from '@/app/lib/types';
 import { formatPace, formatDuration, formatRecoveryTime } from '@/app/lib/format';
 import { findPreset, resolvePresets } from '@/app/lib/model-curation';
-import { activityTypeName, isRunningType } from '@/app/lib/sport';
+import { activityTypeName, isRunningType, isSwimmingType } from '@/app/lib/sport';
 import { powerIntensity } from '@/app/lib/power';
 import { ascentToSpanRatio, elevationSpan } from '@/app/lib/elevation';
-import { effectiveTimeSec } from '@/app/lib/pace';
+import { effectiveTimeSec, paceSecPer100m, formatPacePer100m, speedKmh } from '@/app/lib/pace';
 import { lapSectionTitle, lapStartDistancesMeters, lapRangeLabel } from '@/app/lib/lap-label';
 import {
   evaluateWorkoutExecution,
@@ -402,6 +402,28 @@ export function buildAnalysisMessages(
           powerNote,
         ]
       : [
+          // 游泳必须给「每 100m 配速」而不是只给 km/h：游泳的行业惯例是秒/100m
+          // （池长 25/50m，km/h 量级 1–3 无法与训练语言对上）。换算只走
+          // `pace.ts` 的两个纯函数（`speedKmh` → `paceSecPer100m`），不让模型
+          // 自己换 —— 旧提示词写「÷10 即秒/100m」，而数据块给的是 km/h，
+          // ÷10 会得到 0.25，模型会把它读成「每 100 米 0.25 秒」。
+          ...(isSwimmingType(activity.activity_type)
+            ? (() => {
+                const sec = effectiveTimeSec(activity);
+                const speed = speedKmh(activity.distance, sec) ?? activity.average_speed;
+                const text = formatPacePer100m(paceSecPer100m(speed));
+                return [
+                  ...(text == null ? [] : [`每 100m 配速: ${text}/100m（计时器时间口径）`]),
+                  // 划频（次/分）。旧提示词写「划频/划水次数本数据源不提供」——
+                  // 但真实库 4/4 条游泳活动都有 `average_cadence`（44/48/48/46，
+                  // 即每分钟划水次数）。要求模型「不要提」一个真实存在的字段，
+                  // 会让它要么装看不见、要么违反指令。
+                  ...(activity.average_cadence != null
+                    ? [`划频: ${Math.round(activity.average_cadence)} 次/分`]
+                    : []),
+                ];
+              })()
+            : []),
           `平均速度: ${activity.average_speed != null ? activity.average_speed.toFixed(2) : '--'} km/h`,
           statRow([
             ['训练效果', fmtNum(activity.total_training_effect, 1)],

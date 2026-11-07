@@ -24,6 +24,24 @@
 /** 跑步类型集合（与 `runningTypeClause` 的 SQL 列表严格一致）。 */
 export const RUNNING_ACTIVITY_TYPES = ['running', 'track_running', 'treadmill_running'] as const;
 
+/**
+ * 游泳类型集合 —— 「按 100m 计量」的运动。
+ *
+ * 为什么需要独立判定：游泳的配速语言是**秒/100m**（池长 25/50m），而全站其它
+ * 运动是秒/公里。把游泳的 `average_pace`（1670 s/km）当跑步配速展示，量级
+ * 差 10 倍且方向相反（数字大=慢，但游泳习惯看 100m 的小数字）。
+ *
+ * `open_water` 目前生产库为 0 条，但 Garmin 会写该键（公开水域游泳），
+ * 预先纳入以免未来同步进来的活动被当成「未知非跑步类型」而丢掉专项解读。
+ */
+export const SWIMMING_ACTIVITY_TYPES = ['lap_swimming', 'open_water'] as const;
+
+/** 是否属于游泳类型（空值/未知类型 → false，与 `isRunningType` 相反方向）。 */
+export function isSwimmingType(type: string | null | undefined): boolean {
+  if (!type) return false;
+  return (SWIMMING_ACTIVITY_TYPES as readonly string[]).includes(type);
+}
+
 /** 运动类型 → 中文展示名（列表/卡片用；未收录的回落原值）。 */
 export const ACTIVITY_TYPE_LABELS: Record<string, string> = {
   running: '跑步',
@@ -33,6 +51,7 @@ export const ACTIVITY_TYPE_LABELS: Record<string, string> = {
   floor_climbing: '爬楼',
   indoor_cardio: '室内有氧',
   lap_swimming: '泳池游泳',
+  open_water: '公开水域游泳',
   basketball: '篮球',
   hiit: 'HIIT',
   jump_rope: '跳绳',
@@ -50,6 +69,7 @@ export const ACTIVITY_TYPE_ICONS: Record<string, string> = {
   floor_climbing: '🧗',
   indoor_cardio: '🤸',
   lap_swimming: '🏊',
+  open_water: '🏊',
   basketball: '🏀',
   hiit: '🔥',
   jump_rope: '🪢',

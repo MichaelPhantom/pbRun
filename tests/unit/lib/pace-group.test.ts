@@ -1,7 +1,9 @@
 import {
+  formatPacePer100m,
   groupCadence,
   groupHeartRate,
   groupPaceSecPerKm,
+  paceSecPer100m,
   type GroupSample,
 } from '@/app/lib/pace';
 
@@ -152,5 +154,58 @@ describe('groupCadence', () => {
   test('空输入 / 全缺 → null', () => {
     expect(groupCadence([])).toBeNull();
     expect(groupCadence([{ cadence: null, seconds: 100 }])).toBeNull();
+  });
+});
+
+/**
+ * 游泳「每 100m 配速」—— 提示词曾写「由平均速度换算（÷10 即秒/100m）」。
+ *
+ * 这句话**两处都错**：
+ *  1. `÷10` 只对「秒/公里」成立（100m = 0.1km），数据块里给的是 `average_speed`
+ *     （km/h）—— 对 2.535 km/h 做 ÷10 得 0.25，会被读成「每 100 米 0.25 秒」；
+ *  2. 换算需要 `3600 / 速度(km/h) / 10 = 360 / 速度`，中间隔着两步。
+ *
+ * 验算用**真实库四条游泳**的 `average_speed`（见下方用例），并与
+ * `average_pace / 10` 交叉校验 —— 两者本应完全一致（互为倒数）。
+ */
+describe('paceSecPer100m / formatPacePer100m', () => {
+  test.each([
+    // [activity_id, average_speed(km/h), average_pace(s/km), 期望秒/100m, 期望展示]
+    [630387237, 2.5352112676056335, 1420.0000000000002, 142.0, '2:22'],
+    [599287904, 1.3362068965517242, 2694.1935483870966, 269.4, '4:29'],
+    [617083438, 3.322147651006712, 1083.6363636363635, 108.4, '1:48'],
+    [614598589, 1.6024844720496896, 2246.5116279069766, 224.7, '3:45'],
+  ])('真实库游泳 %i: %s km/h → %s s/100m (%s)', (_id, speed, pace, wantSec, wantText) => {
+    const got = paceSecPer100m(speed)!;
+    expect(got).toBeCloseTo(wantSec, 1);
+    // 与 average_pace ÷ 10 交叉校验（同一口径的两种表达，必须自洽）
+    expect(got).toBeCloseTo(pace / 10, 6);
+    expect(formatPacePer100m(got)).toBe(wantText);
+  });
+
+  test('÷10 的旧公式对 km/h 是错的 (2.535 → 0.25, 不是 142)', () => {
+    // 守护这条注释：如果有人「优化」成 speed/10，这个断言会立刻炸
+    expect(2.5352112676056335 / 10).toBeCloseTo(0.2535, 4);
+    expect(paceSecPer100m(2.5352112676056335)).toBeCloseTo(142.0, 1);
+  });
+
+  test('null / 0 / 负数 / 非有限 → null (不造 0 配速)', () => {
+    expect(paceSecPer100m(null)).toBeNull();
+    expect(paceSecPer100m(undefined)).toBeNull();
+    expect(paceSecPer100m(0)).toBeNull();
+    expect(paceSecPer100m(-2.5)).toBeNull();
+    expect(paceSecPer100m(Number.NaN)).toBeNull();
+    expect(paceSecPer100m(Number.POSITIVE_INFINITY)).toBeNull();
+  });
+
+  test('formatPacePer100m 三态 + 秒补零', () => {
+    expect(formatPacePer100m(null)).toBeNull();
+    expect(formatPacePer100m(0)).toBeNull();
+    expect(formatPacePer100m(-1)).toBeNull();
+    expect(formatPacePer100m(108.4)).toBe('1:48');
+    expect(formatPacePer100m(65)).toBe('1:05'); // 秒必须补零, 不能是 1:5
+    expect(formatPacePer100m(60)).toBe('1:00');
+    // 359.6 四舍五入到 360 → 6:00 (不能出现 5:60)
+    expect(formatPacePer100m(359.6)).toBe('6:00');
   });
 });

@@ -130,6 +130,11 @@ export async function registerTools(server: McpServer): Promise<void> {
         'hrv_rmssd(HRV 毫秒, 仅部分活动有)。' +
         'vdot_value 仅在 Z3+ 代表性强度段计算（取最快 Z3+ lap，否则全程 Z3+），日常轻松/恢复跑为 null；' +
         'training_load 优先 FIT 官方，缺省回退时长×心率档；' +
+        '**游泳（activity_type=lap_swimming/open_water）的配速语言是秒/100m**：' +
+        'average_pace 是秒/公里，每 100m 配速 = average_pace ÷ 10（÷10 只对秒/公里成立；' +
+        'average_speed 是 km/h，换算要 360 ÷ 速度）；' +
+        '游泳的 average_cadence 是**划频（次/分）**不是步频（真实库 4/4 有值 44~48）；' +
+        '总划水次数/泳姿不在本数据源。' +
         'JSON 字段需自行 parse; 字段缺失表示该活动无对应数据。',
       inputSchema: {
         activityId: z.number().int().positive().describe('活动 ID'),
@@ -152,7 +157,11 @@ export async function registerTools(server: McpServer): Promise<void> {
         '**距离三态**：`null` = 未同步到；`0` = 该段无距离语义（力量/爬楼/跳绳/室内骑行' +
         '整组为 0；游泳/间歇的休息段也是 0）；`>0` = 正常。不要把 `0` 当「没移动」。' +
         '非跑步活动的 `average_pace` 不是跑步配速（泳池 1670s/km、乒乓 30826s/km），' +
-        '`average_power` 在非跑步 lap 上恒为 null。',
+        '`average_power` 在非跑步 lap 上恒为 null。' +
+        '**游泳（lap_swimming/open_water）的配速语言是秒/100m**：本工具返回的 `average_pace` ' +
+        '是秒/公里，每 100m 配速 = `average_pace ÷ 10`（仅对秒/公里成立，不要对 km/h 做 ÷10，' +
+        'km/h 换算要 360 ÷ 速度）；' +
+        '`distance = 0` 的休息段没有配速语义，`average_pace` 为 null，不要读成 0。',
       inputSchema: {
         activityId: z.number().int().positive().describe('活动 ID'),
       },
@@ -177,7 +186,10 @@ export async function registerTools(server: McpServer): Promise<void> {
         '（力量/爬楼/跳绳），不要读成「几乎没移动」；`>0` = 正常里程。' +
         'running=false 表示非跑步活动（游泳/球类/力量训练等）：此时 averagePaceSecPerKm 恒为 null，' +
         'insight.lapAnalysis 的配速派生字段与 gradeAdjusted 也已置空 —— 这些量的分母是「每公里」，' +
-        '对非跑步运动没有可比语义，请勿把它们当作配速解读。',
+        '对非跑步运动没有可比语义，请勿把它们当作配速解读。' +
+        '**游泳（lap_swimming/open_water）请改看秒/100m**：本工具的 contextText 与 activity 数据里的 ' +
+        'average_pace 是秒/公里，每 100m 配速 = average_pace ÷ 10（÷10 只对秒/公里成立，' +
+        '对 km/h 的 average_speed 要 360 ÷ 速度）；average_cadence 是划频（次/分）不是步频。',
       inputSchema: {
         activityId: z.number().int().positive().describe('活动 ID'),
       },

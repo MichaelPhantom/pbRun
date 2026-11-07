@@ -9,11 +9,13 @@ import {
   ACTIVITY_TYPE_ICONS,
   ACTIVITY_TYPE_LABELS,
   RUNNING_ACTIVITY_TYPES,
+  SWIMMING_ACTIVITY_TYPES,
   activityTypeIcon,
   activityTypeLabel,
   activityTypeName,
   isInformativeTypeValue,
   isRunningType,
+  isSwimmingType,
 } from '@/app/lib/sport';
 
 describe('RUNNING_ACTIVITY_TYPES', () => {
@@ -202,5 +204,54 @@ describe('isInformativeTypeValue', () => {
     expect(isInformativeTypeValue('路跑', 'running')).toBe(true);
     expect(isInformativeTypeValue('泳池', 'lap_swimming')).toBe(false); // 泳池游泳 已含
     expect(isInformativeTypeValue('室内骑行', 'indoor_cycling')).toBe(false);
+  });
+});
+
+/**
+ * 游泳类型判定 —— 「按 100m 计量」的运动。
+ *
+ * 为什么需要它：游泳的配速语言是**秒/100m**，全站其它运动是秒/公里。若把游泳的
+ * `average_pace`（真实库 1670 s/km）当跑步配速展示，量级差 10 倍；若按公里配速
+ * 交给模型，模型会拿它跟跑步配速比较。判定必须与「跑步口径」同一纪律：
+ * 单一纯函数来源，UI / 数据块 / 提示词全部引用它。
+ */
+describe('isSwimmingType', () => {
+  test('恰好两个游泳类型, 不含任何其它运动', () => {
+    expect([...SWIMMING_ACTIVITY_TYPES]).toEqual(['lap_swimming', 'open_water']);
+    expect(SWIMMING_ACTIVITY_TYPES).not.toContain('running');
+    expect(SWIMMING_ACTIVITY_TYPES).not.toContain('strength_training');
+  });
+
+  test.each(['lap_swimming', 'open_water'])('%s 是游泳', (t) => {
+    expect(isSwimmingType(t)).toBe(true);
+  });
+
+  test.each([
+    'running',
+    'track_running',
+    'treadmill_running',
+    'strength_training',
+    'basketball',
+    'floor_climbing',
+    'indoor_cardio',
+    'hiit',
+    'jump_rope',
+    'table_tennis',
+    'badminton',
+    'indoor_cycling',
+    'cycling',
+    'swimming', // 未知/非规范键: 宁可不当游泳, 也不能套错配速口径
+  ])('%s 不是游泳', (t) => {
+    expect(isSwimmingType(t)).toBe(false);
+  });
+
+  test('null / undefined / 空串 → false (与 isRunningType 的旧库兼容方向相反)', () => {
+    // 空 activity_type 归跑步（旧库全是跑步），所以**不能**同时算游泳 ——
+    // 两个判定都返回 true 会让数据块同时输出跑步与游泳两套指标。
+    expect(isSwimmingType(null)).toBe(false);
+    expect(isSwimmingType(undefined)).toBe(false);
+    expect(isSwimmingType('')).toBe(false);
+    expect(isRunningType(null)).toBe(true);
+    expect(isRunningType('') && isSwimmingType('')).toBe(false);
   });
 });

@@ -1,12 +1,19 @@
 import Link from "next/link";
 import type { Activity } from "@/app/lib/types";
 import { formatDistance, formatDuration, formatPaceShort, formatListDateTime } from "@/app/lib/format";
-import { activityTypeLabel, isRunningType } from "@/app/lib/sport";
-import { effectiveTimeSec } from "@/app/lib/pace";
+import { activityTypeLabel, isRunningType, isSwimmingType } from "@/app/lib/sport";
+import { effectiveTimeSec, paceSecPer100m, formatPacePer100m, speedKmh } from "@/app/lib/pace";
 
 /** 仪表盘「最近活动」紧凑卡 (server component)。 */
 export function RecentActivityCard({ activity }: { activity: Activity }) {
   const running = isRunningType(activity.activity_type);
+  // 游泳的配速语言是秒/100m（与详情页/AI 数据块同一来源 `pace.paceSecPer100m`）。
+  // 首页这张卡此前对游泳只显示「时长 + 类型徽标」，用户看不出游得多快。
+  const swimPace100 = isSwimmingType(activity.activity_type)
+    ? formatPacePer100m(
+        paceSecPer100m(speedKmh(activity.distance, effectiveTimeSec(activity)) ?? activity.average_speed),
+      )
+    : null;
   // 无名称时按运动类型兜底 —— 库里同时有篮球/游泳/力量训练，一律写「跑步」是错的。
   const name =
     activity.name ||
@@ -47,6 +54,8 @@ export function RecentActivityCard({ activity }: { activity: Activity }) {
           {formatDuration(duration)}
           {/* 配速只对跑步有意义: 游泳/篮球的 average_pace 不是跑步配速 */}
           {running && ` · ${formatPaceShort(activity.average_pace)}`}
+          {/* 游泳换成本行话的秒/100m（不是秒/公里 —— 量级差 10 倍）。 */}
+          {!running && swimPace100 && ` · ${swimPace100}/100m`}
         </span>
         {!running && (
           <span className="rounded-md bg-[var(--surface-2)] border border-[var(--border)] px-1.5 py-0.5 text-[10px] text-fg-secondary">

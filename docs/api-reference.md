@@ -125,14 +125,20 @@ GET /api/activities
 
 ### 2. 获取可用月份列表
 
-按月汇总总距离与活动次数（**全类型口径**），用于 `/list` 页的月份折叠卡片。
-`totalDistance` 为**公里**（与 `activities.distance` 一致）；「N 公里 / N 次」与展开后的
-活动卡片严格一致（含非跑步活动）。
+按月汇总里程与活动次数（**双口径同行**），用于 `/list` 页的月份折叠卡片。
+
+| 字段 | 口径 | 用途 |
+|------|------|------|
+| `runDistance` / `runCount` | **只跑步**（`running` / `track_running` / `treadmill_running`，空 `activity_type` 视为跑步） | 月度「N 公里」—— 用全类型会把游泳距离加进跑量（真实库 2026-08 多 2.05km） |
+| `totalDistance` / `count` | **全类型**（含游泳/球类/力量训练） | 月度「N 次」与展开后的卡片数严格一致（真实库 2026-09 若只算跑步会显示 3 次却列出 4 张卡） |
+
+`totalDistance` 为**公里**（与 `activities.distance` 一致）。筛选非跑步类型时
+`runDistance`/`runCount` 恒为 0 —— 此时里程在 `totalDistance` 里，不要读成「这个月没运动」。
 
 **请求**
 
 ```http
-GET /api/activities/months?limit=6&offset=0
+GET /api/activities/months?limit=6&offset=0&type=lap_swimming&q=游泳
 ```
 
 **查询参数**
@@ -141,16 +147,23 @@ GET /api/activities/months?limit=6&offset=0
 |------|------|------|------|------|
 | `limit` | number | 否 | 返回月份数（1–100）。**不传则返回全部** | `6` |
 | `offset` | number | 否 | 偏移量，默认 0 | `6` |
+| `type` | string | 否 | 按运动类型过滤（原始 `activity_type` 键，最长 64）。`all` / 空串 / 纯空白 = **不过滤**（归一在 `db.normalizeTypeFilter`）。不匹配的月份**不出现**，`total` 随之变化 | `strength_training` |
+| `q` | string | 否 | 搜索词（最长 200），**同时匹配活动名称与运动类型中文名**，大小写不敏感。纯空白 = 不过滤（`db.normalizeQueryFilter`）。`q=力量` 能命中名称不含「力量」的 51 条力量课 | `力量` |
 
 **响应示例**
 
 ```json
 {
   "data": [
-    { "monthKey": "2026-10", "totalDistance": 140.7707, "count": 17 },
-    { "monthKey": "2026-09", "totalDistance": 200.84222, "count": 25 }
+    {
+      "monthKey": "2026-08",
+      "runDistance": 197.55,
+      "runCount": 23,
+      "totalDistance": 199.6,
+      "count": 31
+    }
   ],
-  "total": 26
+  "total": 13
 }
 ```
 
@@ -915,7 +928,11 @@ GET /api/activities/{id}/insight
 不套用跑步教练框架（VDOT / 配速区间 / 步频步幅 / 触地平衡），改为综合体能教练 +
 交叉训练视角，重点回答「本次负荷如何、对跑步是促进还是妨碍、下次跑步怎么安排」。
 活动数据段对非跑步**整行不输出**配速/步频/步幅/触地/跑力行（分段改用时长），
-避免模型把泳池的 1670 s/km 解读成「配速偏慢」。同时非跑步活动不做配速横向对比
+避免模型把泳池的 1670 s/km 解读成「配速偏慢」。**游泳例外地补两行专属指标**：
+「每 100m 配速: 2:22/100m」（`pace.paceSecPer100m` = `360 ÷ 速度(km/h)`，唯一实现）
+与「划频: 44 次/分」（`average_cadence`，真实库 4/4 条游泳有值）—— 秒/100m 是游泳的
+行业口径，秒/公里量级差 10 倍；划频是真实存在的字段，旧提示词误称「本数据源不提供」。
+同时非跑步活动不做配速横向对比
 （`paceComparable` 守卫），分段/心率区间等个人指标照常提供。
 
 **非跑步的可比样本块也按同一口径收敛**（`activity-coach-context.ts`）：分段行
