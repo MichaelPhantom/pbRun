@@ -57,7 +57,14 @@ export function getInsight(params: InsightParams): InsightResponse {
 
   const zTotals = db.getHrZoneTotals(startDate, endDate);
   // 负荷序列取「预热窗口 → 区间末」, 但周聚合仅展示所选区间
-  const loadPoints = db.getDailyLoads(warmupStart, endDate);
+  //
+  // ⚠ **合并口径**（跑步 + 力量）：首页/分析页/跑者画像/MCP 全部走
+  // `getCombinedTrainingLoads`。洞察页若仍走 `getDailyLoads`（跑步口径），同一时期
+  // 会显示两个 ACWR（真实库近 28 天：合并 1.32 / 跑步 1.40），而两张卡看起来都自洽。
+  // 合并规则只加 `load`，`distance`/`duration`/`runs` 保持跑步原值 —— 见
+  // `app/lib/strength.ts` 的 `mergeStrengthIntoTrainingLoads`，所以下面的
+  // 「周跑量 / 跑步次数 / 均配速」语义不受影响。
+  const loadPoints = db.getCombinedTrainingLoads(warmupStart, endDate);
   const dailyLoads = loadPoints.map((p) => ({
     date: p.date,
     load: p.load,

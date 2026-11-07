@@ -1097,3 +1097,117 @@ describe('分段序号与最快段标签 (位置/距离派生, 不用存储键)'
     expect(screen.queryByRole('table', { name: '每公里分段数据' })).toBeNull();
   });
 });
+
+/**
+ * 力量训练详情页画像（2026-11-07 新增）。
+ *
+ * 数据边界：FIT 无 `set` 消息 → 动作名/重量/次数不可得。详情页只能呈现
+ * 真实可推导的内容：计划名、组结构（工作/休息）、时长、HR、训练效应、恢复建议。
+ * 硬造「深蹲 80kg × 5」就是假数据。
+ */
+describe('力量训练活动详情', () => {
+  const CORE_STEPS = JSON.stringify(
+    Array.from({ length: 14 }, (_, i) => ({
+      duration_type: 'time',
+      duration_sec: i % 2 === 0 ? 40 : 20,
+      intensity: i % 2 === 0 ? 'active' : 'rest',
+    })),
+  );
+
+  const strengthActivity = {
+    ...activity,
+    activity_id: 652761578,
+    name: '核心稳定性1',
+    activity_type: 'strength_training',
+    sport_type: '训练',
+    sub_sport_type: '力量',
+    distance: 0,
+    duration: 3609,
+    moving_time: 3609,
+    average_pace: null,
+    average_cadence: null,
+    average_stride_length: null,
+    vdot_value: null,
+    average_heart_rate: 73,
+    max_heart_rate: 108,
+    calories: 127,
+    training_load: 60,
+    total_training_effect: 0.1,
+    total_anaerobic_training_effect: 0,
+    primary_benefit: '通用',
+    recovery_time: 2089,
+    workout_name: '核心稳定性1',
+    workout_steps: CORE_STEPS,
+    average_power: null,
+    average_gct_balance: null,
+  };
+
+  test('力量课画像卡: 计划名/组数/工作休息比/时长/强度域/恢复建议', async () => {
+    db.getActivityById.mockReturnValue(strengthActivity);
+    db.getActivityLaps.mockReturnValue([]);
+    db.getActivityRecords.mockReturnValue([]);
+    db.getActivityTrack.mockReturnValue(null);
+
+    render(await page('652761578'));
+
+    expect(screen.getByText('力量训练分析')).toBeInTheDocument();
+    const card = screen.getByText('力量训练分析').closest('section')!;
+    // 计划名
+    expect(within(card).getByText('核心稳定性1')).toBeInTheDocument();
+    // 7 个有效组 + 7 个休息段（两个独立 StatCard，各有一个 7）
+    expect(within(card).getAllByText('7').length).toBe(2);
+    expect(within(card).getByText('有效组数')).toBeInTheDocument();
+    expect(within(card).getByText('休息段')).toBeInTheDocument();
+    // 工作:休息 = 280/140 = 2.0:1
+    expect(within(card).getByText('2.0:1')).toBeInTheDocument();
+    // 结构类型
+    expect(within(card).getByText(/循环\/间歇/)).toBeInTheDocument();
+    // 强度域 (TE 0.1 → recovery)
+    expect(within(card).getByText('恢复')).toBeInTheDocument();
+  });
+
+  test('数据边界必须对用户可见 (说明为什么没有重量/次数)', async () => {
+    db.getActivityById.mockReturnValue(strengthActivity);
+    db.getActivityLaps.mockReturnValue([]);
+    db.getActivityRecords.mockReturnValue([]);
+    db.getActivityTrack.mockReturnValue(null);
+
+    render(await page('652761578'));
+    expect(screen.getByText(/重量与次数不可得/)).toBeInTheDocument();
+    expect(screen.getByText(/exerciseSets/)).toBeInTheDocument();
+  });
+
+  test('无课表的力量课 → 不渲染画像卡 (而不是展示一堆 0)', async () => {
+    db.getActivityById.mockReturnValue({
+      ...strengthActivity,
+      workout_name: null,
+      workout_steps: null,
+    });
+    db.getActivityLaps.mockReturnValue([]);
+    db.getActivityRecords.mockReturnValue([]);
+    db.getActivityTrack.mockReturnValue(null);
+
+    render(await page('652761578'));
+    expect(screen.queryByText('力量训练分析')).toBeNull();
+  });
+
+  test('跑步活动不渲染力量画像卡 (口径隔离)', async () => {
+    render(await page('1001'));
+    expect(screen.queryByText('力量训练分析')).toBeNull();
+  });
+
+  test('计划时长与实际时长并列展示 (课表是一轮模板, 不能混淆)', async () => {
+    db.getActivityById.mockReturnValue(strengthActivity);
+    db.getActivityLaps.mockReturnValue([]);
+    db.getActivityRecords.mockReturnValue([]);
+    db.getActivityTrack.mockReturnValue(null);
+
+    render(await page('652761578'));
+    const card = screen.getByText('力量训练分析').closest('section')!;
+    // 计划 420s = 7:00, 实际 3609s = 60:09 —— 两个数字必须分开出现。
+    // 若把计划时长当实际, 「每次练多久」会少算 8 倍。
+    // 「计划 7:00」「实际 60:09」两个 <span> 必须同时存在且数字不同
+    expect(within(card).getByText(/^计划$/).parentElement?.textContent).toContain('7:00');
+    expect(within(card).getByText(/^实际$/).parentElement?.textContent).toContain('1:00:09');
+  });
+});

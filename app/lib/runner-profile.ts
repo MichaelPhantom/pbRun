@@ -8,7 +8,7 @@
  *
  * 容错纪律: 任何查询失败一律降级 (缺失字段不展示), 绝不阻塞分析主流程。
  */
-import { getActivities, getPersonalRecords, getStats, getTrainingLoads, getVDOTHistory } from './db';
+import { getActivities, getPersonalRecords, getStats, getCombinedTrainingLoads, getVDOTHistory } from './db';
 import { todayLocalDate } from './timezone';
 import { computeTrainingLoads, trainingLoadFetchStart, tsbStatus } from './training-load';
 import { formatDuration } from './format';
@@ -104,7 +104,8 @@ export function buildRunnerProfile(exclude: Activity): RunnerProfile {
   let tsb: number | null = null;
   let tsbLabel: string | null = null;
   try {
-    const points = getTrainingLoads(trainingLoadFetchStart(day), day);
+    // 合并口径 (跑步 + 力量): 画像的 CTL/ATL/TSB 要反映真实总负荷
+    const points = getCombinedTrainingLoads(trainingLoadFetchStart(day), day);
     const { series } = computeTrainingLoads(points, day);
     const hit = [...series].reverse().find((p) => p.date <= day);
     if (hit) {

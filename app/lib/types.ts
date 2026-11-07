@@ -381,6 +381,54 @@ export interface TrainingLoadPoint {
   runs: number;
 }
 
+/**
+ * 力量训练的一次结构化画像（`getStrengthSessions` 的返回元素）。
+ *
+ * **数据边界（实测，不要越界）**：FIT 文件里**没有** `set` 消息 —— 动作名/重量/次数
+ * 只在 Garmin 云端 `exerciseSets` 提供（51 条本地 FIT 实测 `set`/`exercise_title`
+ * 消息数为 0）。故本结构**不含**「组数 × 重量」这类容量字段，只输出真实可推导的
+ * 计划结构 + 生理指标。硬造容量数据就是假数据。
+ *
+ * 字段分两层：基础信息（activityId/name/startTimeLocal…）与
+ * `StrengthProfile` 的结构化画像（planName/workingSets/structure/intensityDomain…）。
+ */
+export interface StrengthSession {
+  activityId: number;
+  name: string | null;
+  /** 本地开始时间（`YYYY-MM-DDTHH:MM:SS.sss`，项目墙钟契约）。 */
+  startTimeLocal: string;
+  /** 训练时长（秒，计时器时间优先，与配速/TSS 同一纪律）。 */
+  durationSeconds: number;
+  avgHeartRate: number | null;
+  maxHeartRate: number | null;
+  calories: number | null;
+  /** 有氧训练效应（0–5）；`null` = 设备未写。 */
+  aerobicEffect: number | null;
+  /** 无氧训练效应（0–5）；`null` = 设备未写。 */
+  anaerobicEffect: number | null;
+  primaryBenefit: string | null;
+  /** 官方恢复建议（**分钟**；真实库赛后 ~4400 ≈ 3 天）。 */
+  recoveryTimeMinutes: number | null;
+  /** 派生训练负荷分（与跑步 `training_load` 同量纲）。 */
+  load: number;
+  /** 训练计划名（`workout_name` → 活动名 → null）。 */
+  planName: string | null;
+  /** 有效（工作）组数 = active/interval 步数。 */
+  workingSets: number;
+  /** 休息段数。 */
+  restSets: number;
+  /** 每步计划时长之和（秒）；无课表为 0。 */
+  plannedSeconds: number;
+  workingSeconds: number;
+  restSeconds: number;
+  /** 工作:休息 时长比；无休息为 null。 */
+  workRestRatio: number | null;
+  /** 结构类型：循环/间歇 · 连续 · 无课表。 */
+  structure: 'intervals' | 'continuous' | 'unknown';
+  /** 心率强度域（以训练效应为主判定）。 */
+  intensityDomain: 'recovery' | 'base' | 'tempo' | 'high' | 'unknown';
+}
+
 /** 跑力配速区间：基于 VDOT 的 Z1-Z5 目标配速及该区间内 laps 的统计 */
 export interface PaceZoneStat {
   zone: number;                                  // 1-5，对应 Z1-Z5

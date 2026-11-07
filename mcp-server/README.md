@@ -5,7 +5,7 @@
 - **传输**: stdio (本地 AI 客户端直连, 无端口/认证)
 - **DB**: 只读访问 `app/data/activities.db` (SQLite WAL, 与 Next.js + cron 写入无冲突)
 - **依赖复用**: 直接 import `app/lib/{db,types,vdot-pace}.ts` (无 Next.js 依赖)
-- **目录**: `index.ts` 入口 / `tools.ts` 17 个 tool / `analysis.ts` 纯逻辑 (可单测)
+- **目录**: `index.ts` 入口 / `tools.ts` 19 个 tool / `analysis.ts` 纯逻辑 (可单测)
 
 ## 构建与运行
 
@@ -39,7 +39,7 @@ npm test -- tests/unit/lib/db-mcp.test.ts tests/unit/mcp/analysis.test.ts tests/
 - `tests/unit/mcp/analysis.test.ts` — 降采样 / 日期 / 心率区间 / 跨期对比 / ACWR 纯逻辑
 - `tests/unit/mcp/tools-comparables.test.ts` — 当次可比工具的成功/活动不存在/深挖缺失路径
 
-## 工具清单 (17 个)
+## 工具清单 (19 个)
 
 基础数据 (14 个, 复用 db.ts): `list_activities`, `get_activity`, `get_activity_laps`,
 `get_activity_records` (支持降采样), `get_activity_track` (路线轨迹), `get_stats`,
@@ -49,6 +49,46 @@ npm test -- tests/unit/lib/db-mcp.test.ts tests/unit/mcp/analysis.test.ts tests/
 
 AI 专用 (3 个): `get_activity_comparables` (当次横向可比样本 + 环境修正 + 可直接注入
 prompt 的 contextText), `compare_periods` (跨期对比), `get_training_load_analysis` (ACWR 训练负荷分析)
+
+力量训练 (2 个, 2026-11 新增): `get_strength_sessions` (结构化画像: 计划名/有效组数/
+工作休息比/结构类型/强度域/训练效应/恢复建议/派生负荷), `get_strength_loads`
+(按本地日期聚合的力量负荷)
+
+## 统计口径 (三套, 不可混用)
+
+| 口径 | 工具 | 规则 |
+|------|------|------|
+| **跑步口径** | `get_stats` `get_personal_records` `get_vdot_history` `get_vdot_trend` `get_hr_zone_analysis` `get_pace_zone_analysis` `get_power_zone_analysis` `compare_periods` `get_daily_distances` | 只统计 `running` / `track_running` / `treadmill_running` |
+| **全类型口径** | `list_activities` `get_month_summaries` | 收录全部运动（跑步/力量/球类/游泳…），活动日志用 |
+| **合并口径** | `get_training_load_analysis` | **负荷** = 跑步 + 力量（按训练效应加权派生）；**里程/时长/次数仍只统计跑步** |
+| **力量专属** | `get_strength_sessions` `get_strength_loads` | 只查 `strength_training` |
+
+### 力量训练的数据边界 (实测, 不要越界)
+
+| 想拿 | 可得性 | 依据 |
+|---|---|---|
+| 动作名（深蹲/卧推） | ❌ | FIT 里没有 `set` 消息；Garmin 只在云端 `exerciseSets` 提供 |
+| 重量 / 次数 | ❌ | 同上（51 条本地 FIT 实测 `set`/`exercise_title` 消息数为 0） |
+| 训练计划名 | ✅ 49/51 | `activities.workout_name` |
+| 组结构（active/rest 交替） | ✅ 49/51 | `activities.workout_steps` JSON |
+| 时长 / 平均心率 / 卡路里 | ✅ 51/51 | 平铺列 |
+| 训练效应 (TE) | ✅ 51/51 | `total_training_effect` |
+| 官方恢复建议 | ✅ 51/51 | `recovery_time`（**分钟**） |
+
+因此这两个工具**不返回**「组数 × 重量」这类容量字段 —— 硬造就是假数据。输出的是
+「计划名 + 有效组数 + 工作/休息时长比 + 强度域」这套真实可推导的画像。
+
+### 力量负荷口径（与跑步 `training_load` 同量纲）
+
+`时长(h) × 100 × 域系数`，域系数按**训练效应**加权：
+`high 1.5 / tempo 1.3 / base 1.0 / recovery 0.6 / unknown 0.8`。
+
+为什么不复用跑步的 HR-TRIMP：力量心率响应滞后且峰值低（真实库 51 条平均心率
+73–129），套 Z1 系数 0.6 会让负荷趋近于零，等于没接。真实库回填后力量负荷均值
+32.7（跑步 73.2）。
+
+**量纲说明**：与库内跑步 `training_load` 同量纲，但**不是** Garmin 官方
+`training_load_peak`（后者与库内值比值 1.2–2.6 倍浮动、不可换算）。
 
 ## 数据完整性契约 (重要)
 
@@ -122,7 +162,7 @@ mcp_servers:
     enabled: true
 ```
 
-新会话自动加载; 验证: `hermes mcp test pbRun` (应显示 `Connected` + 17 tools)。
+新会话自动加载; 验证: `hermes mcp test pbRun` (应显示 `Connected` + 19 tools)。
 
 ## 重新构建 (代码变更后)
 

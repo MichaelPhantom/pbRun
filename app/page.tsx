@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { getLatestVdot, getTrainingLoads, getActivities, getVDOTHistory, getDailyDistances, getHrZoneStats } from "@/app/lib/db";
+import { getLatestVdot, getCombinedTrainingLoads, getActivities, getVDOTHistory, getDailyDistances, getHrZoneStats, getStrengthSessions } from "@/app/lib/db";
+import { summarizeStrengthSessions, STRENGTH_DOMAIN_LABELS, STRENGTH_STRUCTURE_LABELS } from "@/app/lib/strength";
 import { predictRaceTimes } from "@/app/lib/vdot-pace";
 import { computeTrainingLoads, trainingLoadFetchStart, tsbStatus } from "@/app/lib/training-load";
 import { todayLocalDate, localMonthKeyOf, localMonthKeyMinusMonths } from "@/app/lib/timezone";
@@ -33,14 +34,27 @@ export default async function DashboardPage() {
   const startStr = trainingLoadFetchStart(endStr);
 
   // 并行取数 (server, 互不依赖)
-  const [vdot, loadPoints, recent, vdotHistory, dailyDistances, hrZoneStats] = await Promise.all([
+  // 力量训练: 只取最近 6 个月（首页要的是「当前状态」，不是 51 条全史）。
+  // 上限 100 是 getStrengthSessions 的夹取值，与下面 limit 一起保证不越界。
+  const strengthStart = localMonthKeyMinusMonths(monthStr, 5) + '-01';
+
+  const [vdot, loadPoints, recent, vdotHistory, dailyDistances, hrZoneStats, strength] = await Promise.all([
     getLatestVdot(),
-    getTrainingLoads(startStr, endStr),
+    // 合并口径: 跑步负荷 + 力量负荷 (力量课此前对 CTL/ATL/TSB 完全隐形)
+    getCombinedTrainingLoads(startStr, endStr),
     getActivities({ page: 1, limit: 5 }),
     getVDOTHistory(24),
     getDailyDistances(year),
     getHrZoneStats({ startDate: `${monthStr}-01`, endDate: endStr, groupBy: "month" }),
+    getStrengthSessions({ limit: 60, startDate: strengthStart, endDate: endStr }),
   ]);
+
+  // 力量汇总: 卡片上的「本月」只统计本月（用 startTimeLocal 前缀筛，与服务端
+  // 同一本地日历口径），历史总量另行给「累计」。
+  const strengthAll = summarizeStrengthSessions(strength.data);
+  const strengthThisMonth = summarizeStrengthSessions(
+    strength.data.filter((x) => x.startTimeLocal.startsWith(monthStr)),
+  );
 
   const recentActivities = recent.data;
   const tl = computeTrainingLoads(loadPoints, endStr);
@@ -51,11 +65,13 @@ export default async function DashboardPage() {
   const thisMonthKm = sumKm(monthStr);
   const lastMonthKm = sumKm(prevMonthStr);
 
-  // 当月跑步天数 (有负荷的天数 — 保守计数)。
-  // 数据源 getTrainingLoads 是**跑步口径**, 因此这里数的是「跑步的天数」而不是
-  // 「所有活动的天数」: 真实库 2026-10 有 16 个活动日, 但只有 15 个跑步日
-  // (多出来的是力量训练/爬楼)。标签必须与口径一致, 否则用户会以为漏了一天。
-  const thisMonthRuns = loadPoints.filter((p) => p.date.startsWith(monthStr) && (p.load ?? 0) > 0).length;
+  // 当月跑步天数。
+  //
+  // ⚠ 判定必须是 `runs > 0` 而**不是** `load > 0`: 合并口径把力量训练负荷并入了
+  // `load`, 于是「只做了力量、没跑步」的日子 load > 0 但 runs = 0 —— 用 load 判定
+  // 会把它算成跑步日。真实库 2026-10 有 16 个活动日但只有 15 个跑步日
+  // (多出来的正是力量训练/爬楼), 标签写「跑步天数」就必须与 runs 口径一致。
+  const thisMonthRuns = loadPoints.filter((p) => p.date.startsWith(monthStr) && (p.runs ?? 0) > 0).length;
   // 当月均配速: 总时长 / 总距离(km)
   const monthAgg = loadPoints
     .filter((p) => p.date.startsWith(monthStr))
@@ -184,6 +200,60 @@ export default async function DashboardPage() {
           <StatCard value={monthLoad.toFixed(0)} label="训练负荷" />
         </div>
       </SectionCard>
+
+      {/* 力量训练。只在有记录时渲染 —— 全零空卡比不渲染更糟（用户会以为同步失败）。
+          数据边界必须写在卡上：FIT 文件没有 set 消息，动作名/重量/次数只在 Garmin
+          云端 exerciseSets 提供，本地管线拿不到。不写这句，用户会以为「为什么没有
+          深蹲 80kg × 5」是本项目漏做了。 */}
+      {strengthAll.sessions > 0 && (
+        <SectionCard
+          title="力量训练"
+          accent
+          action={
+            <span className="text-xs text-fg-muted">
+              近 6 个月 · 累计 {strengthAll.sessions} 次
+            </span>
+          }
+        >
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <StatCard value={strengthThisMonth.sessions} unit="次" label="本月次数" />
+            <StatCard
+              value={Math.round(strengthThisMonth.totalSeconds / 60)}
+              unit="分"
+              label="本月时长"
+            />
+            <StatCard value={strengthThisMonth.workingSets} unit="组" label="本月有效组数" />
+            <StatCard value={strengthThisMonth.totalLoad.toFixed(0)} label="本月负荷" />
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3 text-xs text-fg-secondary">
+            {strengthAll.latestPlanName && (
+              <span>
+                最近计划 <span className="font-medium text-fg">{strengthAll.latestPlanName}</span>
+              </span>
+            )}
+            {strengthAll.workRestRatio != null && (
+              <span>
+                工作:休息 <span className="tnum font-medium text-fg">{strengthAll.workRestRatio.toFixed(1)}:1</span>
+              </span>
+            )}
+            <Badge variant="neutral">
+              {STRENGTH_STRUCTURE_LABELS.intervals} {strengthAll.structures.intervals}
+            </Badge>
+            {(['high', 'tempo', 'base', 'recovery'] as const)
+              .filter((d) => strengthAll.domains[d] > 0)
+              .map((d) => (
+                <Badge key={d} variant="neutral">
+                  {STRENGTH_DOMAIN_LABELS[d]} {strengthAll.domains[d]}
+                </Badge>
+              ))}
+          </div>
+          <p className="mt-2 text-[11px] leading-relaxed text-fg-muted">
+            重量与次数不可得：FIT 文件不含 set 消息，动作名/重量/次数仅 Garmin 云端
+            exerciseSets 提供，本地同步管线只下 FIT。此处展示的是真实可推导的
+            计划名、组结构（工作/休息）、时长与训练效应。
+          </p>
+        </SectionCard>
+      )}
 
       {/* 年度热力图 */}
       <SectionCard title={`${year} 年度里程`} accent>

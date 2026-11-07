@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { formatPace, formatDuration, formatDateTime, formatListDateTime, formatRecoveryTime } from '@/app/lib/format';
 import type { Activity, ActivityLap, ActivityRecord, ActivityTrack, ActivityInsightResponse } from '@/app/lib/types';
 import { SectionCard } from '@/app/components/ui/SectionCard';
+import { StatCard } from '@/app/components/ui/StatCard';
 import { Badge } from '@/app/components/ui/Badge';
 import { DataTable } from '@/app/components/ui/DataTable';
 import ActivityTrendCharts, { trendChartTitle } from '@/app/lib/components/charts/ActivityTrendCharts';
@@ -23,6 +24,13 @@ import {
 import { elevationSpan } from '@/app/lib/elevation';
 import { effectiveTimeSec } from '@/app/lib/pace';
 import { evaluateWorkoutExecution, formatWorkoutPlan } from '@/app/lib/workout';
+import {
+  STRENGTH_DOMAIN_LABELS,
+  STRENGTH_STRUCTURE_LABELS,
+  buildStrengthProfile,
+  describeStrengthStructure,
+  strengthLoadOf,
+} from '@/app/lib/strength';
 
 // 路线地图纯 SVG 客户端组件 (无 leaflet 依赖); 仅在客户端渲染避免 SSR window 引用。
 // 注: 本处动态 import 与 loading 回调在单测中因 next/dynamic 被 mock 且 ssr:false 而不可达
@@ -94,6 +102,17 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
   const workoutExec = running
     ? evaluateWorkoutExecution(activity.workout_steps, activity.average_pace)
     : null;
+
+  // 力量训练画像。口径与 db/MCP 完全同源（同一个 buildStrengthProfile / strengthLoadOf），
+  // 页面只做投影 —— 若这里再算一遍「组数」，详情页与 MCP 输出的数字会分叉。
+  // 数据边界：FIT 无 set 消息，动作名/重量/次数不可得（见 app/lib/strength.ts 头注释）。
+  const strengthProfile = activity.activity_type === 'strength_training'
+    ? buildStrengthProfile(activity)
+    : null;
+  const strengthStructureText = strengthProfile
+    ? describeStrengthStructure(activity.workout_steps)
+    : null;
+  const strengthLoad = strengthProfile ? strengthLoadOf(activity) : null;
 
   // 深挖数据 (分段角色/主课漂移/区间/解耦/同路线对比): 详情页统一拉取一次, 供
   // 「分段数据」表的角色列与「深度分析」面板共用, 避免重复请求。失败时静默降级。
@@ -333,13 +352,84 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
         </SectionCard>
       )}
 
+      {/* 力量训练画像。放在「训练课表」之前: 力量课的核心信息是**组结构**,
+          而通用课表卡会把「主课 40s / 休息 20s」渲染成一条跑者视角的配速课表,
+          对力量课毫无意义。两者互斥 (strengthProfile 为 null 时走通用课表卡)。 */}
+      {strengthProfile && strengthStructureText && (
+        <SectionCard title="力量训练分析" accent>
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <span className="text-sm font-medium text-fg">
+              {strengthProfile.planName ?? '力量训练'}
+            </span>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Badge variant="neutral">{STRENGTH_STRUCTURE_LABELS[strengthProfile.structure]}</Badge>
+              <Badge variant="neutral">{STRENGTH_DOMAIN_LABELS[strengthProfile.intensityDomain]}</Badge>
+            </div>
+          </div>
+
+          <p className="mt-2 text-xs leading-relaxed text-fg-secondary">
+            课表结构：<span className="font-medium text-fg">{strengthStructureText}</span>
+          </p>
+
+          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <StatCard value={strengthProfile.workingSets} unit="组" label="有效组数" />
+            <StatCard value={strengthProfile.restSets} unit="段" label="休息段" />
+            <StatCard
+              value={
+                strengthProfile.workRestRatio != null
+                  ? `${strengthProfile.workRestRatio.toFixed(1)}:1`
+                  : '--'
+              }
+              label="工作:休息"
+            />
+            <StatCard
+              value={strengthLoad != null ? String(strengthLoad) : '--'}
+              label="力量负荷"
+              hint="按训练效应加权"
+            />
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-2 border-t border-border pt-3 text-[11px] text-fg-muted">
+            {/* 计划 vs 实际: 课表是「一轮」模板（420s），用户实际做了 3609s 多轮。
+                两个数字必须分开，不能把计划时长当实际时长 —— 那会让「每次练多久」少算 8 倍。 */}
+            <span>
+              计划 <span className="tnum text-fg-secondary">{formatDuration(strengthProfile.plannedSeconds)}</span>
+            </span>
+            <span>
+              实际 <span className="tnum text-fg-secondary">{formatDuration(durationSec)}</span>
+            </span>
+            {strengthProfile.aerobicEffect != null && (
+              <span>
+                有氧训练效应 <span className="tnum text-fg-secondary">{strengthProfile.aerobicEffect.toFixed(1)}</span>
+              </span>
+            )}
+            {strengthProfile.anaerobicEffect != null && strengthProfile.anaerobicEffect > 0 && (
+              <span>
+                无氧训练效应 <span className="tnum text-fg-secondary">{strengthProfile.anaerobicEffect.toFixed(1)}</span>
+              </span>
+            )}
+            {strengthProfile.avgHeartRate != null && (
+              <span>
+                平均心率 <span className="tnum text-fg-secondary">{Math.round(strengthProfile.avgHeartRate)} bpm</span>
+              </span>
+            )}
+          </div>
+
+          <p className="mt-2 text-[11px] leading-relaxed text-fg-muted">
+            重量与次数不可得：FIT 文件不含 set 消息，动作名/重量/次数仅 Garmin 云端
+            exerciseSets 提供，本地同步管线只下 FIT。此处展示真实可推导的计划名、
+            组结构、时长与训练效应。
+          </p>
+        </SectionCard>
+      )}
+
       {/* 训练课表。数据源 `workout_steps`（FIT workout_step），真实库 285/348 条有值、
           其中 225 条跑步活动全部带 speed 目标配速区间 —— 这是「执行质量」唯一的客观
           基准，此前从未在 UI 呈现过（AI 数据块也没有）。三层解析缺陷见 app/lib/workout.ts：
           多步课表曾被压成最后一步（120 条受影响，60 条只剩冷身）、时长存的是毫秒、
           目标配速存的是 mm/s。渲染条件是「有可执行步骤」而不是「有 workout_name」：
           真实库 63 条活动有课表名但无可执行步（只有循环控制消息）。 */}
-      {workoutPlan && (
+      {workoutPlan && !strengthProfile && (
         <SectionCard title="训练课表" accent>
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <span className="text-sm font-medium text-fg">{activity.workout_name || '课表'}</span>

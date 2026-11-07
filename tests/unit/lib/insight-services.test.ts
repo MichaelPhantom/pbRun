@@ -13,6 +13,12 @@ jest.mock('@/app/lib/db', () => ({
     { date: '2026-09-15', load: 60, distance: 12000, duration: 4000 },
     { date: '2026-09-22', load: 55, distance: 11000, duration: 3800 },
   ]),
+  // 合并口径入口 (跑步 + 力量)。洞察页必须走它, 否则与首页/分析页/MCP 分叉。
+  getCombinedTrainingLoads: jest.fn(() => [
+    { date: '2026-09-01', load: 50, distance: 10000, duration: 3600, runs: 1 },
+    { date: '2026-09-15', load: 60, distance: 12000, duration: 4000, runs: 1 },
+    { date: '2026-09-22', load: 55, distance: 11000, duration: 3800, runs: 1 },
+  ]),
   getTrainingLoads: jest.fn((s: string, e: string) => [
     { date: '2026-09-01', load: 50, distance: 10000, duration: 3600 },
     { date: '2026-09-22', load: 55, distance: 11000, duration: 3800 },
@@ -179,12 +185,37 @@ describe('insight-service.getInsight', () => {
   test('CTL 取数窗口覆盖 EWMA 预热（不是 ACWR 的 28 天）', () => {
     const db = jest.requireMock('@/app/lib/db');
     getInsight({ startDate: '2026-09-15', endDate: '2026-09-22' });
-    const [from] = (db.getDailyLoads as jest.Mock).mock.calls[0] as [string, string];
+    const [from] = (db.getCombinedTrainingLoads as jest.Mock).mock.calls[0] as [string, string];
     expect(from).toBe(trainingLoadFetchStart('2026-09-15'));
     // 判别式：28 天是旧值，必须不同
     expect(from).not.toBe('2026-08-18');
     const days = (Date.parse('2026-09-15') - Date.parse(from)) / 86400000;
     expect(days).toBe(TRAINING_LOAD_WARMUP_DAYS);
+  });
+
+  /**
+   * 洞察页的 ACWR/CTL 必须与首页/分析页/MCP 同一口径（**合并口径**：跑步 + 力量）。
+   *
+   * 2026-11 力量训练接入时，首页/分析页/跑者画像/MCP 全部切到
+   * `getCombinedTrainingLoads`，但 `/insight` 仍走 `getDailyLoads`（跑步口径）——
+   * 于是同一时期在洞察页显示 ACWR 1.40、在首页显示 1.32。用户看到的是
+   * 「同一周两个 ACWR」，且两张卡看起来都自洽，无法判断谁对。
+   *
+   * 这正是 `docs/features.md` §1.6 记的「合并口径必须显式且唯一」：
+   * 只要有一个页面漏接，口径分叉就不会报错、不会让测试变红。
+   */
+  test('负荷取数走合并口径 (getCombinedTrainingLoads, 不是跑步口径的 getDailyLoads)', () => {
+    const db = jest.requireMock('@/app/lib/db');
+    (db.getCombinedTrainingLoads as jest.Mock).mockClear();
+    (db.getDailyLoads as jest.Mock).mockClear();
+    getInsight({ startDate: '2026-09-15', endDate: '2026-09-22' });
+    expect(db.getCombinedTrainingLoads).toHaveBeenCalledTimes(1);
+    // 跑步口径入口不得再被调用 —— 漏接就会与首页/分析页分叉
+    expect(db.getDailyLoads).not.toHaveBeenCalled();
+    // 预热窗口与 CTL 契约不变
+    const [from, to] = (db.getCombinedTrainingLoads as jest.Mock).mock.calls[0] as [string, string];
+    expect(from).toBe(trainingLoadFetchStart('2026-09-15'));
+    expect(to).toBe('2026-09-22');
   });
 
   test('周期化 CTL 已收敛（长历史恒定负荷 → 显示首周即接近负荷值）', () => {
@@ -201,7 +232,7 @@ describe('insight-service.getInsight', () => {
         runs: 1,
       });
     }
-    (db.getDailyLoads as jest.Mock).mockImplementationOnce((s: string, e: string) =>
+    (db.getCombinedTrainingLoads as jest.Mock).mockImplementationOnce((s: string, e: string) =>
       rows.filter((r) => r.date >= s && r.date <= e),
     );
     const r = getInsight({ startDate: '2026-09-14', endDate: '2026-09-20' });

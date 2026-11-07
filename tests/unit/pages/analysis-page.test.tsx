@@ -6,7 +6,7 @@
  * 客户端侧: 区间占比建议 (超标/不足 vs 均衡)、各卡片空态、TSB 徽章、
  *          时间范围 Segmented、心率/配速表格与趋势链接。
  */
-import { render, screen, waitFor, cleanup } from '@testing-library/react';
+import { render, screen, waitFor, cleanup, within } from '@testing-library/react';
 
 jest.mock('@/app/lib/db', () => ({
   getHrZoneStats: jest.fn(),
@@ -14,7 +14,8 @@ jest.mock('@/app/lib/db', () => ({
   getStats: jest.fn(),
   getPaceZoneStats: jest.fn(),
   getPowerZoneStats: jest.fn(),
-  getTrainingLoads: jest.fn(),
+  getCombinedTrainingLoads: jest.fn(),
+  getStrengthSessions: jest.fn(),
 }));
 
 // GlobalCoach: 纯展示 mock, 避免触发模型目录网络请求
@@ -51,7 +52,8 @@ import {
   getStats,
   getPaceZoneStats,
   getPowerZoneStats,
-  getTrainingLoads,
+  getCombinedTrainingLoads,
+  getStrengthSessions,
 } from '@/app/lib/db';
 import AnalysisPage from '@/app/analysis/page';
 import { CTL_TAU, TRAINING_LOAD_WARMUP_DAYS } from '@/app/lib/training-load';
@@ -69,7 +71,8 @@ const db = {
   getStats: getStats as jest.Mock,
   getPaceZoneStats: getPaceZoneStats as jest.Mock,
   getPowerZoneStats: getPowerZoneStats as jest.Mock,
-  getTrainingLoads: getTrainingLoads as jest.Mock,
+  getCombinedTrainingLoads: getCombinedTrainingLoads as jest.Mock,
+  getStrengthSessions: getStrengthSessions as jest.Mock,
 };
 
 beforeAll(() => {
@@ -173,10 +176,44 @@ beforeEach(() => {
   db.getStats.mockReturnValue({ averageVDOT: 46.7 });
   db.getPaceZoneStats.mockReturnValue(paceZone(4));
   db.getPowerZoneStats.mockReturnValue({ zones: powerZone(4), reference: powerRef(350) });
-  db.getTrainingLoads.mockImplementation((start: string, end: string) => {
+  db.getCombinedTrainingLoads.mockImplementation((start: string, end: string) => {
     void start;
     return loadPoints(end);
   });
+  // 力量训练: 所选区间内 2 次（分析页只统计所选区间，不是「近 6 个月」）
+  db.getStrengthSessions.mockReturnValue({
+    data: [strengthSession({ activityId: 2001 }), strengthSession({ activityId: 2002 })],
+    total: 2,
+    returned: 2,
+    limit: 50,
+    offset: 0,
+  });
+});
+
+/** 力量课夹具 (字段与 StrengthSession 对齐)。 */
+const strengthSession = (over: Partial<Record<string, unknown>> = {}) => ({
+  activityId: 2000,
+  name: '全身循环1',
+  startTimeLocal: '2026-09-15T19:00:00',
+  durationSeconds: 1800,
+  avgHeartRate: 110,
+  maxHeartRate: 140,
+  calories: 120,
+  aerobicEffect: 2,
+  anaerobicEffect: 0,
+  primaryBenefit: '通用',
+  recoveryTimeMinutes: 600,
+  load: 50,
+  planName: '全身循环1',
+  workingSets: 7,
+  restSets: 7,
+  plannedSeconds: 420,
+  workingSeconds: 280,
+  restSeconds: 140,
+  workRestRatio: 2,
+  structure: 'intervals',
+  intensityDomain: 'base',
+  ...over,
 });
 
 describe('app/analysis/page.tsx 取数编排', () => {
@@ -200,7 +237,7 @@ describe('app/analysis/page.tsx 取数编排', () => {
     // 预热: 起点 = 显示起点前 `TRAINING_LOAD_WARMUP_DAYS`（5×τ=42=210）。
     // 旧值 90 天只走了 2.1τ，CTL 残留 11% 误差 —— 这里断言常量本身，
     // 而不是写死 210：改回任意更短的值都必须让本条转红。
-    const [extStart, extEnd] = db.getTrainingLoads.mock.calls[0] as [string, string];
+    const [extStart, extEnd] = db.getCombinedTrainingLoads.mock.calls[0] as [string, string];
     const diff =
       (new Date(startDate + 'T00:00:00Z').getTime() - new Date(extStart + 'T00:00:00Z').getTime()) /
       86400000;
@@ -231,7 +268,7 @@ describe('app/analysis/page.tsx 取数编排', () => {
    */
   test('最后训练日早于参考日 → 曲线与卡片都算到参考日', async () => {
     // 训练到 endDate 前 3 天为止（模拟休息 3 天）
-    db.getTrainingLoads.mockImplementation((_s: string, end: string) => {
+    db.getCombinedTrainingLoads.mockImplementation((_s: string, end: string) => {
       const endMs = Date.parse(end + 'T00:00:00Z');
       const out: { date: string; distance: number; load: number; duration: number }[] = [];
       for (let i = 130; i >= 3; i--) {
@@ -247,7 +284,7 @@ describe('app/analysis/page.tsx 取数编排', () => {
     await waitFor(() => expect(loadChartProps.length).toBeGreaterThan(0));
     const shown = loadChartProps[0].data as unknown as { date: string; ctl: number; atl: number; tsb: number }[];
     // 旧实现会停在 endDate-3
-    expect(shown[shown.length - 1].date).toBe(db.getTrainingLoads.mock.calls[0][1]);
+    expect(shown[shown.length - 1].date).toBe(db.getCombinedTrainingLoads.mock.calls[0][1]);
     // 休息 3 天 → CTL/ATL 都已衰减，TSB 转正
     const lastRun = shown[shown.length - 4];
     expect(shown[shown.length - 1].atl).toBeLessThan(lastRun.atl);
@@ -256,7 +293,7 @@ describe('app/analysis/page.tsx 取数编排', () => {
 
   test('无 VDOT → 不计算配速区间; 负荷点不足 → 无训练负荷图', async () => {
     db.getStats.mockReturnValue({ averageVDOT: null });
-    db.getTrainingLoads.mockReturnValue([]);
+    db.getCombinedTrainingLoads.mockReturnValue([]);
 
     render(await AnalysisPage({ searchParams: Promise.resolve({}) }));
 
@@ -430,5 +467,46 @@ describe('app/analysis/AnalysisClient.tsx 渲染', () => {
     render(await AnalysisPage({ searchParams: Promise.resolve({}) }));
     expect(screen.getAllByText('暂无心率区间数据')).toHaveLength(2);
     expect(screen.getByText('暂无跑力趋势数据')).toBeInTheDocument();
+  });
+});
+
+describe('分析页力量训练卡', () => {
+  test('次数/时长/组数/负荷 + 最近计划名 + 强度域分布', async () => {
+    render(await AnalysisPage({ searchParams: Promise.resolve({ days: '90' }) }));
+    const card = screen.getByText('力量训练').closest('section')!;
+    expect(within(card).getByText('训练次数')).toBeInTheDocument();
+    // 2 次 × 1800s = 3600s = 60 分
+    expect(within(card).getByText('60')).toBeInTheDocument();
+    // 2 × 7 = 14 组
+    expect(within(card).getByText('14')).toBeInTheDocument();
+    // 2 × 50 = 100 负荷
+    expect(within(card).getByText('100')).toBeInTheDocument();
+    expect(within(card).getByText('全身循环1')).toBeInTheDocument();
+    // 强度域分布徽章（夹具全是 base）
+    expect(within(card).getByText(/基础 2/)).toBeInTheDocument();
+  });
+
+  test('负荷占比: 力量负荷 / (跑步负荷 + 力量负荷)', async () => {
+    render(await AnalysisPage({ searchParams: Promise.resolve({ days: '30' }) }));
+    const card = screen.getByText('力量训练').closest('section')!;
+    // 分析页必须回答「力量占了多少负荷」—— 否则用户无法判断合并口径的影响
+    expect(within(card).getByText(/负荷占比/)).toBeInTheDocument();
+  });
+
+  test('所选区间内无力量 → 不渲染卡 (不展示全零空卡)', async () => {
+    db.getStrengthSessions.mockReturnValue({ data: [], total: 0, returned: 0, limit: 50, offset: 0 });
+    render(await AnalysisPage({ searchParams: Promise.resolve({ days: '30' }) }));
+    expect(screen.queryByText('力量训练')).toBeNull();
+  });
+
+  test('取数窗口与页面所选区间一致 (不是固定近 6 个月)', async () => {
+    await AnalysisPage({ searchParams: Promise.resolve({ days: '7' }) });
+    const arg = db.getStrengthSessions.mock.calls[0][0] as { startDate?: string; endDate?: string };
+    expect(arg.startDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(arg.endDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    // 区间应与 getHrZoneStats 同源（同一时间窗）
+    const hrArg = db.getHrZoneStats.mock.calls[0][0] as { startDate: string; endDate: string };
+    expect(arg.startDate).toBe(hrArg.startDate);
+    expect(arg.endDate).toBe(hrArg.endDate);
   });
 });

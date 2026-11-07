@@ -15,7 +15,7 @@ jest.mock('@/app/lib/db', () => ({
   getActivities: jest.fn(),
   getPersonalRecords: jest.fn(),
   getStats: jest.fn(),
-  getTrainingLoads: jest.fn(),
+  getCombinedTrainingLoads: jest.fn(),
   getVDOTHistory: jest.fn(),
 }));
 
@@ -73,7 +73,7 @@ function wire(over: Record<string, jest.Mock | unknown> = {}) {
     if (params.limit === 1) return { data: [] };
     return { data: [] };
   });
-  (db.getTrainingLoads as jest.Mock).mockReturnValue([
+  (db.getCombinedTrainingLoads as jest.Mock).mockReturnValue([
     { date: ymd(daysAgo(1)), distance: 8000, load: 60, duration: 2800 },
     { date: ymd(today), distance: 8000, load: 80, duration: 2800 },
   ]);
@@ -105,7 +105,7 @@ describe('降级路径 (查询抛错)', () => {
   });
 
   test('负荷查询抛错 → ctl/atl/tsb 全 null', () => {
-    (db.getTrainingLoads as jest.Mock).mockImplementation(() => {
+    (db.getCombinedTrainingLoads as jest.Mock).mockImplementation(() => {
       throw new Error('no table');
     });
     const p = buildRunnerProfile(base);

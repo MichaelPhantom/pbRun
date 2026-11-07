@@ -11,6 +11,11 @@ import PowerZoneMetricsTable from '@/app/lib/components/charts/PowerZoneMetricsT
 import { TrainingLoadChart, type TrainingLoadPoint } from '@/app/lib/components/charts/TrainingLoadChart';
 import { GlobalCoach } from '@/app/lib/components/ai/GlobalCoach';
 import { SectionCard } from '@/app/components/ui/SectionCard';
+import {
+  STRENGTH_DOMAIN_LABELS,
+  STRENGTH_STRUCTURE_LABELS,
+  summarizeStrengthSessions,
+} from '@/app/lib/strength';
 import { StatCard } from '@/app/components/ui/StatCard';
 import { Segmented } from '@/app/components/ui/Segmented';
 import { Badge } from '@/app/components/ui/Badge';
@@ -21,6 +26,7 @@ import type {
   PaceZoneStat,
   PowerZoneStat,
   PowerZoneReference,
+  StrengthSession,
 } from '@/app/lib/types';
 import type { TimeRangeDays } from '@/app/lib/date-utils';
 import { TIME_RANGE_DAYS_OPTIONS, TIME_RANGE_LABELS } from '@/app/lib/date-utils';
@@ -39,6 +45,10 @@ interface AnalysisClientProps {
   endDate: string;
   timeRangeDays: TimeRangeDays;
   loadSeries: TrainingLoadPoint[];
+  /** 所选区间内的力量训练记录（已按时间倒序）。 */
+  strengthSessions: StrengthSession[];
+  /** 该区间内力量训练**总条数**（可能多于 `strengthSessions.length`，用于披露截断）。 */
+  strengthTotal: number;
   ctl: number;
   atl: number;
   tsb: number;
@@ -56,6 +66,8 @@ export default function AnalysisClient({
   endDate,
   timeRangeDays,
   loadSeries,
+  strengthSessions,
+  strengthTotal,
   ctl,
   atl,
   tsb,
@@ -117,6 +129,19 @@ export default function AnalysisClient({
     return items;
   }, [hrZoneDurationByZone]);
 
+  // 力量训练汇总。负荷占比的分母是**合并后的总负荷**（loadSeries 已是合并口径）：
+  // 力量占比 = 力量负荷 / 总负荷。直接用它回答「力量训练在总负荷里占多少」——
+  // 这正是「合并口径」接入后用户最需要看到的透明度（否则 ACWR 变了却不知道为什么）。
+  const strength = useMemo(() => {
+    const sum = summarizeStrengthSessions(strengthSessions);
+    // ⚠ 命名不能与 `sum.totalLoad` 撞: 前者是**力量**负荷, 后者是合并后的**总**负荷。
+    // 早期实现用 `{...sum, totalLoad}` 把力量负荷覆盖成了总负荷, 卡片上显示的是
+    // 「总负荷」而不是「力量负荷」—— 数值看起来合理, 语义完全错。
+    const combinedLoad = loadSeries.reduce((s, p) => s + (p.load ?? 0), 0);
+    const share = combinedLoad > 0 ? (sum.totalLoad / combinedLoad) * 100 : null;
+    return { ...sum, strengthLoad: sum.totalLoad, combinedLoad, share };
+  }, [strengthSessions, loadSeries]);
+
   const tsbTone = tsbStatus(tsb);
   const rangeStartLabel = timeRangeDays === 0 ? '全部历史' : startDate;
   const rangeItems = TIME_RANGE_DAYS_OPTIONS.map((d) => ({
@@ -158,6 +183,65 @@ export default function AnalysisClient({
           <div className="py-8 text-center text-sm text-fg-muted">所选区间数据不足以建模训练负荷</div>
         )}
       </SectionCard>
+
+      {/* 力量训练。与分析页其余区间表同一时间窗；只在有记录时渲染（全零空卡更糟）。
+          这张卡存在的理由：训练负荷已切到**合并口径**（跑步 + 力量），若不把力量
+          那部分摊开，用户看到 ACWR 变化却找不到原因。负荷占比就是那个「原因」。 */}
+      {strength.sessions > 0 && (
+        <SectionCard
+          title="力量训练"
+          accent
+          action={
+            <span className="text-xs text-fg-muted">
+              {strengthTotal > strength.sessions
+                ? `已取最近 ${strength.sessions} / ${strengthTotal} 次`
+                : `${strength.sessions} 次`}
+            </span>
+          }
+        >
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <StatCard value={strength.sessions} unit="次" label="训练次数" />
+            <StatCard value={Math.round(strength.totalSeconds / 60)} unit="分" label="总时长" />
+            <StatCard value={strength.workingSets} unit="组" label="有效组数" />
+            <StatCard
+              value={strength.strengthLoad.toFixed(0)}
+              label="力量负荷"
+              hint={strength.share != null ? `负荷占比 ${strength.share.toFixed(1)}%` : '无可比总负荷'}
+            />
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3 text-xs text-fg-secondary">
+            {strength.latestPlanName && (
+              <span>
+                最近计划 <span className="font-medium text-fg">{strength.latestPlanName}</span>
+              </span>
+            )}
+            {strength.workRestRatio != null && (
+              <span>
+                工作:休息 <span className="tnum font-medium text-fg">{strength.workRestRatio.toFixed(1)}:1</span>
+              </span>
+            )}
+            {(['intervals', 'continuous', 'unknown'] as const)
+              .filter((k) => strength.structures[k] > 0)
+              .map((k) => (
+                <Badge key={k} variant="neutral">
+                  {STRENGTH_STRUCTURE_LABELS[k]} {strength.structures[k]}
+                </Badge>
+              ))}
+            {(['high', 'tempo', 'base', 'recovery', 'unknown'] as const)
+              .filter((d) => strength.domains[d] > 0)
+              .map((d) => (
+                <Badge key={d} variant="neutral">
+                  {STRENGTH_DOMAIN_LABELS[d]} {strength.domains[d]}
+                </Badge>
+              ))}
+          </div>
+          <p className="mt-2 text-[11px] leading-relaxed text-fg-muted">
+            力量负荷按<strong>训练效应</strong>加权派生（时长 × 100 × 域系数），与跑步
+            <code>training_load</code> 同量纲；里程/时长/次数仍只统计跑步。重量与次数不可得：
+            FIT 文件不含 set 消息，动作名/重量/次数仅 Garmin 云端 exerciseSets 提供。
+          </p>
+        </SectionCard>
+      )}
 
       {/* 当前跑力 */}
       <SectionCard title="当前跑力" action={<Link href="/daniels" className="text-xs text-[var(--brand-text)] hover:underline">丹尼尔斯跑步法 →</Link>}>

@@ -25,7 +25,8 @@
 | 统计 | `/stats?period=` | `getStats` / `getPersonalRecords`（跑步口径，见 §1.1） | 汇总 AI，周/月/年/全部映射 | ✅ |
 | 汇总 AI 对话 | `POST /api/insight/coach` | `insight-service.ts` → `formatInsightForCoach` | 区间指标 + 跑者画像 + 趋势 | ✅ |
 | 模型目录 | `GET /api/llm/models` | `model-curation.ts` 固定白名单 | — | ✅ |
-| MCP Server | `mcp-server/`（stdio） | 17 个 tools 复用 `app/lib/db.ts` 与活动深挖服务 | `get_activity_comparables` 直接返回当次可比 `contextText` | ✅ |
+| MCP Server | `mcp-server/`（stdio） | 19 个 tools 复用 `app/lib/db.ts` 与活动深挖服务 | `get_activity_comparables` 直接返回当次可比 `contextText` | ✅ |
+| 力量训练 | 首页卡片 / 分析页卡片 / 活动详情「力量训练分析」/ MCP `get_strength_sessions`·`get_strength_loads` | `app/lib/strength.ts`（纯函数：画像 + 负荷 + 合并），`db.getStrengthLoads/getStrengthSessions/getCombinedTrainingLoads` | 结构化画像（计划名/组数/工作休息比/强度域） | ✅ |
 | 数据同步 | `scripts/garmin` / `scripts/strava` | FIT/GPX → SQLite，VDOT 计算 | — | ✅ |
 
 ---
@@ -42,6 +43,8 @@ pbRun 是跑步分析工具，但 Garmin 同步会把篮球/游泳/力量训练�
 |------|------|---------|
 | **表现分析（只取跑步）** | 配速/心率/步频/VDOT/区间/纪录/负荷/对比只在跑步内部有意义 | `getStats`、`getPeriodStats`、`getPersonalRecords`、`getPaceZoneStats`、`getHrZoneStats`、`getHrZoneTotals`、`getVDOTHistory(+Total)`、`getVDOTTrend`、`getVdotSamples`、`getLatestVdot`、`getLatestThresholdHr`、`getFormSamples`、`getPaceHrSamples`、`getLongRuns`、`getTrainingLoads`、`getDailyDistances`、`getInsightActivityRows`、`getActivityCountInRange`、同路线/同距离/同位置对比 |
 | **活动日志（全类型）** | 用户明确要在列表里看到所有运动，且带 `activity_type` 筛选器 | `getActivities`、`getMonthSummaries` |
+| **力量训练（第三套）** | 力量课有独立分析语义（组结构/训练效应/恢复建议），但不含距离语义 | `getStrengthLoads`、`getStrengthSessions` |
+| **合并负荷（跨口径）** | 负荷是「身体总消耗」，力量课必须进入 ACWR/CTL/TSB；但里程/时长/次数仍只取跑步 | `getCombinedTrainingLoads`（= 跑步负荷 + 力量负荷，`load` 相加，其余字段只取跑步） |
 
 跑步类型集合为 `running` / `track_running` / `treadmill_running`（`db.runningTypeClause`
 与 `db.isRunningType` 单点定义）；缺 `activity_type` 列或值为空时按跑步处理（旧库兼容）。
@@ -643,7 +646,7 @@ FTP 缺失不猜 / 海拔比值 / 尖峰过滤）、`tests/unit/pages/activity-d
 读屏会连念两遍，测试里 `getByText` 也会撞到两个节点 —— 表名必须能与标题区分。
 
 **夹具掩盖了它**：单测夹具用 `lap_index: 1/2`（1 基）且每段 1000 m，恰好既看不出
-0 基错位、也看不出「每公里」的假话。这与 §1.6 的 `average_pace` 夹具是同一类问题：
+0 基错位、也看不出「每公里」的假话。这与 `docs/testing-strategy.md` §6.5 的 `average_pace` 夹具是同一类问题：
 **夹具比生产数据「干净」时，缺陷在测试里被合法化**。故新增的断言一律用 0 基存储键
 （`lap_index: 0/1/2`）+ 含残段的活动。
 
@@ -757,7 +760,7 @@ FTP 缺失不猜 / 海拔比值 / 尖峰过滤）、`tests/unit/pages/activity-d
 
 **夹具掩盖了它**：`insight-components.test.tsx` 手工喂 `periodization` 的
 56.8/46/0.8/12，而真实服务的 `km` 恒为 0 —— 夹具比服务「干净」，缺陷在测试里被
-合法化。这与上一节 `lap_index` 的 1 基夹具、以及 §1.6 的 `average_pace` 夹具是
+合法化。这与上一节 `lap_index` 的 1 基夹具、以及 `docs/testing-strategy.md` §6.5 的 `average_pace` 夹具是
 同一个机制（见 `docs/testing-strategy.md` §6.5）。
 
 #### CTL/ATL/TSB 的预热窗口与参考日：同一个「体能」有四个答案（2026-10-28）
@@ -945,8 +948,118 @@ CTL 差 < 1%、`endDate` 补零/不截断/缺省三种形态）、`tests/unit/li
 **夹具又一次掩盖了它**：`insight-compare.test.ts` 里 `{ distanceKm: 7, durationSeconds: 2520,
 avgPaceSecPerKm: 350 }` 三个数互相矛盾（350×7=2450≠2520），而 `WeatherSample` 的夹具
 干脆没有 `distanceKm` —— 改完口径后那些字段算出 `null`，测试**照样全绿**（因为没人
-断言它们）。这与 §1.6 的 `lap_index` 1 基夹具、`periodization` 手写 km 是同一个机制
+断言它们）。这与 `docs/testing-strategy.md` §6.5 的 `lap_index` 1 基夹具、`periodization` 手写 km 是同一个机制
 （见 `docs/testing-strategy.md` §6.5）。
+
+---
+
+### 1.6 力量训练：第三套口径（2026-11 新增）
+
+生产库 51 条 `strength_training`（2025-12 ~ 2026-10）此前**「收录了但零分析语义」**：
+不进训练负荷、没有结构化画像、UI 与 AI 都看不到。根因是 `scripts/garmin/sync.js` 的
+`calculateTrainingLoad` 派生分支只对跑步三类型开放（`runnableTypes2`），于是 51 条
+力量课的 `training_load` **全为 NULL** —— 每周 2 次力量课对 ACWR/CTL/TSB 的贡献恒为 0。
+身体不区分负荷来源，这是教练视角的盲区。
+
+#### 数据边界（实测，不要越界造假）
+
+| 想拿 | 可得性 | 依据 |
+|---|---|---|
+| 动作名（深蹲/卧推） | ❌ | FIT 里没有 `set` 消息；Garmin 只在云端 `exerciseSets` 提供 |
+| 重量 / 次数 | ❌ | 同上（**51 条本地 FIT 实测 `set`/`exercise_title` 消息数为 0**） |
+| 训练计划名 | ✅ 49/51 | `activities.workout_name`（「全身循环1」「核心稳定性4」等） |
+| 组结构（active/rest 交替） | ✅ 49/51 | `activities.workout_steps` JSON（每步 `duration_sec` + `intensity`） |
+| 时长 / 平均心率 / 卡路里 | ✅ 51/51 | 平铺列（平均心率 73–129） |
+| 训练效应 (TE) | ✅ 51/51 | `total_training_effect` / `total_anaerobic_training_effect` |
+| 官方恢复建议 | ✅ 51/51 | `recovery_time`（**分钟**） |
+
+**结论：不做容量（组数 × 重量）指标。** 硬造就是假数据。输出的是「计划名 + 有效组数
++ 工作/休息时长比 + 强度域」这套真实可推导的画像。
+
+#### 为什么**不**把 `strength_training` 并入 `RUNNING_ACTIVITY_TYPES`
+
+零距离活动混入跑步口径会把指标系统性污染：均配速 369 → 989 s/km（实测量级）、
+心率 Z1 时长从 698s 变 91221s、配速区间 `activity_count` 凭空 +51。力量训练有**自己
+的语义**（组结构 + 训练效应），不是「跑得慢的跑步」。
+
+#### 负荷口径（不复用跑步的 HR-TRIMP）
+
+`时长(h) × 100 × 域系数`，系数按**训练效应**加权：
+
+| 强度域 | 判定（TE 优先，心率兜底） | 系数 |
+|---|---|---|
+| high | TE ≥ 3.5 | 1.5 |
+| tempo | TE ≥ 2.5 | 1.3 |
+| base | TE ≥ 1.5 | 1.0 |
+| recovery | TE > 0 | 0.6 |
+| unknown | TE/HR 均缺失 | 0.8 |
+
+心率兜底：<100 recovery、<130 base、否则 tempo。
+
+**为什么不用跑步的 HR 区间系数**：力量心率响应滞后且峰值低（51 条平均心率 73–129，
+多在 Z1/Z2），套 Z1 系数 0.6 会让 32 分钟力量课的负荷趋近于零 —— 等于没接。真实库
+回填后力量负荷均值 **32.7**（跑步 73.2），量级合理。
+
+**量纲**：与库内跑步 `training_load` 同量纲，但**不是** Garmin 官方
+`training_load_peak`（后者与库内值比值 1.2–2.6 倍浮动、不可换算）。
+
+#### 合并规则：负荷相加，里程/时长/次数不合并
+
+| 字段 | 规则 | 理由 |
+|---|---|---|
+| `load` | **相加** | 力量训练也是负荷，ACWR/CTL/TSB 必须看见它 |
+| `distance` | 只取跑步 | 力量训练无距离语义（51/51 为 0） |
+| `duration` | **只取跑步** | 该字段喂「当月均配速」（Σduration/Σdistance），混入力量时长会把配速拖慢 |
+| `runs` | 只取跑步 | 「跑步次数」标签语义；力量课不该被算作跑步 |
+
+**为什么不在 `getTrainingLoads` 里原地合并**：该函数有 10+ 消费方（含首页「跑步天数」
+标签、月度里程、跑者画像）都假设「只有跑步」。原地改语义会让所有调用方在无声中变味。
+故新增显式入口 `getCombinedTrainingLoads`，口径可见、可单测。
+
+**真实库验证**（近 28 天）：ACWR 1.40 → 1.32（慢性 227.25 → 242.25），而
+`distance`/`duration`/`runs` 偏差**全为 0**（口径零污染）。
+
+**消费方清单（必须全部走合并入口，漏一个就分叉）**：首页 `/`、分析页 `/analysis`、
+洞察页 `/insight`（`insight-service.getInsight` 的 `getCombinedTrainingLoads`）、
+跑者画像 `runner-profile.ts`、MCP `get_training_load_analysis`。
+洞察页曾漏接（仍走跑步口径的 `getDailyLoads`），导致同一时期洞察页 ACWR 1.40
+而首页 1.32 —— 两张卡都自洽、无法判断谁对。守护：
+`tests/unit/lib/insight-services.test.ts`（断言 `getCombinedTrainingLoads` 被调用
+且 `getDailyLoads` **未**被调用 + 预热窗口不变）。
+
+#### 首页「跑步天数」的陷阱（已修）
+
+`thisMonthRuns` 原用 `(p.load ?? 0) > 0` 判定。负荷合并后，「只做力量、没跑步」的日子
+`load > 0` 但 `runs = 0` —— 用 load 判定会把它算成跑步日。已改为 `(p.runs ?? 0) > 0`，
+并在代码里写明理由。这是**合并口径**接入时最容易漏的一处语义漂移。
+
+#### 同步层与双实现一致性守护
+
+`scripts/garmin/sync.js` 是纯 CJS（不经 tsc），无法 import TS。故
+`scripts/common/strength-load.js` **逐行镜像** `app/lib/strength.ts`，由
+`tests/unit/lib/strength-sync-parity.test.ts` 穷举比对：
+
+- 12×12 TE×心率组合（`strengthIntensityDomain`）
+- 11×5 时长×强度域（`estimateStrengthLoad`）
+- 7×7 时间基数（`strengthLoadBaseSeconds`）
+
+任一侧改阈值而另一侧没跟上 → 红灯。没有这份测试，同步写入的 `training_load` 会与
+页面/MCP 展示的负荷分叉，且**不会报错、不会让任何测试变红**，只在 ACWR 数字对不上时
+显形。历史 51 条由 `scripts/garmin/backfill-strength-load.js` 回填（幂等，
+支持 `--dry-run`/`--limit`），回填后 NULL 为 0 条。
+
+#### 组结构的真实形态（不要推断轮数）
+
+`workout_steps` 每步含 `duration_sec` + `intensity`（`active`/`interval` = 工作段，
+`rest`/`recovery` = 休息段）。典型「40s 做 + 20s 歇 ×7」（14 步）。
+
+**关键事实**：计划时长（如 420s）远小于实际时长（3609s）—— 课表是**「一轮」模板**，
+用户做了多轮。FIT 无 `set` 消息，**真实轮数不可得**，因此画像只报课表结构本身
+（`describeStrengthStructure` 输出「40s 做 / 20s 歇 × 7」），**不推断「做了 8 轮」**。
+
+守护：`tests/unit/lib/strength.test.ts`（32 例）、`strength-merge.test.ts`（9 例）、
+`strength-summary.test.ts`（10 例）、`db-strength.test.ts`（12 例）、
+`strength-sync-parity.test.ts`（5 例）、页面测试（首页 11 / 分析 15 / 详情 54）。
 
 ---
 
@@ -1041,7 +1154,7 @@ avgPaceSecPerKm: 350 }` 三个数互相矛盾（350×7=2450≠2520），而 `Wea
 
 #### 「最快段 / 主课」只认配速可信的分段（`MIN_RELIABLE_LAP_SEC`，2026-10-27）
 
-`average_pace = 计时器时间 / (distance/1000)`（口径见 §1.6「配速的时间基数」）。分母很小时
+`average_pace = 计时器时间 / (distance/1000)`（口径见 `docs/testing-strategy.md`「配速的时间基数」）。分母很小时
 **秒级取整**就把结果推得离谱：真实库 `540880879` 的收尾段是 `14.32 m / 4 s` →
 **279 s/km**，而同一次跑其余每公里都在 318–331 s/km。这不是「这一段跑得快」，是
 `duration` 只有 4 个整数刻度、`distance` 只有 2 位小数带来的量化噪声。
@@ -1338,7 +1451,11 @@ AI 教练有两种**能力维度**，它们的数据单位与结论都不同，*
 | **统计口径：活动日志保留全类型** | `getActivities` / `getMonthSummaries` | `tests/unit/lib/db-insight-integration.test.ts`（月度汇总 count 与列表 total 严格相等） |
 | **统计口径：写入侧也必须筛跑步** | `scripts/garmin/backfill-vdot.js` 的 `isRunningActivity`（VDOT 与 training_load 同口径） | `tests/unit/scripts/backfill-vdot.test.js`（非跑步即便有代表性心率与 >400m lap 也不写 VDOT、旧伪值被清空；缺类型视为跑步；track/treadmill 正常计算） |
 | **跑步类型判定单一来源** | `app/lib/sport.ts`（`RUNNING_ACTIVITY_TYPES` 派生 SQL + 客户端判定） | `tests/unit/lib/sport.test.ts`（类型集合/旧库空值/展示名/图标回落） |
-| **MCP tool description 必须声明统计口径** | `mcp-server/tools.ts`（10 个表现分析工具写「跑步口径」、2 个活动日志工具写「全类型口径」） | `tests/unit/mcp/tool-scope-contract.test.ts`（逐项断言口径措辞、`list_activities` 不再自称「列出跑步活动」、`get_activity_comparables` 声明 `running=false` 时配速派生字段为 `null`、17 个工具均有非空 title/description） |
+| **MCP tool description 必须声明统计口径** | `mcp-server/tools.ts`（10 个表现分析工具写「跑步口径」、2 个活动日志工具写「全类型口径」、1 个合并口径工具同时声明「负荷合并 + 里程/次数只统计跑步」、2 个力量工具声明数据边界） | `tests/unit/mcp/tool-scope-contract.test.ts`（逐项断言口径措辞、`list_activities` 不再自称「列出跑步活动」、`get_activity_comparables` 声明 `running=false` 时配速派生字段为 `null`、19 个工具均有非空 title/description） |
+| **力量训练口径（第三套）** | `app/lib/strength.ts`（画像/强度域/负荷/合并的唯一真源）、`db.getStrengthLoads`·`getStrengthSessions`·`getCombinedTrainingLoads` | `tests/unit/lib/strength.test.ts`（32 例）、`strength-merge.test.ts`（9 例：负荷相加、里程/时长/次数只取跑步、只有力量的日子保留）、`strength-summary.test.ts`（10 例）、`db-strength.test.ts`（12 例：SQL 只查 `strength_training`、分页、空值兜底） |
+| **洞察页负荷口径必须合并** | `insight-service.ts` 的 `getCombinedTrainingLoads` | `tests/unit/lib/insight-services.test.ts`（合并入口被调用、跑步口径 `getDailyLoads` 未被调用、EWMA 预热窗口不变） |
+| **力量负荷双实现一致性** | `app/lib/strength.ts`（TS）↔ `scripts/common/strength-load.js`（JS 镜像，同步脚本用） | `tests/unit/lib/strength-sync-parity.test.ts`（穷举 12×12 TE×HR、11×5 时长×域、7×7 时间基数；任一侧改阈值而另一侧没跟上 → 红灯） |
+| **首页「跑步天数」判定必须是 `runs>0`** | `app/page.tsx` 的 `thisMonthRuns` | `tests/unit/pages/home-page.test.tsx`（合并口径下「只做力量」的日子 `load>0` 但 `runs=0`，用 `load` 判定会误算成跑步日） |
 | **UI 不把非跑步指标当跑步指标** | `ListClient` / `ActivityDetailClient` / `RecentActivityCard` / `ActivityInsightPanel` / `ActivityTrendCharts` | `tests/unit/components/list-client.test.tsx` / `tests/unit/pages/activity-detail.test.tsx` / `tests/unit/components/recent-activity-card.test.tsx` / `tests/unit/components/activity-insight-panel.test.tsx`（非跑步不渲染「最快分段/主课均配速」卡片） / `tests/unit/components/activity-trend-charts.test.tsx`（非跑步不渲染配速/步频/步幅图） |
 | **趋势卡标题不得空承诺** | `ActivityTrendCharts.trendChartTitle` / `trendChartKinds`（组件与标题共用同一判定） | `tests/unit/components/activity-trend-charts.test.tsx`（标题只列出真的会渲染的图；无海拔数据不说「海拔 趋势」） |
 | **区块展示条件不得依赖单一罕见字段** | `ActivityDetailClient` 跑步动态卡（三项任一非空 + `running`） | `tests/unit/pages/activity-detail.test.tsx`（`gct_balance` 为 NULL 但触地时间/垂直摆动有值时仍渲染；非跑步即便有值也不渲染）；`tests/e2e/activity-detail.spec.ts` + 夹具按真实分布只写触地时间/垂直摆动 |

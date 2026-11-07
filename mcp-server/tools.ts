@@ -1,5 +1,5 @@
 /**
- * pbRun MCP Server — 17 个 tool 的定义与 handler。
+ * pbRun MCP Server — 19 个 tool 的定义与 handler。
  * 直接复用 app/lib/db.ts 的查询函数（只读访问 activities.db）；
  * 纯计算逻辑 (降采样/ACWR/跨期对比) 在 ./analysis.ts, 可单测。
  */
@@ -20,7 +20,9 @@ import {
   getPowerZoneStats,
   getMonthSummaries,
   getPeriodStats,
-  getTrainingLoads,
+  getCombinedTrainingLoads,
+  getStrengthSessions,
+  getStrengthLoads,
   getLatestVdot,
   getActivityTrack,
   getDailyDistances,
@@ -471,7 +473,9 @@ export async function registerTools(server: McpServer): Promise<void> {
       title: '训练负荷分析 (ACWR)',
       description:
         '基于近 N 天训练负荷计算 ACWR 急慢性负荷比与连续训练/休息天数, 并给出建议。' +
-        '**跑步口径**（只统计跑步类活动的负荷）。load 无单位 (Garmin 训练负荷)。' +
+        '**合并口径**：跑步负荷 + 力量训练负荷（strength_training，按训练效应加权派生）；' +
+        '里程/时长/次数仍只统计跑步（力量训练无距离语义，混入会污染均配速）。' +
+        'load 无单位 (与库内跑步 training_load 同量纲, 非 Garmin 官方 training_load_peak)。' +
         'ACWR 窗口恒为标准窗（急性 7 天/慢性 28 天）; 训练历史不足 28 天时 acwr=null' +
         '（缺失天数不按 0 负荷处理）, chronic_load_days 给出现有天数。',
       inputSchema: {
@@ -488,8 +492,61 @@ export async function registerTools(server: McpServer): Promise<void> {
         // 额外补取慢性窗数据，否则 chronic 只算到 `days` 天 → 缺的天被当 0 →
         // ACWR 虚高（旧实现的 `min(28, days)` 截断就是为此打的补丁，方向反了）。
         const fetchStart = days < 28 ? localDateMinusDays(endDate, 27) : startDate;
-        const points = getTrainingLoads(fetchStart, endDate);
+        // 合并口径: 力量训练也是负荷, ACWR 必须看见它 (旧实现只有跑步 → 每周 2 次
+        // 力量课对急慢性负荷的贡献恒为 0, 是教练视角的盲区)。
+        const points = getCombinedTrainingLoads(fetchStart, endDate);
         return computeTrainingLoadAnalysis(days, points, startDate, endDate);
       })
+  );
+
+  await server.registerTool(
+    'get_strength_sessions',
+    {
+      title: '力量训练记录 (结构化画像)',
+      description:
+        '列出力量训练 (strength_training) 的结构化画像: 训练计划名 / 有效组数 / 工作:休息时长比 / ' +
+        '结构类型(循环·间歇 / 连续 / 无课表) / 心率强度域 / 训练效应 / 官方恢复建议 / 派生负荷。' +
+        '**数据边界**: FIT 文件不含 set 消息, 动作名/重量/次数只有 Garmin 云端 exerciseSets 才有 —— ' +
+        '本工具**不返回**容量(组数×重量)类字段, 硬造即假数据。' +
+        'durationSeconds 为计时器时间(与配速/TSS 同一纪律); recoveryTimeMinutes 单位为**分钟**。' +
+        '按 startTimeLocal 倒序; 返回 {data,total,returned,limit,offset}, 未取全量时用 offset 翻页。',
+      inputSchema: {
+        limit: z.number().int().min(1).max(100).optional().describe('返回条数 (默认 20)'),
+        offset: z.number().int().min(0).optional().describe('偏移量 (默认 0)'),
+        startDate: z.string().optional().describe('开始日期 YYYY-MM-DD (本地日期, 可选)'),
+        endDate: z.string().optional().describe('结束日期 YYYY-MM-DD (本地日期, 可选)'),
+      },
+    },
+    (args) =>
+      run(() =>
+        getStrengthSessions({
+          limit: args.limit,
+          offset: args.offset,
+          startDate: args.startDate,
+          endDate: args.endDate,
+        })
+      )
+  );
+
+  await server.registerTool(
+    'get_strength_loads',
+    {
+      title: '力量训练每日负荷',
+      description:
+        '按本地日期聚合力量训练负荷: {date, load, duration, sessions, workingSets}。' +
+        'load 为按训练效应加权的派生负荷分(与跑步 training_load 同量纲), ' +
+        'duration 为计时器时间(秒), workingSets 为有效组数(active/interval 步数)。' +
+        '**数据边界**: FIT 无 set 消息, 动作名/重量/次数只有 Garmin 云端 exerciseSets 才有, ' +
+        '本工具不返回容量(组数×重量)类字段。' +
+        '用途: 单独查看力量训练的负荷贡献; 若要「跑步+力量」总负荷请用 get_training_load_analysis(已合并)。',
+      inputSchema: {
+        startDate: z.string().describe('开始日期 YYYY-MM-DD'),
+        endDate: z.string().describe('结束日期 YYYY-MM-DD'),
+      },
+    },
+    (args) => run(() => {
+      assertDateRange(args.startDate, args.endDate, 'get_strength_loads');
+      return getStrengthLoads(args.startDate, args.endDate);
+    })
   );
 }

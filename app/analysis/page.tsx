@@ -1,4 +1,4 @@
-import { getHrZoneStats, getVDOTTrend, getStats, getPaceZoneStats, getPowerZoneStats, getTrainingLoads } from '@/app/lib/db';
+import { getHrZoneStats, getVDOTTrend, getStats, getPaceZoneStats, getPowerZoneStats, getCombinedTrainingLoads, getStrengthSessions } from '@/app/lib/db';
 import { getDateRangeFromDays, parseTimeRangeDays } from '@/app/lib/date-utils';
 import {
   computeTrainingLoads,
@@ -28,12 +28,17 @@ export default async function AnalysisPage({ searchParams }: PageProps) {
   // 功率区间: 按各活动自身 FTP 归区（%FTP 口径），跨活动只在区间上聚合。
   // 与配速/心率区间同一页面、同一时间窗 —— 三个区间表的分母分别是 VDOT /
   // MAX_HR / FTP，必须并列呈现，否则用户会以为它们是同一套百分比。
-  const [hrZoneData, vdotData, weekStats, loadPoints, powerZoneStats] = await Promise.all([
+  const [hrZoneData, vdotData, weekStats, loadPoints, powerZoneStats, strength] = await Promise.all([
     getHrZoneStats({ startDate, endDate, groupBy: GROUP_BY }),
     getVDOTTrend({ startDate, endDate, groupBy: GROUP_BY }),
     getStats('week'),
-    getTrainingLoads(extStart, endDate),
+    // 合并口径 (跑步 + 力量): 力量课同样构成训练负荷, ACWR 必须看见
+    getCombinedTrainingLoads(extStart, endDate),
     getPowerZoneStats(startDate, endDate),
+    // 力量训练与其余区间表**同一时间窗**（用户切换「近一周/近三月」时一起变）。
+    // 「全部」口径（days=0）下 startDate 是很早的日期，limit 50 只取最近 50 次 ——
+    // 卡片上会显式标注「已取最近 N 次」，不假装是全量。
+    getStrengthSessions({ limit: 50, startDate, endDate }),
   ]);
   const tl: TrainingLoadSummary = computeTrainingLoads(loadPoints, endDate);
   // 图表只画所选区间；卡片值取参考日（endDate）的值 —— 与图表最后一点同源。
@@ -59,6 +64,8 @@ export default async function AnalysisPage({ searchParams }: PageProps) {
       startDate={startDate}
       endDate={endDate}
       timeRangeDays={timeRangeDays}
+      strengthSessions={strength.data}
+      strengthTotal={strength.total}
       loadSeries={loadSeries}
       ctl={tl.ctl}
       atl={tl.atl}

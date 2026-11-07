@@ -14,6 +14,7 @@ const GarminFITParser = require('./fit-parser');
 const VDOTCalculator = require('../common/vdot-calculator');
 const DatabaseManager = require('../common/db-manager');
 const { effectiveTimeSec } = require('../common/pace');
+const { calculateStrengthLoad } = require('../common/strength-load');
 
 /** FIT 缓存目录，避免重复拉取 */
 const FIT_CACHE_DIR = path.join(process.cwd(), '.cache', 'fit');
@@ -421,6 +422,34 @@ class GarminSync {
           activityData.average_heart_rate
         );
       }
+    }
+    // 力量训练负荷 (2026-11-07 新增): 旧实现只对跑步三类型派生 training_load,
+    // 于是 51 条力量课的 training_load 全为 NULL —— 每周 2 次力量课对 ACWR/CTL/TSB
+    // 的贡献恒为 0, 是教练视角的盲区。
+    //
+    // 不能复用上面的 HR-TRIMP: 力量心率响应滞后且峰值低 (真实库 51 条平均心率
+    // 73–129), 套 Z1 系数 0.6 会让负荷趋近于零。改用按**训练效应**加权的专用口径
+    // (见 app/lib/strength.ts 的论证)。JS 镜像与本实现的一致性由
+    // tests/unit/lib/strength-sync-parity.test.ts 守护。
+    // 时间基数 = 计时器时间优先 (与配速/TSS 同一纪律; 力量课的 moving_time
+    // 真实库 51/51 有值且与 duration 同值)
+    const strengthBaseSec =
+      activityData.moving_time != null && activityData.moving_time > 0
+        ? activityData.moving_time
+        : activityData.duration != null && activityData.duration > 0
+          ? activityData.duration
+          : 0;
+    if (
+      activityData.training_load == null &&
+      activityData.activity_type === 'strength_training' &&
+      strengthBaseSec > 0
+    ) {
+      activityData.training_load = calculateStrengthLoad({
+        moving_time: activityData.moving_time,
+        duration: activityData.duration,
+        average_heart_rate: activityData.average_heart_rate,
+        total_training_effect: activityData.total_training_effect,
+      });
     }
 
     // Save to database

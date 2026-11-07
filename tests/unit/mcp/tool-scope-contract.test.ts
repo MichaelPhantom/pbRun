@@ -32,9 +32,17 @@ const RUNNING_SCOPED = [
   'get_pace_zone_analysis',
   'get_power_zone_analysis',
   'compare_periods',
-  'get_training_load_analysis',
   'get_daily_distances',
 ];
+
+/**
+ * **合并口径**的工具：负荷含力量训练，但里程/时长/次数仍只统计跑步。
+ * 必须显式声明两者，否则模型会把「负荷总量」当成跑步负荷。
+ */
+const COMBINED_SCOPED = ['get_training_load_analysis'];
+
+/** 力量训练专属工具：必须声明数据边界（重量/次数不可得）。 */
+const STRENGTH_SCOPED = ['get_strength_sessions', 'get_strength_loads'];
 
 /** 活动日志口径的工具：必须声明含全部运动类型。 */
 const ALL_TYPE_SCOPED = ['list_activities', 'get_month_summaries'];
@@ -44,6 +52,22 @@ describe('MCP tool description 必须声明统计口径', () => {
     const cfg = configs.get(name);
     expect(cfg).toBeDefined();
     expect(cfg!.description).toMatch(/跑步口径/);
+  });
+
+  test.each(COMBINED_SCOPED)('%s 声明「合并口径」(跑步负荷 + 力量负荷)', (name) => {
+    const cfg = configs.get(name);
+    expect(cfg).toBeDefined();
+    expect(cfg!.description).toMatch(/合并口径/);
+    expect(cfg!.description).toMatch(/力量训练/);
+    // 必须澄清里程/次数仍只统计跑步 (否则模型会以为里程也合并了)
+    expect(cfg!.description).toMatch(/只统计跑步/);
+  });
+
+  test.each(STRENGTH_SCOPED)('%s 声明力量训练的数据边界 (无重量/次数)', (name) => {
+    const cfg = configs.get(name);
+    expect(cfg).toBeDefined();
+    expect(cfg!.description).toMatch(/力量训练|strength_training/);
+    expect(cfg!.description).toMatch(/重量|次数|exerciseSets/);
   });
 
   test.each(ALL_TYPE_SCOPED)('%s 声明「全类型口径」', (name) => {
@@ -180,7 +204,7 @@ describe('MCP tool description 必须声明统计口径', () => {
     expect(desc).not.toMatch(/VDOT/);
   });
 
-  test('工具总数与文档一致 (17 个)', () => {
-    expect(configs.size).toBe(17);
+  test('工具总数与文档一致 (19 个: 14 基础 + 3 AI + 2 力量训练)', () => {
+    expect(configs.size).toBe(19);
   });
 });

@@ -10,7 +10,7 @@ jest.mock('@/app/lib/db', () => ({
   getActivities: jest.fn(),
   getPersonalRecords: jest.fn(),
   getStats: jest.fn(),
-  getTrainingLoads: jest.fn(),
+  getCombinedTrainingLoads: jest.fn(),
   getVDOTHistory: jest.fn(),
 }));
 
@@ -48,7 +48,7 @@ function setDbMocks(over: Record<string, unknown> = {}) {
       ],
     };
   });
-  (db.getTrainingLoads as jest.Mock).mockReturnValue([
+  (db.getCombinedTrainingLoads as jest.Mock).mockReturnValue([
     { date: '2026-09-17', load: 50 },
   ]);
   (db.getVDOTHistory as jest.Mock).mockReturnValue([
@@ -94,7 +94,7 @@ describe('buildRunnerProfile', () => {
 
   test('训练负荷按 EWMA 预热常量取数, 且以活动日为参考日', () => {
     buildRunnerProfile(baseActivity);
-    const [start, end] = (db.getTrainingLoads as jest.Mock).mock.calls[0] as [string, string];
+    const [start, end] = (db.getCombinedTrainingLoads as jest.Mock).mock.calls[0] as [string, string];
     expect(end).toBe('2026-09-17');
     expect(start).toBe(trainingLoadFetchStart('2026-09-17'));
     const warmupDays = (Date.parse(end) - Date.parse(start)) / 86400000;

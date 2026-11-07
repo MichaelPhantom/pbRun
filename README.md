@@ -444,9 +444,9 @@ pbRun/
 │       ├── fetcher.py     # Strava API 数据拉取
 │       ├── oauth_helper.py # OAuth 授权助手
 │       └── gpx_generator.py # GPX 轨迹生成
-├── mcp-server/            # MCP Server (AI 客户端接入, 17 tools)
+├── mcp-server/            # MCP Server (AI 客户端接入, 19 tools)
 │   ├── index.ts           # 入口 (stdio 传输)
-│   ├── tools.ts           # 17 个 tool 定义与 handler
+│   ├── tools.ts           # 19 个 tool 定义与 handler
 │   ├── analysis.ts        # 纯逻辑 (降采样/ACWR/跨期对比, 可单测)
 │   └── README.md          # 配置与数据完整性契约
 ├── deploy/                # 本机部署 (systemd 单元等)
@@ -501,7 +501,7 @@ pbRun/
 - [Strava 集成设计](docs/strava-integration-design.md) - Strava 数据源集成设计方案
 - [API 参考](docs/api-reference.md) - 完整的 API 接口文档
 - [VDOT 计算说明](docs/vdot-calculation.md) - 跑力计算公式和原理
-- [MCP Server 说明](mcp-server/README.md) - AI 客户端接入的 MCP 服务 (17 个 tools)
+- [MCP Server 说明](mcp-server/README.md) - AI 客户端接入的 MCP 服务 (19 个 tools)
 - [常见问题](docs/faq.md) - 常见问题解答
 
 ## 贡献

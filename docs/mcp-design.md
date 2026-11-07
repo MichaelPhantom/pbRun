@@ -1,7 +1,8 @@
 # pbRun MCP Server 设计方案
 
 > 为 AI 客户端（Claude Desktop / opencode 等）提供结构化跑步数据访问能力
-> 状态: 已实施 (2026-08-08), 17 个 tools (含路线轨迹 + 年度里程 + 当次可比样本 + 功率区间)
+> 状态: 已实施 (2026-08-08), 19 个 tools (含路线轨迹 + 年度里程 + 当次可比样本 + 功率区间
+> + 力量训练画像/负荷, 2026-11 新增)
 
 ## 1. 架构
 
@@ -31,7 +32,7 @@
 pbRun/
 ├── mcp-server/
 │   ├── index.ts              # MCP server 入口 (stdio transport)
-│   ├── tools.ts              # 17 个 tool 定义与 handler
+│   ├── tools.ts              # 19 个 tool 定义与 handler
 │   ├── analysis.ts           # 纯逻辑 (降采样/ACWR/跨期对比, 可单测)
 │   ├── tsconfig.json         # 独立编译配置 (module node16, 输出 dist/)
 │   ├── dist/                 # 编译产物 (已 .gitignore)
@@ -44,7 +45,7 @@ pbRun/
 
 > 部署: 无 systemd unit — stdio 进程由 AI 客户端按需拉起 (见 §6.1)。
 
-## 3. Tools 清单 (17 个)
+## 3. Tools 清单 (19 个)
 
 ### 3.1 基础数据 (复用 db.ts, 14 个)
 
@@ -57,8 +58,9 @@ pbRun/
 > 若 description 不声明口径，模型会把「游泳/篮球不计入」的统计当成全部运动的总量来
 > 解读（例如看到 `totalDistance` 只含跑步，却推断「用户几乎不运动」）。这类缺陷不报错、
 > 不让测试变红，只在模型输出里显形。`tests/unit/mcp/tool-scope-contract.test.ts`
-> 逐项断言：9 个表现分析工具必须含「跑步口径」、2 个活动日志工具必须含「全类型口径」、
-> 且所有 17 个工具都有非空 title/description。
+> 逐项断言：10 个表现分析工具必须含「跑步口径」、2 个活动日志工具必须含「全类型口径」、
+> 1 个合并口径工具必须同时声明「负荷合并 + 里程/次数只统计跑步」、2 个力量工具必须声明
+> 数据边界（无重量/次数），且所有 19 个工具都有非空 title/description。
 
 | Tool | db.ts 函数 | 参数 | 输出 | 说明 |
 |------|-----------|------|------|------|
@@ -140,6 +142,70 @@ output: {
   ACWR 虚高）。旧实现 `min(28, days)` 在 `days=7` 时急/慢窗重合, ACWR 恒 1.0
   （永远「最佳区间」）—— 已废弃, 见 tests/unit/mcp/analysis.test.ts。
 
+## 3.3 力量训练工具 (2 个, 2026-11 新增)
+
+> **背景**：生产库 51 条 `strength_training` 此前「收录了但零分析语义」——不进训练负荷、
+> 没有结构化画像。`sync.js` 的 `calculateTrainingLoad` 派生分支只对跑步三类型开放，
+> 于是 51 条力量课的 `training_load` 全为 NULL，每周 2 次力量课对 ACWR/CTL/TSB 的
+> 贡献恒为 0。这是教练视角的盲区：身体不区分负荷来源。
+
+| Tool | db.ts 函数 | 参数 | 输出 | 说明 |
+|------|-----------|------|------|------|
+| `get_strength_sessions` | `getStrengthSessions` | `limit`(1-100, 默认20), `offset`, `startDate?`, `endDate?` | `{data: StrengthSession[], total, returned, limit, offset}` | 结构化画像: 计划名/有效组数/工作休息比/结构类型/强度域/训练效应/恢复建议/派生负荷 |
+| `get_strength_loads` | `getStrengthLoads` | `startDate`, `endDate` | `{date, load, duration, sessions, workingSets}[]` | 按本地日期聚合的力量负荷 |
+
+### 数据边界（实测，不可越界）
+
+| 想拿 | 可得性 | 依据 |
+|---|---|---|
+| 动作名（深蹲/卧推） | ❌ | FIT 里没有 `set` 消息；Garmin 只在云端 `exerciseSets` 提供 |
+| 重量 / 次数 | ❌ | 同上（51 条本地 FIT 实测 `set`/`exercise_title` 消息数为 0） |
+| 训练计划名 | ✅ 49/51 | `activities.workout_name`（如「全身循环1」「核心稳定性1」） |
+| 组结构（active/rest 交替） | ✅ 49/51 | `activities.workout_steps` JSON（每步 `duration_sec` + `intensity`） |
+| 时长 / 平均心率 / 卡路里 | ✅ 51/51 | 平铺列 |
+| 训练效应 (TE) | ✅ 51/51 | `total_training_effect` / `total_anaerobic_training_effect` |
+| 官方恢复建议 | ✅ 51/51 | `recovery_time`（**分钟**） |
+
+两个工具**不返回**「组数 × 重量」这类容量字段 —— 硬造就是假数据。输出的是
+「计划名 + 有效组数 + 工作/休息时长比 + 强度域」这套真实可推导的画像。
+
+### 负荷口径
+
+`时长(h) × 100 × 域系数`，域系数按**训练效应**加权（`app/lib/strength.ts` 单一真源）：
+`high 1.5 / tempo 1.3 / base 1.0 / recovery 0.6 / unknown 0.8`。
+
+- **强度域判定**：TE ≥3.5 high / ≥2.5 tempo / ≥1.5 base / >0 recovery；TE 缺失回退心率
+  <100 recovery、<130 base、否则 tempo。
+- **不复用跑步 HR-TRIMP 的理由**：力量心率响应滞后且峰值低（真实库 51 条平均心率
+  73–129），套 Z1 系数 0.6 会让负荷趋近于零。
+- **量纲**：与库内跑步 `training_load` 同量纲，但**不是** Garmin 官方
+  `training_load_peak`（后者与库内值比值 1.2–2.6 倍浮动、不可换算）。
+
+### 合并口径（`get_training_load_analysis`）
+
+| 字段 | 规则 | 理由 |
+|---|---|---|
+| `load` | **相加** | 力量训练也是负荷，ACWR/CTL/TSB 必须看见它 |
+| `distance` | 只取跑步 | 力量训练无距离语义（真实库 51/51 为 0） |
+| `duration` | **只取跑步** | 该字段喂「当月均配速」（Σduration/Σdistance），混入力量时长会把配速拖慢（实测 369 → 989 s/km 量级） |
+| `runs` | 只取跑步 | 「跑步次数」标签语义；力量课不该被算作跑步 |
+
+真实库验证：近 28 天 ACWR 1.40 → 1.32（慢性 227.25 → 242.25），而
+`distance`/`duration`/`runs` 偏差全为 0（口径零污染）。
+
+消费方必须全部走合并入口：首页 `/`、分析页 `/analysis`、洞察页 `/insight`
+（`insight-service`）、跑者画像、本工具 `get_training_load_analysis`。
+漏一个就分叉（洞察页曾漏接 → 同一时期洞察页 ACWR 1.40 / 首页 1.32），
+由 `tests/unit/lib/insight-services.test.ts` 守护。
+
+### 双实现一致性守护
+
+`scripts/garmin/sync.js` 是纯 CJS（不经 tsc），无法 import TS。故
+`scripts/common/strength-load.js` 逐行镜像 `app/lib/strength.ts`，由
+`tests/unit/lib/strength-sync-parity.test.ts` 穷举比对（12×12 TE×HR、11×5 时长×域、
+7×7 时间基数）。任一侧改阈值而另一侧没跟上 → 红灯。没有它，同步写入的
+`training_load` 会与页面/MCP 展示的负荷分叉，且**不会报错、不会让任何测试变红**。
+
 ## 4. 数据单位约定
 
 > ⚠️ activities.distance 在 DB 中存储为 **公里**, activity_laps.distance 为 **米**
@@ -216,7 +282,7 @@ DB_PATH=/home/ubuntu/project/pbRun/app/data/activities.db MAX_HR=194 \
 | 4 | 实现 compare_periods (db.ts 新增 getPeriodStats) | ✅ |
 | 5 | 实现 get_training_load_analysis (db.ts 新增 getTrainingLoads, ACWR) | ✅ |
 | 6 | opencode 配置 (已写入 ~/.config/opencode); 确认无需 systemd (stdio 由客户端拉起) | ✅ |
-| 7 | 端到端验证 (stdio 客户端逐一调用 17 个 tool) | ✅ 全部通过 |
+| 7 | 端到端验证 (stdio 客户端逐一调用 19 个 tool) | ✅ 全部通过 |
 | 8 | 打磨: 纯逻辑抽离 analysis.ts (可单测)、结构化错误、日期校验、优雅退出 | ✅ |
 | 9 | 单元测试: db 新函数 10 例 + analysis 纯逻辑 18 例 | ✅ 全部通过 |
 | 10 | 修复 format.ts locale 脆弱性 (toLocaleDateString → 确定性 YYYY/MM/DD) | ✅ 全量测试 271 通过 |
@@ -224,7 +290,7 @@ DB_PATH=/home/ubuntu/project/pbRun/app/data/activities.db MAX_HR=194 \
 
 构建: `npm run build:mcp` (tsc -p mcp-server) → `mcp-server/dist/`
 测试: `npm test -- tests/unit/lib/db-mcp.test.ts tests/unit/mcp/analysis.test.ts`
-说明: 实际 tool 数为 16 (13 基础 + 3 AI), 设计文档原 "12 个" 为笔误。
+说明: 当前 tool 数为 19 (14 基础 + 3 AI + 2 力量训练)。历史笔误记录: 早期设计文档写 "12 个", 实际 16。
 注意: `next build` 时勿设置 `NODE_ENV=development` (Next 16 已知 bug 会使 /_global-error
 prerender 崩溃, vercel/next.js#85668 等); 正常构建 (不设或 NODE_ENV=production) 无此问题。
 

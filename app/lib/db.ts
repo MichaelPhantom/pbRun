@@ -27,6 +27,7 @@ import {
   PeriodStats,
   TrainingLoadPoint,
   ActivityTrack,
+  StrengthSession,
 } from './types';
 import type { VdotSample } from './insight';
 import { getPaceZoneBoundsFromVdot, getPaceZoneCenterFromVdot } from './vdot-pace';
@@ -36,6 +37,13 @@ import { hrZoneOf, resolveMaxHr } from './hr-zones';
 import { POWER_ZONE_NAMES, powerZoneOf } from './power-zones';
 import { resolveFtp } from './power';
 import { RUNNING_ACTIVITY_TYPES } from './sport';
+import {
+  buildStrengthProfile,
+  mergeStrengthIntoTrainingLoads,
+  strengthLoadBaseSeconds,
+  strengthLoadOf,
+  type StrengthLoadPoint,
+} from './strength';
 import { effectiveTimeSec, sampleSeconds, paceSecPerKm } from './pace';
 
 
@@ -1170,6 +1178,176 @@ export function getTrainingLoads(startDate: string, endDate: string): TrainingLo
     duration: r.duration ?? 0,
     runs: r.runs ?? 0,
   }));
+}
+
+/**
+ * 按本地日期聚合**力量训练**负荷（`strength_training` 口径）。
+ *
+ * 与 `getTrainingLoads`（跑步口径）并列，二者由 `strength.mergeStrengthIntoTrainingLoads`
+ * 显式合并 —— **不在 SQL 里 UNION**：合并规则（负荷相加、里程/时长/次数只取跑步）
+ * 是纯函数且有契约测试，放 SQL 里会分散到两个查询里，无法单测穷举。
+ *
+ * 为什么力量训练此前零负荷：`sync.js` 的 `calculateTrainingLoad` 派生分支只对跑步
+ * 三类型开放（`runnableTypes2`），于是 51 条力量课的 `training_load` 全为 NULL，
+ * ACWR/CTL/TSB 完全看不见它们。本函数与 `strength.strengthLoadOf` 一起补上这条线。
+ *
+ * `workingSets` 由 `workout_steps` 的 active/interval 步数派生（真实库 49/51 有课表）。
+ *
+ * @throws 日期格式非法或 startDate > endDate 时抛出清晰错误
+ */
+export function getStrengthLoads(startDate: string, endDate: string): StrengthLoadPoint[] {
+  const db = getDatabase();
+  validateRange(startDate, endDate, 'getStrengthLoads');
+  const rows = db.prepare(
+    `SELECT
+       activity_id,
+       substr(start_time_local, 1, 10) AS date,
+       name,
+       workout_name,
+       workout_steps,
+       duration,
+       moving_time,
+       average_heart_rate,
+       total_training_effect,
+       total_anaerobic_training_effect
+     FROM activities
+     WHERE start_time_local IS NOT NULL AND start_time_local >= ? AND start_time_local <= ?
+       AND activity_type = 'strength_training'
+     ORDER BY date`
+  ).all(startDate, endDate + 'T23:59:59.999') as {
+    activity_id: number;
+    date: string;
+    name: string | null;
+    workout_name: string | null;
+    workout_steps: string | null;
+    duration: number | null;
+    moving_time: number | null;
+    average_heart_rate: number | null;
+    total_training_effect: number | null;
+    total_anaerobic_training_effect: number | null;
+  }[];
+
+  const byDate = new Map<string, StrengthLoadPoint>();
+  for (const r of rows) {
+    const profile = buildStrengthProfile(r);
+    const load = strengthLoadOf(r);
+    const baseSeconds = strengthLoadBaseSeconds(r.moving_time, r.duration);
+    const cur = byDate.get(r.date) ?? {
+      date: r.date,
+      load: 0,
+      duration: 0,
+      sessions: 0,
+      workingSets: 0,
+    };
+    cur.load += load;
+    cur.duration += baseSeconds;
+    cur.sessions += 1;
+    cur.workingSets += profile.workingSets;
+    byDate.set(r.date, cur);
+  }
+  return [...byDate.values()].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+}
+
+/**
+ * **合并口径**的训练负荷序列（跑步负荷 + 力量负荷）。
+ *
+ * 这是首页/分析页/跑者画像/MCP 的**唯一入口**（想算 ACWR/CTL/TSB 就用它）。
+ * 口径规则见 `strength.mergeStrengthIntoTrainingLoads`：`load` 相加，
+ * `distance`/`duration`/`runs` 只取跑步（保护均配速与「跑步天数」语义）。
+ *
+ * 为什么不在 `getTrainingLoads` 里合并：该函数的名字与 10+ 处消费方（含首页
+ * 「跑步天数」标签、月度里程）都假设「只有跑步」。原地改语义会让所有调用方
+ * 在无声中变味 —— 显式两个函数 + 一个合并入口，口径可见、可单测。
+ *
+ * @throws 日期格式非法或 startDate > endDate 时抛出清晰错误
+ */
+export function getCombinedTrainingLoads(startDate: string, endDate: string): TrainingLoadPoint[] {
+  return mergeStrengthIntoTrainingLoads(
+    getTrainingLoads(startDate, endDate),
+    getStrengthLoads(startDate, endDate),
+  );
+}
+
+/**
+ * 力量训练**结构化画像列表**（活动详情 / AI 数据块 / MCP 用）。
+ *
+ * 返回按 `start_time_local` 倒序（最新在前），含 `buildStrengthProfile` 的全部
+ * 结构化字段 + 活动基础信息 + 派生负荷。默认只取该类型，不做类型过滤。
+ */
+export function getStrengthSessions(options?: {
+  limit?: number;
+  offset?: number;
+  startDate?: string;
+  endDate?: string;
+}): { data: StrengthSession[]; total: number; returned: number; limit: number; offset: number } {
+  const db = getDatabase();
+  const limit = Math.max(1, Math.min(options?.limit ?? 20, 100));
+  const offset = Math.max(0, options?.offset ?? 0);
+  const params: unknown[] = [];
+  let where = `start_time_local IS NOT NULL AND activity_type = 'strength_training'`;
+  if (options?.startDate) {
+    validateRange(options.startDate, options.endDate ?? options.startDate, 'getStrengthSessions');
+    where += ' AND start_time_local >= ? AND start_time_local <= ?';
+    params.push(options.startDate, (options.endDate ?? options.startDate) + 'T23:59:59.999');
+  }
+
+  const countRow = db.prepare(
+    `SELECT COUNT(*) AS total FROM activities WHERE ${where}`
+  ).get(...params) as { total?: number } | undefined;
+  const total = countRow?.total ?? 0;
+
+  const rows = db.prepare(
+    `SELECT
+       activity_id, name, activity_type, start_time_local,
+       duration, moving_time, average_heart_rate, max_heart_rate,
+       calories, total_training_effect, total_anaerobic_training_effect,
+       primary_benefit, recovery_time, workout_name, workout_steps
+     FROM activities
+     WHERE ${where}
+     ORDER BY start_time_local DESC
+     LIMIT ? OFFSET ?`
+  ).all(...params, limit, offset) as StrengthSessionRow[];
+
+  return {
+    data: rows.map((r) => {
+      const profile = buildStrengthProfile(r);
+      return {
+        activityId: r.activity_id,
+        name: r.name,
+        startTimeLocal: r.start_time_local,
+        durationSeconds: strengthLoadBaseSeconds(r.moving_time, r.duration),
+        maxHeartRate: r.max_heart_rate,
+        calories: r.calories,
+        primaryBenefit: r.primary_benefit,
+        recoveryTimeMinutes: r.recovery_time,
+        load: strengthLoadOf(r),
+        ...profile,
+      };
+    }),
+    total,
+    returned: rows.length,
+    limit,
+    offset,
+  };
+}
+
+/** `getStrengthSessions` 的行结构。 */
+interface StrengthSessionRow {
+  activity_id: number;
+  name: string | null;
+  activity_type: string | null;
+  start_time_local: string;
+  duration: number | null;
+  moving_time: number | null;
+  average_heart_rate: number | null;
+  max_heart_rate: number | null;
+  calories: number | null;
+  total_training_effect: number | null;
+  total_anaerobic_training_effect: number | null;
+  primary_benefit: string | null;
+  recovery_time: number | null;
+  workout_name: string | null;
+  workout_steps: string | null;
 }
 
 /**
