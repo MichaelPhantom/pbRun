@@ -100,6 +100,33 @@ describe('app/daniels/page.tsx 丹尼尔斯介绍页', () => {
     expect(screen.getByText(/平均心率、步频与步幅/)).toBeInTheDocument();
     expect(screen.queryByText(/活动次数、总时长/)).toBeNull();
   });
+
+  /**
+   * **第二十九类：把 Markdown 语法写进 JSX 正文，星号原样显示给用户。**
+   *
+   * `配速区间（Z1–Z5）` 卡片的正文写着：
+   *
+   * ```
+   * 表格按该配速区间归集**跑步分段（laps）**，展示各区间的平均心率…
+   * ```
+   *
+   * JSX 文本节点不做 Markdown 解析 —— 生产页面因此原样显示
+   * 「归集**跑步分段（laps）**」。用户读到的是四个星号，不是加粗。
+   *
+   * 为什么测试拦不住：`getByText(/平均心率、步频与步幅/)` 用正则**子串**匹配，
+   * 星号夹在中间完全不影响匹配 —— 断言通过，缺陷照旧。子串断言看不见
+   * 「同一段文字里多出来的字符」。
+   *
+   * 判别式：断言「用户看到的字面」时，不要只用 `getByText(/片段/)`，
+   * 还要断言**整段文本里不含 Markdown 控制字符**。
+   */
+  test('正文不得残留 Markdown 星号（JSX 不解析 Markdown）', () => {
+    const { container } = render(<DanielsPage />);
+    const text = container.textContent ?? '';
+    expect(text).not.toMatch(/\*\*/);
+    // 自证：正文确实渲染了这一段（否则断言退化成空）
+    expect(text).toContain('归集');
+  });
 });
 
 describe('app/pages/page.tsx 索引重定向', () => {

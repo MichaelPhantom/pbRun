@@ -569,6 +569,14 @@ describe('skill 的「训练负荷」口径（第十八类缺陷）', () => {
    *
    * 详情页是 `/pages/{id}`，`/insight` 写成 `/${id}` —— 近 90 天 24 个死链。
    */
+  /**
+   * **第二十九类：JSX 正文里的 Markdown 星号原样显示。**
+   */
+  test('skill 必须声明「页面正文不解析 Markdown」', () => {
+    expect(skill).toMatch(/页面正文不解析 Markdown/);
+    expect(skill).toMatch(/MarkdownLite/);
+  });
+
   test('skill 必须声明「活动详情页是 /pages/{id}」', () => {
     expect(skill).toMatch(/\/pages\/\{activity_id\}|\/pages\/\{id\}/);
     // 必须点明「根路径 + id 会 404」

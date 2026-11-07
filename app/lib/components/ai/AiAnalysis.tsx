@@ -388,7 +388,7 @@ export function AiAnalysis({
             )}
           </p>
           <p className="text-xs">
-            本界面只回答**这一次训练**。跑量趋势、强度结构、周期化与多月规划请用汇总页的
+            本界面只回答<span className="font-medium text-fg-secondary">这一次训练</span>。跑量趋势、强度结构、周期化与多月规划请用汇总页的
             「AI 统计教练」——那是另一套能力（数据与提示词都不同），互不替代。
           </p>
         </div>
