@@ -97,6 +97,41 @@ describe('/api/activities/months', () => {
   test('limit 非数字 → 400', async () => {
     expect((await monthsGET(req('/api/activities/months?limit=abc'))).status).toBe(400);
   });
+
+  /**
+   * `typeBreakdown` 必须**原样透传**到响应体。
+   *
+   * 月卡要靠它说出「含 力量训练 2 · 爬楼 1」；若路由层做了字段裁剪
+   * （历史上确实有过「只挑已知字段」的写法），UI 会永远拿到 undefined 并
+   * 静默回落到「含 N 次其他」—— 数据在库里，接口把它藏了。
+   */
+  test('月度汇总的 typeBreakdown 原样透传（月卡类型构成的数据源）', async () => {
+    (db.getMonthSummaries as jest.Mock).mockReturnValueOnce({
+      data: [
+        {
+          monthKey: '2026-09',
+          totalDistance: 42.5,
+          count: 25,
+          runDistance: 42.5,
+          runCount: 21,
+          typeBreakdown: [
+            { type: 'running', count: 21 },
+            { type: 'strength_training', count: 2 },
+          ],
+        },
+      ],
+      total: 1,
+    });
+    const res = await monthsGET(req('/api/activities/months?limit=6&offset=0'));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      data: { typeBreakdown: { type: string; count: number }[] }[];
+    };
+    expect(body.data[0].typeBreakdown).toEqual([
+      { type: 'running', count: 21 },
+      { type: 'strength_training', count: 2 },
+    ]);
+  });
 });
 
 describe('/api/activities/:id', () => {

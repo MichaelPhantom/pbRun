@@ -416,6 +416,46 @@ describe('db.ts 洞察查询 (真实 SQL)', () => {
     expect(sep.runCount).toBe(3);
     expect(sep.totalDistance).toBeCloseTo(41.8, 5); // 8+7+18.6+8.2
     expect(sep.runDistance).toBeCloseTo(33.6, 5);   // 8+7+18.6
+
+    /**
+     * **逐月类型构成**：月卡要靠它说出「含 力量训练 2 · 爬楼 1」，而不是含糊的
+     * 「含 N 次其他」。这里断言的是**真实 SQL 的二维聚合结果**（月 × 类型），
+     * mock 测不出「GROUP BY 少了 type 会把所有类型合成一行」这类缺陷。
+     */
+    const sepWithBreakdown = months.find((m) => m.monthKey === '2026-09') as {
+      typeBreakdown?: { type: string; count: number }[];
+    };
+    expect(sepWithBreakdown.typeBreakdown).toEqual([
+      { type: 'running', count: 3 },
+      { type: 'lap_swimming', count: 1 },
+    ]);
+  });
+
+  /**
+   * 类型构成必须按 `count DESC, type ASC` 排序：月卡直接按数组顺序渲染，
+   * 顺序不稳定会导致同一份数据两次刷新显示不同（用户以为是数据在变）。
+   */
+  test('逐月类型构成按条数降序、同数按类型名升序', async () => {
+    const db = await loadDb();
+    const months = db.getMonthSummaries() as { monthKey: string; typeBreakdown: { type: string; count: number }[] }[];
+    const sep = months.find((m) => m.monthKey === '2026-09')!;
+    expect(sep.typeBreakdown.map((b) => b.type)).toEqual(['running', 'lap_swimming']);
+    expect(sep.typeBreakdown[0].count).toBeGreaterThan(sep.typeBreakdown[1].count);
+  });
+
+  /**
+   * 筛选后构成**只含被筛的类型**（不是全月构成）。
+   *
+   * 若实现里漏了把 `whereClause` 参数带进第二条查询，筛「游泳」时构成仍会
+   * 显示「跑步 3 · 游泳 1」—— 而页面上只有 1 张游泳卡，自相矛盾。
+   */
+  test('筛选后的类型构成只含匹配类型', async () => {
+    const db = await loadDb();
+    const swim = db.getMonthSummaries(undefined, undefined, { type: 'lap_swimming' }) as {
+      monthKey: string; typeBreakdown: { type: string; count: number }[];
+    }[];
+    expect(swim).toHaveLength(1);
+    expect(swim[0].typeBreakdown).toEqual([{ type: 'lap_swimming', count: 1 }]);
   });
 
   /**

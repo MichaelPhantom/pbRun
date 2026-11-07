@@ -62,17 +62,66 @@ describe('getMonthSummaries', () => {
     ]);
     const rows = getMonthSummaries() as {
       monthKey: string; totalDistance: number; count: number; runDistance: number; runCount: number;
+      typeBreakdown: { type: string; count: number }[];
     }[];
     expect(Array.isArray(rows)).toBe(true);
-    expect(rows[0]).toEqual({
+    // `typeBreakdown` 是后来新增的字段（月卡要显示「含 力量训练 2 / 爬楼 1」）。
+    // 用 toMatchObject 而不是 toEqual: 这个用例关心的是「裸数组形态 + NULL 兜底」，
+    // 不该因为新增一个展示字段就整条重写 —— 但字段本身必须存在且是空数组
+    // （本 mock 未给 breakdown 查询返回值）。
+    expect(rows[0]).toMatchObject({
       monthKey: '2026-09', totalDistance: 42.5, count: 6, runDistance: 42.5, runCount: 6,
     });
+    expect(rows[0].typeBreakdown).toEqual([]);
     // NULL → 0 兜底
-    expect(rows[1]).toEqual({
+    expect(rows[1]).toMatchObject({
       monthKey: '2026-08', totalDistance: 0, count: 0, runDistance: 0, runCount: 0,
     });
-    // 1 次 PRAGMA table_info (hasActivityColumn) + 1 次业务查询
-    expect(mockPrepare).toHaveBeenCalledTimes(2);
+    expect(rows[1].typeBreakdown).toEqual([]);
+    // 1 次 PRAGMA table_info (hasActivityColumn) + 1 次月汇总 + 1 次类型构成
+    expect(mockPrepare).toHaveBeenCalledTimes(3);
+  });
+
+  /**
+   * 逐月类型构成：月卡此前只有「含 N 次其他」，用户看不出那 N 次是什么运动。
+   *
+   * 单独一条「月 × 类型」二维聚合（不塞进月汇总的 GROUP BY），按 count 降序、
+   * 同数按 type 升序，保证同一份数据每次渲染顺序一致。
+   */
+  test('月汇总附带逐月运动类型构成 (按条数降序)', () => {
+    mockAll.mockReturnValueOnce([
+      { monthKey: '2026-10', totalDistance: 100, count: 19, runDistance: 95, runCount: 17 },
+    ]);
+    // 第二条查询 = 类型构成
+    mockAll.mockReturnValueOnce([
+      { monthKey: '2026-10', type: 'running', count: 17 },
+      { monthKey: '2026-10', type: 'strength_training', count: 2 },
+    ]);
+    const rows = getMonthSummaries() as {
+      monthKey: string;
+      typeBreakdown: { type: string; count: number }[];
+    }[];
+    expect(rows[0].typeBreakdown).toEqual([
+      { type: 'running', count: 17 },
+      { type: 'strength_training', count: 2 },
+    ]);
+    // 第二条 SQL 必须按「月 × 类型」分组, 且带上同一套 WHERE 参数
+    const sql = mockPrepare.mock.calls.map((c) => String(c[0])).find((s) => s.includes('AS type'))!;
+    expect(sql).toContain('GROUP BY monthKey, type');
+    expect(sql).toContain('ORDER BY monthKey DESC, count DESC, type ASC');
+    // 空 activity_type 归入 running（与下拉/筛选同一归一规则）
+    expect(sql).toContain("COALESCE(NULLIF(activity_type, ''), 'running') AS type");
+  });
+
+  /**
+   * 空月份不查构成（`rows.length === 0` 早退）：否则每次翻到最后一页都会
+   * 多发一条 `IN ()` 的空查询。
+   */
+  test('月汇总为空时不发类型构成查询', () => {
+    mockAll.mockReturnValueOnce([]);
+    expect(getMonthSummaries()).toEqual([]);
+    const sqls = mockPrepare.mock.calls.map((c) => String(c[0]));
+    expect(sqls.some((s) => s.includes('AS type'))).toBe(false);
   });
 
   test('传 limit/offset → 分页对象 + total, 并对入参做夹取', () => {

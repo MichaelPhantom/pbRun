@@ -365,6 +365,17 @@ export interface MonthSummary {
   runDistance?: number;
   /** **只跑步**的次数。头部「N 次」若用 `count` 会含力量/游泳/球类。 */
   runCount?: number;
+  /**
+   * 该月的**运动类型构成**（按条数降序）。
+   *
+   * 为什么需要：月卡此前只有「含 N 次其他」—— 用户看到「19 次 · 含 2 次其他」
+   * 完全不知道那 2 次是什么运动。这与「记录栏目只有跑步类型」是同一类观感的
+   * 来源：**有别的运动，但界面不说是什么**。
+   *
+   * 只在**未筛选**时有意义（筛选后的月份里「其他」这个概念不存在）。
+   * 空数组 = 该月无数据 / 旧调用方未提供。
+   */
+  typeBreakdown?: { type: string; count: number }[];
 }
 
 export interface PaginatedResponse<T> {

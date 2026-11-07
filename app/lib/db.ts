@@ -361,10 +361,47 @@ export function getMonthSummaries(
     count: r.count ?? 0,
     runDistance: r.runDistance ?? 0,
     runCount: r.runCount ?? 0,
+    typeBreakdown: [],
   });
+
+  /**
+   * 逐月运动类型构成。
+   *
+   * 为什么要单独一条查询而不是在 `baseSelect` 里再 `GROUP_CONCAT`：类型构成是
+   * 「月 × 类型」的二维聚合，塞进一维的月汇总里只能拼字符串，调用方还要再解析
+   * 一次 —— 那正是本项目反复踩的「字符串里藏结构化数据」的坑。这里直接返回
+   * 结构化数组，`mapRow` 之后按键合并。
+   *
+   * 只取当前这一页的月份（`monthKeys`），避免为 30 个月各查一次。
+   */
+  const attachBreakdown = (rows: MonthSummary[]): MonthSummary[] => {
+    if (rows.length === 0) return rows;
+    const monthKeys = rows.map((r) => r.monthKey);
+    const placeholders = monthKeys.map(() => '?').join(',');
+    const breakdownRows = db
+      .prepare(
+        `SELECT substr(start_time_local, 1, 7) AS monthKey,
+                COALESCE(NULLIF(activity_type, ''), 'running') AS type,
+                COUNT(*) AS count
+         FROM activities
+         ${whereClause}
+           AND substr(start_time_local, 1, 7) IN (${placeholders})
+         GROUP BY monthKey, type
+         ORDER BY monthKey DESC, count DESC, type ASC`,
+      )
+      .all(...params, ...monthKeys) as { monthKey: string; type: string; count: number }[];
+    const byMonth = new Map<string, { type: string; count: number }[]>();
+    for (const b of breakdownRows) {
+      const list = byMonth.get(b.monthKey);
+      if (list) list.push({ type: b.type, count: b.count });
+      else byMonth.set(b.monthKey, [{ type: b.type, count: b.count }]);
+    }
+    return rows.map((r) => ({ ...r, typeBreakdown: byMonth.get(r.monthKey) ?? [] }));
+  };
+
   if (limit == null && offset == null) {
     const rows = db.prepare(baseSelect).all(...params) as Parameters<typeof mapRow>[0][];
-    return rows.map(mapRow);
+    return attachBreakdown(rows.map(mapRow));
   }
   const totalRow = db.prepare(
     `SELECT COUNT(*) AS total FROM (SELECT 1 FROM activities ${whereClause} GROUP BY substr(start_time_local, 1, 7))`
@@ -373,7 +410,7 @@ export function getMonthSummaries(
   const limitVal = Math.max(1, Math.min(100, limit ?? 6));
   const offsetVal = Math.max(0, offset ?? 0);
   const rows = db.prepare(`${baseSelect} LIMIT ? OFFSET ?`).all(...params, limitVal, offsetVal) as Parameters<typeof mapRow>[0][];
-  return { data: rows.map(mapRow), total };
+  return { data: attachBreakdown(rows.map(mapRow)), total };
 }
 
 /** 转义 LIKE 通配符（用户输入的 `%` / `_` 应按字面匹配）。 */

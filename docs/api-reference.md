@@ -132,9 +132,16 @@ GET /api/activities
 |------|------|------|
 | `runDistance` / `runCount` | **只跑步**（`running` / `track_running` / `treadmill_running`，空 `activity_type` 视为跑步） | 月度「N 公里」—— 用全类型会把游泳距离加进跑量（真实库 2026-08 多 2.05km） |
 | `totalDistance` / `count` | **全类型**（含游泳/球类/力量训练） | 月度「N 次」与展开后的卡片数严格一致（真实库 2026-09 若只算跑步会显示 3 次却列出 4 张卡） |
+| `typeBreakdown` | **全类型**，按条数降序（同数按 `type` 升序） | 月卡「含 力量训练 2 · 爬楼 1」。旧实现只有「含 N 次其他」—— 用户知道还有别的运动，但**不知道是什么**，与「记录栏目只有跑步类型」是同一类观感来源 |
 
 `totalDistance` 为**公里**（与 `activities.distance` 一致）。筛选非跑步类型时
 `runDistance`/`runCount` 恒为 0 —— 此时里程在 `totalDistance` 里，不要读成「这个月没运动」。
+
+`typeBreakdown` 的元素形状为 `{ type: string; count: number }`，`type` 已按
+`COALESCE(NULLIF(activity_type, ''), 'running')` 归一（空 `activity_type` 计入
+`running`，与下拉/筛选同一规则）。**该字段只在未筛选时有展示意义**：按 `type`
+或 `q` 筛选后，返回的构成就是被筛后的那部分，「其他」这个概念已不存在。
+旧调用方可能拿到空数组（缺省值），UI 会回落到「含 N 次其他」徽标。
 
 **请求**
 
@@ -161,7 +168,13 @@ GET /api/activities/months?limit=6&offset=0&type=lap_swimming&q=游泳
       "runDistance": 197.55,
       "runCount": 23,
       "totalDistance": 199.6,
-      "count": 31
+      "count": 31,
+      "typeBreakdown": [
+        { "type": "running", "count": 23 },
+        { "type": "strength_training", "count": 4 },
+        { "type": "floor_climbing", "count": 2 },
+        { "type": "lap_swimming", "count": 2 }
+      ]
     }
   ],
   "total": 13

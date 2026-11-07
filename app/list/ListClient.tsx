@@ -540,20 +540,44 @@ export default function ListClient({
                     {/* 次数给全类型: 与展开后的卡片数严格一致, 另标出其中非跑步的条数 */}
                     <span>{summary.count} 次</span>
                     {/*
-                      「含 N 次其他」只在**没有任何筛选**时有意义。
-                      用户选了「力量训练」或搜了「力量」之后，这些活动对当前
-                      视图来说不是「其他」—— 再标「含 4 次其他」是自相矛盾
-                      （真实库 `months?q=力量` 每个月都是 count 2~7 / runCount 0，
-                      会渲染成「2 次 含 2 次其他」）。判定必须覆盖 `q`，不能只看 type。
+                      非跑步构成。只在**没有任何筛选**时有意义 —— 用户选了
+                      「力量训练」或搜了「力量」之后，这些活动对当前视图来说
+                      不是「其他」，再标「含 4 次其他」是自相矛盾（真实库
+                      `months?q=力量` 每月 count 2~7 / runCount 0，会渲染成
+                      「2 次 含 2 次其他」）。判定必须覆盖 `q`，不能只看 type。
+
+                      **旧实现只写「含 N 次其他」**：用户看到「19 次 · 含 2 次
+                      其他」，完全不知道那 2 次是什么运动 —— 这与「记录栏目只有
+                      跑步类型」是同一类观感的来源：有别的运动，但界面不说是什么。
+                      现在直接列出类型名与条数（「含 力量训练 2 · 爬楼 1」）。
+
+                      回落：`typeBreakdown` 缺失或为空（旧 API 响应 / 单测夹具）
+                      时用旧的「含 N 次其他」，保证信息量不倒退。
                     */}
-                    {!appliedFilter.type &&
-                      !appliedFilter.q &&
-                      summary.runCount != null &&
-                      summary.count > summary.runCount && (
+                    {(() => {
+                      if (appliedFilter.type || appliedFilter.q) return null;
+                      const breakdown = summary.typeBreakdown ?? [];
+                      const others = breakdown.filter((b) => !isRunningType(b.type));
+                      if (others.length > 0) {
+                        return (
+                          <span className="rounded bg-[var(--surface-2)] px-1.5 py-0.5 text-[10px] text-fg-secondary">
+                            含{' '}
+                            {others
+                              .map((b) => `${activityTypeLabel(b.type)} ${b.count}`)
+                              .join(' · ')}
+                          </span>
+                        );
+                      }
+                      // 构成未知（旧响应/夹具）时回落旧徽标；有 breakdown 且全是
+                      // 跑步时**不显示**（others 为空即说明这个月确实只有跑步）。
+                      if (breakdown.length > 0) return null;
+                      if (summary.runCount == null || summary.count <= summary.runCount) return null;
+                      return (
                         <span className="rounded bg-[var(--surface-2)] px-1.5 py-0.5 text-[10px] text-fg-secondary">
                           含 {summary.count - summary.runCount} 次其他
                         </span>
-                      )}
+                      );
+                    })()}
                     {isExpanded ? (
                       <span className="inline-block rotate-180" aria-hidden>▲</span>
                     ) : (

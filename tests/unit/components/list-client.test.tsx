@@ -724,6 +724,113 @@ describe('ListClient 活动列表 (交互/筛选/无限滚动)', () => {
   });
 
   /**
+   * **月卡要说出「那 N 次是什么运动」，不能只写「含 N 次其他」**。
+   *
+   * 真实库 2026-09 共 25 次（21 跑步 + 2 力量 + 1 爬楼 + 1 游泳）。
+   * 旧实现只渲染「含 4 次其他」—— 用户看到的是一个**没有信息量的数字**：
+   * 他知道还有别的运动，但不知道是什么。这与「记录栏目只有跑步类型」是同一
+   * 类观感的来源：有别的运动，界面不说是什么。
+   *
+   * 判别式盯用户看到的字面：必须出现「力量训练 2」与「爬楼 1」这样的
+   * **类型名 + 条数**，而不是只有「4」。
+   */
+  test('月卡: 显示具体运动类型构成（含 力量训练 2 · 爬楼 1）', () => {
+    renderList({
+      initialMonthSummaries: [
+        {
+          monthKey: '2026-09',
+          totalDistance: 42.5,
+          count: 25,
+          runDistance: 42.5,
+          runCount: 21,
+          typeBreakdown: [
+            { type: 'running', count: 21 },
+            { type: 'strength_training', count: 2 },
+            { type: 'floor_climbing', count: 1 },
+            { type: 'lap_swimming', count: 1 },
+          ],
+        },
+      ],
+      initialActivitiesByMonth: { '2026-09': [act()] },
+      availableTypes: [{ type: 'strength_training', count: 51 }],
+    });
+    const monthBtn = screen.getByRole('button', { name: /2026年9月/ });
+    expect(monthBtn).toHaveTextContent('含');
+    expect(monthBtn).toHaveTextContent('力量训练 2');
+    expect(monthBtn).toHaveTextContent('爬楼 1');
+    expect(monthBtn).toHaveTextContent('泳池游泳 1');
+    // 跑步本身不算「其他」，不能出现在构成里
+    expect(monthBtn).not.toHaveTextContent('跑步 21');
+    // 旧的含糊徽标不应再出现（信息量已升级）
+    expect(monthBtn).not.toHaveTextContent('次其他');
+  });
+
+  /**
+   * `typeBreakdown` 缺失（旧 API 响应 / 旧单测夹具）时**回落旧徽标**，
+   * 信息量不倒退 —— 宁可有「含 4 次其他」，也不要什么都没有。
+   */
+  test('月卡: typeBreakdown 缺失时回落「含 N 次其他」', () => {
+    renderList({
+      initialMonthSummaries: [
+        { monthKey: '2026-09', totalDistance: 33.6, count: 25, runDistance: 33.6, runCount: 21 },
+      ],
+      initialActivitiesByMonth: { '2026-09': [act()] },
+      availableTypes: [{ type: 'strength_training', count: 51 }],
+    });
+    expect(screen.getByRole('button', { name: /2026年9月/ })).toHaveTextContent('含 4 次其他');
+  });
+
+  /**
+   * `typeBreakdown` 全是跑步 → **不显示任何徽标**。
+   *
+   * 这条与上一条互斥：`runCount` 与 `count` 若因统计口径差异不等（旧数据），
+   * 回落逻辑会凭空造出「含 N 次其他」，而构成明明说全是跑步 —— 以构成为准。
+   */
+  test('月卡: 构成全是跑步时不显示任何「其他」徽标', () => {
+    renderList({
+      initialMonthSummaries: [
+        {
+          monthKey: '2026-09',
+          totalDistance: 42.5,
+          count: 25,
+          runDistance: 42.5,
+          runCount: 21,
+          typeBreakdown: [{ type: 'running', count: 25 }],
+        },
+      ],
+      initialActivitiesByMonth: { '2026-09': [act()] },
+      availableTypes: [{ type: 'strength_training', count: 51 }],
+    });
+    const monthBtn = screen.getByRole('button', { name: /2026年9月/ });
+    expect(monthBtn).not.toHaveTextContent('次其他');
+    expect(monthBtn).not.toHaveTextContent('力量训练');
+  });
+
+  /**
+   * 筛选后**不显示构成** —— 那 2 次力量课正是用户要找的，不是「其他」。
+   */
+  test('月卡: 按类型筛选时不显示运动构成', () => {
+    renderList({
+      initialMonthSummaries: [
+        {
+          monthKey: '2026-09',
+          totalDistance: 0,
+          count: 2,
+          runDistance: 0,
+          runCount: 0,
+          typeBreakdown: [{ type: 'strength_training', count: 2 }],
+        },
+      ],
+      initialActivitiesByMonth: { '2026-09': [act({ activity_type: 'strength_training' })] },
+      availableTypes: [{ type: 'strength_training', count: 51 }],
+    });
+    const monthBtn = screen.getByRole('button', { name: /2026年9月/ });
+    expect(monthBtn).toHaveTextContent('含 力量训练 2');
+    fireEvent.change(screen.getByLabelText('活动类型筛选'), { target: { value: 'strength_training' } });
+    expect(screen.getByRole('button', { name: /2026年9月/ })).not.toHaveTextContent('含 力量训练');
+  });
+
+  /**
    * **按搜索词筛选时同样不能显示「含 N 次其他」**。
    *
    * 搜索与类型筛选是同一类操作。真实库 `months?q=力量` 返回的每个月都是
