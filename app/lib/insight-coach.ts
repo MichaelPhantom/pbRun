@@ -33,13 +33,18 @@ export function formatInsightForCoach(insight: InsightResponse): string {
   L.push(`数据区间: ${rangeLabel}（${insight.activityCount} 次跑步）`);
 
   // VDOT
-  const vdotPts = vdot.perMonth.map((p) => `${p.period} ${p.avg.toFixed(1)}`).join(' / ');
+  //
+  // 按月行必须给 **avg/max/min 三值**：只给均值会把「这个月掉得很惨但均值还行」
+  // 的形态抹平，模型据此判断「状态稳定」就错了。最低值才是疲劳/过度训练的第一信号。
+  const vdotPts = vdot.perMonth
+    .map((p) => `${p.period} 均${p.avg.toFixed(1)}/高${p.max.toFixed(1)}/低${p.min.toFixed(1)}`)
+    .join(' / ');
   L.push(
     `跑力(VDOT): 最新 ${n(vdot.latest, 1)}  区间均值 ${n(vdot.mean, 1)}  ` +
       `趋势 ${vdot.slopePer30d >= 0 ? '+' : ''}${n(vdot.slopePer30d, 2)}/月` +
       (vdot.plateau ? '（平台期）' : ''),
   );
-  if (vdotPts) L.push(`VDOT 按月: ${vdotPts}`);
+  if (vdotPts) L.push(`VDOT 按月(均/高/低): ${vdotPts}`);
 
   // 负荷
   // 注意括号: `+` 的优先级高于 `?:`, 不加括号会把整段前缀吞进条件 (分支测试抓过)。

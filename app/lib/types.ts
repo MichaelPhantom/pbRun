@@ -151,7 +151,13 @@ export interface Activity {
   workout_steps?: string | null;
 
   // 心率变异性（FIT hrv 消息，仅部分活动有）
-  hrv_rmssd?: number | null;                     // RMSSD（毫秒，由 RR 间期计算）
+  // **`hrv_rmssd` 是「已拆分漏拍合并值」后的 RMSSD（毫秒）**。FIT 的 `hrv.time`
+  // 是逐拍 RR 长度而不是时间戳，且设备在漏检时会把 2~3 个真实间期合并成一条
+  // （`0.725 ≈ 2 × 0.363`）。不拆分就会把一次漏拍当成巨大 RR 跳变，RMSSD 被
+  // 伪迹主导 —— 真实库 20 条里 4 条算出「RMSSD > 全程 RR 极差」的物理不可能值。
+  hrv_rmssd?: number | null;
+  /** `RMSSD / meanRR`（无量纲）。运动中生理区间 < 0.10，> 0.2 说明拆分失败。 */
+  hrv_rmssd_ratio?: number | null;
 
   // 元数据
   created_at: string;                            // 创建时间

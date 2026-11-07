@@ -580,11 +580,76 @@ describe('user_profile / workout / hrv 边界', () => {
 
     const out = p._extractHrv({ hrv: [{ time: [1.0, 1.05, 1.02] }] });
     expect(out.hrv_rmssd).toBeGreaterThan(0);
+    // 无量纲自证字段: RMSSD / meanRR
+    expect(out.hrv_rmssd_ratio).toBeGreaterThan(0);
+    expect(out.hrv_rmssd_ratio).toBeLessThan(0.2);
 
     // 异常值 (>3000ms) 被过滤 → 点数不足
     expect(p._extractHrv({ hrv: [{ time: [9.9, 9.8] }] })).toEqual({});
     // 兼容 activity.hrv 路径
     expect(p._extractHrv({ activity: { hrv: [{ time: [1.0, 1.05, 1.02] }] } }).hrv_rmssd).toBeGreaterThan(0);
+  });
+
+  /**
+   * 第七类缺陷：`hrv.time` 里的**漏拍合并值**（`0.725 ≈ 2 × 0.363`）。
+   *
+   * 设备漏检心搏时会把 2~3 个真实间期合并成一条记录。旧实现对合并值序列直接
+   * 求相邻差，等于把每次漏拍当成一次巨大 RR 跳变 —— 真实库 20 条活动里 4 条
+   * 算出「RMSSD > 全程 RR 极差」的物理不可能值（163.59 ms vs 极差 108.3 ms）。
+   *
+   * RMSSD 是「相邻 RR 差值的均方根」，**必然 ≤ 全程 RR 极差**，>1 即自证错误。
+   */
+  test('hrv: 漏拍合并值必须拆分, 否则 RMSSD 被伪迹主导', () => {
+    // 纯正常序列（全部 363ms）→ RMSSD 应为 0（无变异）
+    const steady = p._extractHrv({ hrv: [{ time: [0.363, 0.363, 0.363, 0.363] }] });
+    expect(steady.hrv_rmssd).toBe(0);
+
+    // 中间混入一个 2 倍值（漏一拍）→ 拆分后仍应接近 0，而不是被 725-363=362ms 的
+    // 假跳变撑到 ~209ms
+    const merged = p._extractHrv({
+      hrv: [{ time: [0.363, 0.363, 0.725, 0.363, 0.363, 0.363, 0.363] }],
+    });
+    expect(merged.hrv_rmssd).toBeLessThan(5);
+
+    // 对照：若不拆分，同样的序列 RMSSD 会 > 100ms
+    const rawSeries = [363, 363, 725, 363, 363, 363, 363];
+    let sumSq = 0;
+    for (let i = 1; i < rawSeries.length; i += 1) sumSq += (rawSeries[i] - rawSeries[i - 1]) ** 2;
+    const rawRmssd = Math.sqrt(sumSq / (rawSeries.length - 1));
+    expect(rawRmssd).toBeGreaterThan(100);
+    expect(merged.hrv_rmssd).toBeLessThan(rawRmssd / 20);
+  });
+
+  test('hrv: 3 倍漏拍也要拆分 (1.042 ≈ 3 × 0.347)', () => {
+    const out = p._extractHrv({
+      hrv: [{ time: [0.347, 0.347, 1.042, 0.347, 0.347, 0.347, 0.347] }],
+    });
+    expect(out.hrv_rmssd).toBeLessThan(5);
+    expect(out.hrv_rmssd_ratio).toBeLessThan(0.02);
+  });
+
+  test('hrv: 消息尾部 null 占位不得当成 0ms 参与计算', () => {
+    // 真实 FIT 每条消息尾部都用 null 补齐（`[0.424,0.424,null,null,null]`）。
+    // 若把 null 当 0，会引入 -424ms 的假跳变。
+    const withNulls = p._extractHrv({
+      hrv: [
+        { time: [0.363, 0.363, null, null, null] },
+        { time: [0.363, 0.363, null, null, null] },
+      ],
+    });
+    expect(withNulls.hrv_rmssd).toBe(0);
+  });
+
+  test('hrv: RMSSD 恒不超过 RR 极差 (自证性不变式)', () => {
+    // 构造一组真实形态的序列：基线 400ms 缓慢漂移到 460ms + 两个 2 倍合并值
+    const rr = [];
+    for (let i = 0; i < 200; i += 1) rr.push((0.4 + (i / 200) * 0.06).toFixed(3));
+    rr[50] = '0.800'; // 2 倍
+    rr[120] = '0.900'; // 2 倍
+    const out = p._extractHrv({ hrv: [{ time: rr.map(Number) }] });
+    const maxRr = Math.max(...rr.map(Number)) * 1000;
+    const minRr = Math.min(...rr.map(Number)) * 1000;
+    expect(out.hrv_rmssd).toBeLessThanOrEqual(maxRr - minRr);
   });
 });
 

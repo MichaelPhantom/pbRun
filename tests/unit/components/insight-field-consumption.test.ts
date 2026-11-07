@@ -99,6 +99,33 @@ const ACTIVITY_FIELD_ALLOWLIST: Record<string, string> = {
   // `devices` 是已脱敏的设备列表 JSON, 对训练解读无用（且已从 API 剥离序列号）。
   devices: '已脱敏设备列表 JSON, 与训练表现无关',
 
+  // ---- 「设备配置快照」：看起来是个人指标, 其实是逐日活动无关值 ----
+  // 这四条曾经**只靠 MCP tool description 里提了一句名字**就骗过守卫
+  // （第六类缺陷）。名字出现在说明文字里 ≠ 数字到了用户/模型手上。
+  //
+  // `hr_zone_boundaries` 是设备原始区间边界（21 套方案，随固件/用户设置而变），
+  // 与 `device_time_in_hr_zone` 同一「仅供追溯」纪律：app 的 5 区一律走
+  // `resolveMaxHr()`（`.env MAX_HR`）本地重算，跨活动可比。直接展示 21 套
+  // 不同边界只会让「Z3 是多少 bpm」每次都不一样。
+  hr_zone_boundaries:
+    '设备原始区间边界(21 套方案随固件/设置而变), app 5 区走 resolveMaxHr 本地重算, 展示会破坏跨活动可比性',
+  // `user_height` 真实库仅 4 个取值（1.75/1.76/1.78/null），全站无任何 BMI/体表面积
+  // 计算引用它。展示一个 352/353 恒定不变的身高对单次训练解读零信息量。
+  user_height: '真实库身高档案仅 4 个取值(1.75/1.76/1.78/null), 无 BMI/体表面积计算引用, 单次训练解读零信息量',
+  // `resting_heart_rate_fit` 是**手表日级配置值**：210/353 有值但只有 7 个不同取值
+  // （42–48），同一天多条活动同值，与「本次训练」无关。它更不是「本次静息心率」。
+  resting_heart_rate_fit:
+    '设备日级静息心率配置值(210/353 仅 7 个取值, 同日多活动同值), 不是本次训练指标',
+  // `hrv_rmssd` / `hrv_rmssd_ratio` 已修好算法（拆分漏拍合并值，见
+  // `scripts/garmin/fit-parser.js` 的 `_extractHrv`），但覆盖只有 20/353（5.7%），
+  // 且运动中 HRV 本身受呼吸/伪迹影响大 —— 它不是可靠的单次训练指标。
+  // Garmin 官方 HRV Status 是**隔夜**测量，不能用本值替代或类比。
+  // 因此保留在库里（供未来「HRV 趋势」专项使用），但不进 UI/AI 数据块。
+  hrv_rmssd:
+    '真实库仅 20/353 有值, 运动中 HRV(RMSSD) 受呼吸/伪迹影响, 非可靠单次训练指标; 官方 HRV Status 是隔夜测量',
+  hrv_rmssd_ratio:
+    '真实库仅 20/353 有值, RMSSD/meanRR 是无量纲自证字段(运动中应 <0.10), 同上不做单次展示',
+
   // ---- 真实库 0/348 全空, 写入口从不产出 ----
   // 这些字段属于「设备/平台根本不写」类, 展示只会是永久 `--` 噪音。
   // 与 `fmtNumIf` 的整项略去纪律一致（见 docs/features.md §1.2 缺失两类）。
@@ -219,9 +246,37 @@ function stripComments(src: string): string {
     .replace(/(^|[^:])\/\/[^\n]*/g, '$1 '); // 行注释（不误伤 https://）
 }
 
-/** 字段名是否真的被当作代码标识符使用（而不是只出现在注释里）。 */
+/**
+ * 去掉**单/双引号字符串字面量**，但**保留模板字面量**。
+ *
+ * ## 为什么必须单独一步（第六类缺陷）
+ *
+ * 旧 `isConsumed` 只做 `stripComments` 后裸标识符匹配，于是**说明文字**也能
+ * 把字段判成「已消费」。真实案例：`mcp-server/tools.ts` 的 `get_activity`
+ * description 里写了一句
+ *
+ * ```
+ * 'devices(...)、user_weight/user_height/resting_heart_rate_fit(用户档案)、'
+ * 'hrv_rmssd(HRV 毫秒, 仅部分活动有)。'
+ * ```
+ *
+ * 这 4 个字段在 UI 与 AI 数据块里**一次都没被取值**，却因为「名字出现在一句
+ * 英文/中文描述里」而全部通过守卫。守卫的语义是「这个字段的数字到了用户/模型
+ * 手上」，不是「有人提到过它的名字」。
+ *
+ * 保留模板字面量是刻意的：`db.ts` 的 SQL 列名写在反引号里
+ * （`` `SELECT ${col} FROM ...` `` 与 `` db.prepare(`...`) ``），剥掉会让
+ * 大量真实消费误判为未消费。
+ */
+function stripProseStrings(src: string): string {
+  return src
+    .replace(/'(?:[^'\\\n]|\\.)*'/g, "''") // 单引号字符串
+    .replace(/"(?:[^"\\\n]|\\.)*"/g, '""'); // 双引号字符串
+}
+
+/** 字段名是否真的被当作代码标识符使用（而不是只出现在注释或说明文字里）。 */
 function isConsumed(src: string, key: string): boolean {
-  return new RegExp(`\\b${key}\\b`).test(stripComments(src));
+  return new RegExp(`\\b${key}\\b`).test(stripProseStrings(stripComments(src)));
 }
 
 /**
@@ -240,6 +295,36 @@ function isFieldAccessed(src: string, key: string): boolean {
     new RegExp(`['"]${key}['"]`).test(s) // SQL 列名 / 字符串键
   );
 }
+
+describe('消费守卫自身的判别力（缺陷注入）', () => {
+  /**
+   * 守卫最容易退化成「永远绿」的方式，是它的正向谓词太宽松。
+   * 这里用**合成源码**注入历史上真实骗过它的三种形态，证明每种都被正确区分。
+   * 若有人把 `stripProseStrings` 从 `isConsumed` 里摘掉，本组立刻转红。
+   */
+  test('只在说明文字里提到字段名 → 不算消费', () => {
+    const prose = [
+      "const desc = 'devices(...)、user_weight/user_height/resting_heart_rate_fit(用户档案)、';",
+      "const more = 'hrv_rmssd(HRV 毫秒, 仅部分活动有)。';",
+      'const tpl = "user_height is the height";',
+    ].join('\n');
+    for (const key of ['user_height', 'resting_heart_rate_fit', 'hrv_rmssd', 'devices']) {
+      expect(isConsumed(prose, key)).toBe(false);
+    }
+  });
+
+  test('真正取值 / 对象键 / 模板字面量里的列名 → 算消费', () => {
+    expect(isConsumed('const h = activity.user_height;', 'user_height')).toBe(true);
+    expect(isConsumed('return { user_height: a.user_height };', 'user_height')).toBe(true);
+    expect(isConsumed('const q = `SELECT user_height FROM activities`;', 'user_height')).toBe(true);
+    expect(isConsumed('db.prepare(`SELECT hrv_rmssd FROM activities`);', 'hrv_rmssd')).toBe(true);
+  });
+
+  test('注释里提到字段名 → 不算消费（原有纪律不得回退）', () => {
+    expect(isConsumed('// 这里本该展示 user_height\nconst x = 1;', 'user_height')).toBe(false);
+    expect(isConsumed('/* resting_heart_rate_fit 是日级配置 */\nconst x = 1;', 'resting_heart_rate_fit')).toBe(false);
+  });
+});
 
 describe('InsightResponse 的每个字段都必须被消费', () => {
   const typesSrc = fs.readFileSync(path.join(ROOT, 'app', 'lib', 'types.ts'), 'utf8');
@@ -457,13 +542,12 @@ describe('Activity 的每个字段都必须被消费或显式记账', () => {
   const leaves = collectLeaves(interfaces, 'Activity');
 
   test('解析器确实覆盖到 Activity 的全部字段 (防假绿)', () => {
-    // **精确** 71 个字段（2026-10-27 补齐 power_zone_boundaries /
-    // threshold_heart_rate / max_heart_rate_fit / functional_threshold_power /
-    // device_time_in_power_zone 后）。用等号而不是 >=: 新增一列就必须在这里显式
-    // 确认「它要么被消费、要么进 allowlist 并写明理由」, 否则守卫会随着
-    // types.ts 的扩张而悄悄放宽（>= 的旧写法正是这样埋下假绿的）。
-    // 同步修改: docs/features.md §1.5「守卫升级」标题里的字段数。
-    expect(leaves.size).toBe(71);
+    // **精确** 72 个字段（2026-11-07 新增 hrv_rmssd_ratio —— 修 `_extractHrv`
+    // 的漏拍合并值拆分后，用无量纲 RMSSD/meanRR 做自证性检验）。用等号而不是
+    // >=: 新增一列就必须在这里显式确认「它要么被消费、要么进 allowlist 并写明
+    // 理由」, 否则守卫会随着 types.ts 的扩张而悄悄放宽（>= 的旧写法正是这样埋下
+    // 假绿的）。同步修改: docs/features.md §1.5「守卫升级」标题里的字段数。
+    expect(leaves.size).toBe(72);
     // 抽查四个不同区块：基础/跑姿/功率/区间
     expect(leaves.has('activity_id')).toBe(true);
     expect(leaves.has('average_vertical_ratio')).toBe(true);

@@ -67,7 +67,7 @@ async function main() {
         'garmin_vo2max', 'recovery_time', 'primary_benefit',
         'hr_zone_boundaries', 'power_zone_boundaries',
         'devices', 'user_weight', 'user_height', 'resting_heart_rate_fit',
-        'workout_name', 'workout_steps', 'hrv_rmssd',
+        'workout_name', 'workout_steps', 'hrv_rmssd', 'hrv_rmssd_ratio',
         // 海拔（km→m 换算修复后需重刷）
         'avg_altitude', 'max_altitude', 'min_altitude',
         // 心率区间：time_in_hr_zone 是本地 5 区口径（由逐秒心率推导），

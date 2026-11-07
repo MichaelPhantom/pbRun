@@ -220,6 +220,49 @@ describe('MCP tool description 必须声明统计口径', () => {
   });
 
   /**
+   * HRV 字段的口径契约（第七类缺陷，2026-11-07）。
+   *
+   * `hrv_rmssd` 曾经算错：FIT `hrv.time` 是逐拍 RR 长度，但设备漏检心搏时会把
+   * 2~3 个间期合并成一条（`0.725 ≈ 2 × 0.363`）。旧实现对合并值直接求相邻差，
+   * 20 条活动里 4 条算出「RMSSD > 全程 RR 极差」的物理不可能值，且
+   * `r(平均心率, RMSSD) = +0.723`（生理上应为负相关）。
+   *
+   * description 必须说明三件事，否则模型会把它当可靠指标引用：
+   *   ① 已拆分漏拍合并值（数字可信的前提）；
+   *   ② 仅 20/353 有值、不做跨活动对比（覆盖极低）；
+   *   ③ `hrv_rmssd_ratio` 的生理区间与失效判据（自证性检验）。
+   */
+  test('get_activity 声明 hrv_rmssd 已拆分漏拍合并值且覆盖极低', () => {
+    const desc = configs.get('get_activity')!.description ?? '';
+    expect(desc).toMatch(/hrv_rmssd/);
+    // ① 算法口径
+    expect(desc).toMatch(/拆分.*漏拍合并/);
+    // ② 覆盖率与使用边界
+    expect(desc).toMatch(/20\/353/);
+    expect(desc).toMatch(/不做跨活动对比/);
+    // ③ 无量纲自证字段
+    expect(desc).toMatch(/hrv_rmssd_ratio/);
+    expect(desc).toMatch(/< 0\.10/);
+    expect(desc).toMatch(/> 0\.2/);
+  });
+
+  /**
+   * 曾经把设备**配置值**当个人指标写进 description：
+   * `user_weight/user_height/resting_heart_rate_fit(用户档案)`。
+   *
+   * `resting_heart_rate_fit` 是手表日级配置（210/353 仅 7 个取值 42–48，同日多
+   * 活动同值），`user_height` 全站仅 4 个取值且无任何计算引用。把它们并列成
+   * 「用户档案」会让模型以为拿到了本次训练的个体化指标。
+   */
+  test('get_activity 不再把设备配置值说成「用户档案」', () => {
+    const desc = configs.get('get_activity')!.description ?? '';
+    expect(desc).not.toMatch(/user_height\/resting_heart_rate_fit\(用户档案\)/);
+    expect(desc).not.toMatch(/user_weight\/user_height/);
+    // 体重是唯一被真实消费的（功率体重比），必须保留且说清用途
+    expect(desc).toMatch(/user_weight\(体重公斤, 供功率体重比推算\)/);
+  });
+
+  /**
    * 区间列现在是**两套**：统一口径列（本地 5 区，可聚合）与设备原始列（仅追溯）。
    *
    * 曾经的描述把 `time_in_power_zone` 写成「设备原始数组, 不要按索引跨活动聚合」——

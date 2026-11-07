@@ -119,7 +119,8 @@ GET /api/activities
 | `resting_heart_rate_fit` | number \| null | 静息心率 | bpm |
 | `workout_name` | string \| null | 课表名称 | - |
 | `workout_steps` | string \| null | 课表步骤 (JSON 数组)。`duration_sec` 是**秒**（FIT 源是毫秒）、`target_pace_sec_per_km` 是**秒/公里**（FIT 源是 mm/s）；两者都不能直接读设备原始值 | 秒 / 秒每公里 |
-| `hrv_rmssd` | number \| null | HRV RMSSD | ms |
+| `hrv_rmssd` | number \| null | HRV RMSSD（**已拆分设备漏拍合并值**；仅 20/353 有值，不做跨活动对比） | ms |
+| `hrv_rmssd_ratio` | number \| null | `RMSSD / meanRR`（无量纲自证字段；运动中应 < 0.10，> 0.2 说明数据不可信） | - |
 
 ---
 

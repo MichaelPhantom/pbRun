@@ -208,6 +208,31 @@ describe('InsightClient', () => {
     expect(screen.getByText(/步频 176/)).toBeInTheDocument();
   });
 
+  /**
+   * 第六类缺陷：`VdotTrendFit.perMonth[].min`（月度最低 VDOT）算了但从未展示。
+   *
+   * 旧实现只画「平均/最高」两条线，`min` 在 `insight.ts` 里算了、`InsightClient`
+   * 的 `vdotTrend` 映射里没有、AI 数据块也只给月均值。补上后**三条序列都要在图上**：
+   * 只给均值会把「这个月掉得很惨但均值还行」的形态抹平，而最低值才是疲劳的第一信号。
+   */
+  test('VDOT 趋势图包含「最低」序列 (min 不得只算不展示)', () => {
+    setOption.mockClear();
+    render(<InsightClient insight={insight} timeRangeDays={90} />);
+    // ECharts 被 mock, 图例不在 DOM —— 直接断言 setOption 收到的 series。
+    const vdotCall = setOption.mock.calls
+      .map((c) => c[0] as { series?: { name: string; data: number[] }[] })
+      .find((opt) => opt.series?.some((s) => s.name === '平均'));
+    expect(vdotCall).toBeDefined();
+    const names = vdotCall!.series!.map((s) => s.name);
+    expect(names).toEqual(['平均', '最高', '最低']);
+    // 最低序列的数值来自 perMonth[].min（38 / 39），不是平均值的复制
+    const minSeries = vdotCall!.series!.find((s) => s.name === '最低')!;
+    expect(minSeries.data).toEqual([38, 39]);
+    // 对照：平均 40/41、最高 42/43 —— 三条线必须真的不同
+    expect(vdotCall!.series!.find((s) => s.name === '平均')!.data).toEqual([40, 41]);
+    expect(vdotCall!.series!.find((s) => s.name === '最高')!.data).toEqual([42, 43]);
+  });
+
   test('路线卡展示可识别地点活动数', () => {
     const withCount: InsightResponse = {
       ...insight,

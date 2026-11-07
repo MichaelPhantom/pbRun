@@ -124,10 +124,11 @@ export async function registerTools(server: McpServer): Promise<void> {
         '可由 normalized_power÷FTP、时长×IF²、average_power÷user_weight 推算, ' +
         '与 training_load 是两套口径)、' +
         'max_power(逐秒瞬时峰值, 非可持续功率; 超过平均功率 3 倍的传感器尖峰不可信)、' +
-        'devices(设备列表 JSON, 已脱敏)、user_weight/user_height/resting_heart_rate_fit(用户档案)、' +
+        'devices(设备列表 JSON, 已脱敏)、user_weight(体重公斤, 供功率体重比推算)、' +
         'workout_name/workout_steps(课表; 多步课表完整, duration_sec 单位秒、' +
         'target_pace_sec_per_km 单位秒/公里, 均可直接使用; target_low/high 是设备原始 mm/s 仅供追溯)、' +
-        'hrv_rmssd(HRV 毫秒, 仅部分活动有)。' +
+        'hrv_rmssd(RMSSD 毫秒, 已拆分设备漏拍合并值; 仅 20/353 条有值, 不做跨活动对比)、' +
+        'hrv_rmssd_ratio(RMSSD÷meanRR 无量纲, 运动中应 < 0.10; > 0.2 说明数据不可信)。' +
         'vdot_value 仅在 Z3+ 代表性强度段计算（取最快 Z3+ lap，否则全程 Z3+），日常轻松/恢复跑为 null；' +
         'training_load 优先 FIT 官方，缺省回退时长×心率档；' +
         '**游泳（activity_type=lap_swimming/open_water）的配速语言是秒/100m**：' +

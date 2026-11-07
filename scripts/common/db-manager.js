@@ -185,7 +185,8 @@ class DatabaseManager {
       ['workout_name', 'TEXT'],                      // 课表名称（如 基础训练、10 分钟 AMRAP 自重训练）
       ['workout_steps', 'TEXT'],                     // 课表步骤 JSON [{index,name,duration_type,duration_sec,target_type,target_low,target_high,intensity}]
       // 心率变异性（FIT hrv 消息，仅部分活动有）
-      ['hrv_rmssd', 'REAL'],                         // RMSSD（毫秒，由 RR 间期计算）
+      ['hrv_rmssd', 'REAL'],                         // RMSSD（毫秒，由 RR 间期计算；已拆分漏拍合并值）
+      ['hrv_rmssd_ratio', 'REAL'],                   // RMSSD/meanRR（无量纲，运动中应 < 0.10）
       // 时区（2026-10-06 修复 start_time_local 时区缺陷时引入）
       ['start_tz_offset_min', 'INTEGER'],            // start_time_local 相对 UTC 的分钟偏移（Asia/Shanghai = 480）
       // 路线与地理（新库直接建表；旧库经 ALTER 补齐）

@@ -72,11 +72,16 @@ export default function InsightClient({
   }));
 
   // VDOT 按月聚合趋势
+  //
+  // 三条序列都要画：`min` 曾长期被算出来却从未展示（第六类缺陷修复后由守卫
+  // 抓到）。只看「平均/最高」会把「这个月掉得很惨但均值还行」的形态抹平 ——
+  // 最低值才是过度训练/疲劳的第一信号。
   const vdotTrend = useMemo(
     () => ({
       x: vdot.perMonth.map((p) => p.period),
       avg: vdot.perMonth.map((p) => Math.round(p.avg * 10) / 10),
       max: vdot.perMonth.map((p) => Math.round(p.max * 10) / 10),
+      min: vdot.perMonth.map((p) => Math.round(p.min * 10) / 10),
     }),
     [vdot.perMonth],
   );
@@ -289,6 +294,7 @@ export default function InsightClient({
             series={[
               { name: '平均', data: vdotTrend.avg, color: 'var(--brand)', area: true },
               { name: '最高', data: vdotTrend.max, color: 'var(--cat-2)' },
+              { name: '最低', data: vdotTrend.min, color: 'var(--cat-3)' },
             ]}
             yName="VDOT"
             ariaLabel="VDOT 跑力趋势图"

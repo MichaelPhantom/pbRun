@@ -46,14 +46,15 @@ describe('全空数据', () => {
   });
 
   test('CSV 段: 区间为空时跳过「VDOT 按月」行', () => {
-    expect(formatInsightForCoach(base())).not.toContain('VDOT 按月:');
+    expect(formatInsightForCoach(base())).not.toContain('VDOT 按月');
     const withMonths = base({
       vdot: {
         ...base().vdot,
         perMonth: [{ period: '2026-09', avg: 41.25, max: 42, min: 40, n: 3 }],
       },
     });
-    expect(formatInsightForCoach(withMonths)).toContain('VDOT 按月: 2026-09 41.3');
+    // 三值同行: 只给均值会把「这个月掉得很惨但均值还行」的形态抹平。
+    expect(formatInsightForCoach(withMonths)).toContain('VDOT 按月(均/高/低): 2026-09 均41.3/高42.0/低40.0');
   });
 });
 

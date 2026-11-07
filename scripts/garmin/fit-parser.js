@@ -27,6 +27,19 @@ const {
 } = require('./fit-workout');
 
 /** FIT sub_sport 枚举 -> 中文展示（跑步机、户外等） */
+/**
+ * 中位数（纯函数，供 HRV 倍频拆分使用）。
+ *
+ * 不用 `rr.sort()` 原地排序：调用方传的是 `slice()` 出来的副本，但一旦有人改成
+ * 直接传原数组，原地排序会静默打乱 RR 时序，RMSSD 立刻失去意义。
+ */
+function medianOf(arr) {
+  if (!arr || arr.length === 0) return NaN;
+  const sorted = [...arr].sort((a, b) => a - b);
+  const n = sorted.length;
+  return n % 2 === 1 ? sorted[(n - 1) / 2] : (sorted[n / 2 - 1] + sorted[n / 2]) / 2;
+}
+
 const SUB_SPORT_LABELS = {
   generic: '通用',
   treadmill: '跑步机',
@@ -1191,37 +1204,105 @@ class GarminFITParser {
 
   /**
    * 提取心率变异性（FIT hrv 消息）
-   * RMSSD = sqrt(mean((RR[i] - RR[i-1])^2))
-   * FIT 解析器已将 RR 间期转为秒（÷1000），此处 ×1000 还原为毫秒再计算
+   *
+   * ## FIT `hrv.time` 到底是什么
+   *
+   * FIT profile 把 `hrv` 消息的字段 0 声明为 `time`（uint16_array，scale 1000，
+   * units `s`），名字极具误导性 —— 它**不是**逐拍时间戳，而是**逐个 RR 间期的
+   * 长度（秒）**。真实 FIT 抽样（活动 585811407，6877 条 hrv 消息）：
+   *
+   * ```
+   * [0.424,0.424,0.424,null,null]   ← 一条消息最多 5 个 RR，尾部 null 补齐
+   * [0.421,0.421,null,null,null]
+   * [0.693,1.042,null,null,null]    ← 1.042 ≈ 3 × 0.347（漏拍合并）
+   * ```
+   *
+   * ## 缺陷：漏拍合并值把 RMSSD 放大 10~100 倍
+   *
+   * 设备在心搏漏检时会把 2~3 个真实间期合并成一条记录（`0.725 ≈ 2 × 0.363`、
+   * `1.042 ≈ 3 × 0.347`）。直接对「合并值 + 正常值」序列求相邻差，等于把一次
+   * 漏拍当成一次巨大的 RR 跳变，RMSSD 被伪迹主导。真实库 20 条有 `hrv_rmssd`
+   * 的活动里 **4 条出现物理不可能值**（RMSSD > 全程 RR 极差）：
+   *
+   * | 活动 | 旧 RMSSD | RR 极差 | 比值 |
+   * |------|---------|--------|------|
+   * | 585811407 | 163.59 ms | 108.3 ms | 1.51 |
+   * | 657456825 | 154.64 ms | 113.9 ms | 1.36 |
+   * | 573740964 | 133.68 ms | 85.5 ms | 1.56 |
+   * | 563735336 | 128.67 ms | 107.7 ms | 1.19 |
+   *
+   * RMSSD 是「相邻 RR 差值的均方根」，**必然 ≤ 全程 RR 极差**。>1 就是自证错误。
+   * 另有两个旁证：旧值 `RMSSD/meanRR` 中位数 **0.324**（运动中该 < 0.10），且
+   * `r(平均心率, RMSSD) = +0.723`（生理上应为**负**相关，运动越猛 HRV 越低）。
+   *
+   * ## 修法：滑动中位数识别倍频后拆分
+   *
+   * 对每个 RR 取 ±31 拍窗口的中位数 `m`，若 `v ≈ k·m`（k∈[2,4]，容差 35%）
+   * 就拆成 k 个 `v/k`。修正后 20 条活动的 `RMSSD/meanRR` 全部落在
+   * **0.003–0.085**（运动中正常区间），且不再出现 RMSSD > RR 极差。
+   *
+   * 保留 `ratio`（RMSSD/meanRR）作为自证性字段：它是**无量纲**的，可以直接和
+   * 生理区间比对，不依赖具体心率水平。
    */
   _extractHrv(fitData) {
     const result = {};
     const hrvRecords = fitData.activity?.hrv ?? fitData.hrv;
     if (!hrvRecords || !Array.isArray(hrvRecords) || hrvRecords.length === 0) return result;
 
-    // 收集所有 RR 间期（秒 → 毫秒）
+    // 收集所有 RR 间期（秒 → 毫秒）。null 是消息尾部的占位，必须跳过而不是当 0。
     const rrIntervals = [];
     for (const rec of hrvRecords) {
       if (rec.time && Array.isArray(rec.time)) {
         for (const t of rec.time) {
+          if (t == null) continue;
           const ms = Number(t) * 1000;
-          if (ms > 0 && ms < 3000) rrIntervals.push(ms); // 过滤异常值（<3000ms）
+          if (ms > 0 && ms < 3000) rrIntervals.push(ms);
         }
       }
     }
 
     if (rrIntervals.length < 2) return result;
 
-    // RMSSD 计算
+    // 倍频（漏拍合并）拆分。见上方文档注释。
+    const cleaned = this._splitMergedRr(rrIntervals);
+    if (cleaned.length < 2) return result;
+
     let sumSqDiff = 0;
-    for (let i = 1; i < rrIntervals.length; i++) {
-      const diff = rrIntervals[i] - rrIntervals[i - 1];
+    for (let i = 1; i < cleaned.length; i++) {
+      const diff = cleaned[i] - cleaned[i - 1];
       sumSqDiff += diff * diff;
     }
-    const rmssd = Math.sqrt(sumSqDiff / (rrIntervals.length - 1));
-    result.hrv_rmssd = Math.round(rmssd * 100) / 100;
+    const rmssd = Math.sqrt(sumSqDiff / (cleaned.length - 1));
 
+    const meanRr = cleaned.reduce((a, b) => a + b, 0) / cleaned.length;
+    result.hrv_rmssd = Math.round(rmssd * 100) / 100;
+    // 无量纲自证字段: 运动中应 < 0.10。> 0.2 说明拆分失败（数据不可信）。
+    result.hrv_rmssd_ratio = Math.round((rmssd / meanRr) * 1000) / 1000;
     return result;
+  }
+
+  /**
+   * 拆分「漏拍合并」的 RR 间期（`0.725 ≈ 2 × 0.363`）。
+   *
+   * 用**滑动窗口中位数**作为局部基准而不是全局中位数：运动中 RR 会随强度
+   * 缓慢漂移（真实库同一活动内 0.34→0.46 s），全局基准会把漂移误判成倍频。
+   * 窗口 31 拍（约 10 秒）在「够长以稳定」与「够短以跟随漂移」之间取平衡。
+   */
+  _splitMergedRr(rr, win = 31) {
+    const out = [];
+    for (let i = 0; i < rr.length; i += 1) {
+      const lo = Math.max(0, i - win);
+      const hi = Math.min(rr.length, i + win + 1);
+      const local = medianOf(rr.slice(lo, hi));
+      const v = rr[i];
+      const k = local > 0 ? Math.round(v / local) : 1;
+      if (k >= 2 && k <= 4 && Math.abs(v - k * local) < local * 0.35) {
+        for (let j = 0; j < k; j += 1) out.push(v / k);
+      } else {
+        out.push(v);
+      }
+    }
+    return out;
   }
 }
 

@@ -481,7 +481,7 @@ FTP 缺失不猜 / 海拔比值 / 尖峰过滤）、`tests/unit/pages/activity-d
    `getPaceZoneStats`/`getPowerZoneStats`，新增 `surface=analysis` 用例断言
    【区间结构】真的进入 user 消息（app/api branches 0.33pt → 4.33pt）。
 
-#### 守卫升级：`Activity` 的 71 个字段也要机器审计
+#### 守卫升级：`Activity` 的 72 个字段也要机器审计
 
 `Activity` 是数据库原始行，比 `InsightResponse` 更容易藏「有值但从不展示」。守卫扩展
 到它时踩到三个真实的坑，都已写进测试注释：
@@ -496,16 +496,23 @@ FTP 缺失不猜 / 海拔比值 / 尖峰过滤）、`tests/unit/pages/activity-d
    沿 `@/app/...` import 做**传递闭包**能到达的文件；`types.ts` 必须排除（否则每个
    字段都自动「已消费」）。前两版守卫正是被这一点骗过（缺陷注入删掉 import 后仍全绿）。
 
-`ACTIVITY_FIELD_ALLOWLIST` 是显式技术债账本，每条写明理由，分四类：内部记账列
+`ACTIVITY_FIELD_ALLOWLIST` 是显式技术债账本，每条写明理由，分五类：内部记账列
 （`created_at` / `updated_at` / `start_tz_offset_min` / `elapsed_time` 恒等于 duration）、
 聚类索引列（`route_cells` / `route_bounds` / `route_km` / `start_lat` / `start_lng`）、
 语义陷阱（`max_heart_rate_fit` 是**设备配置值**不是本次峰值；`devices` 已脱敏）、
+设备配置快照（`hr_zone_boundaries` / `user_height` / `resting_heart_rate_fit` /
+`hrv_rmssd` / `hrv_rmssd_ratio` —— 见第六、七类缺陷）、
 真实库 0/348 从不产出（`average_step_rate_loss*` / `max_power_to_weight` /
 `avg_pos_grade` 等 4 项）、
 以及仅追溯用的设备原始区间数组（`device_time_in_hr_zone` / `device_time_in_power_zone`
 / `device_time_in_speed_zone` / `device_time_in_cadence_zone` —— 统一口径列
 `time_in_hr_zone` / `time_in_power_zone` 已分别被 `hrZoneBreakdown` /
 `powerZoneBreakdown` 消费，见 §1.2）。
+
+**正向谓词必须能区分「取值」与「被提及」**（2026-11-07 修，第六类缺陷）：
+`isConsumed` 原来只剥注释，于是 tool description 里写一句字段名就骗过守卫。
+现在多一步 `stripProseStrings()`（剥单/双引号字符串，保留模板字面量 —— SQL 列名
+在反引号里）。守卫自身有 3 条缺陷注入测试钉住这个判别力。
 
 **账本本身也要被守卫**（2026-10-27 修）。原守卫只校验一个方向：「账本里的字段不得
 已被消费」。缺了「账本里的字段**是否还存在**」—— 于是 `_initDatabase` 把
@@ -1484,6 +1491,121 @@ GPS 漂移、起终点的静止采样都被判为「有效移动」，混进前�
 `tests/unit/pages/activity-detail.test.tsx`（「高覆盖官方字段必须展示」逐字段断言 +
 「无氧 TE = 0 不渲染」+「缺 Garmin VO2max 仍给即时跑力」+「非跑步不渲染 Garmin VO2max」+
 「IF/TSS 的分子分母同屏」+「非跑步不渲染 FTP/NP 整块」+「非跑步不渲染平均海拔/平均温度」+「非跑步不渲染瞬时最大速度」）。
+
+#### 第六类缺陷：消费守卫被「说明文字」骗过（2026-11-07）
+
+前五类缺陷都是「数据在库里但没到用户手上」。查这一类时依赖的核心工具是
+`tests/unit/components/insight-field-consumption.test.ts` —— 它把 `types.ts` 的每个
+字段逐个断言「出现在某个消费方源码里」。这个守卫本身有一个致命盲区：
+
+**它只剥注释，不剥字符串字面量。** 于是下面这种「在 tool description 里提了一句」
+就能把字段判成「已消费」：
+
+```ts
+// mcp-server/tools.ts —— get_activity 的 description
+'devices(设备列表 JSON, 已脱敏)、user_weight/user_height/resting_heart_rate_fit(用户档案)、'
+'hrv_rmssd(HRV 毫秒, 仅部分活动有)。'
+```
+
+实测：把单/双引号字符串剥掉后，这 4 个字段立刻显形为**完全未被取值**：
+
+| 字段 | 真实库覆盖 | 真相 |
+|------|-----------|------|
+| `hr_zone_boundaries` | 353/353 | 设备原始边界（21 套方案），app 5 区走 `resolveMaxHr()` 本地重算 |
+| `user_height` | 352/353 | 全站仅 4 个取值，无任何 BMI/体表面积计算引用 |
+| `resting_heart_rate_fit` | 210/353 | **手表日级配置值**，仅 7 个取值（42–48），同日多活动同值 |
+| `hrv_rmssd` | 20/353 | 见下方第七类缺陷 |
+
+这 4 个字段的「消费」全都只发生在 description 字符串里，UI 与 AI 数据块一次都没读过。
+同类「仅被提及未取值」的还有已在 allowlist 的 `device_time_in_hr_zone` /
+`device_time_in_power_zone` / `devices`。
+
+**为什么这个缺陷比单个字段漏展示更严重**：守卫是「防同类缺陷再发生」的唯一机器闸门。
+一旦它被说明文字骗过，**整个字段族都可以安静地永不展示而全绿** —— 它失效的方式
+恰好是「看起来在工作」。
+
+修法：
+
+1. `isConsumed` 增加一步 `stripProseStrings()`（剥单/双引号字符串），
+   **但保留模板字面量** —— `db.ts` 的 SQL 列名写在反引号里
+   （`` db.prepare(`SELECT ${col} FROM ...`) ``），剥掉会让大量真实消费误判为未消费。
+2. 新增 `describe('消费守卫自身的判别力（缺陷注入）')` 三条：说明文字里提到 → 不算消费；
+   真正取值/对象键/模板字面量列名 → 算消费；注释里提到 → 不算消费（原有纪律不回退）。
+3. 把这 4 个字段写进 `ACTIVITY_FIELD_ALLOWLIST`，每条写明**为什么不是单次训练指标**
+   （而不是「还没做」）。
+
+守卫修好后**立刻抓到一个真实遗漏**：`VdotTrendFit.perMonth[].min`（月度最低 VDOT）
+在 `insight.ts` 算了、`InsightClient` 只画了 avg/max、AI 数据块也只给月均值。
+补进 VDOT 趋势图第三条序列 + AI 数据块「均/高/低」三值同行 ——
+**只给均值会把「这个月掉得很惨但均值还行」的形态抹平**，而最低值才是疲劳的第一信号。
+
+#### 第七类缺陷：`hrv_rmssd` 是伪指标，且已被写进 MCP description 供模型引用（2026-11-07）
+
+修第六类时发现 `hrv_rmssd` 不只是「没展示」，而是**算错了**。
+
+## 自证性检验
+
+RMSSD = 相邻 RR 差值的均方根，因此**必然 ≤ 全程 RR 极差**。真实库 20 条有值的活动里
+**4 条物理不可能**：
+
+| 活动 | RMSSD | RR 极差（由逐秒心率算） | 比值 |
+|------|-------|----------------------|------|
+| `585811407` | 163.59 ms | 108.3 ms | **1.51** |
+| `657456825` | 154.64 ms | 113.9 ms | **1.36** |
+| `573740964` | 133.68 ms | 85.5 ms | **1.56** |
+| `563735336` | 128.67 ms | 107.7 ms | **1.19** |
+
+两个旁证同样致命：`RMSSD/meanRR` 中位数 **0.324**（运动中该 < 0.10），
+`r(平均心率, RMSSD) = +0.723`（生理上应为**负**相关 —— 运动越猛 HRV 越低）。
+
+## 根因：FIT `hrv.time` 里的「漏拍合并值」
+
+`hrv.time` 确实是逐个 RR 间期长度（不是时间戳），但设备在**心搏漏检**时会把 2~3 个
+真实间期合并成一条记录。真实 FIT 抽样（`585811407`，6877 条 hrv 消息）：
+
+```
+[0.424,0.424,0.424,null,null]   ← 一条消息最多 5 个 RR，尾部 null 补齐
+[0.693,1.042,null,null,null]    ← 1.042 ≈ 3 × 0.347（漏拍合并）
+[0.725,0.363,null,null,null]    ← 0.725 ≈ 2 × 0.363（漏拍合并）
+```
+
+旧实现把「合并值 + 正常值」序列直接求相邻差，等于把每次漏拍当成一次巨大 RR 跳变，
+RMSSD 被伪迹主导。伪迹占比 5.7%–10.8%，但贡献了绝大部分方差。
+
+## 修法：滑动中位数识别倍频后拆分
+
+对每个 RR 取 ±31 拍窗口的中位数 `m`，若 `v ≈ k·m`（k∈[2,4]，容差 35%）就拆成
+k 个 `v/k`。用**滑动**窗口而不是全局中位数，是因为运动中 RR 会随强度缓慢漂移
+（同一活动内 0.34→0.46 s），全局基准会把漂移误判成倍频。
+
+同时新增 `hrv_rmssd_ratio`（`RMSSD/meanRR`，无量纲）作为**自证性字段** ——
+它可以直接和生理区间比对，不依赖具体心率水平。
+
+## 修复后实测（20 条全量重算）
+
+| 指标 | 修复前 | 修复后 |
+|------|--------|--------|
+| `RMSSD/meanRR` 中位数 | 0.324 | **0.037** |
+| 取值范围 | 0.259–0.458 | **0.004–0.085**（运动中正常区间） |
+| RMSSD > RR 极差 | **4 条** | **0 条** |
+| `r(平均心率, RMSSD)` | +0.723 | **−0.254**（生理正确的负相关） |
+
+`564586771`（爬楼，RMSSD 23.67）原本就是唯一合理的，修复后不变。
+
+## 纪律：修好不等于该展示
+
+算法修好后 `hrv_rmssd` 仍然**不进 UI/AI 数据块**，理由写在 allowlist 里：覆盖仅
+20/353（5.7%），运动中 HRV 受呼吸/伪迹影响大，**不是可靠的单次训练指标**；
+Garmin 官方 HRV Status 是**隔夜**测量，不能用本值替代或类比。保留在库里供未来
+「HRV 趋势」专项使用。
+
+MCP `get_activity` 的 description 也同步改写：删掉「`user_height`/`resting_heart_rate_fit`
+（用户档案）」这类把配置值当个人指标的措辞，`hrv_rmssd` 明确标注「已拆分设备漏拍合并值、
+仅 20/353 条有值、不做跨活动对比」，并新增 `hrv_rmssd_ratio` 的解读边界。
+
+守护：`tests/unit/garmin/fit-parser-branches.test.js` 新增 4 例 ——
+漏拍合并值必须拆分（对照未拆分的 >100ms）、3 倍漏拍、消息尾部 null 不得当 0ms、
+RMSSD 恒不超过 RR 极差（自证性不变式）。
 
 ### 2.2 汇总页：区间与趋势优先
 
