@@ -427,6 +427,54 @@ describe('_extractLapsData 分支', () => {
     expect(lap.average_moving_pace).toBeUndefined();
   });
 
+  /**
+   * 第十二类缺陷：`intensity` 是设备记录的分段训练角色。
+   *
+   * 存**原始字符串**而不是角色枚举 —— 角色映射属于展示层
+   * （`app/lib/lap-intensity.ts`），DB 只如实保存设备说了什么。
+   * `255` 是 FIT 无效哨兵（0xFF），不写入。
+   */
+  test('intensity: 原始字符串落库; 255/空串不写', () => {
+    const [a, b, c, d] = p._extractLapsData({
+      laps: [
+        { intensity: 'warmup' },
+        { intensity: 255 },
+        { intensity: '' },
+        { intensity: ' interval ' },
+      ],
+    });
+    expect(a.intensity).toBe('warmup');
+    expect(b.intensity).toBeUndefined();
+    expect(c.intensity).toBeUndefined();
+    // 去空白但不改大小写（DB 只如实保存）
+    expect(d.intensity).toBe('interval');
+  });
+
+  /**
+   * 第十三类缺陷：泳姿。**session 级恒 255（无效），lap 级才有真实值。**
+   *
+   * 真实库 4 条游泳 79 段：255 = 40 段（全是 0 距离休息段）、freestyle 18、
+   * mixed 12、breaststroke 4、backstroke 1。旧文档写「泳姿仅 Garmin 云端可见」，
+   * 那句话只对 session 级成立。
+   */
+  test('swim_stroke: 真实泳姿落库; 255/空串不写', () => {
+    const [a, b, c, d, e] = p._extractLapsData({
+      laps: [
+        { total_distance: 0.05, swim_stroke: 'freestyle' },
+        { swim_stroke: 255 },
+        { swim_stroke: '' },
+        { total_distance: 0.025, swim_stroke: 'mixed' },
+        { total_distance: 0.05, swim_stroke: ' breaststroke ' },
+      ],
+    });
+    expect(a.swim_stroke).toBe('freestyle');
+    expect(b.swim_stroke).toBeUndefined();
+    expect(c.swim_stroke).toBeUndefined();
+    // `mixed` 是设备记录的真实取值（这一段换了泳姿），**不是未知**，必须落库
+    expect(d.swim_stroke).toBe('mixed');
+    expect(e.swim_stroke).toBe('breaststroke');
+  });
+
   test('lap_trigger: 空串/null 不写; 对象转字符串', () => {
     const [a, b, c] = p._extractLapsData({
       laps: [{ lap_trigger: '' }, { lap_trigger: { value: 1 } }, { lap_trigger: 'manual' }],

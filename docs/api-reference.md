@@ -1201,6 +1201,7 @@ GET /api/llm/models
 | `activities.workout_rpe` | 无量纲，Borg CR10 1–10 | `2` = 很轻松；`0` 不合法 |
 | `activities.est_sweat_loss` | **毫升（设备估算）** | `1794` = 约 1794 ml（有 ~1000 ml/h 速率上限） |
 | `activity_laps.intensity` | **设备记录的原始字符串**（不是角色枚举） | `warmup` / `interval` / `recovery` / `rest` / `cooldown` / `active`；角色映射走 `app/lib/lap-intensity.ts` |
+| `activity_laps.swim_stroke` | **泳姿原始枚举**；**仅 lap 级有效** | `freestyle` / `backstroke` / `breaststroke` / `butterfly` / `drill` / `mixed` / `im`。`activities.swim_stroke` **恒 255（无效）**，不要读；`mixed` 是「这一段混合了多种泳姿」（真实取值，**不是未知**），但它构成未知 → **不要算每 100m 效率**；`im`/`drill` 同理。中文名与汇总走 `app/lib/swim-stroke.ts` |
 
 换算速记：DB 的 `activities.distance` 是公里，`activity_laps.distance` 是米，
 `activity_records.distance` 又是公里。聚合前务必按上表换算。

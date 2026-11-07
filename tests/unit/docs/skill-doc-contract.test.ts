@@ -434,3 +434,41 @@ describe('skill 的分段角色口径必须与设备记录一致（第十二类�
     expect(skill).not.toMatch(/角色[^\n]{0,20}按配速(计算|推断|得出)/);
   });
 });
+
+describe('skill 的泳姿口径必须与设备记录一致（第十三类缺陷）', () => {
+  /**
+   * 缺陷 25：旧 skill 写「泳姿目前未入库 —— 不要索要」。那句话在 session 级
+   * 是对的（4/4 恒 255），但 lap 级一直有真实值（35/79 段）。
+   * 要求模型对一个真实存在的字段装看不见，它要么说谎、要么违反指令。
+   */
+  test('skill 必须声明泳姿在 lap 级有真实值（不再是「未入库」）', () => {
+    expect(skill).toMatch(/swim_stroke/);
+    expect(skill).toMatch(/lap 级/);
+    // 旧的「未入库 / 不要索要」必须消失
+    expect(skill).not.toMatch(/泳姿[^\n]{0,20}目前未入库/);
+    expect(skill).not.toMatch(/泳姿[^\n]{0,20}不要索要/);
+  });
+
+  test('skill 必须声明 session 级恒 255（无效）', () => {
+    expect(skill).toMatch(/session 级[^\n]{0,20}255/);
+  });
+
+  test('skill 必须声明 mixed 是真实取值、不是未知', () => {
+    expect(skill).toMatch(/mixed/);
+    expect(skill).toMatch(/真实取值/);
+    expect(skill).toMatch(/不是「未知」|不是未知/);
+  });
+
+  test('skill 必须禁止给混合泳姿算效率', () => {
+    expect(skill).toMatch(/不要给[^\n]{0,20}(混合|mixed)[^\n]{0,30}(算|效率)|混合泳姿[^\n]{0,30}不要/);
+  });
+
+  test('skill 必须给出两条结构自证（255⟺0 距离 / Σ距离与Σ划水）', () => {
+    expect(skill).toMatch(/255[^\n]{0,20}(⟺|<=>|等价|对应)[^\n]{0,20}distance|distance[^\n]{0,10}0/);
+    expect(skill).toMatch(/775\/1075\/2200\/2050|518\/798\/923\/695/);
+  });
+
+  test('skill 必须声明泳姿分组秒数不能重算 SWOLF', () => {
+    expect(skill).toMatch(/泳姿分组[^\n]{0,40}SWOLF|不等于[^\n]{0,20}SWOLF/);
+  });
+});

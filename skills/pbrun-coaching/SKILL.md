@@ -252,12 +252,21 @@ description: 分析 pbRun (Garmin) 跑步数据出教练诊断报告、查最新
 - **每划距离**（m/划）= `distance_m ÷ total_cycles`，真实库 1.35–2.95 m/划。
   这是游泳技术分析的核心指标：**划频高但每划距离短 = 抓水效率低**。
 - **泳姿**：session 级 `swim_stroke` 恒为 255（无效），但 **FIT lap 级有真实泳姿**
-  （freestyle / backstroke / breaststroke / mixed，真实库 4 条游泳的 lap 里都有）。
-  ⚠️ 但**目前未入库**（`activity_laps` 没有该列），所以数据块里不会有泳姿 ——
-  不要索要，也不要写「建议补齐泳姿记录」。这是**下一个待做的字段**（第十二类缺陷
-  同一轮扫描确认，价值明确但需新增 lap 列且同一活动可能混合泳姿）。
+  （freestyle / backstroke / breaststroke / butterfly / drill / mixed / im）。
+  真实库 4 条游泳 79 段里 **35 段**有值：freestyle 18 / mixed 12 / breaststroke 4 /
+  backstroke 1，其余 40 段是 0 距离池边休息段（255）。
+  自证：`swim_stroke == 255 ⟺ distance == 0`（0 违反），且
+  `Σ(真实泳姿段 distance) == session.total_distance`（775/1075/2200/2050）、
+  `Σ(真实泳姿段 total_cycles) == session.total_cycles`（518/798/923/695）。
+  ⚠️ **`mixed` 是设备记录的真实取值**（这一段换了泳姿），**不是「未知」** ——
+  不要把它当缺失、也不要说「泳姿记录不完整」。但它**构成未知**：
+  **不要给混合泳姿算每 100m 配速或每划距离**（那会凭空造出一个数）；
+  `im`（个人混合泳，按规则轮换四种）与 `drill`（分解练习）同理。
+  ⚠️ 泳姿分组的秒数之和 **不等于** SWOLF 的时间基数（后者含全部活跃段），
+  不要用分组重算 SWOLF。
 - 旧版 skill 曾声称「总划水次数与泳姿都拿不到」—— **那是假话**，
-  已由第十类缺陷修正（FIT 里一直有，是解析器不读）。
+  已由第十类缺陷（总划水次数）与第十三类缺陷（泳姿）分别修正
+  （FIT 里一直有，是解析器不读）。
 
 ### `total_cycles` 只有三种运动能解读
 

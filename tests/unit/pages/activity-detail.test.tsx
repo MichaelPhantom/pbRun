@@ -1073,6 +1073,83 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
     expect(within(overview).queryByText(/25m 池/)).toBeNull();
   });
 
+  /**
+   * 第十三类缺陷：泳姿（FIT lap `swim_stroke`）。
+   *
+   * **session 级恒 255（无效），lap 级才有真实值** —— 旧文档写「泳姿仅 Garmin
+   * 云端可见」，那句话只对 session 级成立。真实库 4 条游泳 79 段里 35 段有
+   * freestyle/backstroke/breaststroke/mixed。
+   *
+   * `mixed` 是设备记录的**真实取值**（这一段换了泳姿），不是「未知」——
+   * 必须显示「混合泳姿」，而不是 `--`（那是数据缺失的信号）。
+   */
+  test('游泳概览展示泳姿构成 + 分段表有「泳姿」列', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'lap_swimming',
+      sport_type: '游泳',
+      distance: 0.775,
+      total_cycles: 518,
+      pool_length: 25,
+      num_active_lengths: 31,
+      vdot_value: null,
+    });
+    db.getActivityLaps.mockReturnValue([
+      { ...laps[0], id: 71, lap_index: 1, distance: 50, moving_time: 97, duration: 97, total_cycles: 41, swim_stroke: 'breaststroke' },
+      { ...laps[1], id: 72, lap_index: 2, distance: 0, moving_time: 12, duration: 12, total_cycles: 0, swim_stroke: '255' },
+      { ...laps[2], id: 73, lap_index: 3, distance: 75, moving_time: 164, duration: 164, total_cycles: 55, swim_stroke: 'mixed' },
+      { ...laps[3], id: 74, lap_index: 4, distance: 50, moving_time: 94, duration: 94, total_cycles: 56, swim_stroke: 'freestyle' },
+    ]);
+    render(await page('5010'));
+
+    // 概览：泳姿构成（混合泳姿必须出现，不能当成未知）
+    const overview = screen.getByText('活动概览').closest('section')!;
+    expect(within(overview).getByText('泳姿')).toBeInTheDocument();
+    expect(within(overview).getByText(/蛙泳/)).toBeInTheDocument();
+    expect(within(overview).getByText(/混合泳姿/)).toBeInTheDocument();
+    expect(within(overview).getByText(/自由泳/)).toBeInTheDocument();
+
+    // 分段表：泳姿列 + 逐段中文名
+    const table = screen.getByRole('table');
+    expect(within(table).getByRole('columnheader', { name: /泳姿/ })).toBeInTheDocument();
+    expect(within(table).getByText('蛙泳')).toBeInTheDocument();
+    expect(within(table).getByText('混合泳姿')).toBeInTheDocument();
+    expect(within(table).getByText('自由泳')).toBeInTheDocument();
+  });
+
+  /**
+   * 整列门控：**没有一条 lap 有泳姿**时整列不渲染（而不是一列全 `--`）。
+   *
+   * 与「距离全 0 → 整列不渲染」同一纪律：恒为空的列会被读成「同步失败」，
+   * 而真相是「这次设备没写泳姿」。
+   */
+  test('无任何 lap 泳姿 → 「泳姿」列整列不渲染', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'lap_swimming',
+      sport_type: '游泳',
+      distance: 0.4,
+      vdot_value: null,
+    });
+    db.getActivityLaps.mockReturnValue([
+      { ...laps[0], id: 75, lap_index: 1, distance: 400, moving_time: 456, duration: 456, total_cycles: 177, swim_stroke: '255' },
+    ]);
+    render(await page('5011'));
+    const table = screen.getByRole('table');
+    expect(within(table).queryByRole('columnheader', { name: /泳姿/ })).not.toBeInTheDocument();
+    const overview = screen.getByText('活动概览').closest('section')!;
+    expect(within(overview).queryByText('泳姿')).toBeNull();
+  });
+
+  test('非游泳活动不渲染泳姿（即使 lap 上有该字段）', async () => {
+    db.getActivityLaps.mockReturnValue([
+      { ...laps[0], id: 76, lap_index: 1, swim_stroke: 'freestyle' },
+    ]);
+    render(await page('5012'));
+    const table = screen.getByRole('table');
+    expect(within(table).queryByRole('columnheader', { name: /泳姿/ })).not.toBeInTheDocument();
+  });
+
   test('缺 pool_length → SWOLF 整项不渲染（不猜池长）', async () => {
     db.getActivityById.mockReturnValue({
       ...activity,

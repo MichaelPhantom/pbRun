@@ -436,3 +436,47 @@ describe('分段角色必须声明「来自设备 intensity，不是配速推断
     expect(desc).not.toMatch(/intensity[^\n]{0,40}按配速(推断|计算)/);
   });
 });
+
+describe('泳姿必须声明「lap 级才有真实值，session 级恒 255」（第十三类缺陷）', () => {
+  /**
+   * 缺陷 25：旧文档与 skill 都写「泳姿仅 Garmin 云端可见」——
+   * 那句话只对 **session 级**成立（4/4 恒 255 无效），而 **lap 级一直有真实值**
+   * （真实库 4 条游泳 79 段里 35 段）。模型若不知道这一点，会告诉用户
+   * 「泳姿拿不到」，或者更糟：把 `mixed` 当未知而丢掉一条真实信息。
+   */
+  test('get_activity 声明泳姿看 lap 级 swim_stroke', () => {
+    const desc = configs.get('get_activity')!.description ?? '';
+    expect(desc).toMatch(/swim_stroke/);
+    expect(desc).toMatch(/session 级恒为 255|session 级恒 255/);
+    expect(desc).toMatch(/lap 级/);
+  });
+
+  test('get_activity 声明 mixed 是真实取值且不给效率', () => {
+    const desc = configs.get('get_activity')!.description ?? '';
+    expect(desc).toMatch(/mixed/);
+    expect(desc).toMatch(/真实取值/);
+    expect(desc).toMatch(/不要给它算|不要算|不给.*效率/);
+  });
+
+  test('get_activity_laps 声明 swim_stroke 枚举与 mixed 纪律', () => {
+    const desc = configs.get('get_activity_laps')!.description ?? '';
+    expect(desc).toMatch(/swim_stroke/);
+    expect(desc).toMatch(/freestyle/);
+    expect(desc).toMatch(/breaststroke/);
+    expect(desc).toMatch(/mixed/);
+    // session 级无效这一句必须在（否则模型会去 session 级找泳姿）
+    expect(desc).toMatch(/session 级.*255/);
+  });
+
+  test('get_activity_laps 不得再声称泳姿「未入库 / 云端才有」', () => {
+    const desc = configs.get('get_activity_laps')!.description ?? '';
+    expect(desc).not.toMatch(/泳姿.*未入库/);
+    expect(desc).not.toMatch(/泳姿.*云端/);
+  });
+
+  test('get_activity 不得再声称泳姿「未入库 / 云端才有」', () => {
+    const desc = configs.get('get_activity')!.description ?? '';
+    expect(desc).not.toMatch(/泳姿.*未入库/);
+    expect(desc).not.toMatch(/泳姿仅 Garmin 云端可见/);
+  });
+});

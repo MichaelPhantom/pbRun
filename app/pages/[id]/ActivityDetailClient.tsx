@@ -27,6 +27,7 @@ import { cycleCountLabel } from '@/app/lib/cycles';
 import { lapRoleFromIntensity } from '@/app/lib/lap-intensity';
 import { feelLabel, formatSweatLoss, rpeLabel } from '@/app/lib/feel';
 import { activeSwimSeconds, formatSwolf, swolfOf } from '@/app/lib/swim';
+import { hasSwimStroke, summarizeSwimStrokes, swimStrokeLabel } from '@/app/lib/swim-stroke';
 import { effectiveTimeSec, paceSecPer100m, formatPacePer100m, speedKmh } from '@/app/lib/pace';
 import { evaluateWorkoutExecution, formatWorkoutPlan } from '@/app/lib/workout';
 import {
@@ -122,6 +123,15 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
         activity.pool_length,
       )
     : null;
+  // 泳姿构成（第十三类缺陷）。**session 级 `swim_stroke` 恒 255（无效），
+  // 只有 lap 级有真实值** —— 旧文档写「泳姿仅 Garmin 云端可见」，那句话只对
+  // session 级成立。真实库 4 条游泳 79 段里 35 段有 freestyle/backstroke/
+  // breaststroke/mixed。
+  //
+  // `mixed` 是真实取值（这一段换了泳姿），不是「未知」—— 它会正常显示为
+  // 「混合泳姿」，但效率字段为 null（构成未知，给了就是编的）。
+  const strokeGroups = swimming ? summarizeSwimStrokes(laps) : [];
+  const hasAnyStroke = swimming && laps.some((l) => hasSwimStroke(l.swim_stroke));
   // 主观感受 / RPE —— **唯一由用户主动输入**的数据（251/353）。所有类型都给：
   // 力量课不弹窗（51/51 无值），但那是设备不采集，不是我们不该展示 —— 一旦有值
   // 就必须显示。`feel = 0` 是有效值（14 条「感觉很差」），判空走 `!= null`。
@@ -380,6 +390,16 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
       : []),
     ...(swimming && activity.num_active_lengths != null
       ? [{ value: String(Math.round(activity.num_active_lengths)), unit: '趟', label: '活跃趟数' }]
+      : []),
+    // 泳姿构成（第十三类缺陷）：把「这次练了什么泳姿」变成概览里的一格。
+    // 只有构成确定的**单一泳姿**才给「每 100m」效率（`paceSecPer100m`）；
+    // `混合泳姿`/`个人混合泳`/`分解练习` 构成未知，只报距离，不给效率数字。
+    // 详情页分段表的「泳姿」列给逐段事实，这一格给整体构成，两者互补。
+    ...(strokeGroups.length > 0
+      ? [{
+          value: strokeGroups.map((g) => g.label).join(' / '),
+          label: '泳姿',
+        }]
       : []),
     // 平均功率按字段存在性渲染: 真实库 241/241 条跑步活动都有功率, 107 条非跑步
     // 活动全部为 NULL(0/107)。旧实现无条件渲染该格, 非跑步页会永远显示 '--' ——
@@ -734,6 +754,11 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
               // 没有配速语义，显示 `--`；其余段按 `pace.paceSecPer100m` 唯一换算。
               // 旧实现整列隐藏，于是游泳页只能看「时长」，看不出「哪一趟最快」。
               ...(swimming ? [{ key: 'pace100', label: '配速', unit: '/100m' }] : []),
+              // 泳姿（第十三类缺陷）。**只在真的有泳姿数据时渲染整列** ——
+              // session 级恒 255（无效），lap 级才 35/79 有值。若整列渲染，
+              // 没有泳姿的游泳页会出现一列全 `--`，像同步失败。
+              // `mixed` 正常显示「混合泳姿」（它是设备真实取值，不是未知）。
+              ...(hasAnyStroke ? [{ key: 'stroke', label: '泳姿' }] : []),
               // 分段计数（`total_cycles`）。游泳的「本段划水次数」是技术分析的最小
               // 单元 —— 同一趟 50m 划 30 次还是 36 次，直接反映抓水效率。
               // 真实库 4 条游泳的 `Σlap.total_cycles == session.total_cycles`
@@ -823,6 +848,15 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
                     return text == null
                       ? <span className="text-fg-muted">--</span>
                       : <span className="text-fg-secondary">{text}</span>;
+                  })(),
+                  // 泳姿：`255`/缺失（0 距离休息段）→ `--`；其余显示中文名。
+                  // `混合泳姿` 是设备记录的真实取值，不是「未知」——
+                  // 与 `--`（数据缺失）是两件事，不能混。
+                  stroke: (() => {
+                    const label = swimStrokeLabel(lap.swim_stroke);
+                    return label == null
+                      ? <span className="text-fg-muted">--</span>
+                      : <span className="text-fg-secondary">{label}</span>;
                   })(),
                   // 分段「时长」必须与「配速」同一时间基数（计时器时间）。
                   // 旧实现显示 `lap.duration`（含暂停），配速却由 `moving_time`

@@ -146,8 +146,10 @@ export async function registerTools(server: McpServer): Promise<void> {
         '篮球 53min 1685 次折合 32「触球」/分不符合任何球类常识；' +
         '**不要 ×2**（×2 是 avg_cadence 单侧周期→spm 的换算，不适用于计数）；' +
         '每划距离 = distance(km)×1000 ÷ total_cycles（游泳技术分析核心指标）；' +
-        '泳姿在 session 级恒为 255（无效），lap 级 swim_stroke 才有真实值，' +
-        '当前未入库，需要时说明「泳姿仅 Garmin 云端可见」。' +
+        '**泳姿看 lap 级 `swim_stroke`**：session 级恒为 255（无效），但 `get_activity_laps` ' +
+        '返回的每段有真实值（freestyle/backstroke/breaststroke/mixed，真实库 4 条游泳 ' +
+        '79 段里 35 段有值）。`mixed` 是设备记录的**真实取值**（这一段换了泳姿），不是「未知」，' +
+        '但它构成未知 —— **不要给它算每 100m 效率**（那会凭空造出一个数）。' +
         '**分段训练角色来自设备，不是配速推断**：`get_activity_laps` 返回的 lap.intensity 是 ' +
         'FIT 里设备记录的计划结构（warmup/interval/recovery/rest/cooldown/active，' +
         '覆盖 3058/3137 段 = 97.5%）。映射：interval→主课、recovery/rest→恢复、' +
@@ -202,7 +204,14 @@ export async function registerTools(server: McpServer): Promise<void> {
         'warmup→热身、interval→主课、recovery/rest→恢复、cooldown→冷身；' +
         '**`active` 只表示「这段在计时」，不是主课**（657456825 全程 22 段都是 active）；' +
         '`255`/缺失 = 设备未记录，此时才可按配速推断。' +
-        '设备值与按配速推断仅 73.2% 一致（747/1021 段），复盘间歇课以 intensity 为准。',
+        '设备值与按配速推断仅 73.2% 一致（747/1021 段），复盘间歇课以 intensity 为准。' +
+        '**`swim_stroke` 是泳姿（第十三类缺陷）**：`freestyle`/`backstroke`/`breaststroke`/`butterfly`/' +
+        '`drill`/`mixed`/`im`。**session 级该字段恒 255（无效），只有本工具返回的 lap 级有真实值**' +
+        '（真实库 4 条游泳 79 段里 35 段有值，含 freestyle/backstroke/breaststroke/mixed）；' +
+        '`distance = 0` 的休息段一律 255/null（没有泳姿）。' +
+        '`mixed` 是设备记录的**真实取值**（这一段换了泳姿），不是「未知」，但构成未知 —— ' +
+        '**不要给它算每 100m 配速或每划距离**（那会凭空造出一个数）；' +
+        '`im`/`drill` 同理（轮换泳姿/分解练习都不代表单一泳姿技术）。',
       inputSchema: {
         activityId: z.number().int().positive().describe('活动 ID'),
       },

@@ -502,7 +502,7 @@ CREATE TABLE activities (
 
 #### laps 表
 
-存储分段数据（真实 schema 为 `activity_laps`，46 列；完整列集合见
+存储分段数据（真实 schema 为 `activity_laps`，47 列；完整列集合见
 `scripts/common/db-manager.js` 的 `declaredColumns('activity_laps')`）。
 
 ```sql
@@ -541,6 +541,12 @@ CREATE TABLE activity_laps (
   start_time TEXT,
   calories INTEGER,
   average_temperature REAL,
+  total_cycles INTEGER,               -- 总计数: 游泳=本段划水/跳绳=本段跳跃/爬楼=本段步数
+  intensity TEXT,                     -- 设备记录的分段角色: warmup/interval/recovery/rest/cooldown/active
+                                      --   覆盖 3074/3153 (97.5%); active 只表示「在计时」, 不是主课
+  swim_stroke TEXT,                   -- 泳姿: freestyle/backstroke/breaststroke/butterfly/drill/mixed/im
+                                      --   **session 级恒 255(无效), 只有 lap 级有真实值** (35/3153)
+                                      --   mixed = 这一段混合了多种泳姿(真实取值), 不是「未知」
   -- 以下 10 列真实库 0/3082 全 NULL (设备不写或 profile 无对应字段, 见
   -- docs/features.md §4.3.1)。保留在 schema 里是为了「列集合 = 代码声明」的一致性,
   -- 不是在等实现:

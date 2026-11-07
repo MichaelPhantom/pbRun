@@ -1393,3 +1393,122 @@ describe('buildAnalysisMessages — 分段训练角色（设备 intensity）', (
     expect(user.content).not.toContain('恢复段');
   });
 });
+
+/**
+ * 第十三类缺陷：泳姿（FIT lap `swim_stroke`）。
+ *
+ * **session 级恒 255（无效），lap 级才有真实值** —— 旧文档与 skill 都写
+ * 「泳姿仅 Garmin 云端可见」，那句话只对 session 级成立。真实库 4 条游泳
+ * 79 段里 35 段有 freestyle/backstroke/breaststroke/mixed。
+ *
+ * 数据块必须同时给出两件事：
+ *  1. **逐段泳姿**（汇总行会丢掉顺序，间歇/变换泳姿的结构看不出来）；
+ *  2. **泳姿构成汇总**（各泳姿的距离/时长/划水/效率）。
+ *
+ * 两条纪律必须写进数据块，否则模型会编：
+ *  - `mixed` 是真实取值，不是「未知」，但构成未知 → 不给每 100m 效率；
+ *  - 泳姿分组秒数之和 ≠ SWOLF 的时间基数（后者含全部活跃段）。
+ */
+describe('buildAnalysisMessages — 泳姿（第十三类缺陷）', () => {
+  const lap = (over: Partial<ActivityLap>): ActivityLap =>
+    ({
+      activity_id: 1,
+      lap_index: 0,
+      distance: 50,
+      moving_time: 97,
+      duration: 97,
+      total_cycles: 41,
+      ...over,
+    }) as ActivityLap;
+
+  const swim = (over: Partial<Activity> = {}) =>
+    fakeActivity({
+      activity_id: 599287904,
+      activity_type: 'lap_swimming',
+      sport_type: '游泳',
+      sub_sport_type: '泳池游泳',
+      distance: 0.775,
+      average_pace: 1670,
+      average_cadence: 24,
+      vdot_value: null,
+      total_cycles: 518,
+      pool_length: 25,
+      num_active_lengths: 31,
+      ...over,
+    });
+
+  test('逐段输出泳姿中文名（真实库 599287904 的混合结构）', () => {
+    const [, user] = buildAnalysisMessages(swim(), [
+      lap({ lap_index: 0, distance: 50, swim_stroke: 'breaststroke' }),
+      lap({ lap_index: 1, distance: 0, moving_time: 12, total_cycles: 0, swim_stroke: '255' }),
+      lap({ lap_index: 2, distance: 75, swim_stroke: 'mixed' }),
+      lap({ lap_index: 3, distance: 50, swim_stroke: 'freestyle' }),
+    ]);
+    expect(user.content).toContain('蛙泳');
+    expect(user.content).toContain('混合泳姿');
+    expect(user.content).toContain('自由泳');
+  });
+
+  test('输出泳姿构成汇总（各泳姿距离与段数）', () => {
+    const [, user] = buildAnalysisMessages(swim(), [
+      lap({ lap_index: 0, distance: 50, swim_stroke: 'breaststroke' }),
+      lap({ lap_index: 1, distance: 100, moving_time: 200, swim_stroke: 'breaststroke' }),
+      lap({ lap_index: 2, distance: 75, moving_time: 164, swim_stroke: 'mixed' }),
+    ]);
+    expect(user.content).toContain('泳姿构成');
+    // 蛙泳 2 段 150m
+    expect(user.content).toMatch(/蛙泳: 2 段 \/ 150m/);
+    // mixed 1 段 75m
+    expect(user.content).toMatch(/混合泳姿: 1 段 \/ 75m/);
+  });
+
+  /**
+   * `mixed` 的效率字段必须缺席。给混合泳姿算「每 100m」等于编一个
+   * 构成未知的数字 —— 模型会拿它跟单泳姿比较，得出错误结论。
+   */
+  test('混合泳姿不给每 100m 效率（构成未知, 不能编）', () => {
+    const [, user] = buildAnalysisMessages(swim(), [
+      lap({ lap_index: 0, distance: 75, moving_time: 164, swim_stroke: 'mixed' }),
+    ]);
+    expect(user.content).toContain('混合泳姿: 1 段 / 75m');
+    // 该行不能带「分/100m」或「m/划」
+    const mixedLine = user.content.split('\n').find((l) => l.startsWith('混合泳姿:'))!;
+    expect(mixedLine).not.toContain('分/100m');
+    expect(mixedLine).not.toContain('m/划');
+  });
+
+  test('单一泳姿给每 100m 与每划距离', () => {
+    const [, user] = buildAnalysisMessages(swim(), [
+      lap({ lap_index: 0, distance: 50, moving_time: 60, total_cycles: 40, swim_stroke: 'freestyle' }),
+      lap({ lap_index: 1, distance: 50, moving_time: 60, total_cycles: 40, swim_stroke: 'freestyle' }),
+    ]);
+    // 100m / 120s → 2.00 分/100m；100m / 80 划 = 1.25 m/划
+    expect(user.content).toMatch(/自由泳: 2 段 \/ 100m[^\n]*2\.00 分\/100m/);
+    expect(user.content).toMatch(/自由泳: 2 段 \/ 100m[^\n]*1\.25 m\/划/);
+  });
+
+  test('必须声明 mixed 是真实取值、且分组秒数不能重算 SWOLF', () => {
+    const [, user] = buildAnalysisMessages(swim(), [
+      lap({ lap_index: 0, distance: 50, swim_stroke: 'freestyle' }),
+    ]);
+    expect(user.content).toContain('不是「未知」');
+    expect(user.content).toMatch(/不要用分组重算 SWOLF|≠ SWOLF/);
+  });
+
+  test('无任何泳姿 → 整块不输出（不是输出一行「泳姿: --」）', () => {
+    const [, user] = buildAnalysisMessages(swim(), [
+      lap({ lap_index: 0, swim_stroke: '255' }),
+      lap({ lap_index: 1, swim_stroke: null }),
+    ]);
+    expect(user.content).not.toContain('泳姿构成');
+    expect(user.content).not.toContain('泳姿说明');
+  });
+
+  test('跑步活动绝不输出泳姿（lap 上就算有该字段也不该有语义）', () => {
+    const [, user] = buildAnalysisMessages(fakeActivity(), [
+      { activity_id: 1, lap_index: 0, distance: 1000, duration: 300, swim_stroke: 'freestyle' } as ActivityLap,
+    ]);
+    expect(user.content).not.toContain('泳姿构成');
+    expect(user.content).not.toContain('自由泳');
+  });
+});

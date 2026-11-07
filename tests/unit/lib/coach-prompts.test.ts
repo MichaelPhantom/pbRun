@@ -183,3 +183,41 @@ describe('界面白名单', () => {
     expect(statisticsTaskLine('insight', 'R')).toContain('综合诊断');
   });
 });
+
+/**
+ * 游泳泳姿口径（第十三类缺陷）。
+ *
+ * 数据块现在会输出「泳姿构成」与逐段泳姿（`swim_stroke`），提示词必须
+ * 同步告诉模型怎么用 —— 否则模型会：
+ *  ① 把 `混合泳姿` 当「未知」而说「泳姿记录不完整」（那是假话，设备明确记录了）；
+ *  ② 给混合泳姿编一个「每 100m 效率」（构成未知，那个数没有物理含义）；
+ *  ③ 拿泳姿分组的秒数去重算 SWOLF（会漏掉 mixed 段，结果偏小）。
+ *
+ * 三处纪律缺一不可 —— 数据块给了数字但没给纪律，等于把编造的口子留着。
+ */
+describe('游泳泳姿：提示词与数据块同口径', () => {
+  test('必须声明泳姿来自 lap 级（session 级恒 255 无效）', () => {
+    expect(SINGLE_NON_RUNNING_PROMPT).toContain('swim_stroke');
+    expect(SINGLE_NON_RUNNING_PROMPT).toMatch(/lap 级/);
+  });
+
+  test('必须声明 mixed 是真实取值、不是未知', () => {
+    expect(SINGLE_NON_RUNNING_PROMPT).toMatch(/混合泳姿/);
+    expect(SINGLE_NON_RUNNING_PROMPT).toMatch(/真实取值/);
+    expect(SINGLE_NON_RUNNING_PROMPT).toMatch(/不是「未知」|不是未知/);
+  });
+
+  test('必须禁止给混合泳姿算效率', () => {
+    expect(SINGLE_NON_RUNNING_PROMPT).toMatch(/不要给混合泳姿算/);
+  });
+
+  test('必须声明泳姿分组秒数不能重算 SWOLF', () => {
+    expect(SINGLE_NON_RUNNING_PROMPT).toMatch(/不等于[^]{0,20}SWOLF|SWOLF[^]{0,20}不等于/);
+    expect(SINGLE_NON_RUNNING_PROMPT).toMatch(/不要用泳姿分组重算 SWOLF/);
+  });
+
+  test('跑步提示词不得出现泳姿口径（那是游泳专属）', () => {
+    expect(SINGLE_RUNNING_PROMPT).not.toContain('swim_stroke');
+    expect(SINGLE_RUNNING_PROMPT).not.toContain('混合泳姿');
+  });
+});

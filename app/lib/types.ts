@@ -308,6 +308,20 @@ export interface ActivityLap {
    * 设备值记录的是**意图**，配速只反映**结果** —— 前者才是计划结构。
    */
   intensity?: string;
+  /**
+   * 本段**泳姿**（FIT lap `swim_stroke` 原值）—— 第十三类缺陷。
+   *
+   * 取值：`freestyle` / `backstroke` / `breaststroke` / `butterfly` /
+   * `drill` / `mixed` / `im`。**session 级该字段恒为 255（无效），只有 lap 级
+   * 有真实值** —— 这是「同一字段在不同消息层级可信度不同」的典型。
+   *
+   * **不要直接展示这个原始值** —— 中文名与效率汇总走 `app/lib/swim-stroke.ts`。
+   *
+   * `mixed` 是设备记录的真实取值（「这一段混合了多种泳姿」），**不是未知**。
+   * 绝不能把它摊到某个具体泳姿上 —— 那会凭空造出一个单泳姿效率数字。
+   * `255`（无效哨兵）与 0 距离休息段不写入。
+   */
+  swim_stroke?: string;
 }
 
 /** 单条活动内逐条记录（用于心率/步频/步幅/配速趋势图） */

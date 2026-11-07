@@ -32,6 +32,7 @@ const ROLE_LABEL_AI: Record<LapRole, string> = {
 };
 import { feelLabel, feelRpeDivergent, formatSweatLoss, rpeLabel, sweatRateMlPerHour } from '@/app/lib/feel';
 import { activeSwimSeconds, formatSwolf, swolfOf } from '@/app/lib/swim';
+import { summarizeSwimStrokes, swimStrokeLabel, type StrokeGroup } from '@/app/lib/swim-stroke';
 import { effectiveTimeSec, paceSecPer100m, formatPacePer100m, speedKmh } from '@/app/lib/pace';
 import { lapSectionTitle, lapStartDistancesMeters, lapRangeLabel } from '@/app/lib/lap-label';
 import {
@@ -155,6 +156,49 @@ function fmtZoneTimes(json?: string | null): string {
   } catch {
     return '--';
   }
+}
+
+/**
+ * 泳姿构成 → AI 数据块行（第十三类缺陷）。
+ *
+ * ## 为什么要进数据块
+ *
+ * 游泳技术分析的核心问题是「哪种泳姿效率高、练得够不够」。此前数据块只有
+ * 活动级的总划水次数与 SWOLF，**看不出这次练了什么泳姿** —— 而设备在 FIT
+ * lap 级明确记录了每一段的泳姿（session 级恒 255 无效）。
+ *
+ * ## 两条必须写进去的纪律（否则模型会编）
+ *
+ * 1. **`mixed` 是真实取值**（这一段换了泳姿），不是「未知」。但它构成未知，
+ *    **不能给每 100m 效率结论** —— 本函数对 mixed/im/drill 只给距离/时长/划水，
+ *    效率字段本身是 `null`（见 `swim-stroke.ts`）。
+ * 2. 泳姿分组的秒数之和 **不等于** SWOLF 的时间基数（后者是全部活跃 lap，
+ *    含 mixed）。两行同处一个 prompt，不写清会让模型拿泳姿分组去重算 SWOLF。
+ *
+ * 返回空数组表示「没有可归类泳姿」（非游泳活动、或设备全写 255）——
+ * 此时整块不输出，而不是输出一行 `泳姿: --`（那是「该有却没有」的信号）。
+ */
+function formatSwimStrokesForCoach(laps: ReadonlyArray<ActivityLap>): string[] {
+  const groups = summarizeSwimStrokes(laps);
+  if (groups.length === 0) return [];
+
+  const rows = groups.map((g: StrokeGroup) => {
+    const facts = [`${g.laps} 段`, `${Math.round(g.distanceM)}m`];
+    if (g.timeSec > 0) facts.push(formatDuration(g.timeSec));
+    if (g.cycles > 0) facts.push(`${Math.round(g.cycles)} 划`);
+    // 效率字段只对构成确定的单泳姿存在（mixed/im/drill 为 null）
+    if (g.paceSecPer100m != null) facts.push(`${(g.paceSecPer100m / 60).toFixed(2)} 分/100m`);
+    if (g.metersPerStroke != null) facts.push(`${g.metersPerStroke.toFixed(2)} m/划`);
+    return `${g.label}: ${facts.join(' / ')}`;
+  });
+
+  return [
+    `泳姿构成（FIT lap 级记录, ${groups.length} 种）:`,
+    ...rows,
+    '泳姿说明: `混合泳姿` 是设备记录的真实取值（这一段换了泳姿），不是「未知」—— ' +
+      '它构成未知, **不要给它算每 100m 效率**。' +
+      '泳姿分组的秒数之和 ≠ SWOLF 的时间基数（后者含全部活跃段）, 不要用分组重算 SWOLF。',
+  ];
 }
 
 /**
@@ -326,6 +370,14 @@ export function buildAnalysisMessages(
       // `active` 不输出（只表示「在计时」，不表达意图），匀速跑整场都是 active。
       const lapRole = lapRoleFromIntensity(l.intensity);
       if (lapRole != null) parts.push(ROLE_LABEL_AI[lapRole]);
+      // 本段泳姿（第十三类缺陷）。lap 级才有真实值（session 级恒 255 无效）。
+      // 逐段泳姿比「活动级泳姿构成」更能看出结构 —— 例如「自由泳 4 趟 +
+      // 蛙泳 2 趟 + 混合 1 趟」这样的交替，汇总行会丢掉顺序。
+      // 按运动类型门控：泳姿只对游泳有语义，跑步 lap 上就算带了该字段也不该输出。
+      if (isSwimmingType(activity.activity_type)) {
+        const strokeLabel = swimStrokeLabel(l.swim_stroke);
+        if (strokeLabel != null) parts.push(strokeLabel);
+      }
       if (l.average_heart_rate != null) parts.push(`${Math.round(l.average_heart_rate)}bpm`);
       if (running && l.average_cadence != null) parts.push(`${Math.round(l.average_cadence)}spm`);
       // 分段计数的**唯一标签来源** `app/lib/cycles.ts`（第十一类缺陷）。
@@ -517,6 +569,18 @@ export function buildAnalysisMessages(
                         : []),
                     ];
                   })(),
+                  // 泳姿构成（FIT lap `swim_stroke`）—— 第十三类缺陷。
+                  //
+                  // **session 级恒 255（无效），只有 lap 级有真实值** —— 旧文档与
+                  // skill 都写「泳姿仅 Garmin 云端可见」，那句话只对 session 级成立。
+                  // 真实库 4 条游泳 79 段里 35 段有 freestyle/backstroke/
+                  // breaststroke/mixed。
+                  //
+                  // 两条纪律必须写进数据块，否则模型会编：
+                  //  1. `mixed` 是**真实取值**（这一段换了泳姿），不是「未知」，
+                  //     但它构成未知 → **不给每 100m 效率结论**；
+                  //  2. 泳姿分组的秒数**不能当 SWOLF 的时间基数**（会漏掉 mixed 段）。
+                  ...formatSwimStrokesForCoach(laps),
                 ];
               })()
             : []),

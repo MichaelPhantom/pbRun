@@ -192,13 +192,16 @@ const lapFields = parseActivityLapFields(typesSrc);
 
 describe('ActivityLap 的每个字段都必须被消费或显式记账', () => {
   test('解析器确实覆盖到 ActivityLap 的全部字段 (防假绿)', () => {
-    // **精确** 46 个字段（2026-11-07 新增 `intensity` —— 第十二类缺陷：FIT lap
-    // 的 `intensity` 一直有值（3058/3137 = 97.5%），解析器从不读取，详情页的
-    // 「角色」列反而按配速推断 —— 实测与设备值仅 73.2% 一致，274 段判错）。
+    // **精确** 47 个字段（2026-11-07 连续新增两列：
+    //  - `intensity`（第十二类缺陷）：FIT lap 的 `intensity` 一直有值
+    //    （3058/3137 = 97.5%），解析器从不读取，详情页的「角色」列反而按配速
+    //    推断 —— 实测与设备值仅 73.2% 一致，274 段判错；
+    //  - `swim_stroke`（第十三类缺陷）：**session 级恒 255（无效），lap 级才有
+    //    真实值**（35/79 段），旧文档写「泳姿仅 Garmin 云端可见」只对 session 级成立）。
     // 用等号而不是 >=: 新增一列必须在这里显式确认「它要么被消费、要么进账本并
     // 写明理由」，否则守卫会随 types.ts 扩张悄悄放宽。同步修改:
     // docs/features.md 里记录的 lap 字段数。
-    expect(lapFields.length).toBe(46);
+    expect(lapFields.length).toBe(47);
     // 抽查四个不同区块：时间/配速/功率/区间
     expect(lapFields).toContain('cumulative_time');
     expect(lapFields).toContain('average_pace');

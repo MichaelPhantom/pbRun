@@ -352,7 +352,7 @@ describe('CLI 脚本导入契约', () => {
 | `tests/unit/common/db-manager-schema-drift.test.js`（搬运分支） | 清理遗留列时无条件 `DROP COLUMN`：本库恰好 100% NULL，但用户从备份恢复的旧库有值时会被静默丢弃 | 「本库为空」不等于「所有库为空」；迁移不报错，丢数据无声无息 |
 | `tests/unit/mcp/tool-scope-contract.test.ts` | MCP tool description 不声明统计口径/单位 | 文案是字符串常量，没有分支 |
 | `tests/unit/scripts/pace-parity.test.ts` | TS `app/lib/pace.ts` 与 CJS `scripts/common/pace.js` 两份实现漂移 —— 写入侧按一套口径落库、UI/AI 按另一套理解 | 两套实现各自 100% 覆盖、各自「算得对」；只有**逐值比对**才发现分歧。这类漂移不报错，只让数字悄悄错开 |
-| `tests/unit/components/lap-field-consumption.test.ts` | `ActivityLap` 的 46 个字段里有值却零消费（`lap_trigger` 3082/3082、`average_moving_pace` 2972/3082） | 与 `Activity` 那份同理：字段有值即「存在」，没人读不产生未覆盖分支 |
+| `tests/unit/components/lap-field-consumption.test.ts` | `ActivityLap` 的 47 个字段里有值却零消费（`lap_trigger` 3082/3082、`average_moving_pace` 2972/3082） | 与 `Activity` 那份同理：字段有值即「存在」，没人读不产生未覆盖分支 |
 | `tests/unit/lib/db-time-base.test.ts` | 时长聚合（`totalDuration` / 区间表 `total_duration` / 加权权重 / VDOT 趋势）用经过时间，而配速用计时器时间 —— 同一行数据两个基数 | 两列都有值、SQL 都执行成功、类型都对；只有**同一行内对账**（区间秒数之和 vs `total_duration`）才暴露 |
 | `tests/unit/scripts/backfill-pace.test.js` | 回填脚本按错误时间基数重算（等于把旧缺陷刷成新数据）、失败却返回 0 | 正常路径下两种基数都产出「合法数字」；退出码只在异常路径分叉 |
 | `tests/unit/docs/api-route-coverage.test.ts` | 新增 API 路由未写进 README/API 文档 | 文档与代码是两棵树 |

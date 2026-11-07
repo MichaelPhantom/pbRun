@@ -804,6 +804,34 @@ class GarminFITParser {
         if (str) lapData.intensity = str;
       }
 
+      // 泳姿（FIT lap `swim_stroke`）—— 第十三类缺陷。
+      //
+      // **session 级恒为 255（无效），lap 级才有真实值** —— 这是「同一个字段
+      // 在不同消息层级有不同可信度」的典型。真实库 4 条游泳 79 段中：
+      // 255 = 40 段（全部是 0 距离池边休息段）、freestyle 18 段、
+      // mixed 12 段、breaststroke 4 段、backstroke 1 段。
+      //
+      // 两条自证不变式（实测 4/4 精确成立，见 `app/lib/swim-stroke.ts`）：
+      //  ① `swim_stroke === '255'` ⟺ `distance === 0`（0 违反）——
+      //     休息段没有泳姿，有距离的段一定有泳姿；
+      //  ② `Σ(真实泳姿段 distance) == session.total_distance`（775/1075/2200/2050）
+      //     且 `Σ(真实泳姿段 total_cycles) == session.total_cycles`
+      //     （518/798/923/695）—— 证明没有段落被漏读或重复计入。
+      //
+      // 存**原始枚举字符串**而不是中文标签：与 `intensity` 同一纪律 ——
+      // 泳姿名称/口径属于展示层（`app/lib/swim-stroke.ts`），DB 只如实保存
+      // 设备说了什么。`255` 是 FIT 无效哨兵，不写入（那是「设备没写」，
+      // 不是一种泳姿）。
+      //
+      // **`mixed` 是设备记录的真实取值**（「这一段混合了多种泳姿」），
+      // 不是「未知」。绝不能把它摊到某个具体泳姿上 —— 那会凭空造出一个
+      // 单泳姿效率数字。
+      const lapStroke = lap.swim_stroke;
+      if (lapStroke != null && lapStroke !== 255 && lapStroke !== '') {
+        const str = String(lapStroke).trim();
+        if (str && str !== '255') lapData.swim_stroke = str;
+      }
+
       lapsData.push(lapData);
     }
 

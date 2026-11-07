@@ -530,7 +530,7 @@ FTP 缺失不猜 / 海拔比值 / 尖峰过滤）、`tests/unit/pages/activity-d
 - 反例已排除：`start_tz_offset_min` 等 6 个聚类/记账列确实不在 `Activity` 里，
   但仍在 schema 里 —— 它们留在账本里是对的。
 
-#### `ActivityLap` 的 44 个字段也要机器审计（2026-10-27 补齐，2026-11-07 扩到 46）
+#### `ActivityLap` 的 44 个字段也要机器审计（2026-10-27 补齐，2026-11-07 扩到 47）
 
 `Activity` 有完整守卫，但 `ActivityLap`（44 字段）**一直没有** —— lap 层可以安静地积累
 同类缺陷。补守卫时一次审计就找出 **14 个零消费字段**，其中三个有真实数据：
@@ -551,8 +551,8 @@ FTP 缺失不猜 / 海拔比值 / 尖峰过滤）、`tests/unit/pages/activity-d
 未消费必须进账本、账本必须保持真实、账本键必须是真实列、schema 每列三头必须落一头。
 四个方向都做过缺陷注入验证（删账本条目 / 塞已消费字段 / 塞幻影列 / 改字段数）。
 
-> 字段数此后随第十/十一/十二类缺陷增长：`total_cycles`（第十类）→ 45、
-> `intensity`（第十二类）→ 46。守卫里的等号是**有意的**：每加一列都必须显式
+> 字段数此后随第十/十一/十二/十三类缺陷增长：`total_cycles`（第十类）→ 45、
+> `intensity`（第十二类）→ 46、`swim_stroke`（第十三类）→ 47。守卫里的等号是**有意的**：每加一列都必须显式
 > 确认「它要么被消费、要么进账本并写明理由」，否则守卫会随 `types.ts` 扩张悄悄放宽。
 
 #### 配速与统计的时间基数：计时器时间，不是经过时间（2026-10-27）
@@ -1080,10 +1080,11 @@ avgPaceSecPerKm: 350 }` 三个数互相矛盾（350×7=2450≠2520），而 `Wea
 `tests/unit/mcp/tool-scope-contract.test.ts` 的 `COMBINED_SCOPED` 断言。
 
 若将来要纳入游泳/球类，必须先解决「强度从哪来」—— 在 FIT 补上泳姿/球类
-间歇数据之前，自制系数只会让 ACWR 失去可比性。（泳姿其实**在 lap 级 FIT 里**
-（`swim_stroke`：freestyle/backstroke/breaststroke/mixed），只是当前未入库；
-总划水次数已入库（`total_cycles`）。但**泳姿与划水次数都不足以给出强度系数** ——
-缺的是「每段用了多大力」，那需要功率或阈值泳速，FIT 里没有。）
+间歇数据之前，自制系数只会让 ACWR 失去可比性。（泳姿**已在 lap 级 FIT 里**
+（`swim_stroke`：freestyle/backstroke/breaststroke/mixed，见「第十三类缺陷」），
+并已入库（35/3153 段）；总划水次数也已入库（`total_cycles`）。但**泳姿与划水次数
+都不足以给出强度系数** —— 缺的是「每段用了多大力」，那需要功率或阈值泳速，
+FIT 里没有。）
 
 **消费方清单（必须全部走合并入口，漏一个就分叉）**：首页 `/`、分析页 `/analysis`、
 洞察页 `/insight`（`insight-service.getInsight` 的 `getCombinedTrainingLoads`）、
@@ -1969,8 +1970,8 @@ SWOLF = 单趟用时（秒） + 单趟划水次数
 
 ##### 仍未提取的 FIT 字段（按价值排序，本轮未做）
 
-见本节末尾「第十二类缺陷」的「仍未提取：lap 级 `swim_stroke`」小节 ——
-`swim_stroke` 是唯一确认有价值但尚未入库的字段，其余三个字段经复核主动排除。
+本轮已把 `swim_stroke` 补上（见本节末尾「第十三类缺陷」）。目前
+**没有**确认有价值但尚未入库的字段；其余三个字段经复核主动排除（见下）。
 
 #### 第十二类缺陷：设备记录了「这段是什么」，我们却按配速猜（2026-11-07）
 
@@ -2082,13 +2083,99 @@ easy  = pace > 均值 × 1.12          → 热身/恢复/冷身（看位置）
 - **派生指标的错误会放大**。一个角色的错会污染 `workLaps`/`workHrDrift`/
   「主课均配速」四个数字，而这四个数字会原样喂给 AI。
 
-##### 仍未提取：lap 级 `swim_stroke`（下一个待做）
+#### 第十三类缺陷：同一个字段，在另一个消息层级才有值（2026-11-07）
 
-同一轮扫描确认 lap 级 `swim_stroke` 有**真实泳姿**（session 级恒 255）：
-`599287904` 的 28 段里出现 breaststroke/freestyle/mixed/backstroke，
-`614598589` 26 段 24 段 freestyle。它能做「各泳姿效率对比」
-（按泳姿汇总距离/时间算秒每 100m）。仍未入库 —— 需新增 lap 列，
-且同一活动可能混合泳姿，展示时必须带泳姿标签。
+第十二类缺陷是「字段进库了却用别的字段猜」。第十三类更细一层：
+**同一个字段在 FIT 的不同消息层级有不同可信度，而文档只看了层级之一，
+于是得出了「这个字段不可得」的错误结论。**
+
+真实情况（泳姿 `swim_stroke`）：
+
+| 层级 | 覆盖 | 结论 |
+|------|------|------|
+| `session.swim_stroke` | 4/4 **恒为 255** | 设备不写（FIT 无效哨兵 0xFF） |
+| `lap.swim_stroke` | **35/79 段有真实值** | **有真实泳姿** |
+
+旧文档与 skill 都写「泳姿仅 Garmin 云端可见」—— 那句话**只对 session 级成立**。
+lap 级一直有 `freestyle` / `backstroke` / `breaststroke` / `mixed`，
+只是 `fit-parser.js` 从未 `_safeGet*(lap, 'swim_stroke')`，`activity_laps` 表也没有这一列。
+
+##### 判据（与第十至十二类同一套，两条全中）
+
+| 判据 | 检验 | 结果 |
+|------|------|------|
+| **结构自证** | `swim_stroke === 255` 是否恒对应 `distance === 0` | **0 违反**（79 段） |
+| **独立锚点** | 距离与划水次数两条独立链是否同时闭合到 session | **4/4 精确相等**（见下） |
+
+两条自证不变式（真实库 4 条游泳全部成立）：
+
+```
+① swim_stroke === '255'  ⟺  distance === 0          （0 违反）
+   —— 池边休息段没有泳姿，有距离的段一定有泳姿。
+      若解析时把 lap 顺序搞乱，必然出现「有距离却没泳姿」或「休息段却有泳姿」。
+
+② Σ(真实泳姿段 distance) == session.total_distance    （775 / 1075 / 2200 / 2050）
+   Σ(真实泳姿段 total_cycles) == session.total_cycles （518 / 798 / 923 / 695）
+   —— 距离与划水次数是两条独立链，同时相等才证明没有段落被漏读或重复计入。
+```
+
+`599287904` 的 28 段分布：breaststroke 4 / mixed 6 / freestyle 3 / backstroke 1 /
+255（0 距离休息）14 —— 与 `Σdist=775`、`Σcycles=518` 完全闭合。
+
+##### `mixed` 是真实取值，不是「未知」
+
+设备在「这一段里换了泳姿」时写 `mixed`。它是一条**真实信息**，
+与 `255`（设备没写）和 `null`（数据缺失）是**三件不同的事**：
+
+| 值 | 含义 | 能否算效率 |
+|----|------|-----------|
+| `mixed` | 这一段混合了多种泳姿（设备明确记录） | **不能** —— 构成未知 |
+| `im` | 个人混合泳（按规则轮换四种） | **不能** —— 轮换不是单一泳姿 |
+| `drill` | 分解练习 | **不能** —— 配速不代表完整技术 |
+| `255` / `null` | 设备没写 / 数据缺失 | 不适用（0 距离休息段） |
+
+把 `mixed` 当「未知」会丢掉一条真实信息；把 `mixed` 摊到某个具体泳姿上、
+或给它算「每 100m 效率」，则会**凭空造出一个没有物理含义的数字**，
+模型会拿它去跟单泳姿比较并得出错误结论。故 `summarizeSwimStrokes()`
+对这三类只给「距离 / 时长 / 划水次数」这类事实，效率字段一律 `null`。
+
+##### 实测泳姿构成（跨 4 条游泳汇总，仅作量级参考）
+
+| 泳姿 | 段数 | 距离 | 秒/100m | 米/划 |
+|------|------|------|---------|-------|
+| freestyle | 18 | 2250m | 137.2 | 1.84 |
+| mixed | 12 | 3675m | —（不给） | —（不给） |
+| breaststroke | 4 | 150m | 147.7 | 1.83 |
+| backstroke | 1 | 25m | 88.5 | 2.78 |
+
+样本极小（backstroke 只有 1 段 25m），这些数字**不能当能力基线**，
+只能说明「字段口径算得通」。
+
+##### 修法（六个面）
+
+1. **解析器**：`_extractLapsData` 读 `lap.swim_stroke`，**存原始枚举字符串**
+   （`255`/空串不写）。中文名与效率口径属于展示层。
+2. **schema**：`activity_laps` 46→47 列（`swim_stroke TEXT`）+ 一条迁移条目。
+3. **映射层**：新增 `app/lib/swim-stroke.ts`
+   （`swimStrokeLabel()` / `hasSwimStroke()` / `isComparableStroke()` /
+   `summarizeSwimStrokes()` / `validateSwimStrokes()`）。
+4. **详情页**：概览「泳姿」格给整体构成；分段表新增「泳姿」列。
+   **整列门控**：没有一条 lap 有泳姿时整列不渲染（恒空列会被读成同步失败）。
+5. **AI 数据块**：逐段泳姿 + 泳姿构成汇总 + 两条纪律声明
+   （`mixed` 不是未知 / 分组秒数不能重算 SWOLF）。
+6. **回填**：`db.updateLapFields(id, laps, ['total_cycles','intensity','swim_stroke'])`。
+
+##### 纪律
+
+- **先问「这个字段是不是在另一个消息层级才有值」**。同一字段在 session / lap /
+  record 三级的可信度可以完全不同，不能因为一级无效就断言「不可得」。
+- **原始值与语义分层存放**。DB 存 `swim_stroke` 原始枚举，中文名与效率口径
+  放 `swim-stroke.ts`。Garmin 改枚举或本项目改口径都不需要动数据。
+- **`mixed` 不等于 `null`**。前者是设备说的「混合」，后者是「我们没拿到」。
+  把真实取值当缺失，与把缺失当真实取值，是同一个错误的两面。
+- **不给未知构成编效率**。宁可不给，也不要给一个模型会拿去比较的数字。
+- **泳姿分组秒数之和 ≠ SWOLF 的时间基数**。后者含全部活跃段（含 mixed），
+  用分组去重算 SWOLF 会偏小。
 
 另三个字段经复核**不做**（不是遗漏，是主动排除）：
 
@@ -2274,7 +2361,7 @@ AI 教练有两种**能力维度**，它们的数据单位与结论都不同，*
 | **覆盖率门槛留有余量** | `jest.config.js` + `threshold-margin.test.ts` | `tests/unit/ci/threshold-margin.test.ts`（每组每项 ≥1.5pt，且不可用降门槛来满足） |
 | **配速/速度的时间基数 = 计时器时间 `moving_time`** | `app/lib/pace.ts`（`effectiveTimeSec` / `paceSecPerKm` / `speedKmh`）+ CJS 镜像 `scripts/common/pace.js`；写入侧 `fit-parser.js`（活动级 + lap 级）、`backfill-vdot.js`、`sync.js`、`scripts/strava/sync.js`；读取侧 `db.ts`、`validate-data.js` | `tests/unit/scripts/pace-parity.test.ts`（14 种时间形态逐值比对 + 真实库锚点：`582132079` 6:35 而非 26:19、`598287817` lap 7 从 60792 降到 24500）+ `tests/unit/garmin/fit-parser-branches.test.js`（活动级与 lap 级都断言 `average_pace` 更接近计时器口径、`average_speed × average_pace = 3600`）+ `tests/unit/scripts/backfill-pace.test.js`（18 例：单位差、幂等、dry-run、极端段、退出码 1）+ `tests/e2e/activity-detail.spec.ts`（判别式：`distToTimer < distToElapsed`） |
 | **所有时长聚合与配速同基数** | `db.ts` 的 `getStats` / `getPeriodStats` 的 `totalDuration`、`getPaceZoneStats` / `getPowerZoneStats` / `getHrZoneStats` 的 `total_duration` 与加权权重、`getVDOTTrend().total_duration`、`getPersonalRecords` 插值、`getTrainingLoads().duration`、`getInsightActivityRows().durationSeconds`、`activity-insight.ts` 的 `lap.durationSec`、`llm.ts` 的 `dur` 与非跑步分段时长 | `tests/unit/lib/db-time-base.test.ts`（14 例真实 SQL：每条聚合路径都断言具体数字 3900 而非 5100 / 260 而非 340 s/km；七条注入路径逐一验证转红）+ `tests/unit/lib/db-insight-integration.test.ts`（5K PR 1786 而非 1800）+ `tests/unit/lib/activity-insight.test.ts`（`moving_time` 4s vs `duration` 60s → 无最快段，注入后转红） |
-| **`ActivityLap` 的 46 个字段必须被消费或记账** | 账本 `LAP_FIELD_ALLOWLIST`（`tests/unit/components/lap-field-consumption.test.ts`）+ 两条推导链同基数断言 | 字段数精确 `toBe(46)`、正向未消费为空、反向账本无已消费项、账本键必须是真实列、schema 每列三头必须落一头；四个方向均做过缺陷注入 |
+| **`ActivityLap` 的 47 个字段必须被消费或记账** | 账本 `LAP_FIELD_ALLOWLIST`（`tests/unit/components/lap-field-consumption.test.ts`）+ 两条推导链同基数断言 | 字段数精确 `toBe(47)`、正向未消费为空、反向账本无已消费项、账本键必须是真实列、schema 每列三头必须落一头；四个方向均做过缺陷注入 |
 | **校验器必须能失败（时间基数）** | `validate-data.js` 的活动级/lap 级配速断言、区间秒数基准、`backfill-hr-zones.js` / `backfill-power-zones.js` / `backfill-lap-zones.js` 的 `expected` 基准全部改用 `effectiveTimeSec` / `speedKmh` / `paceSecPerKm` | `tests/unit/scripts/validate-data.test.js`（旧断言 `average_pace === duration/distance` 已删除 —— 它把错误口径锁死；问题数据用例必须命中） |
 | **UI 时长格与配速同口径，且 `moving_time = 0` 必须回退** | `ListClient.tsx` / `RecentActivityCard.tsx` / `ActivityDetailClient.tsx`（概览 + 分段表）/ `powerIntensity` 全部 import `effectiveTimeSec`，不写 `moving_time ?? duration` 或 `moving_time \|\| duration` | `tests/unit/components/list-client.test.tsx` + `tests/unit/components/recent-activity-card.test.tsx`（`moving_time: 0` / `duration: 2800` → 必须显示 46:40；`??` 实现显示 0:00，注入后两条同时转红）+ `tests/unit/pages/activity-detail.test.tsx` + `tests/unit/lib/power.test.ts`（TSS 2201s 而非 5000s） |
 | **`LoadInsight.weekly` 的 `n`/`seconds` 必须进教练上下文** | `insight-coach.ts` 的「周训练量」块（`week km/时长/次数/TL`） | `tests/unit/lib/insight-coach.test.ts`（两个 ISO 周必须逐字输出 `49.7km/5:16:40/5次/430TL`；删掉整块立即转红）+ `tests/unit/components/insight-field-consumption.test.ts`（内联对象字面量字段必须进入字段集合 —— 旧解析器只收多行 interface，`weekly` 整块漏掉，该字段族**永远绿**） |

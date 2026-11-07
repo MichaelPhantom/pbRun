@@ -122,8 +122,12 @@ async function main() {
       //
       // `intensity`（第十二类缺陷）：设备记录的分段角色，覆盖 3058/3137（97.5%）。
       // 详情页的「角色」列此前按配速推断，与设备值仅 73.2% 一致。
+      //
+      // `swim_stroke`（第十三类缺陷）：泳姿。**session 级恒 255（无效），
+      // lap 级才有真实值** —— 35/79 段有 freestyle/backstroke/breaststroke/mixed。
+      // 旧文档写「泳姿仅 Garmin 云端可见」，那句话只对 session 级成立。
       if (Array.isArray(parsed.laps) && parsed.laps.length > 0) {
-        const n = db.updateLapFields(id, parsed.laps, ['total_cycles', 'intensity']);
+        const n = db.updateLapFields(id, parsed.laps, ['total_cycles', 'intensity', 'swim_stroke']);
         if (n > 0) lapsUpdated++;
       }
 

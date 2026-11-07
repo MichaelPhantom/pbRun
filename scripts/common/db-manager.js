@@ -322,6 +322,11 @@ class DatabaseManager {
         -- **设备记录的计划结构**，不是按配速推断的（第十二类缺陷 2026-11-07）。
         -- 覆盖 3058/3137 lap（97.5%）；active 只表示「在计时」不表示主课。
         intensity TEXT,
+        -- 泳姿（FIT lap swim_stroke）：freestyle/backstroke/breaststroke/butterfly/
+        -- drill/mixed/im。**session 级恒 255（无效），只有 lap 级有真实值**
+        -- （第十三类缺陷 2026-11-07）。存原始枚举，中文名属展示层。
+        -- mixed 是「这一段混合了多种泳姿」，不是未知 —— 不能摊到单一泳姿上。
+        swim_stroke TEXT,
 
         FOREIGN KEY (activity_id) REFERENCES activities(activity_id) ON DELETE CASCADE
       )
@@ -335,7 +340,8 @@ class DatabaseManager {
       ['device_time_in_speed_zone', 'TEXT'], ['device_time_in_cadence_zone', 'TEXT'],
       ['lap_trigger', 'TEXT'], ['start_time', 'DATETIME'],
       ['total_cycles', 'INTEGER'],
-      ['intensity', 'TEXT']
+      ['intensity', 'TEXT'],
+      ['swim_stroke', 'TEXT']
     ];
     for (const [name, type] of newLapColumns) {
       try {
