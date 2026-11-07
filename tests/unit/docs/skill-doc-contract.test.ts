@@ -535,6 +535,18 @@ describe('skill 的「训练负荷」口径（第十八类缺陷）', () => {
     expect(skill).toMatch(/CTL[^\n]{0,60}力量|力量[^\n]{0,60}CTL/);
   });
 
+  /**
+   * **第二十五类：洞察页 AI 上下文里同一行也是两种口径。**
+   *
+   * `周训练量 28.3km/2:46:46/3次/256TL` —— km/次数纯跑步、256TL 含力量
+   * （同周跑步仅 196）。模型会算出「85 TL/km」这种无意义密度。
+   */
+  test('skill 必须声明「洞察 AI 上下文的 TL 含力量、km 只跑步」', () => {
+    expect(skill).toMatch(/全局训练指标/);
+    expect(skill).toMatch(/85 TL\/km|85TL/);
+    expect(skill).toMatch(/TL[^\n]{0,40}含力量|含力量[^\n]{0,40}TL/);
+  });
+
   test('skill 必须声明「周期化卡的负荷含力量、跑量与次数只跑步」', () => {
     expect(skill).toMatch(/周期化/);
     // 真实库数字必须点名，否则模型无法自证

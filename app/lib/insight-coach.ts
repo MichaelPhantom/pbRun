@@ -54,6 +54,20 @@ export function formatInsightForCoach(insight: InsightResponse): string {
         ? `ACWR ${n(load.acwr, 2)}（${load.acwrTone}）`
         : `ACWR 不可计算（训练历史不足 28 天，现有 ${load.chronicLoadDays} 天）`),
   );
+  // 第二十五类缺陷：这段文本直接进全局教练的 prompt，而同一段里两种口径并存 ——
+  // `周训练量` 的 km/时长/次数是**纯跑步**（`mergeStrengthIntoTrainingLoads` 只加
+  // load），而 TL、急性/慢性负荷、CTL/ATL/TSB 都是**跑步 + 力量**。
+  //
+  // 真实库 ISO 周 2026-W43：合并负荷 256 / 跑步 196（差 60，全来自力量），而同一周
+  // 跑量 28.32km、次数 3 只算跑步。不标注的话模型会把
+  // `28.32km/3次/256TL` 当成同一件事的三个侧面，算出「85 TL/km」这种无意义密度。
+  //
+  // 第二十四类（跑者画像）同源：拼给模型的字符串没人守。见 faq 第 37/38 条。
+  //
+  // **只在真有负荷数据时输出**：无负荷时这句是噪音，还会让模型以为 km 也含力量。
+  if (load.acute > 0 || load.chronic > 0 || load.weekly.length > 0) {
+    L.push('（负荷/TL/CTL/ATL/TSB 为跑步 + 力量合并，含力量训练；km/时长/次数只统计跑步）');
+  }
   // 周序列: 只给 acute/chronic 两个汇总值时, 模型看不到「哪一周在涨/掉」——
   // 这正是「近 7/30/180 天趋势」类问题的答案来源。weekly 里 n(次数) 与
   // seconds(周训练时长) 此前算出来从未被任何消费方读取。

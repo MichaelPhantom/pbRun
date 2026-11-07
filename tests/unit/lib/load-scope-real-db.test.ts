@@ -522,4 +522,34 @@ describeIfDb('真实库：训练负荷的合并口径 vs 跑步口径', () => {
     // 合并 ≡ 跑步 + 力量（这是 CTL/ATL/TSB 的口径）
     expect(row.combinedLoad).toBe(row.runLoad + row.strengthLoad);
   });
+
+  /**
+   * **第二十五类：注入洞察页 AI 的【全局训练指标】里，`周训练量` 同一行两种口径。**
+   *
+   * `formatInsightForCoach` 输出的 `2026-W43 28.3km/2:46:46/3次/256TL`：
+   * km / 时长 / 次数是纯跑步，`256TL` 是跑步 + 力量。模型会把它们当成同一件事
+   * 的三个侧面，算出「85 TL/km」这种无意义密度。
+   *
+   * 这条守卫钉住 ISO 周 2026-W43 的两侧数字，证明说明的必要性。
+   */
+  test('洞察教练上下文：2026-W43 合并负荷 256 ≠ 跑步 196，而跑量/次数只算跑步', () => {
+    const row = db
+      .prepare(
+        `SELECT
+           ROUND(SUM(COALESCE(training_load, 0)), 0) AS tlAll,
+           ROUND(SUM(CASE WHEN ${RUN} THEN COALESCE(training_load, 0) ELSE 0 END), 0) AS tlRun,
+           ROUND(SUM(CASE WHEN ${RUN} THEN COALESCE(distance, 0) ELSE 0 END), 2) AS km,
+           SUM(CASE WHEN ${RUN} THEN 1 ELSE 0 END) AS n
+         FROM activities
+         WHERE substr(start_time_local, 1, 10) BETWEEN '2026-10-19' AND '2026-10-25'`,
+      )
+      .get() as { tlAll: number; tlRun: number; km: number; n: number };
+
+    expect(row.tlAll).toBe(256);
+    expect(row.tlRun).toBe(196);
+    expect(row.km).toBe(28.32);
+    expect(row.n).toBe(3);
+    // 若两者相等，「85 TL/km」的误读就不会发生，说明也无必要
+    expect(row.tlAll).toBeGreaterThan(row.tlRun);
+  });
 });

@@ -160,6 +160,60 @@ describe('formatInsightForCoach', () => {
   });
 
   /**
+   * **第二十五类：注入洞察页 AI 的【全局训练指标】里，同一行也是两种口径。**
+   *
+   * 这段文本由 `formatInsightForCoach` 生成，直接进全局教练的 prompt。其中：
+   *
+   * | 片段 | 口径 |
+   * |------|------|
+   * | `周训练量` 的 km / 时长 / 次数 | **纯跑步**（`mergeStrengthIntoTrainingLoads` 只加 load） |
+   * | `周训练量` 的 `TL` | **跑步 + 力量** |
+   * | `负荷: 急性/慢性/ACWR` | **跑步 + 力量** |
+   * | `训练负荷(EWMA): CTL/ATL/TSB` | **跑步 + 力量** |
+   *
+   * 真实库 ISO 周 2026-W43：合并负荷 256 / 跑步 196（差 60，全来自力量），
+   * 而同一周跑量 28.32km、次数 3 只算跑步。
+   *
+   * 危害：模型会把 `28.32km/3次/256TL` 当成同一件事的三个侧面，算出「85 TL/km」
+   * 这种毫无意义的密度，再据此给出加量建议。
+   *
+   * 这是第二十四类的同源问题（拼给模型的字符串没人守），只是换了入口。
+   */
+  test('洞察教练上下文必须标明「TL/负荷含力量、km/次数只跑步」', () => {
+    const text = formatInsightForCoach(
+      makeInsight({
+        load: {
+          ...makeInsight().load,
+          weekly: [{ week: '2026-W43', km: 28.32, tl: 256, n: 3, seconds: 10800, partial: false }],
+        },
+      }),
+    );
+    expect(text).toMatch(/含力量/);
+    // 必须同时点明跑量那一侧是跑步口径
+    expect(text).toMatch(/跑步/);
+  });
+
+  /**
+   * 反证：没有负荷/周序列数据时**不该**出现口径说明 —— 那句话只服务于
+   * TL/负荷，留着会让模型以为 km 也含力量。
+   */
+  test('无负荷数据时不出现「含力量」说明', () => {
+    const text = formatInsightForCoach(
+      makeInsight({
+        load: {
+          ...makeInsight().load,
+          weekly: [],
+          acute: 0,
+          chronic: 0,
+          acwr: null,
+          acwrTone: 'insufficient',
+        },
+      }),
+    );
+    expect(text).not.toMatch(/含力量/);
+  });
+
+  /**
    * 周序列必须限长：数据攒到几年后，逐周列出每一周会让这一行膨胀到几十 KB
    * （全部历史窗口在夹紧前是 38 KB 纯零）。只逐周列最近 26 周，更早的折成一行汇总。
    */
