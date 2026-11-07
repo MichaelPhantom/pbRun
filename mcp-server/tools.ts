@@ -78,6 +78,8 @@ export async function registerTools(server: McpServer): Promise<void> {
       description:
         '列出活动（**全类型口径**：含跑步/游泳/球类/力量训练等，非跑步活动的配速与步频语义不同，' +
         '请勿当跑步配速解读）。支持分页、类型与日期过滤。distance 为公里, 配速为秒/公里。' +
+        '**distance 三态**：`null` = 未同步到；`0` = 该运动没有距离语义（力量训练按组、爬楼按层、' +
+        'HIIT/跳绳按次，真实库 97/353 条为 0），不要读成「几乎没运动」；`>0` = 正常里程。' +
         'type 传 `all` 或留空 = 不过滤（返回全部运动）; 传具体键（如 strength_training）才筛选。' +
         '默认每页 20 条: pagination.total 为筛选后的总条数, 未取完时请用 offset 翻页 (limit 最大 100)。',
       inputSchema: {
@@ -105,6 +107,8 @@ export async function registerTools(server: McpServer): Promise<void> {
       title: '单条活动详情',
       description:
         '按 activity_id 返回单条活动的完整指标。distance 为公里, 时长/配速分别为秒/秒每公里。' +
+        '**distance 三态**：`null` = 未同步到；`0` = 该运动没有距离语义（力量训练按组、爬楼按层、' +
+        'HIIT/跳绳按次，真实库 97/353 条为 0），不要读成「几乎没运动」；`>0` = 正常里程。' +
         '含 Garmin 官方指标: garmin_vo2max(官方VO2max, 区别于本地推算的 vdot_value)、' +
         'recovery_time(恢复分钟)、primary_benefit(训练收益)、' +
         'hr_zone_boundaries/power_zone_boundaries(设备区间边界 bpm/瓦, JSON 数组字符串)、' +
@@ -169,7 +173,8 @@ export async function registerTools(server: McpServer): Promise<void> {
         '按 activity_id 返回单次活动的横向可比上下文：分段角色/主课漂移/心率区间/逐秒解耦 + ' +
         '同路线/同距离/同类训练配速排名 + 温度/爬升/同温档环境可比性。' +
         '适合 AI 做「当次横向复盘」，而不是全局趋势分析；返回 insight(结构化) 与 contextText(可直接注入 prompt 的文本块)。' +
-        'distance 为公里, 配速为秒/公里。' +
+        'distance 为公里, 配速为秒/公里。**distanceKm 三态**：`null` = 未同步到；`0` = 该运动没有距离语义' +
+        '（力量/爬楼/跳绳），不要读成「几乎没移动」；`>0` = 正常里程。' +
         'running=false 表示非跑步活动（游泳/球类/力量训练等）：此时 averagePaceSecPerKm 恒为 null，' +
         'insight.lapAnalysis 的配速派生字段与 gradeAdjusted 也已置空 —— 这些量的分母是「每公里」，' +
         '对非跑步运动没有可比语义，请勿把它们当作配速解读。',

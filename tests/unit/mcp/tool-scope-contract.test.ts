@@ -104,6 +104,25 @@ describe('MCP tool description 必须声明统计口径', () => {
   });
 
   /**
+   * 活动日志类工具返回的 `distance` / `distanceKm` 必须声明**三态**。
+   *
+   * 真实库 97/353 条活动 `distance = 0`（力量 51、爬楼 30、室内有氧 9、HIIT/跳绳/
+   * 室内骑行 7）—— 这些运动本来就没有距离语义（按组/按层/按次）。模型只看到
+   * `distance: 0` 会得出「这次几乎没运动」的结论，而实际是 1 小时力量课。
+   *
+   * `null`（未同步到）与 `0`（无语义）是两个不同的结论，必须分别声明。
+   */
+  test.each(['list_activities', 'get_activity', 'get_activity_comparables'])(
+    '%s 声明 distance 三态 (null 缺失 / 0 无语义 / >0 正常)',
+    (name) => {
+      const desc = configs.get(name)!.description ?? '';
+      expect(desc).toMatch(/三态/);
+      expect(desc).toMatch(/没有距离语义/);
+      expect(desc).toMatch(/不要读成/);
+    },
+  );
+
+  /**
    * 按非跑步类型筛选（或搜索非跑步关键词）时 `runDistance`/`runCount` 恒为 0 ——
    * 必须显式警告，否则模型会把这个 0 读成「这个月没运动」。
    *
