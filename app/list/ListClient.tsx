@@ -14,6 +14,7 @@ import { monthToRange } from '@/app/lib/date-utils';
 import { activityTypeLabel, activityTypeIcon, isRunningType, isSwimmingType, needsTypeBadge } from '@/app/lib/sport';
 import { effectiveTimeSec, paceSecPer100m, formatPacePer100m, speedKmh } from '@/app/lib/pace';
 import { typeMetricsOf } from '@/app/lib/type-metrics';
+import { formatTrainingEffect, TRAINING_EFFECT_LABEL } from '@/app/lib/training-effect';
 
 const MONTHS_PAGE_SIZE = 6;
 
@@ -687,6 +688,8 @@ function ActivityCard({
   // 不要写 `a.moving_time ?? a.duration`：真实库有 lap 的 `moving_time = 0`
   // （未记录 timer time），`??` 会把 0 当成「有值」而显示 `0:00`。
   const duration = effectiveTimeSec(a);
+  // 训练效果（TE）。格式化与「0 是有效值」的门控都在 `app/lib/training-effect.ts`。
+  const trainingEffect = formatTrainingEffect(a.total_training_effect);
   return (
     <button
       type="button"
@@ -778,6 +781,25 @@ function ActivityCard({
               {Math.round(a.average_heart_rate)}
             </span>{' '}
             心率
+          </span>
+        )}
+        {/*
+          训练效果（TE）—— **非跑步活动唯一的强度量化手段**（第十七层缺口）。
+
+          第五层补心率之后，19 条非跑步活动（篮球 3 / 乒乓 2 / 羽毛球 1 /
+          HIIT 3 / 室内有氧 9 / 室内骑行 1）的卡片上仍然只有「时长 + 心率 +
+          徽标」：它们 `training_load` 全为 NULL（设备对非跑步不产出负荷）。
+          而它们 **19/19 都有 Garmin 官方 `total_training_effect`**（0–1.2），
+          详情页（「有氧训练效果」）与 AI 数据块（「训练效果」）都在用 ——
+          卡片是第三处、也是唯一漏掉的那一处。
+
+          `TE = 0` 是有效值（羽毛球 `560273729` 精确为 0、跳绳 3 条 0–0.1），
+          判空在 `formatTrainingEffect` 里用 `!= null` —— 卡片这里只判返回值。
+        */}
+        {trainingEffect != null && (
+          <span className="text-fg-secondary">
+            <span className="font-medium text-fg-secondary">{trainingEffect}</span>{' '}
+            {TRAINING_EFFECT_LABEL}
           </span>
         )}
         {running && a.vdot_value != null && (

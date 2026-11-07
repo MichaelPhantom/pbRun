@@ -133,4 +133,52 @@ describe('类型专属指标：三处调用方共用 type-metrics.ts', () => {
     expect(src).toMatch(/typeMetrics\.workingSets/);
     expect(src).not.toMatch(/buildStrengthProfile\s*\(/);
   });
+
+  /**
+   * **训练效果（TE）三处消费面必须共用 `app/lib/training-effect.ts`**
+   * （第十七层缺陷的守卫）。
+   *
+   * 缺陷形态与 `type-metrics` 完全同源：详情页与 AI 数据块早就在用 TE，
+   * 两张卡片却没有。更糟的是「`TE = 0` 是有效值」（羽毛球 `560273729` 精确为 0、
+   * 跳绳 3 条 0–0.1）—— 若某处自己写 `if (activity.total_training_effect)`，
+   * 那 4 条会静默消失，而其它类型照常显示，跨处对撞才发现。
+   *
+   * 故锁三件事：
+   *  1. 三处都 import `formatTrainingEffect`（不许自己 `.toFixed(1)`）；
+   *  2. 三处都不得直接读 `total_training_effect` 做门控（门控在模块内）；
+   *  3. 详情页的标签必须来自模块（「有氧训练效果」不能在两处各写一遍）。
+   */
+  test.each(CALL_SITES)('%s 的训练效果必须来自 training-effect.ts', (file) => {
+    const src = read(file);
+    expect(src).toMatch(
+      /import\s*\{[^}]*formatTrainingEffect[^}]*\}\s*from\s*['"]@\/app\/lib\/training-effect['"]/,
+    );
+    expect(src).toMatch(/formatTrainingEffect\(/);
+    // 剥注释后再查：文件里保留了「旧实现直接 toFixed」的历史说明。
+    const code = src
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
+    // 调用方不得自己读字段做门控（否则「0 是有效值」的纪律会被各写一遍）
+    expect(code).not.toMatch(/activity\.total_training_effect\s*[!=]=/);
+    expect(code).not.toMatch(/a\.total_training_effect\s*[!=]=/);
+  });
+
+  test('详情页的「有氧训练效果」标签必须来自模块（不得硬编码）', () => {
+    const src = read('app/pages/[id]/ActivityDetailClient.tsx');
+    expect(src).toMatch(/TRAINING_EFFECT_DETAIL_LABEL/);
+    const code = src
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
+    expect(code).not.toMatch(/label:\s*['"]有氧训练效果['"]/);
+  });
+
+  test('两张卡片的「训练效果」标签必须来自模块（不得硬编码）', () => {
+    for (const file of [
+      'app/list/ListClient.tsx',
+      'app/components/dashboard/RecentActivityCard.tsx',
+    ]) {
+      const src = read(file);
+      expect(src).toMatch(/TRAINING_EFFECT_LABEL/);
+    }
+  });
 });

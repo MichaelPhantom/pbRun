@@ -220,4 +220,78 @@ describeIfDb('真实库：类型专属核心指标端到端', () => {
       }
     },
   );
+
+  /**
+   * **第十七层：19 条非跑步空壳卡片必须全部出现训练效果（TE）**。
+   *
+   * 这批活动（篮球 3 / 乒乓 2 / 羽毛球 1 / HIIT 3 / 室内有氧 9 / 室内骑行 1）
+   * `training_load` 全为 NULL，又没有语义已确认的次数/楼层/组数 —— 补了心率
+   * 之后卡片上仍只有「时长 + 心率 + 徽标」。而它们 **19/19 都有 Garmin 官方
+   * `total_training_effect`**（0–1.2），这是非跑步**唯一的强度量化手段**，
+   * 详情页与 AI 数据块都在用。
+   *
+   * 断言的是「卡片上出现该活动的 TE 数值」—— 不是「出现过 0.9 这个串」
+   * （别的活动的距离/心率也可能撞上），故逐条按 `toFixed(1)` 精确匹配。
+   */
+  test.each([
+    'basketball',
+    'table_tennis',
+    'badminton',
+    'hiit',
+    'indoor_cardio',
+    'indoor_cycling',
+  ])('%s 的每张卡片都渲染训练效果 TE 且数值与库一致', (type) => {
+    const rows = rowsOf(type);
+    expect(rows.length).toBeGreaterThan(0);
+    const bad: { id: number; te: unknown; text: string }[] = [];
+    for (const a of rows) {
+      const t = textOf(a);
+      const te = a.total_training_effect;
+      if (te == null || !t.includes('训练效果') || !t.includes(Number(te).toFixed(1))) {
+        bad.push({ id: a.activity_id, te, text: t });
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+
+  /**
+   * **`TE = 0` 必须照常渲染** —— 判空若写成真值判断会静默吞掉这几条。
+   *
+   * 真实库：羽毛球 `560273729` 精确为 0、跳绳 3 条为 0–0.1。
+   * 这几条是「这课基本没有训练刺激」的**唯一证据**，比其它条更重要。
+   */
+  test('TE = 0 的活动照常渲染「训练效果 0.0」（0 是有效值）', () => {
+    const all = db
+      .prepare('SELECT * FROM activities WHERE total_training_effect = 0 ORDER BY activity_id')
+      .all() as Activity[];
+    expect(all.length).toBeGreaterThan(0);
+    const bad = all
+      .filter((a) => {
+        const t = textOf(a);
+        return !t.includes('训练效果') || !t.includes('0.0');
+      })
+      .map((a) => ({ id: a.activity_id, type: a.activity_type }));
+    expect(bad).toEqual([]);
+  });
+
+  /**
+   * 反向自证：TE **不做运动类型门控**（与 `training_load` 相反）。
+   *
+   * 354/354 全有值，故 13 类**每一类**的每张卡片都应出现「训练效果」。
+   * 若有人照抄 `producesTrainingLoad` 给 TE 也加白名单，跑步/力量之外的
+   * 9 类会整块消失 —— 本条会转红。
+   */
+  test('13 类运动的卡片全部渲染训练效果（TE 不做类型门控, 354/354 有值）', () => {
+    const types = db
+      .prepare('SELECT DISTINCT activity_type AS t FROM activities WHERE activity_type IS NOT NULL')
+      .all() as { t: string }[];
+    expect(types.length).toBe(13);
+    const bad: { id: number; type: string }[] = [];
+    for (const { t: type } of types) {
+      for (const a of rowsOf(type)) {
+        if (!textOf(a).includes('训练效果')) bad.push({ id: a.activity_id, type });
+      }
+    }
+    expect(bad).toEqual([]);
+  });
 });

@@ -411,6 +411,93 @@ describe('ListClient 活动列表 (交互/筛选/无限滚动)', () => {
   });
 
   /**
+   * **`/list` 卡片必须给训练效果（TE）** —— 第十七层缺口，与心率同源。
+   *
+   * 第五层补了心率之后，19 条非跑步活动（篮球 3 / 乒乓 2 / 羽毛球 1 /
+   * HIIT 3 / 室内有氧 9 / 室内骑行 1）的卡片上仍然只有「时长 + 心率 + 徽标」。
+   * 它们 `training_load` 全为 NULL（设备对非跑步不产出负荷），而 **19/19 都有
+   * Garmin 官方 `total_training_effect`**（0–1.2）—— 这是非跑步**唯一的强度
+   * 量化手段**，详情页（「有氧训练效果」）与 AI 数据块（「训练效果」）都在用，
+   * 唯独 `/list` 卡片没渲染。
+   *
+   * 判别式盯用户看到的字面：篮球卡片必须出现 0.9 与「训练效果」。
+   */
+  test('球类卡片显示训练效果 TE（非跑步唯一的强度量化手段）', () => {
+    renderList({
+      initialActivitiesByMonth: {
+        '2026-09': [
+          act({
+            activity_type: 'basketball',
+            name: '篮球',
+            distance: 1.66581,
+            duration: 3167,
+            moving_time: 3167,
+            training_load: null,
+            vdot_value: null,
+            average_heart_rate: 107,
+            total_training_effect: 0.9,
+          } as unknown as Activity),
+        ],
+      },
+    });
+    const card = screen.getByRole('button', { name: /篮球/ });
+    expect(card).toHaveTextContent('训练效果');
+    expect(card).toHaveTextContent('0.9');
+  });
+
+  /**
+   * **`TE = 0` 是有效值，不是缺失**。
+   *
+   * 真实库羽毛球 `560273729` 的 `total_training_effect` 精确为 0、跳绳 3 条
+   * 为 0–0.1。判空必须 `!= null` —— 用真值判断（`if (te)`）会把这三四条
+   * 唯一能说明「这课基本没有训练刺激」的活动静默吞掉。
+   */
+  test('训练效果为 0 照常渲染（0 是有效值, 不是缺失）', () => {
+    renderList({
+      initialActivitiesByMonth: {
+        '2026-09': [
+          act({
+            activity_type: 'badminton',
+            name: '羽毛球',
+            distance: 0.01,
+            duration: 540,
+            moving_time: 540,
+            training_load: null,
+            vdot_value: null,
+            average_heart_rate: 76,
+            total_training_effect: 0,
+          } as unknown as Activity),
+        ],
+      },
+    });
+    const card = screen.getByRole('button', { name: /羽毛球/ });
+    expect(card).toHaveTextContent('训练效果');
+    expect(card).toHaveTextContent('0.0');
+  });
+
+  test('无训练效果时不渲染「训练效果」字样（缺失 ≠ 0）', () => {
+    renderList({
+      initialActivitiesByMonth: {
+        '2026-09': [
+          act({
+            activity_type: 'basketball',
+            name: '篮球',
+            distance: 1.66581,
+            duration: 3167,
+            moving_time: 3167,
+            training_load: null,
+            vdot_value: null,
+            average_heart_rate: 107,
+            total_training_effect: null,
+          } as unknown as Activity),
+        ],
+      },
+    });
+    const card = screen.getByRole('button', { name: /篮球/ });
+    expect(card).not.toHaveTextContent('训练效果');
+  });
+
+  /**
    * 零距离活动（力量课 51 条、爬楼 30 条、HIIT/跳绳/室内有氧等共 97 条）不能显示
    * 「0.00 公里」。
    *

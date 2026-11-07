@@ -97,14 +97,20 @@ describe('docs/faq.md —— 缺陷 25 与判别式第二十问', () => {
     expect(faq).toMatch(/另一个消息层级/);
   });
 
-  test('判别式从十九句扩到二十句', () => {
-    expect(faq).toMatch(/问二十句/);
+  test('判别式从十九句扩到二十一句', () => {
+    expect(faq).toMatch(/问二十一句/);
     expect(faq).not.toMatch(/问十九句/);
+    expect(faq).not.toMatch(/问二十句/);
   });
 
   test('第二十问存在且指向消息层级', () => {
     expect(faq).toMatch(/^20\.\s/m);
     expect(faq).toMatch(/20\.[^\n]{0,80}另一个消息层级/);
+  });
+
+  test('第二十一问存在且指向「三处消费面漏一处」（缺陷 30）', () => {
+    expect(faq).toMatch(/^21\.\s/m);
+    expect(faq).toMatch(/21\.[^\n]{0,80}三处消费面/);
   });
 });
 

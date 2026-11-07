@@ -369,4 +369,68 @@ describe('RecentActivityCard', () => {
     );
     expect(container.textContent).not.toContain('5234');
   });
+
+  /**
+   * **训练效果（TE）—— 非跑步唯一的强度量化手段**。
+   *
+   * 首页卡片此前对非跑步只有「时长 + 徽标 + 心率」：19 条非跑步活动
+   * （`training_load` 全 NULL）看不出这课有多强。而 **19/19 都有 Garmin 官方
+   * `total_training_effect`**，详情页与 AI 数据块都在用。
+   */
+  test('球类卡片显示训练效果 TE', () => {
+    const { container } = render(
+      <RecentActivityCard
+        activity={act({
+          activity_type: 'basketball',
+          name: '篮球',
+          distance: 1.66581,
+          duration: 3167,
+          moving_time: 3167,
+          training_load: null,
+          vdot_value: null,
+          average_heart_rate: 107,
+          total_training_effect: 0.9,
+        })}
+      />,
+    );
+    expect(container.textContent).toContain('训练效果');
+    expect(container.textContent).toContain('0.9');
+  });
+
+  /** `TE = 0` 是有效值（羽毛球 560273729 精确为 0），判空必须 `!= null`。 */
+  test('训练效果为 0 照常渲染（0 是有效值）', () => {
+    const { container } = render(
+      <RecentActivityCard
+        activity={act({
+          activity_type: 'badminton',
+          name: '羽毛球',
+          distance: 0.01,
+          duration: 540,
+          moving_time: 540,
+          training_load: null,
+          vdot_value: null,
+          average_heart_rate: 76,
+          total_training_effect: 0,
+        })}
+      />,
+    );
+    expect(container.textContent).toContain('训练效果');
+    expect(container.textContent).toContain('0.0');
+  });
+
+  test('无训练效果时不渲染「训练效果」字样', () => {
+    const { container } = render(
+      <RecentActivityCard
+        activity={act({
+          activity_type: 'basketball',
+          name: '篮球',
+          training_load: null,
+          vdot_value: null,
+          average_heart_rate: 107,
+          total_training_effect: null,
+        })}
+      />,
+    );
+    expect(container.textContent).not.toContain('训练效果');
+  });
 });

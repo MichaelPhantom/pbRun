@@ -4,6 +4,7 @@ import { formatDistance, formatDuration, formatPaceShort, formatListDateTime } f
 import { activityTypeLabel, isRunningType, isSwimmingType, needsTypeBadge } from "@/app/lib/sport";
 import { effectiveTimeSec, paceSecPer100m, formatPacePer100m, speedKmh } from "@/app/lib/pace";
 import { typeMetricsOf } from "@/app/lib/type-metrics";
+import { formatTrainingEffect, TRAINING_EFFECT_LABEL } from "@/app/lib/training-effect";
 
 /** 仪表盘「最近活动」紧凑卡 (server component)。 */
 export function RecentActivityCard({ activity }: { activity: Activity }) {
@@ -30,6 +31,9 @@ export function RecentActivityCard({ activity }: { activity: Activity }) {
   // （distance 全 0、training_load 全 null）在首页卡片上几乎是个空壳。
   // 楼层只对爬楼派生、总次数只对语义已确认类型展示，两条门控都在模块内。
   const typeMetrics = typeMetricsOf(activity);
+  // 训练效果（TE）—— 与 `/list` 卡片、详情页共用 `app/lib/training-effect.ts`。
+  // 非跑步活动 `training_load` 全为 NULL，TE 是它们唯一的强度量化手段。
+  const trainingEffect = formatTrainingEffect(activity.total_training_effect);
 
   return (
     <Link
@@ -76,6 +80,7 @@ export function RecentActivityCard({ activity }: { activity: Activity }) {
       {(activity.vdot_value != null ||
         activity.training_load != null ||
         activity.average_heart_rate != null ||
+        trainingEffect != null ||
         typeMetrics.floorsText != null ||
         typeMetrics.cycles != null ||
         typeMetrics.workingSets != null) && (
@@ -95,6 +100,13 @@ export function RecentActivityCard({ activity }: { activity: Activity }) {
           {activity.average_heart_rate != null && (
             <span>
               心率 <span className="tnum font-medium text-fg-secondary">{Math.round(activity.average_heart_rate)}</span>
+            </span>
+          )}
+          {/* 训练效果（TE）—— 非跑步活动唯一的强度量化手段（`training_load` 全 NULL）。
+              `TE = 0` 是有效值，门控在 `formatTrainingEffect` 内用 `!= null`。 */}
+          {trainingEffect != null && (
+            <span>
+              {TRAINING_EFFECT_LABEL} <span className="tnum font-medium text-fg-secondary">{trainingEffect}</span>
             </span>
           )}
           {/* 类型专属核心指标（楼层 / 总次数）—— 非跑步活动的「这项运动练了什么」。 */}

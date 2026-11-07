@@ -23,6 +23,7 @@ import {
 } from '@/app/lib/lap-label';
 import { elevationSpan } from '@/app/lib/elevation';
 import { typeMetricsOf } from '@/app/lib/type-metrics';
+import { formatTrainingEffect, TRAINING_EFFECT_DETAIL_LABEL } from '@/app/lib/training-effect';
 import { lapRoleFromIntensity } from '@/app/lib/lap-intensity';
 import { feelLabel, formatSweatLoss, rpeLabel } from '@/app/lib/feel';
 import { activeSwimSeconds, formatSwolf, swolfOf } from '@/app/lib/swim';
@@ -109,6 +110,9 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
   //     不是「爬了多少层楼」，同一算式在两种语义下结论不同；
   //  ② `total_cycles` 只对语义已确认类型展示（力量 51 条都有值但语义未知）。
   const typeMetrics = typeMetricsOf(activity);
+  // 训练效果（TE）。唯一来源 `app/lib/training-effect.ts` —— 三处消费面
+  // （`/list` 卡片 / 首页卡片 / 本页）共用，`TE = 0` 是有效值。
+  const trainingEffect = formatTrainingEffect(activity.total_training_effect);
   // 游泳 SWOLF（= 单趟秒数 + 单趟划水次数）。时间基数必须用**活跃 lap 的计时器
   // 时间之和**，不是活动级 `moving_time` —— 后者含池边休息（599287904 有 804s），
   // 用它算会把 SWOLF 从 58 抬到 84，把一次不错的训练读成「效率很差」。
@@ -289,12 +293,15 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
     ...(producesTrainingLoad(activity.activity_type)
       ? [{ value: activity.training_load != null ? activity.training_load.toFixed(1) : '--', label: '训练负荷' }]
       : []),
-    // 训练效果（TE）。真实库 **353/353** 有值（有氧 1.5–5.0，无氧 142/353 有值）。
+    // 训练效果（TE）。真实库 **354/354** 有值（有氧 0–5.0，无氧 142/354 有值）。
     // 这是 Garmin 对整课生理刺激的官方评估，也是**非跑步唯一的强度量化手段** ——
     // 非跑步提示词明确要求「改用训练效果（TE）+ 心率区间分布 + 热量量化强度」，
     // 而详情页此前三项一个都不展示，模型说的数用户在页面上找不到出处。
-    ...(activity.total_training_effect != null
-      ? [{ value: activity.total_training_effect.toFixed(1), label: '有氧训练效果' }]
+    //
+    // 格式化与「`TE = 0` 是有效值」的门控走 `app/lib/training-effect.ts`，
+    // 与 `/list` 卡片、首页卡片同一来源（第十七层缺陷）。
+    ...(trainingEffect != null
+      ? [{ value: trainingEffect, label: TRAINING_EFFECT_DETAIL_LABEL }]
       : []),
     ...(activity.total_anaerobic_training_effect != null && activity.total_anaerobic_training_effect > 0
       ? [{ value: activity.total_anaerobic_training_effect.toFixed(1), label: '无氧训练效果' }]

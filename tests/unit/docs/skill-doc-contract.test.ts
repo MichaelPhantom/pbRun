@@ -402,6 +402,46 @@ describe('skill 的 total_cycles 语义白名单', () => {
   });
 });
 
+describe('skill 的训练效果（TE）口径（第十七类缺陷）', () => {
+  /**
+   * TE 是**非跑步唯一的强度量化手段**。skill 必须点名这一点，否则模型在解读
+   * 篮球/羽毛球/HIIT 时会退回心率 —— 而心率只说「心跳多快」，不说明「练得多重」。
+   */
+  test('skill 必须声明 TE 是非跑步唯一的强度量化手段', () => {
+    expect(skill).toMatch(/total_training_effect/);
+    expect(skill).toMatch(/非跑步[^\n]{0,30}强度|强度量化/);
+  });
+
+  /**
+   * **`TE = 0` 是有效值** —— 真实库羽毛球 560273729 精确为 0。
+   * 若 skill 不写明，模型会把 0 当缺失跳过，而它恰恰是「这课没有训练刺激」的证据。
+   */
+  test('skill 必须声明 TE = 0 是有效值（不是缺失）', () => {
+    expect(skill).toMatch(/TE\s*=\s*0|TE\s*为\s*0/);
+    expect(skill).toMatch(/有效值/);
+    expect(skill).toMatch(/560273729/);
+  });
+
+  /**
+   * TE 与 training_load 是两套口径 —— 不能互相换算，也不能把 TE 并进 ACWR。
+   * 这是本项目反复强调的「两个跑力不能互算」的同一形态。
+   */
+  test('skill 必须声明 TE 与 training_load 是两套口径、不得互相换算', () => {
+    expect(skill).toMatch(/两套口径/);
+    expect(skill).toMatch(/不要[^\n]{0,10}互相换算|不得[^\n]{0,10}换算/);
+  });
+
+  /** 真实库覆盖率：TE 必须无缺口（否则「所有类型都有」这句话是假的）。 */
+  test('真实库：total_training_effect 无缺口（所有活动都有值）', () => {
+    if (!hasProdDb) return;
+    const [{ n, withTe }] = query<{ n: number; withTe: number }>(
+      'SELECT COUNT(*) AS n, SUM(total_training_effect IS NOT NULL) AS withTe FROM activities',
+    );
+    expect(n).toBeGreaterThan(300);
+    expect(withTe).toBe(n);
+  });
+});
+
 describe('skill 的分段角色口径必须与设备记录一致（第十二类缺陷）', () => {
   /**
    * 缺陷 24：详情页分段「角色」列一直存在，但它是按**配速推断**的，

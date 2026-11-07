@@ -131,6 +131,10 @@ export async function registerTools(server: McpServer): Promise<void> {
         'hrv_rmssd_ratio(RMSSD÷meanRR 无量纲, 运动中应 < 0.10; > 0.2 说明数据不可信)。' +
         'vdot_value 仅在 Z3+ 代表性强度段计算（取最快 Z3+ lap，否则全程 Z3+），日常轻松/恢复跑为 null；' +
         'training_load 优先 FIT 官方，缺省回退时长×心率档；' +
+        'total_training_effect / total_anaerobic_training_effect 是 Garmin 官方训练效果（TE, 0–5），' +
+        '**13 类运动全覆盖（真实库 354/354）**，非跑步活动 `training_load` 普遍为 NULL，' +
+        '判强度只能靠 TE + 心率区间 + 热量；**`TE = 0` 是有效值**（代表这课基本没有训练刺激，' +
+        '羽毛球 560273729 精确为 0），不要当成缺失跳过，也不要与 training_load 互相换算；' +
         '**游泳（activity_type=lap_swimming/open_water）的配速语言是秒/100m**：' +
         'average_pace 是秒/公里，每 100m 配速 = average_pace ÷ 10（÷10 只对秒/公里成立；' +
         'average_speed 是 km/h，换算要 360 ÷ 速度）；' +
