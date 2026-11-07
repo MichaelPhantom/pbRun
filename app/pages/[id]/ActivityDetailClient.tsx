@@ -326,6 +326,15 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
     ...(power.peakPowerW != null
       ? [{ value: String(power.peakPowerW), unit: 'W', label: '瞬时峰值功率' }]
       : []),
+    // 瞬时最大速度。真实库 48/353 有值（跑步 37、游泳 4、球类 6、跑步机 1），
+    // AI 数据块早就输出「最大速度: 28.8 km/h（设备瞬时峰值, 不代表持续能力）」，
+    // 详情页此前**零展示** —— 第四类缺陷。
+    // 只对跑步渲染：游泳/球类的 `max_speed` 是「划水/挥拍瞬间位移」，比值可达
+    // 85 倍（乒乓球 4.5 km/h 峰值 vs 0.05 均值），展示成「最大速度」纯属误导。
+    // 标签必须带「瞬时」——与 `max_power` 同一纪律：这不是可持续能力。
+    ...(running && activity.max_speed != null
+      ? [{ value: activity.max_speed.toFixed(1), unit: 'km/h', label: '瞬时最大速度' }]
+      : []),
     // 恢复时间 / 训练收益: Garmin 官方字段, 真实库 348/348 全有值（含全部 107 条
     // 非跑步活动 —— 力量训练/爬楼同样有官方恢复建议）。此前库里有值、AI prompt
     // 也明确要求回答「本次后需要多少恢复时间」, 但 UI 与 prompt 都没拿到。

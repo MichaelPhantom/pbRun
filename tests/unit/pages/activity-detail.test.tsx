@@ -100,6 +100,7 @@ const activity = {
   training_load: 180.5,
   total_ascent: 64.4,
   total_descent: 61.2,
+  max_speed: 28.7532,
   avg_altitude: 282.7,
   min_altitude: 280.6,
   max_altitude: 286.4,
@@ -580,6 +581,10 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
     expect(within(overview).getByText('平均温度')).toBeInTheDocument();
     expect(within(overview).getByText('24.5')).toBeInTheDocument();
     expect(within(overview).getByText('°C')).toBeInTheDocument();
+    // 瞬时最大速度 48/353（跑步 37）—— AI 数据块给了模型，页面必须有出处。
+    // 标签必须带「瞬时」：这不是可持续能力（与 max_power 同一纪律）。
+    expect(within(overview).getByText('瞬时最大速度')).toBeInTheDocument();
+    expect(within(overview).getByText('28.8')).toBeInTheDocument();
   });
 
   test('无氧训练效果 = 0 时不渲染该格 (有氧课为 0 是常态, 显示 0.0 像缺数据)', async () => {
@@ -950,6 +955,31 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
     const overview = screen.getByText('活动概览').closest('section')!;
     expect(within(overview).queryByText('平均海拔')).toBeNull();
     expect(within(overview).queryByText('平均温度')).toBeNull();
+    expect(within(overview).queryByText('瞬时最大速度')).toBeNull();
+  });
+
+  test('非跑步活动即使库里有 max_speed 也不渲染瞬时最大速度 (比值可达 85 倍, 语义不同)', async () => {
+    // 乒乓球 553691088: average_speed 0.053 km/h、max_speed 4.536 km/h（85.6 倍）。
+    // 那是「挥拍瞬间手腕位移」，不是移动速度 —— 展示成「最大速度」纯属误导。
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'table_tennis',
+      sport_type: '乒乓球',
+      sub_sport_type: '通用',
+      name: '乒乓球',
+      distance: 0.0392,
+      average_speed: 0.053,
+      max_speed: 4.536,
+      average_pace: 67959,
+      average_cadence: null,
+      average_stride_length: null,
+      vdot_value: null,
+      average_power: null,
+    });
+    render(await page('3012'));
+    const overview = screen.getByText('活动概览').closest('section')!;
+    expect(within(overview).queryByText('瞬时最大速度')).toBeNull();
+    expect(within(overview).queryByText('4.5')).toBeNull();
   });
 
   test('传感器尖峰 (max_power 12.6 倍均值) 不展示, 不给模型/用户怪物数据', async () => {
