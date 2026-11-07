@@ -22,6 +22,7 @@ import {
   lapTableCaption,
 } from '@/app/lib/lap-label';
 import { elevationSpan } from '@/app/lib/elevation';
+import { floorsFromAscent } from '@/app/lib/floors';
 import { effectiveTimeSec, paceSecPer100m, formatPacePer100m, speedKmh } from '@/app/lib/pace';
 import { evaluateWorkoutExecution, formatWorkoutPlan } from '@/app/lib/workout';
 import {
@@ -96,6 +97,12 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
   // 海拔净高差（max-min）。注意**不是**累计爬升: 真实库 191/234 条活动的净高差
   // 小于累计爬升（环形路线回到起点, 净高差只有几十米而累计爬升上百米）, 两者必须分开展示。
   const span = elevationSpan(activity);
+  // 爬楼楼层（由 total_ascent 派生）。只在爬楼类型上派生 —— 跑步的累计爬升
+  // （山地跑 300m+）也能除以 3.048，但那是「爬升了多少层楼的高度」而不是
+  // 「爬了多少层楼」，语义完全不同，展示会误导。见 `app/lib/floors.ts`。
+  const floors = activity.activity_type === 'floor_climbing'
+    ? floorsFromAscent(activity.total_ascent)
+    : null;
   // 课表（FIT workout_step）: 唯一能回答「这堂课本来该怎么跑」的数据源。
   // 解析层的三层缺陷（多步被压成最后一步 / 毫秒当秒 / mm/s 当秒每公里）都在
   // app/lib/workout.ts 里统一处理; 这里只决定呈现。
@@ -246,7 +253,17 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
       ? [{ value: String(Math.round(activity.calories)), unit: 'kcal', label: '热量' }]
       : []),
     { value: activity.total_ascent != null ? String(Math.round(activity.total_ascent)) : '--', unit: activity.total_ascent != null ? 'm' : undefined, label: '累计爬升' },
-    // 累计下降。真实库 **268/353** 有值（跑步 238 + 爬楼 30）。只给「累计爬升」
+    // 爬楼专属：楼层数。真实库 30 条 `floor_climbing` 是第二大类型，但全站此前
+    // **零类型专属处理** —— 用户爬了 15 层，页面上只有「累计爬升 46m」，他自己
+    // 无法验证这是几层。而**爬楼的行业语言是「楼层」不是「米」**。
+    //
+    // 这不是「字段没读」：FIT 里根本没有 floors 列（session 只有 total_ascent），
+    // 是「该派生没派生」。换算依据见 `app/lib/floors.ts`：真实库 6 个不同爬升值
+    // （27/30/40/43/46/49m）全部精确等于 round(层数 × 3.048)，6/6 残差 <0.5m。
+    // 文案必须带「约」—— 3.048m 是 Garmin 的标准楼层假设，真实层高因建筑而异。
+    ...(floors != null
+      ? [{ value: String(floors), unit: '层', label: '楼层（约）' }]
+      : []),    // 累计下降。真实库 **268/353** 有值（跑步 238 + 爬楼 30）。只给「累计爬升」
     // 会漏掉下坡的离心负荷 —— 而离心收缩正是长下坡后延迟性酸痛（DOMS）的来源，
     // 也是「爬升 300m 但下降也是 300m（折返）」与「净爬升 300m（单向）」的分水岭。
     ...(activity.total_descent != null
@@ -276,6 +293,33 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
     // 标签必须写「平均温度」而不是「温度」，否则两个数会被当成矛盾。
     ...(activity.average_temperature != null
       ? [{ value: activity.average_temperature.toFixed(1), unit: '°C', label: '平均温度' }]
+      : []),
+    // 总计数（`total_cycles`）—— 第十类缺陷（2026-11-07）。
+    //
+    // FIT 里一直有（真实库 **349/353**），但解析器从不读取它，于是「游泳总划水
+    // 次数」「跳绳总跳跃次数」这两个**用户最关心的计数**在全站都不存在。
+    // 更糟的是文档与提示词四处断言「总划水次数不可得，不要索要」——
+    // 让模型对真实存在的数据装看不见。
+    //
+    // 标签必须随运动类型变（同一个数在不同运动里语义完全不同）：
+    //   游泳 = 总划水次数 / 跳绳 = 总跳跃次数 / 爬楼 = 总步数 / 跑步 = 步幅周期数
+    // 跑步不给这一格：步幅周期数（3352）对跑者没有语义，`步频` 已经表达了同一信息。
+    ...(activity.total_cycles != null && !running
+      ? [{
+          value: String(Math.round(activity.total_cycles)),
+          unit: activity.activity_type === 'lap_swimming' || activity.activity_type === 'open_water'
+            ? '次划水'
+            : activity.activity_type === 'jump_rope'
+              ? '次跳跃'
+              : '次',
+          label: activity.activity_type === 'lap_swimming' || activity.activity_type === 'open_water'
+            ? '总划水次数'
+            : activity.activity_type === 'jump_rope'
+              ? '总跳跃次数'
+              : activity.activity_type === 'floor_climbing'
+                ? '总步数'
+                : '总计数',
+        }]
       : []),
     ...(running
       ? [
@@ -620,6 +664,20 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
               // 没有配速语义，显示 `--`；其余段按 `pace.paceSecPer100m` 唯一换算。
               // 旧实现整列隐藏，于是游泳页只能看「时长」，看不出「哪一趟最快」。
               ...(swimming ? [{ key: 'pace100', label: '配速', unit: '/100m' }] : []),
+              // 分段计数（`total_cycles`）。游泳的「本段划水次数」是技术分析的最小
+              // 单元 —— 同一趟 50m 划 30 次还是 36 次，直接反映抓水效率。
+              // 真实库 4 条游泳的 `Σlap.total_cycles == session.total_cycles`
+              // 精确成立（518/518、798/798、923/923、695/695），所以这一列能对上
+              // 活动级的总划水次数，用户可自证。
+              // 只对非跑步展示：跑步的 lap cycles 是步幅周期数，没有语义
+              // （`步频` 已表达同一信息）。
+              ...(!running && laps.some((l) => l.total_cycles != null)
+                ? [{
+                    key: 'cyc',
+                    label: swimming ? '划水次数' : '计数',
+                    unit: swimming ? '次' : undefined,
+                  }]
+                : []),
               // 分段「时长」单位必须与单元格渲染格式一致：`formatDuration` 输出
               // `5:40` / `1:02:30`，即 `h:mm:ss`（与三个区间表同一写法）。旧文案写
               // `min`，而值是「分:秒」—— 「5:40 min」会被读成 5.67 分钟。
@@ -698,6 +756,10 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
                     );
                   })(),
                   asc: lap.total_ascent != null ? Math.round(lap.total_ascent) : '--',
+                  // 分段计数三态：`null`（该段未写）→ `--`；`0`（0 距离休息段，
+                  // 真实库游泳 79 段里有多段）→ `0`；`>0` → 正常值。
+                  // 注意 `0` 是**真实数据**（这一段确实没有划水），不是缺失。
+                  cyc: lap.total_cycles != null ? Math.round(lap.total_cycles) : '--',
                 },
               };
             })}

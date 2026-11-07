@@ -327,6 +327,51 @@ describe('buildAnalysisMessages', () => {
     expect(user.content).not.toContain('30spm'); // 划频不是步频, 不按 spm 展示
   });
 
+  /**
+   * 游泳分段的**本段划水次数**与**每划距离**（第十类缺陷续）。
+   *
+   * 真实库 4 条游泳的 `Σlap.total_cycles == session.total_cycles` 精确成立
+   * （518/518、798/798、923/923、695/695），所以分段划水次数能与活动级对上。
+   * 这是「哪一趟效率高」的唯一证据：同距离划得少 = 抓水效率高。
+   */
+  test('游泳分段输出划水次数与每划距离 (真实库 75m/55 次 → 1.36m/划)', () => {
+    const laps = [
+      {
+        activity_id: 1, lap_index: 0, distance: 75, duration: 164,
+        average_heart_rate: 140, total_cycles: 55,
+      },
+    ] as ActivityLap[];
+    const [, user] = buildAnalysisMessages(
+      fakeActivity({ activity_type: 'lap_swimming', sport_type: '游泳', sub_sport_type: '泳池游泳' }),
+      laps,
+    );
+    expect(user.content).toContain('55划');
+    expect(user.content).toContain('1.36m/划');
+  });
+
+  test('游泳 0 距离休息段不输出划水次数（0 是「没有划水」不是「划水 0 次」）', () => {
+    const laps = [
+      { activity_id: 1, lap_index: 0, distance: 0, duration: 26, total_cycles: 0 },
+    ] as ActivityLap[];
+    const [, user] = buildAnalysisMessages(
+      fakeActivity({ activity_type: 'lap_swimming', sport_type: '游泳', sub_sport_type: '泳池游泳' }),
+      laps,
+    );
+    expect(user.content).not.toContain('0划');
+    expect(user.content).not.toContain('m/划');
+  });
+
+  test('跑步分段不输出划水次数（lap cycles 是步幅周期数, 无语义）', () => {
+    const laps = [
+      { activity_id: 1, lap_index: 0, distance: 1000, duration: 300, average_pace: 300, total_cycles: 450 },
+    ] as ActivityLap[];
+    const [, user] = buildAnalysisMessages(
+      fakeActivity({ activity_type: 'running' }),
+      laps,
+    );
+    expect(user.content).not.toContain('划');
+  });
+
   test('跑步但有不满整段的收尾段 → 标题中性化为「分段明细」(不再谎称「每公里」)', () => {
     // 真实库 242 条跑步活动里「每段都约 1 km」只有 1 条：几乎每次跑都有
     // `session_end` 残段（242 段里 237 段 < 950 m）。旧实现按运动类型写死
@@ -453,6 +498,153 @@ describe('buildAnalysisMessages', () => {
       );
       expect(user.content).not.toContain('每 100m 配速');
     }
+  });
+
+  /**
+   * **总划水次数 / 每划距离** —— 第十类缺陷（2026-11-07）。
+   *
+   * 旧提示词与 skill 四处断言「总划水次数不可得，不要索要」（`coach-prompts.ts`
+   * 两处、`SKILL.md`、`mcp-server/tools.ts`）—— 而 FIT session 的 `total_cycles`
+   * 一直有：真实库 **4/4** 条游泳都有（518/798/923/695）。
+   *
+   * 双重自证（都不依赖外部标准）：
+   *  1. `Σlap cycles == session cycles`（4/4 精确相等）；
+   *  2. `total_cycles ÷ 活跃时间 ≈ average_cadence`（518/21.4min = 24.2 vs 24）。
+   *
+   * 有了它才能算「每划距离」（775m/518=1.50m）—— 游泳技术分析的核心指标：
+   * 划频高但每划距离短 = 抓水效率低。
+   */
+  test('游泳输出总划水次数 + 每划距离（真实库 775m/518 次 → 1.50 m/划）', () => {
+    const [, user] = buildAnalysisMessages(
+      fakeActivity({
+        activity_type: 'lap_swimming',
+        sport_type: '游泳',
+        sub_sport_type: '泳池游泳',
+        distance: 0.775,
+        moving_time: 2088,
+        duration: 2321,
+        average_speed: 1.336,
+        average_cadence: 48,
+        total_cycles: 518,
+      }),
+      [],
+    );
+    expect(user.content).toContain('总划水次数: 518 次');
+    expect(user.content).toContain('每划距离: 1.50 m/划');
+  });
+
+  test('游泳无 total_cycles → 不输出划水次数（不写「0 次」）', () => {
+    const [, user] = buildAnalysisMessages(
+      fakeActivity({
+        activity_type: 'lap_swimming',
+        sport_type: '游泳',
+        distance: 0.775,
+        moving_time: 2088,
+        average_cadence: 48,
+      }),
+      [],
+    );
+    expect(user.content).not.toContain('总划水次数');
+    expect(user.content).not.toContain('每划距离');
+  });
+
+  test('非游泳活动不输出总划水次数', () => {
+    for (const t of ['running', 'basketball', 'strength_training']) {
+      const [, user] = buildAnalysisMessages(
+        fakeActivity({ activity_type: t, total_cycles: 3000 }),
+        [],
+      );
+      expect(user.content).not.toContain('总划水次数');
+      expect(user.content).not.toContain('每划距离');
+    }
+  });
+
+  /**
+   * **跳绳总次数** —— 同一条 `total_cycles`，不同语义。
+   * 真实库 3/3 条跳绳都有（189/187/193）。「跳了多少个」是跳绳唯一的量化
+   * 执行指标，旧数据块完全没有。
+   */
+  test('跳绳输出总跳跃次数 + 跳跃频率（真实库 189 次 / 99s → 115 次/分）', () => {
+    const [, user] = buildAnalysisMessages(
+      fakeActivity({
+        activity_type: 'jump_rope',
+        distance: 0,
+        duration: 99,
+        moving_time: 99,
+        total_cycles: 189,
+        average_cadence: 342,
+      }),
+      [],
+    );
+    expect(user.content).toContain('总跳跃次数: 189 次');
+    expect(user.content).toContain('跳跃频率: 115 次/分');
+  });
+
+  test('非跳绳活动不输出总跳跃次数', () => {
+    for (const t of ['running', 'floor_climbing', 'basketball']) {
+      const [, user] = buildAnalysisMessages(
+        fakeActivity({ activity_type: t, total_cycles: 300 }),
+        [],
+      );
+      expect(user.content).not.toContain('总跳跃次数');
+    }
+  });
+
+  /**
+   * 爬楼（`floor_climbing`）是真实库第二大类型（**30 条**），但 AI 数据块
+   * 此前只给「累计爬升 46m」。**爬楼的行业语言是「楼层」不是「米」** ——
+   * 用户爬了 15 层，模型拿到 46m 只能自己猜换算比例。
+   *
+   * 换算依据（`app/lib/floors.ts`）：真实库 6 个不同爬升值 27/30/40/43/46/49m
+   * 全部精确等于 `round(层数 × 3.048)`，6/6 残差 < 0.5m。按 3.0 反推时
+   * 40/43/46/49 残差恰好都是 1.0m（系统性偏移），故 3.0 是错的。
+   *
+   * 真实库 30 条爬楼最高 49m（16 层）、最低 27m（9 层）。
+   */
+  test('爬楼输出「楼层（约）」而不是让模型自己拿米数换算', () => {
+    const [, user] = buildAnalysisMessages(
+      fakeActivity({ activity_type: 'floor_climbing', total_ascent: 46, distance: 0 }),
+      [],
+    );
+    expect(user.content).toContain('楼层（约）: 约 15 层');
+    // 原始米数必须同时保留（楼层是派生量，不能替代原始值）
+    expect(user.content).toContain('累计爬升: 46m');
+  });
+
+  test('爬楼 49m → 约 16 层 / 27m → 约 9 层（真实库两端）', () => {
+    const cases: Array<[number, string]> = [
+      [49, '约 16 层'],
+      [27, '约 9 层'],
+    ];
+    for (const [ascent, expected] of cases) {
+      const [, user] = buildAnalysisMessages(
+        fakeActivity({ activity_type: 'floor_climbing', total_ascent: ascent, distance: 0 }),
+        [],
+      );
+      expect(user.content).toContain(expected);
+    }
+  });
+
+  /**
+   * **只有爬楼才派生楼层**。山地跑累计爬升 300m 是「爬升了 300m 的高度」，
+   * 不是「爬了 98 层楼」—— 后者会让人以为跑楼梯。语义完全不同。
+   */
+  test('非爬楼活动即使有累计爬升也不输出楼层', () => {
+    for (const t of ['running', 'track_running', 'basketball', 'hiit']) {
+      const [, user] = buildAnalysisMessages(
+        fakeActivity({ activity_type: t, total_ascent: 300 }),
+        [],
+      );
+      expect(user.content).not.toContain('楼层');
+    }
+  });
+
+  test('爬楼无 total_ascent → 不输出楼层行（不写「约 0 层」）', () => {
+    const [, user] = buildAnalysisMessages(
+      fakeActivity({ activity_type: 'floor_climbing', total_ascent: null, distance: 0 }),
+      [],
+    );
+    expect(user.content).not.toContain('楼层');
   });
 
   /**

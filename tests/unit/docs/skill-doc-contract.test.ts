@@ -235,6 +235,50 @@ describe('skill 的数字断言必须与真实库一致', () => {
     // skill 写的是 44/48/48/46（升序即 44/46/48/48），逐值核对
     for (const v of cad) expect(skill).toContain(String(v));
   });
+
+  /**
+   * 第十类缺陷：`total_cycles` 是 FIT 里一直有、解析器从不读的字段。
+   *
+   * skill 旧版写「总划水次数、泳姿本数据源没有（FIT 不写）」—— 那是假话。
+   * 这条断言同时守两件事：
+   *  1. skill 必须声明 `total_cycles` 存在（否则模型仍会以为不可得）；
+   *  2. skill 里写的 4 个真实值必须与库逐条一致（518/798/923/695）。
+   *
+   * 真值来源不抄数字：直接从生产库查。
+   */
+  test('游泳总划水次数 518/798/923/695 与真实库一致', () => {
+    if (!hasProdDb) return;
+    const rows = query<{ c: number }>(
+      "SELECT total_cycles AS c FROM activities WHERE activity_type='lap_swimming' " +
+        'AND total_cycles IS NOT NULL ORDER BY total_cycles',
+    );
+    const cyc = rows.map((x) => x.c);
+    expect(cyc.length).toBe(4);
+    // skill 写的顺序是 518 / 798 / 923 / 695，逐值核对（不依赖顺序）
+    for (const v of cyc) expect(skill).toContain(String(v));
+  });
+
+  test('skill 不得再断言「总划水次数/泳姿不可得」(第十类缺陷的假话)', () => {
+    // 旧断言：「**总划水次数、泳姿**（自由泳/蛙泳…）本数据源没有（FIT 不写）」
+    expect(skill).not.toMatch(/总划水次数[^。\n]*本数据源没有/);
+    expect(skill).not.toMatch(/总划水次数[^。\n]*不可得/);
+    // 必须明确给出字段名，模型才知道去哪读
+    expect(skill).toContain('total_cycles');
+    expect(skill).toMatch(/不要\s*×2|不要 ×2|不能 ×2/);
+  });
+
+  test('自证不变式：Σlap.total_cycles == session.total_cycles（游泳 4/4）', () => {
+    if (!hasProdDb) return;
+    const rows = query<{ aid: number; sess: number; sum: number }>(
+      'SELECT a.activity_id AS aid, a.total_cycles AS sess, SUM(l.total_cycles) AS sum ' +
+        'FROM activities a JOIN activity_laps l ON l.activity_id = a.activity_id ' +
+        "WHERE a.activity_type='lap_swimming' AND a.total_cycles IS NOT NULL " +
+        'GROUP BY a.activity_id',
+    );
+    expect(rows.length).toBe(4);
+    // 这条不变式是本轮唯一「不依赖外部标准」的正确性证据
+    for (const r of rows) expect(r.sum).toBe(r.sess);
+  });
 });
 
 describe('skill 不得把设备配置值当个人指标', () => {

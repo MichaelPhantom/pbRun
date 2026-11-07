@@ -48,6 +48,7 @@ async function main() {
   let skipped = 0;
   let failed = 0;
   let recordsUpdated = 0;
+  let lapsUpdated = 0;
 
   const t0 = Date.now();
   for (let i = 0; i < workList.length; i++) {
@@ -73,6 +74,9 @@ async function main() {
         // 心率区间：time_in_hr_zone 是本地 5 区口径（由逐秒心率推导），
         // device_time_in_hr_zone 是设备原始数组（仅供追溯）。两者都幂等。
         'time_in_hr_zone', 'device_time_in_hr_zone',
+        // 总计数（第十类缺陷 2026-11-07）：游泳=总划水/跳绳=总跳跃/爬楼=总步数。
+        // FIT 里一直有（349/353），此前解析器不读 → 全库该列不存在。
+        'total_cycles',
       ];
       for (const f of fields) {
         if (a[f] != null) patch[f] = a[f];
@@ -102,6 +106,18 @@ async function main() {
         recordsUpdated++;
       }
 
+      // lap 级 `total_cycles` 回填（第十类缺陷续）。
+      //
+      // 只补这一列，**不重写整个 lap**：`insertLaps` 会先 DELETE 再 INSERT，
+      // 拿解析结果整体覆盖库里的 lap。而解析器不产出的列（`cumulative_time`
+      // 由解析器算、但 `lap_trigger` 等历史字段可能不同）会被覆盖成 NULL ——
+      // 对已有 3137 段真实数据的库来说风险太大。
+      // 改为按 `lap_index` 逐段 UPDATE，只动 total_cycles 一列。
+      if (Array.isArray(parsed.laps) && parsed.laps.length > 0) {
+        const n = db.updateLapCycles(id, parsed.laps);
+        if (n > 0) lapsUpdated++;
+      }
+
       if ((i + 1) % 20 === 0) {
         const elapsed = ((Date.now() - t0) / 1000).toFixed(0);
         console.log(`  进度 ${i + 1}/${workList.length} (${elapsed}s)`);
@@ -114,6 +130,7 @@ async function main() {
 
   console.log(`\n✓ 完成: 回填 ${updated} / 跳过 ${skipped} / 失败 ${failed}` + (dryRun ? ' (dry-run)' : ''));
   console.log(`  逐秒记录重写: ${recordsUpdated} 个活动`);
+  console.log(`  lap 划水/计数回填: ${lapsUpdated} 个活动`);
   db.close();
   // 失败项反映到退出码, 供 CI/cron 察觉部分失败 (原实现恒 0)。
   if (failed > 0) process.exitCode = 1;

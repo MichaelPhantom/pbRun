@@ -899,6 +899,120 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
   });
 
   /**
+   * 第十类缺陷：FIT `total_cycles` 被解析器整体丢弃。
+   *
+   * 它是三种运动的核心计数：游泳=总划水次数、跳绳=总跳跃次数、爬楼=总步数。
+   * 标签**必须随类型变** —— 同一个数在游泳里是技术指标，在跳绳里是唯一执行指标，
+   * 在跑步里是噪音（步幅周期数）。跑步刻意不给这一格。
+   */
+  test('游泳概览展示「总划水次数」(真实库 518/798/923/695)', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'lap_swimming',
+      sport_type: '游泳',
+      sub_sport_type: '泳池游泳',
+      distance: 0.775,
+      average_cadence: 48,
+      total_cycles: 518,
+      vdot_value: null,
+    });
+    render(await page('5001'));
+    const overview = screen.getByText('活动概览').closest('section')!;
+    expect(within(overview).getByText('总划水次数')).toBeInTheDocument();
+    expect(within(overview).getByText('518')).toBeInTheDocument();
+    expect(within(overview).getByText('次划水')).toBeInTheDocument();
+  });
+
+  test('跳绳概览展示「总跳跃次数」(真实库 189/187/193)', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'jump_rope',
+      sport_type: '跳绳',
+      distance: 0,
+      average_cadence: 342,
+      total_cycles: 189,
+      vdot_value: null,
+    });
+    render(await page('5002'));
+    const overview = screen.getByText('活动概览').closest('section')!;
+    expect(within(overview).getByText('总跳跃次数')).toBeInTheDocument();
+    expect(within(overview).getByText('189')).toBeInTheDocument();
+    expect(within(overview).getByText('次跳跃')).toBeInTheDocument();
+    // 不能叫「总划水次数」（同字段不同语义, 标签必须跟着运动走）
+    expect(within(overview).queryByText('总划水次数')).toBeNull();
+  });
+
+  test('跑步概览不展示「总计数」(步幅周期数 3352 对跑者没有语义)', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'running',
+      total_cycles: 3352,
+    });
+    render(await page('5003'));
+    const overview = screen.getByText('活动概览').closest('section')!;
+    for (const label of ['总计数', '总划水次数', '总跳跃次数', '总步数']) {
+      expect(within(overview).queryByText(label)).toBeNull();
+    }
+  });
+
+  /**
+   * 爬楼楼层派生（`app/lib/floors.ts`）。
+   *
+   * 真实库 30 条爬楼只有 6 个爬升值（27/30/40/43/46/49m），全部精确等于
+   * `round(层数 × 3.048)`。按常识的 3.0 反推时 40/43/46/49 残差**恰好都是 1.0m**。
+   * 文案必须带「约」—— 3.048 是 Garmin 的标准楼层假设。
+   */
+  test('爬楼概览展示「楼层（约）」与「总步数」(真实库 46m → 约 15 层)', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'floor_climbing',
+      sport_type: '爬楼',
+      distance: 0,
+      total_ascent: 46,
+      total_cycles: 349,
+      vdot_value: null,
+    });
+    render(await page('5004'));
+    const overview = screen.getByText('活动概览').closest('section')!;
+    expect(within(overview).getByText('楼层（约）')).toBeInTheDocument();
+    expect(within(overview).getByText('15')).toBeInTheDocument();
+    expect(within(overview).getByText('层')).toBeInTheDocument();
+    expect(within(overview).getByText('总步数')).toBeInTheDocument();
+    expect(within(overview).getByText('349')).toBeInTheDocument();
+  });
+
+  test('非爬楼活动即使有累计爬升也不展示楼层 (山地跑 300m 不是「98 层楼」)', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'running',
+      total_ascent: 300,
+    });
+    render(await page('5005'));
+    const overview = screen.getByText('活动概览').closest('section')!;
+    expect(within(overview).queryByText('楼层（约）')).toBeNull();
+  });
+
+  test('游泳分段表展示「划水次数」列 (Σlap == session, 可自证)', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'lap_swimming',
+      sport_type: '游泳',
+      distance: 0.775,
+      total_cycles: 518,
+      vdot_value: null,
+    });
+    db.getActivityLaps.mockReturnValue([
+      { ...laps[0], id: 51, lap_index: 1, distance: 50, total_cycles: 41 },
+      { ...laps[1], id: 52, lap_index: 2, distance: 25, total_cycles: 5 },
+    ]);
+    render(await page('5006'));
+    const table = screen.getByRole('table');
+    expect(within(table).getByRole('columnheader', { name: /划水次数/ })).toBeInTheDocument();
+    expect(within(table).getByText('41')).toBeInTheDocument();
+    expect(within(table).getByText('5')).toBeInTheDocument();
+  });
+
+  /**
    * **可推算却从未推算** 缺陷族在详情页的呈现（2026-10-27）。
    *
    * `intensity_factor` / `training_stress_score` / `average_power_to_weight`

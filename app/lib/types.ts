@@ -90,6 +90,19 @@ export interface Activity {
   // 其他
   calories?: number;                             // 热量消耗（卡路里）
   average_temperature?: number;                  // 平均温度（摄氏度）
+  /**
+   * 总计数（FIT session `total_cycles`）。
+   *
+   * **语义随运动而变**，不要跨类型对比：
+   * - 游泳 = **总划水次数**（真实库 518/798/923/695，自证：÷活跃时间 ≈ `average_cadence`）
+   * - 跳绳 = **总跳跃次数**（189/187/193）
+   * - 跑步 = 步幅周期数（≈ `average_cadence` × 计时器分钟）
+   * - 爬楼 = 总步数
+   * - 球类 = 挥拍/触球动作周期数
+   *
+   * 真实库覆盖 **349/353**。**不要 ×2** —— 它是绝对计数，不是步频。
+   */
+  total_cycles?: number;
 
   // VDOT 跑力值
   vdot_value?: number | null;                   // VDOT 跑力值（Daniels；仅 Z3+ 代表性强度，轻松/恢复跑为 null）
@@ -235,6 +248,14 @@ export interface ActivityLap {
   // 其他
   calories?: number;                             // 热量消耗（卡路里）
   average_temperature?: number;                  // 平均温度（摄氏度）
+  /**
+   * 本段总计数（FIT lap `total_cycles`）。
+   *
+   * 游泳 = **本段划水次数**（真实库 4 条游泳的 `Σlap cycles == session cycles`，
+   * 518/518、798/798、923/923、695/695）。0 距离休息段为 0 或不写 ——
+   * 那是「没有划水」，不是「划水 0 次」。
+   */
+  total_cycles?: number;
 }
 
 /** 单条活动内逐条记录（用于心率/步频/步幅/配速趋势图） */

@@ -135,7 +135,12 @@ export async function registerTools(server: McpServer): Promise<void> {
         'average_pace 是秒/公里，每 100m 配速 = average_pace ÷ 10（÷10 只对秒/公里成立；' +
         'average_speed 是 km/h，换算要 360 ÷ 速度）；' +
         '游泳的 average_cadence 是**划频（次/分）**不是步频（真实库 4/4 有值 44~48）；' +
-        '总划水次数/泳姿不在本数据源。' +
+        'total_cycles 是**绝对计数**，语义随运动而变（游泳=总划水次数 4/4 有值 ' +
+        '518/798/923/695；跳绳=总跳跃次数；跑步=步幅周期数；爬楼=总步数），' +
+        '**不要 ×2**（×2 是 avg_cadence 单侧周期→spm 的换算，不适用于计数）；' +
+        '每划距离 = distance(km)×1000 ÷ total_cycles（游泳技术分析核心指标）；' +
+        '泳姿在 session 级恒为 255（无效），lap 级 swim_stroke 才有真实值，' +
+        '当前未入库，需要时说明「泳姿仅 Garmin 云端可见」。' +
         'JSON 字段需自行 parse; 字段缺失表示该活动无对应数据。',
       inputSchema: {
         activityId: z.number().int().positive().describe('活动 ID'),

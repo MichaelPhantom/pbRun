@@ -175,6 +175,47 @@ describe('_extractActivityData 分支', () => {
   });
 
   /**
+   * `total_cycles` —— 第十类缺陷（2026-11-07 真实发现）。
+   *
+   * FIT session/lap 的 `total_cycles` 在真实库 **349/353** 活动里都有值，但
+   * 解析器**从不读取**它。它是三种运动的**核心计数指标**：
+   *
+   * | 运动 | `total_cycles` 语义 | 真实库自证 |
+   * |------|-------------------|-----------|
+   * | 游泳 | **总划水次数** | 518 / 1283s = 24.2 次/分 ≈ FIT `avg_cadence`=24 |
+   * | 跳绳 | **总跳跃次数** | 189 次 / 95.6s |
+   * | 跑步 | 步幅周期数 | 3352 ≈ `avg_cadence`(90) × 2202s/60 = 3303 |
+   * | 爬楼 | 总步数 | 307 / 331s |
+   *
+   * 这不是「设备不写」—— FIT 里明确有，是我们丢了。而文档与提示词却断言
+   * 「总划水次数不可得，不要索要」（`coach-prompts.ts:232,272`、
+   * `skills/pbrun-coaching/SKILL.md:247`、`mcp-server/tools.ts:138`）——
+   * 四处同时说了假话。
+   */
+  test('total_cycles: 有值 → 写入 total_cycles（游泳=总划水/跳绳=总跳跃）', () => {
+    const out = p._extractActivityData({
+      sessions: [{ total_distance: 0.775, total_elapsed_time: 2321, total_cycles: 518 }],
+    });
+    expect(out.total_cycles).toBe(518);
+  });
+
+  test('total_cycles: 缺失/0 → undefined（0 次划水没有语义）', () => {
+    expect(p._extractActivityData({ sessions: [{}] }).total_cycles).toBeUndefined();
+    expect(
+      p._extractActivityData({ sessions: [{ total_cycles: 0 }] }).total_cycles,
+    ).toBeUndefined();
+  });
+
+  test('total_cycles 不得被 ×2（它不是步频, 是绝对次数）', () => {
+    const out = p._extractActivityData({
+      sessions: [{ total_distance: 0.775, total_elapsed_time: 2321, total_cycles: 518 }],
+    });
+    // 旧实现把 avg_cadence ×2（步频 90→180）, 但 total_cycles 是**计数**
+    expect(out.total_cycles).toBe(518);
+    expect(out.total_cycles).not.toBe(1036);
+  });
+
+  /**
    * 回归（2026-10-27 审计）：解析器**不得**从 session 里读 `training_load`
    * 一族的字段名 —— 它们都不在 `fit-file-parser` 的 SDK profile 里，
    * 读取恒为 null（死读）。`training_load` 的唯一来源是 `sync.js` 的

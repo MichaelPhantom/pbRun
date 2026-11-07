@@ -12,6 +12,7 @@ import { findPreset, resolvePresets } from '@/app/lib/model-curation';
 import { activityTypeName, isRunningType, isSwimmingType } from '@/app/lib/sport';
 import { powerIntensity } from '@/app/lib/power';
 import { ascentToSpanRatio, elevationSpan } from '@/app/lib/elevation';
+import { floorsFromAscent, formatFloors } from '@/app/lib/floors';
 import { effectiveTimeSec, paceSecPer100m, formatPacePer100m, speedKmh } from '@/app/lib/pace';
 import { lapSectionTitle, lapStartDistancesMeters, lapRangeLabel } from '@/app/lib/lap-label';
 import {
@@ -296,6 +297,20 @@ export function buildAnalysisMessages(
         : [seg, formatDuration(effectiveTimeSec(l) ?? 0)];
       if (l.average_heart_rate != null) parts.push(`${Math.round(l.average_heart_rate)}bpm`);
       if (running && l.average_cadence != null) parts.push(`${Math.round(l.average_cadence)}spm`);
+      // 游泳分段的**本段划水次数**（FIT lap `total_cycles`）。真实库 4 条游泳的
+      // `Σlap cycles == session cycles` 精确成立，所以分段划水次数能与活动级
+      // 总划水次数对上 —— 模型可以据此判断「哪一趟效率高」（同距离划得少 = 好）。
+      // 只在游泳输出：跑步 lap 的 cycles 是步幅周期数，没有语义。
+      if (!running && l.total_cycles != null) {
+        const m = l.distance;
+        // 0 距离休息段的 cycles 为 0，不输出（那是「没有划水」，不是「划水 0 次」）
+        if (l.total_cycles > 0) {
+          parts.push(`${Math.round(l.total_cycles)}划`);
+          if (m != null && m > 0) {
+            parts.push(`${(m / l.total_cycles).toFixed(2)}m/划`);
+          }
+        }
+      }
       // 分段功率只对跑步输出: 真实库 2827/2827 条跑步 lap 有 `average_power`
       // （非跑步 0/255）。SYSTEM_PROMPT §6 要求「功率 - 配速」交叉分析，
       // 而数据块此前只有活动级平均功率一个数 —— 无法判断「主课段功率是否真的
@@ -421,6 +436,26 @@ export function buildAnalysisMessages(
                   ...(activity.average_cadence != null
                     ? [`划频: ${Math.round(activity.average_cadence)} 次/分`]
                     : []),
+                  // 总划水次数（FIT `total_cycles`）。**旧提示词与 skill 四处断言
+                  // 「总划水次数不可得，不要索要」**（coach-prompts.ts 两处、
+                  // SKILL.md、mcp-server/tools.ts）—— 而 FIT 里一直有：
+                  // 真实库 4/4 条游泳都有（518/798/923/695），自证：
+                  // `Σlap cycles == session cycles`（4/4 精确相等）且
+                  // `total_cycles ÷ 活跃时间 ≈ average_cadence`（518/21.4=24.2 vs 24）。
+                  // 有了它才能算「每划距离」（775m/518=1.50m），这是游泳技术
+                  // 分析的核心指标 —— 划频高但每划距离短 = 抓水效率低。
+                  ...(activity.total_cycles != null
+                    ? (() => {
+                        const distM = (activity.distance ?? 0) * 1000;
+                        const dps = distM > 0 ? distM / activity.total_cycles : null;
+                        return [
+                          `总划水次数: ${Math.round(activity.total_cycles)} 次`,
+                          ...(dps != null
+                            ? [`每划距离: ${dps.toFixed(2)} m/划（= 距离 ÷ 总划水次数）`]
+                            : []),
+                        ];
+                      })()
+                    : []),
                 ];
               })()
             : []),
@@ -456,6 +491,39 @@ export function buildAnalysisMessages(
       ['累计爬升', fmtNumIf(activity.total_ascent, 0, 'm')],
       ['累计下降', fmtNumIf(activity.total_descent, 0, 'm')],
       ['平均坡度', fmtNumIf(activity.avg_grade, 1, '%')],
+      // 爬楼专属：楼层数。真实库 30 条 `floor_climbing`（第二大类型）此前在
+      // prompt 里只给「累计爬升 46m」，而**爬楼的行业语言是「楼层」**。提示词
+      // 让模型「爬楼看爬升量」，模型只能把 46m 翻译成楼层 —— 它没有换算依据，
+      // 只能猜（46/3 ≈ 15 层，但真实设备按 3.048m/层，实际是 15 层）。
+      // 换算唯一实现见 `app/lib/floors.ts`（6 个真实爬升值 6/6 精确拟合）。
+      // 只对爬楼类型派生：山地跑的 300m 爬升是「爬了多少层楼的高度」，
+      // 不是「爬了多少层楼」，语义完全不同。
+      [
+        '楼层（约）',
+        activity.activity_type === 'floor_climbing'
+          ? formatFloors(floorsFromAscent(activity.total_ascent))
+          : null,
+      ],
+    ]),
+    // 跳绳总次数（FIT `total_cycles`）。真实库 3/3 条跳绳都有（189/187/193），
+    // 而「跳了多少个」是跳绳训练唯一的量化执行指标 —— 旧数据块完全没有，
+    // 模型只能从时长和心率反推，无法回答「这次跳了多少」。
+    // 与爬楼楼层同理：只对跳绳类型输出，跑步的「步幅周期数」没有语义。
+    statRow([
+      [
+        '总跳跃次数',
+        activity.activity_type === 'jump_rope' && activity.total_cycles != null
+          ? `${Math.round(activity.total_cycles)} 次`
+          : null,
+      ],
+      [
+        '跳跃频率',
+        activity.activity_type === 'jump_rope' &&
+        activity.total_cycles != null &&
+        (effectiveTimeSec(activity) ?? 0) > 0
+          ? `${Math.round(activity.total_cycles / ((effectiveTimeSec(activity) as number) / 60))} 次/分`
+          : null,
+      ],
     ]),
     elevationLine,
     statRow([['训练负荷', fmtNumIf(activity.training_load, 0)]]),

@@ -114,8 +114,7 @@ class DatabaseManager {
         -- 其他
         calories INTEGER,                             -- 热量消耗（卡路里）
         average_temperature REAL,                     -- 平均温度（摄氏度）
-
-        -- VDOT 跑力值
+        total_cycles INTEGER,                         -- 总计数（游泳=总划水次数/跳绳=总跳跃/跑步=步幅周期/爬楼=总步数）
         vdot_value REAL,                              -- VDOT 跑力值
         training_load INTEGER,                        -- 训练负荷
 
@@ -196,7 +195,9 @@ class DatabaseManager {
       // 路线签名（由 track 派生；同步/回填时写入）
       ['route_cells', 'TEXT'],                       // geohash-7 网格签名 JSON 数组
       ['route_bounds', 'TEXT'],                      // 抗尖峰包围盒 JSON
-      ['route_km', 'REAL']                           // 清洗后轨迹长度 (公里)
+      ['route_km', 'REAL'],                          // 清洗后轨迹长度 (公里)
+      // 总计数（FIT session/lap 的 total_cycles；第十类缺陷 2026-11-07）
+      ['total_cycles', 'INTEGER']                    // 游泳=总划水/跳绳=总跳跃/跑步=步幅周期/爬楼=总步数
     ];
     for (const [name, type] of newActivityColumns) {
       try {
@@ -302,6 +303,7 @@ class DatabaseManager {
         -- 其他
         calories INTEGER,                             -- 热量消耗（卡路里）
         average_temperature REAL,                     -- 平均温度（摄氏度）
+        total_cycles INTEGER,                         -- 总计数（游泳=本段划水次数/跳绳=本段跳跃次数）
 
         FOREIGN KEY (activity_id) REFERENCES activities(activity_id) ON DELETE CASCADE
       )
@@ -313,7 +315,8 @@ class DatabaseManager {
       ['time_in_hr_zone', 'TEXT'], ['time_in_power_zone', 'TEXT'],
       ['device_time_in_hr_zone', 'TEXT'], ['device_time_in_power_zone', 'TEXT'],
       ['device_time_in_speed_zone', 'TEXT'], ['device_time_in_cadence_zone', 'TEXT'],
-      ['lap_trigger', 'TEXT'], ['start_time', 'DATETIME']
+      ['lap_trigger', 'TEXT'], ['start_time', 'DATETIME'],
+      ['total_cycles', 'INTEGER']
     ];
     for (const [name, type] of newLapColumns) {
       try {
@@ -482,6 +485,34 @@ class DatabaseManager {
       this._activityColsCache = new Set(rows.map(r => r.name));
     }
     return this._activityColsCache;
+  }
+
+  /**
+   * 按 `lap_index` 只更新 `total_cycles` 一列（回填专用）。
+   *
+   * 为什么不复用 `insertLaps`：那是「先 DELETE 再整体 INSERT」，拿解析结果
+   * 覆盖库里的 lap。解析器不产出的列会被写成 NULL —— 对已有 3137 段真实数据
+   * 的库风险太大。本方法只动一列，幂等且不碰其它字段。
+   *
+   * @param {number} activityId
+   * @param {Array<{lap_index:number, total_cycles?:number}>} laps
+   * @returns {number} 实际更新的 lap 段数
+   */
+  updateLapCycles(activityId, laps) {
+    if (!Array.isArray(laps) || laps.length === 0) return 0;
+    const stmt = this.db.prepare(
+      'UPDATE activity_laps SET total_cycles = ? WHERE activity_id = ? AND lap_index = ?'
+    );
+    let n = 0;
+    const tx = this.db.transaction((rows) => {
+      for (const lap of rows) {
+        if (lap.total_cycles == null || lap.total_cycles <= 0) continue;
+        const r = stmt.run(lap.total_cycles, activityId, lap.lap_index);
+        n += r.changes;
+      }
+    });
+    tx(laps);
+    return n;
   }
 
   insertLaps(activityId, lapsData) {

@@ -312,25 +312,33 @@ describe('游泳每 100m 配速：提示词与数据块对齐', () => {
 });
 
 /**
- * 游泳划频 —— 数据里有，提示词却说「不提供」（2026-11 修）。
+ * 游泳划频与总划水次数 —— 数据里有，提示词必须都允许用（2026-11 修两次）。
  *
- * 真实库 **4/4** 条游泳活动都有 `average_cadence`（44/48/48/46 次/分 = 划水频率）。
- * 旧文案「划频/划水次数本数据源不提供，不要提」把两个概念绑在一起，结果要求模型
- * 忽略一个它拿得到的字段 —— 与「非跑步活动不计算训练负荷」同源：提示词让模型
- * 无视真实数据，模型要么违反指令，要么装看不见。
+ * 第一次修：真实库 **4/4** 条游泳活动都有 `average_cadence`（44/48/48/46 次/分 =
+ * 划水频率）。旧文案「划频/划水次数本数据源不提供，不要提」把两个概念绑在一起，
+ * 要求模型忽略一个它拿得到的字段 —— 与「非跑步活动不计算训练负荷」同源。
  *
- * 正确拆分：**划频可得**（数据块输出「划频: N 次/分」），**总划水次数不可得**。
+ * 第二次修（第十类缺陷）：当时只拆出「划频可得」，却继续断言「**总划水次数不可得**」。
+ * 这是**新的假话** —— FIT session 的 `total_cycles` 一直是总划水次数（真实库
+ * 4/4：518/798/923/695），只是解析器从不读取。自证：`Σlap cycles == session cycles`
+ * （4/4 精确相等）、`total_cycles ÷ 活跃时间 ≈ average_cadence`（518/21.4 = 24.2 vs 24）。
+ *
+ * 现在**三个都可得**：划频 / 总划水次数 / 每划距离。提示词不得再出现任何
+ * 「划水次数不可得 / 不提供」的断言。
  */
-describe('游泳划频：数据块与提示词对齐', () => {
-  test('提示词不再声称「划频本数据源不提供」', () => {
+describe('游泳划频与总划水次数：数据块与提示词对齐', () => {
+  test('提示词不再声称「划频/划水次数本数据源不提供」', () => {
     expect(SINGLE_NON_RUNNING_PROMPT).not.toContain('划频/划水次数本数据源不提供');
     expect(SINGLE_NON_RUNNING_PROMPT).not.toContain('划频/划水次数');
   });
 
-  test('提示词允许用划频, 只把「划水次数」列为不提供', () => {
-    expect(SINGLE_NON_RUNNING_PROMPT).toContain('划频');
-    expect(SINGLE_NON_RUNNING_PROMPT).toContain('划水次数');
-    expect(SINGLE_NON_RUNNING_PROMPT).toMatch(/划水次数.*不提供/);
+  test('提示词不得再断言「划水次数不提供」（第十类缺陷：FIT 里一直有）', () => {
+    // 旧断言是 /划水次数.*不提供/ —— 现在反过来：这句假话必须消失
+    expect(SINGLE_NON_RUNNING_PROMPT).not.toMatch(/划水次数[^。\n]*不提供/);
+    expect(SINGLE_NON_RUNNING_PROMPT).not.toMatch(/划水次数[^。\n]*不可得/);
+    // 并且必须明确告诉模型「总划水次数会给」
+    expect(SINGLE_NON_RUNNING_PROMPT).toContain('总划水次数');
+    expect(SINGLE_NON_RUNNING_PROMPT).toContain('每划距离');
   });
 
   test('数据块真的产出划频行 (不是「要求模型分析不存在的数据」)', () => {

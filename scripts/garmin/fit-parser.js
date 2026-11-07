@@ -511,6 +511,26 @@ class GarminFITParser {
     activityData.calories = this._safeGetInt(session, 'total_calories');
     activityData.average_temperature = this._safeGetFloat(session, 'avg_temperature');
 
+    // 总计数（`total_cycles`）—— 第十类缺陷（2026-11-07）。
+    //
+    // FIT session/lap 的 `total_cycles` 在真实库 **349/353** 活动里都有值，但
+    // 解析器**从不读取**它。它是三种运动的**核心计数指标**：
+    //
+    // | 运动 | `total_cycles` 语义 | 真实库自证 |
+    // |------|-------------------|-----------|
+    // | 游泳 | **总划水次数** | 518 / 1283s = 24.2 次/分 ≈ FIT `avg_cadence`=24 |
+    // | 跳绳 | **总跳跃次数** | 189 次 / 95.6s |
+    // | 跑步 | 步幅周期数 | 3352 ≈ `avg_cadence`(90) × 2202s/60 = 3303 |
+    // | 爬楼 | 总步数 | 307 / 331s |
+    //
+    // **不能 ×2**：`avg_cadence` 对跑步是「单侧周期/分」（90 → 180 spm 需 ×2），
+    // 但 `total_cycles` 是**绝对计数**，×2 会得到「跑了 6704 步」这种错数。
+    // 游泳更明显：518 次划水 ×2 = 1036 次，与「775m / 1.5m 每划」对不上。
+    const totalCycles = this._safeGetInt(session, 'total_cycles');
+    if (totalCycles != null && totalCycles > 0) {
+      activityData.total_cycles = totalCycles;
+    }
+
     return activityData;
   }
 
@@ -702,6 +722,16 @@ class GarminFITParser {
       // Other
       lapData.calories = this._safeGetInt(lap, 'total_calories');
       lapData.average_temperature = this._safeGetFloat(lap, 'avg_temperature');
+
+      // 总计数（`total_cycles`）。与活动级同一条纪律（不 ×2，是绝对计数）。
+      // 游泳 lap 级尤其关键：真实库 4 条游泳的 `Σlap cycles == session cycles`
+      // （518/518、798/798、923/923、695/695），可据此算出**每一段的划水次数**
+      // 与**每划距离**（如 617083438 的 1800m 段 = 923 次中的一部分）。
+      // 0 距离休息段的 `total_cycles` 为 0 —— 那是「没有划水」，不是「划水 0 次」。
+      const lapCycles = this._safeGetInt(lap, 'total_cycles');
+      if (lapCycles != null && lapCycles > 0) {
+        lapData.total_cycles = lapCycles;
+      }
 
       lapsData.push(lapData);
     }

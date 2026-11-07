@@ -6,7 +6,7 @@
  * `Activity`（71 字段）自 2026-10-27 起有完整守卫：字段数精确断言、未消费必须进账本、
  * 账本必须保持真实、账本键必须是真实列、schema 每列三头必须落一头。
  *
- * 但 `ActivityLap`（44 字段）**一直没有**。于是 lap 层可以安静地积累同类缺陷 ——
+ * 但 `ActivityLap`（45 字段）**一直没有**。于是 lap 层可以安静地积累同类缺陷 ——
  * 本次审计（配速时间基数修复）就顺带发现了 14 个零消费字段，其中**三个有真实数据**：
  *
  * | 字段 | 真实库 | 缺陷性质 |
@@ -192,10 +192,12 @@ const lapFields = parseActivityLapFields(typesSrc);
 
 describe('ActivityLap 的每个字段都必须被消费或显式记账', () => {
   test('解析器确实覆盖到 ActivityLap 的全部字段 (防假绿)', () => {
-    // **精确** 44 个字段。用等号而不是 >=: 新增一列必须在这里显式确认
-    // 「它要么被消费、要么进账本并写明理由」，否则守卫会随 types.ts 扩张悄悄放宽。
-    // 同步修改: docs/features.md 里记录的 lap 字段数。
-    expect(lapFields.length).toBe(44);
+    // **精确** 45 个字段（2026-11-07 新增 `total_cycles` —— 第十类缺陷：FIT lap
+    // 的 `total_cycles` 一直有值，解析器从不读取。游泳的 `Σlap cycles == session
+    // cycles` 精确成立，所以分段划水次数能与活动级对上）。用等号而不是 >=: 新增
+    // 一列必须在这里显式确认「它要么被消费、要么进账本并写明理由」，否则守卫会随
+    // types.ts 扩张悄悄放宽。同步修改: docs/features.md 里记录的 lap 字段数。
+    expect(lapFields.length).toBe(45);
     // 抽查四个不同区块：时间/配速/功率/区间
     expect(lapFields).toContain('cumulative_time');
     expect(lapFields).toContain('average_pace');
