@@ -743,6 +743,30 @@ function ActivityCard({
             <span className="font-medium text-fg-secondary">{a.training_load.toFixed(1)}</span> 训练负荷
           </span>
         )}
+        {/*
+          平均心率 —— **非跑步活动在卡片上唯一的强度线索**。
+
+          真实库 19 条活动（篮球 3 / 乒乓 2 / 羽毛球 1 / HIIT 3 / 室内有氧 9 /
+          室内骑行 1）`training_load` 全为 NULL（设备对非跑步不产出负荷），
+          又没有语义已确认的 `total_cycles` / 楼层 / 组数 —— 修完类型专属指标后，
+          这些卡片仍然只剩「时长 + 类型徽标」，筛到「篮球」看到的是 3 个空壳。
+
+          而它们 **19/19 全部有心率**（76–127bpm）。心率与运动类型无关：
+          详情页有「平均心率」、AI 数据块有「心率: 107」、首页
+          `RecentActivityCard` 也有 —— 唯独 `/list` 卡片从来没渲染过。
+          这不是「列表页该少给点信息」的取舍，是三处同源指标里漏了一处。
+
+          `null` 时不渲染（不是显示 `--`）：这是与运动类型无关的**可选**指标，
+          缺了就不占位（与「距离为 null 显示 `--`」不同 —— 距离是跑步的必答项）。
+        */}
+        {a.average_heart_rate != null && (
+          <span className="text-fg-secondary">
+            <span className="font-medium text-fg-secondary">
+              {Math.round(a.average_heart_rate)}
+            </span>{' '}
+            心率
+          </span>
+        )}
         {running && a.vdot_value != null && (
           <span className="text-fg-secondary">
             <span className="font-medium text-fg-secondary">{a.vdot_value.toFixed(1)}</span> 即时跑力

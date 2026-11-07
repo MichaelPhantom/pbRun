@@ -340,6 +340,77 @@ describe('ListClient 活动列表 (交互/筛选/无限滚动)', () => {
   });
 
   /**
+   * **`/list` 卡片必须给平均心率** —— 这是「记录栏目只有跑步」的第五层缺口。
+   *
+   * 前四层（类型下拉、快捷入口、类型专属指标、月卡构成）修完后，仍有一批活动
+   * 在卡片上是**纯空壳**：真实库 19 条（篮球 3 / 乒乓 2 / 羽毛球 1 / HIIT 3 /
+   * 室内有氧 9 / 室内骑行 1）。它们的 `training_load` 全为 NULL（设备对非跑步
+   * 不产出负荷）、又没有语义已确认的 `total_cycles` / 楼层 / 组数 —— 于是卡片上
+   * 只剩「时长 + 类型徽标」，用户筛到「篮球」看到的是 3 个看起来没记录任何东西
+   * 的卡片，自然会得出「这些运动没什么可看的」。
+   *
+   * 而它们**全部有心率**（19/19，真实库 76–127bpm）。心率与运动类型无关 ——
+   * 详情页有「平均心率」、AI 数据块有「心率: 107」、首页 `RecentActivityCard`
+   * 也有，唯独 `/list` 卡片从来没渲染过。这不是「列表页该少给点信息」的取舍，
+   * 而是**三处同源指标里独独漏了一处**。
+   *
+   * 判别式盯用户看到的字面：卡片上必须出现心率数值（篮球 107）。
+   */
+  test('球类卡片显示平均心率（非跑步唯一的强度线索, 与首页/详情页同源）', () => {
+    renderList({
+      initialActivitiesByMonth: {
+        '2026-09': [
+          act({
+            activity_type: 'basketball',
+            name: '篮球',
+            distance: 1.66581,
+            duration: 3167,
+            moving_time: 3167,
+            training_load: null,
+            vdot_value: null,
+            average_heart_rate: 107,
+          } as unknown as Activity),
+        ],
+      },
+    });
+    const card = screen.getByRole('button', { name: /篮球/ });
+    expect(card).toHaveTextContent('心率');
+    expect(card).toHaveTextContent('107');
+  });
+
+  test('无平均心率时不渲染「心率」字样（缺失 ≠ 0）', () => {
+    renderList({
+      initialActivitiesByMonth: {
+        '2026-09': [
+          act({
+            activity_type: 'basketball',
+            name: '篮球',
+            distance: 1.66581,
+            duration: 3167,
+            moving_time: 3167,
+            training_load: null,
+            vdot_value: null,
+            average_heart_rate: null,
+          } as unknown as Activity),
+        ],
+      },
+    });
+    const card = screen.getByRole('button', { name: /篮球/ });
+    expect(card).not.toHaveTextContent('心率');
+  });
+
+  test('跑步卡片同样显示平均心率（心率与运动类型无关）', () => {
+    renderList({
+      initialActivitiesByMonth: {
+        '2026-09': [act({ average_heart_rate: 148 })],
+      },
+    });
+    const card = screen.getByRole('button', { name: /两江新区/ });
+    expect(card).toHaveTextContent('心率');
+    expect(card).toHaveTextContent('148');
+  });
+
+  /**
    * 零距离活动（力量课 51 条、爬楼 30 条、HIIT/跳绳/室内有氧等共 97 条）不能显示
    * 「0.00 公里」。
    *
