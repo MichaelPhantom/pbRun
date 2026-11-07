@@ -36,7 +36,35 @@ function typeKeyOf(a: Activity): string {
 // basePath 前缀 (与 next.config.ts 同步): next/link 自动加, 手写 fetch 需手动拼
 const API_BASE = "/pbrun";
 
-function fetchMonthActivities(monthKey: string): Promise<Activity[]> {
+/**
+ * 取某个月的活动卡片。
+ *
+ * ## 必须带上当前筛选条件（第三十类缺陷）
+ *
+ * 旧实现只传 `startDate` / `endDate` —— 把 `type` / `q` **整个丢掉**。于是
+ * 「列表头」与「展开后的卡片」用的是两套口径：
+ *
+ * | 操作 | 月卡头部 | 展开后的卡片 |
+ * |------|---------|-------------|
+ * | 选「力量训练」 | `2026年10月 · 2 次` | **19 张**（16 跑步 + 2 力量 + 1 跑步机） |
+ *
+ * 生产实证：`months?type=strength_training` → `count=2`，而客户端实际请求
+ * `/api/activities?startDate=2026-10-01&endDate=2026-10-31` 返回 **19 条**。
+ * 用户筛「力量训练」，看到的是整个月的所有运动 —— 筛选等于没做。
+ *
+ * ## 为什么既有测试拦不住
+ *
+ * 用例的 `fetch` 桩对**任何** URL 都返回同一个数组，「请求带没带条件」
+ * 根本不可观测。夹具不看 URL，缺陷就不显形。
+ *
+ * 参数由调用方显式传入（而不是在这里读 ref）：同一个函数被「首次展开」
+ * 与「用户点开另一个月」两条路径调用，两条路径的生效条件必须一致 ——
+ * 让调用方每次都明确交出 `appliedFilter`，才不会漏掉某一条路径。
+ */
+function fetchMonthActivities(
+  monthKey: string,
+  filter: { type?: string; q?: string } = {},
+): Promise<Activity[]> {
   const { startDate, endDate } = monthToRange(monthKey);
   const params = new URLSearchParams({
     page: '1',
@@ -44,6 +72,10 @@ function fetchMonthActivities(monthKey: string): Promise<Activity[]> {
     startDate,
     endDate,
   });
+  // 与 `applyFilter` / `loadMoreMonths` 用同一组键（`type` / `q`），
+  // 服务端 `getActivities` 与 `getMonthSummaries` 的归一规则也一致。
+  if (filter.type) params.set('type', filter.type);
+  if (filter.q) params.set('q', filter.q);
   // 统一用 Promise.resolve 包裹: fetch 桩/极老 polyfill 可能返回非 Promise,
   // 直接 `.then` 会抛 TypeError 让整页白屏 (网络层异常不该白屏)。
   return Promise.resolve(fetch(`${API_BASE}/api/activities?${params}`))
@@ -169,7 +201,7 @@ export default function ListClient({
         setExpandedMonth(firstKey);
         if (firstKey) {
           setLoadingMonth(firstKey);
-          fetchMonthActivities(firstKey)
+          fetchMonthActivities(firstKey, filter)
             .then((data) => {
               if (epoch !== filterEpochRef.current) return;
               setActivitiesByMonth((prev) => ({ ...prev, [firstKey]: data }));
@@ -215,7 +247,9 @@ export default function ListClient({
     if (activitiesByMonth[monthKey]) return;
     setLoadingMonth(monthKey);
     setError(null);
-    fetchMonthActivities(monthKey)
+    // 必须带**已生效**条件（`appliedFilterRef`，不是输入框即时值）：
+    // 用户点开任意一个月，看到的都该是「当前筛选下的那个月」。
+    fetchMonthActivities(monthKey, appliedFilterRef.current)
       .then((data) => {
         setActivitiesByMonth((prev) => ({ ...prev, [monthKey]: data }));
       })

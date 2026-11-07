@@ -81,11 +81,18 @@ export async function registerTools(server: McpServer): Promise<void> {
         '**distance 三态**：`null` = 未同步到；`0` = 该运动没有距离语义（力量训练按组、爬楼按层、' +
         'HIIT/跳绳按次，真实库 97/353 条为 0），不要读成「几乎没运动」；`>0` = 正常里程。' +
         'type 传 `all` 或留空 = 不过滤（返回全部运动）; 传具体键（如 strength_training）才筛选。' +
-        '默认每页 20 条: pagination.total 为筛选后的总条数, 未取完时请用 offset 翻页 (limit 最大 100)。',
+        '默认每页 20 条: pagination.total 为筛选后的总条数, 未取完时请用 offset 翻页 (limit 最大 100)。' +
+        '**`q` 搜索同时匹配活动名称与运动类型的中文名**（与 get_month_summaries 的 `q` 同口径）: ' +
+        '真实库 51 条力量课的名字是「全身循环2」「跑前激活1」「核心稳定性1」, 里面没有一个字是「力量」—— ' +
+        '只查名称会 0 条命中, 以为库里没有力量训练。' +
+        '⚠ **`q` 与 `type` 的 pagination.total 是不同口径, 不要互相校验**: ' +
+        '`q=力量` 与 `type=strength_training` 在真实库都返回 51 条, 但 ' +
+        '`q=跑步` 会命中全部跑步活动的**名称**里的「跑步」字样（不等于 `type=running` 的 234 条）。',
       inputSchema: {
         limit: z.number().int().min(1).max(100).optional().describe('每页数量 (1-100, 默认 20)'),
         offset: z.number().int().min(0).optional().describe('偏移量 (默认 0)'),
         type: z.string().optional().describe('活动类型过滤, 如 running / strength_training; all 或留空 = 全部类型'),
+        q: z.string().optional().describe('搜索活动名称或运动类型中文名 (如 力量 / 游泳 / 核心)'),
         startDate: z.string().optional().describe('开始日期 YYYY-MM-DD'),
         endDate: z.string().optional().describe('结束日期 YYYY-MM-DD'),
       },
@@ -93,11 +100,11 @@ export async function registerTools(server: McpServer): Promise<void> {
     (args) =>
       run(() => {
         assertDateRange(args.startDate, args.endDate, 'list_activities');
-        const { limit = 20, offset = 0, type, startDate, endDate } = args;
+        const { limit = 20, offset = 0, type, q, startDate, endDate } = args;
         // offset 必须是 limit 的整数倍 (getActivities 只接受 page); 非法时显式报错,
         // 避免 (page-1)*limit < offset 静默丢弃中间记录。
         const page = offsetToPage(offset, limit);
-        return getActivities({ page, limit, type, startDate, endDate });
+        return getActivities({ page, limit, type, q, startDate, endDate });
       })
   );
 

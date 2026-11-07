@@ -57,10 +57,19 @@ GET /api/activities
 | `page` | number | 否 | 页码，默认 1（最大 1000000） | `2` |
 | `limit` | number | 否 | 每页数量，默认 20（最大 500） | `50` |
 | `type` | string | 否 | 按运动类型精确筛选（`running` / `strength_training` / `lap_swimming`…）。`/list` 页下拉的**值就是这些原始键**，展示文案由 `activityTypeLabel` 转成中文 | `running` |
+| `q` | string | 否 | 搜索活动**名称**或**运动类型中文名**（与 `/api/activities/months` 的 `q` 同一实现 `db.buildQueryCondition`）。纯空白等于不搜索 | `力量` |
 | `startDate` | string | 否 | 起始本地日期 (YYYY-MM-DD，含当日) | `2026-09-01` |
 | `endDate` | string | 否 | 结束本地日期 (YYYY-MM-DD，含当日) | `2026-09-30` |
 
 > `startDate > endDate` 返回 400。列表响应**不含** `track`（单条约 40KB），路线由活动详情接口单独提供。
+>
+> **`q` 与 `type` 不是同一口径**：`q` 同时匹配名称与类型中文名，`type` 只匹配类型键。
+> 真实库 `q=力量` 与 `type=strength_training` 都返回 51 条，但 `q=跑步` 会命中名称里
+> 含「跑步」字样的活动（≠ `type=running` 的 234 条）。两者不要互相校验。
+>
+> **`q` 必须与 `/api/activities/months` 用同一个值**：`/list` 的月卡头部按 `q` 过滤，
+> 展开后的卡片走本接口 —— 两处条件不一致时，头部说「2 次」、展开却列出整月 19 条
+> （第三十类缺陷）。
 
 **响应示例**
 

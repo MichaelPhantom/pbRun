@@ -854,6 +854,89 @@ describe('ListClient 活动列表 (交互/筛选/无限滚动)', () => {
   });
 
   /**
+   * **第三十类：筛选后展开的月份不按筛选取数 —— 月卡说「2 次」，展开却是 19 张卡。**
+   *
+   * `applyFilter` 会带 `type` / `q` 重新拉月度汇总，但 `fetchMonthActivities(monthKey)`
+   * 只传 `startDate` / `endDate`，**把筛选条件整个丢了**。于是：
+   *
+   * | 操作 | 月卡头部 | 展开后的卡片 |
+   * |------|---------|-------------|
+   * | 选「力量训练」 | `2026年10月 · 2 次` | **19 张**（16 跑步 + 2 力量 + 1 跑步机） |
+   *
+   * 生产实证：`months?type=strength_training` → count=2；而客户端实际请求
+   * `/api/activities?startDate=2026-10-01&endDate=2026-10-31` 返回 **19 条**。
+   * 用户筛「力量训练」，看到的是整个月的所有运动 —— 筛选等于没做。
+   *
+   * 为什么测试拦不住：既有用例的 `fetch` 桩对**任何** URL 都返回同一个数组，
+   * 于是「请求带没带筛选条件」根本不可观测。夹具不看 URL，缺陷就不显形。
+   *
+   * 判别式：凡是「列表头说 N 条、展开后是另一批数据」的界面，必须断言
+   * **展开请求的 URL 与列表头用的是同一组条件**，而不只是断言渲染结果。
+   */
+  test('月卡: 筛选后展开月份必须带上同一组筛选条件', async () => {
+    const urls: string[] = [];
+    const fetchMock = global.fetch as unknown as jest.Mock;
+    fetchMock.mockImplementation((url: string) => {
+      urls.push(url);
+      if (url.includes('/api/activities/months')) {
+        return jsonResponse([{ monthKey: '2026-10', totalDistance: 0, count: 2, runDistance: 0, runCount: 0, totalDuration: 5055 }]);
+      }
+      return jsonResponse([act({ activity_type: 'strength_training', distance: 0, name: '核心稳定性1' })]);
+    });
+    renderList({
+      initialMonthSummaries: [
+        { monthKey: '2026-10', totalDistance: 0, count: 2, runDistance: 0, runCount: 0, totalDuration: 5055 },
+      ],
+      initialActivitiesByMonth: {},
+      availableTypes: [{ type: 'strength_training', count: 51 }],
+    });
+    fireEvent.change(screen.getByLabelText('活动类型筛选'), { target: { value: 'strength_training' } });
+
+    // 等自动展开首月的那次取数发生
+    await waitFor(() => {
+      expect(urls.some((u) => u.includes('/api/activities?') && u.includes('type=strength_training'))).toBe(true);
+    });
+    // 自证：确实发过一次「展开月份」的请求（不是只发了 months 汇总）
+    const expandCalls = urls.filter((u) => u.includes('/api/activities?'));
+    expect(expandCalls.length).toBeGreaterThan(0);
+    // 每一次展开取数都必须带 type —— 不能有任何一次是「整月全类型」
+    for (const u of expandCalls) {
+      expect(u).toContain('type=strength_training');
+    }
+  });
+
+  /**
+   * **搜索词同样要带到展开取数里**。`q` 与 `type` 是同一类筛选条件，
+   * 只补 `type` 会让搜索视图继续列出整月活动。
+   */
+  test('月卡: 搜索后展开月份必须带上 q', async () => {
+    const urls: string[] = [];
+    const fetchMock = global.fetch as unknown as jest.Mock;
+    fetchMock.mockImplementation((url: string) => {
+      urls.push(url);
+      if (url.includes('/api/activities/months')) {
+        return jsonResponse([{ monthKey: '2026-08', totalDistance: 2.05, count: 1, runDistance: 0, runCount: 0 }]);
+      }
+      return jsonResponse([act({ activity_type: 'lap_swimming', distance: 2.05, name: '泳池游泳' })]);
+    });
+    renderList({
+      initialMonthSummaries: [
+        { monthKey: '2026-08', totalDistance: 2.05, count: 1, runDistance: 0, runCount: 0 },
+      ],
+      initialActivitiesByMonth: {},
+      availableTypes: [{ type: 'lap_swimming', count: 4 }],
+    });
+    fireEvent.change(screen.getByLabelText('搜索活动'), { target: { value: '游泳' } });
+    await waitFor(() => {
+      const expandCalls = urls.filter((u) => u.includes('/api/activities?'));
+      expect(expandCalls.length).toBeGreaterThan(0);
+      for (const u of expandCalls) {
+        expect(decodeURIComponent(u)).toContain('q=游泳');
+      }
+    }, { timeout: 2000 });
+  });
+
+  /**
    * **月卡在「没有距离语义」的运动上必须给时长** —— 第七层根因。
    *
    * 修完前六层（类型下拉、快捷入口、类型专属指标、月卡构成、构成截断、卡片心率）

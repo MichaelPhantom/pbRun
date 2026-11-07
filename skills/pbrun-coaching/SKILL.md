@@ -101,6 +101,10 @@ description: 分析 pbRun (Garmin) 跑步数据出教练诊断报告、查最新
   `app/lib/timezone.ts`**（`formatDate` / `formatDateTime` / `formatListDateTime`）。真实库
   `2026-10-31T23:38:57.000Z`（那场半马）的业务日期是 **2026-11-01**，不是 10-31。
   用户问「我哪天跑的」时，**别把 UTC 日期当答案**；跨日的记录（约 1/3 的清晨跑）会差一天。
+- ⚠️ **`list_activities` 的 `q` 与 `type` 不是同一口径**：`q` 同时匹配活动名称**和运动类型中文名**，
+  `type` 只匹配类型键。真实库 `q=力量` 与 `type=strength_training` 都返回 51 条，
+  但 `q=跑步` 会命中名称里含「跑步」字样的活动（≠ `type=running` 的 234 条）。
+  两者不要互相校验，也不要用 `q` 的结果去推 `type` 的总数。
 - ⚠️ **页面正文不解析 Markdown**：写报告/引用页面原文时，页面上的 `**加粗**` 在浏览器里
   会显示成四个星号（第二十九类）。AI 回答走 `MarkdownLite` 才解析 Markdown；
   引用页面正文时不要假设它带格式，也不要照抄星号当成原文强调。

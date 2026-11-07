@@ -347,6 +347,17 @@ export interface ActivityQueryParams {
   type?: string;                                 // 活动类型过滤
   /** 只取跑步类型（表现分析口径，见 db.runningTypeClause） */
   runningOnly?: boolean;
+  /**
+   * 名称/类型中文名模糊搜索（与 `getMonthSummaries` 的 `q` 同口径）。
+   *
+   * 为什么必须在这里也有：`/list` 的月卡头部按 `q` 过滤（`getMonthSummaries`），
+   * 展开后的卡片却走 `getActivities` —— 后者此前**完全不认 `q`**。于是搜「力量」
+   * 时头部说「2 次」、展开列出整月 19 条，两个数字互相对不上（第三十类）。
+   *
+   * 匹配规则收在 `db.ts` 一处（`name LIKE` **或** 类型中文名精确命中），
+   * 两个查询函数共用，避免「一个月认搜索、另一个不认」。
+   */
+  q?: string;
   startDate?: string;                            // 开始日期
   endDate?: string;                              // 结束日期
 }

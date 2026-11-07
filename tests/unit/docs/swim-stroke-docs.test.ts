@@ -97,8 +97,8 @@ describe('docs/faq.md —— 缺陷 25 与判别式第二十问', () => {
     expect(faq).toMatch(/另一个消息层级/);
   });
 
-  test('判别式从十九句扩到三十三句', () => {
-    expect(faq).toMatch(/问三十三句/);
+  test('判别式从十九句扩到三十四句', () => {
+    expect(faq).toMatch(/问三十四句/);
     expect(faq).not.toMatch(/问十九句/);
     expect(faq).not.toMatch(/问二十句/);
     expect(faq).not.toMatch(/问二十一句/);
@@ -113,6 +113,7 @@ describe('docs/faq.md —— 缺陷 25 与判别式第二十问', () => {
     expect(faq).not.toMatch(/问三十句/);
     expect(faq).not.toMatch(/问三十一句/);
     expect(faq).not.toMatch(/问三十二句/);
+    expect(faq).not.toMatch(/问三十三句/);
   });
 
   test('第二十问存在且指向消息层级', () => {
@@ -183,6 +184,11 @@ describe('docs/faq.md —— 缺陷 25 与判别式第二十问', () => {
   test('第三十三问存在且指向「这段文字给谁渲染」（缺陷 42）', () => {
     expect(faq).toMatch(/^33\.\s/m);
     expect(faq).toMatch(/33\.[^\n]{0,60}Markdown/);
+  });
+
+  test('第三十四问存在且指向「列表头与展开是否同条件」（缺陷 43）', () => {
+    expect(faq).toMatch(/^34\.\s/m);
+    expect(faq).toMatch(/34\.[^\n]{0,70}条件/);
   });
 });
 

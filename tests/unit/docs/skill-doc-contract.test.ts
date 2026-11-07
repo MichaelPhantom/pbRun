@@ -572,6 +572,14 @@ describe('skill 的「训练负荷」口径（第十八类缺陷）', () => {
   /**
    * **第二十九类：JSX 正文里的 Markdown 星号原样显示。**
    */
+  /**
+   * **第三十类：`q` 与 `type` 不是同一口径。**
+   */
+  test('skill 必须声明「q 与 type 不是同一口径」', () => {
+    expect(skill).toMatch(/`q` 与 `type` 不是同一口径/);
+    expect(skill).toMatch(/运动类型中文名/);
+  });
+
   test('skill 必须声明「页面正文不解析 Markdown」', () => {
     expect(skill).toMatch(/页面正文不解析 Markdown/);
     expect(skill).toMatch(/MarkdownLite/);

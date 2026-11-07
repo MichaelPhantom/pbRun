@@ -201,7 +201,7 @@ export function normalizeQueryFilter(q?: string | null): string | undefined {
 export function getActivities(
   params: ActivityQueryParams
 ): PaginatedResponse<Activity> {
-  const { page = 1, limit = 20, type: rawType, runningOnly, startDate, endDate } = params;
+  const { page = 1, limit = 20, type: rawType, runningOnly, startDate, endDate, q: rawQ } = params;
   const type = normalizeTypeFilter(rawType);
   const offset = (page - 1) * limit;
 
@@ -220,6 +220,13 @@ export function getActivities(
   }
   if (runningOnly) {
     query += ` AND ${runningTypeClause('activities')}`;
+  }
+  // 搜索词（第三十类）：与 `getMonthSummaries` 共用 `buildQueryCondition`，
+  // 否则「列表头按搜索过滤、展开卡片不按搜索过滤」两个数字永远对不上。
+  const queryCond = buildQueryCondition(rawQ);
+  if (queryCond) {
+    query += ` AND ${queryCond.sql}`;
+    queryParams.push(...queryCond.params);
   }
   if (startDate) {
     query += ' AND start_time >= ?';
@@ -324,24 +331,13 @@ export function getMonthSummaries(
   // `months?q=%20` 返回 13 个月、每月只剩名称里恰好带空格的 2~21 条活动
   // （真实库名称多为「两江新区 - 基础训练」）。用户看到的是一个既非全部、
   // 也非空的静默错位结果，且不报错。
-  const qFilter = normalizeQueryFilter(filter?.q);
-  if (qFilter) {
-    // 大小写不敏感: SQLite 的 LIKE 对 ASCII 已不区分, 中文按字面匹配。
-    //
-    // **必须同时匹配运动类型的中文名**：真实库 51 条力量课的名称是「全身循环2」
-    // 「跑前激活1」「核心稳定性1」—— 里面没有一个字是「力量」。用户想找力量课，
-    // 最自然的输入就是「力量」，若只查 `name LIKE`，这 51 条一条都搜不到。
-    // 类型名匹配用 `IN` 精确列出（而不是把中文名拼进 LIKE），因为类型名是
-    // 有限集合（`ACTIVITY_TYPE_LABELS`），精确匹配不会误命中。
-    const typeNames = matchingTypeKeys(qFilter);
-    const nameCond = 'name LIKE ? ESCAPE ?';
-    if (typeNames.length > 0) {
-      where.push(`(${nameCond} OR COALESCE(NULLIF(activity_type, ''), 'running') IN (${typeNames.map(() => '?').join(',')}))`);
-      params.push(`%${escapeLike(qFilter)}%`, '\\', ...typeNames);
-    } else {
-      where.push(nameCond);
-      params.push(`%${escapeLike(qFilter)}%`, '\\');
-    }
+  //
+  // 匹配规则（名称 LIKE 或 类型中文名精确命中）与 `getActivities` **共用**
+  // `buildQueryCondition` —— 两个查询函数各写一遍就一定会漂移（第三十类）。
+  const queryCond = buildQueryCondition(filter?.q);
+  if (queryCond) {
+    where.push(queryCond.sql);
+    params.push(...queryCond.params);
   }
   const whereClause = `WHERE ${where.join(' AND ')}`;
 
@@ -427,6 +423,51 @@ export function getMonthSummaries(
 /** 转义 LIKE 通配符（用户输入的 `%` / `_` 应按字面匹配）。 */
 function escapeLike(raw: string): string {
   return raw.replace(/[\\%_]/g, (c) => `\\${c}`);
+}
+
+/**
+ * 搜索条件的 SQL 片段 —— `getActivities` 与 `getMonthSummaries` 的**唯一来源**。
+ *
+ * ## 为什么必须抽出来（第三十类缺陷）
+ *
+ * 搜索的匹配规则原本只写在 `getMonthSummaries` 里：`name LIKE ?` **或** 类型中文名
+ * 精确命中。`getActivities` 完全没有 `q` —— 于是 `/list` 的「列表头」按搜索过滤、
+ * 「展开后的卡片」不按搜索过滤，两个数字对不上：
+ *
+ * | 操作 | 月卡头部 | 展开后的卡片 |
+ * |------|---------|-------------|
+ * | 搜「力量」 | `2 次`（`q` 生效） | **整月 19 条**（`q` 被忽略） |
+ *
+ * 规则写两遍就一定会漂移一次。现在两处都调这个函数。
+ *
+ * ## 匹配语义（两条，缺一不可）
+ *
+ * 1. `name LIKE '%q%'`（大小写不敏感，`ESCAPE '\'` 让 `%` / `_` 按字面匹配）；
+ * 2. **类型中文名精确命中** —— 真实库 51 条力量课的名字是「全身循环2」
+ *    「跑前激活1」「核心稳定性1」，里面没有一个字是「力量」。只查名称时，
+ *    用户搜「力量」会得到 0 条，以为库里没有力量训练。
+ *
+ * 第 2 条用 `IN (...)` 精确列出类型键，而不是把中文名拼进 `LIKE`：类型名是
+ * 有限集合（`ACTIVITY_TYPE_LABELS`），精确匹配不会误命中名称里恰好含「力量」
+ * 二字的跑步活动。
+ *
+ * @param rawQ 用户原始输入（内部归一：纯空白 = 不过滤）
+ * @returns SQL 条件（含外层括号）与对应参数；无搜索词时返回 `null`
+ */
+function buildQueryCondition(rawQ: string | undefined): { sql: string; params: string[] } | null {
+  const q = normalizeQueryFilter(rawQ);
+  if (!q) return null;
+  const typeNames = matchingTypeKeys(q);
+  const nameCond = 'name LIKE ? ESCAPE ?';
+  if (typeNames.length > 0) {
+    return {
+      sql: `(${nameCond} OR COALESCE(NULLIF(activity_type, ''), 'running') IN (${typeNames
+        .map(() => '?')
+        .join(',')}))`,
+      params: [`%${escapeLike(q)}%`, '\\', ...typeNames],
+    };
+  }
+  return { sql: nameCond, params: [`%${escapeLike(q)}%`, '\\'] };
 }
 
 /**

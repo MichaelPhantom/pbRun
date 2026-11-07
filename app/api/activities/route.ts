@@ -42,6 +42,10 @@ export async function GET(request: NextRequest) {
     // `type=all` / 空串的归一在 `db.normalizeTypeFilter` 内完成（单一来源），
     // 与 `/api/activities/months`、MCP 的 `list_activities` 同一实现。
     type: searchParams.get('type') ?? undefined,
+    // 搜索词（第三十类）：`/list` 的月卡头部按 `q` 过滤，展开后的卡片也必须按
+    // 同一个 `q` 过滤 —— 否则搜「力量」时头部说「2 次」、展开列出整月 19 条。
+    // 归一（纯空白 = 不过滤）与匹配规则都在 `db.buildQueryCondition` 一处。
+    q: searchParams.get('q') ?? undefined,
     startDate: startDate.value,
     endDate: endDate.value,
   };
