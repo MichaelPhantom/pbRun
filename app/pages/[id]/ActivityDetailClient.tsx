@@ -22,8 +22,7 @@ import {
   lapTableCaption,
 } from '@/app/lib/lap-label';
 import { elevationSpan } from '@/app/lib/elevation';
-import { floorsFromAscent } from '@/app/lib/floors';
-import { cycleCountLabel } from '@/app/lib/cycles';
+import { typeMetricsOf } from '@/app/lib/type-metrics';
 import { lapRoleFromIntensity } from '@/app/lib/lap-intensity';
 import { feelLabel, formatSweatLoss, rpeLabel } from '@/app/lib/feel';
 import { activeSwimSeconds, formatSwolf, swolfOf } from '@/app/lib/swim';
@@ -102,15 +101,14 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
   // 海拔净高差（max-min）。注意**不是**累计爬升: 真实库 191/234 条活动的净高差
   // 小于累计爬升（环形路线回到起点, 净高差只有几十米而累计爬升上百米）, 两者必须分开展示。
   const span = elevationSpan(activity);
-  // 爬楼楼层（由 total_ascent 派生）。只在爬楼类型上派生 —— 跑步的累计爬升
-  // （山地跑 300m+）也能除以 3.048，但那是「爬升了多少层楼的高度」而不是
-  // 「爬了多少层楼」，语义完全不同，展示会误导。见 `app/lib/floors.ts`。
-  const floors = activity.activity_type === 'floor_climbing'
-    ? floorsFromAscent(activity.total_ascent)
-    : null;
-  // `total_cycles` 的展示标签 —— 语义唯一来源 `app/lib/cycles.ts`。
-  // 未确认类型（力量/室内有氧/HIIT/球类）返回 `null` → 整格不渲染。
-  const cycleLabel = cycleCountLabel(activity.activity_type);
+  // 类型专属核心指标（楼层 / 总次数）。派生规则唯一来源 `app/lib/type-metrics.ts`
+  // —— 与 `/list` 卡片、首页「最近活动」卡片共用同一份，不在这里重写。
+  //
+  // 两条纪律由模块承担（调用方不需要知道）：
+  //  ① 楼层**只对爬楼**派生 —— 山地跑的 300m 爬升是「爬了多少层楼的高度」，
+  //     不是「爬了多少层楼」，同一算式在两种语义下结论不同；
+  //  ② `total_cycles` 只对语义已确认类型展示（力量 51 条都有值但语义未知）。
+  const typeMetrics = typeMetricsOf(activity);
   // 游泳 SWOLF（= 单趟秒数 + 单趟划水次数）。时间基数必须用**活跃 lap 的计时器
   // 时间之和**，不是活动级 `moving_time` —— 后者含池边休息（599287904 有 804s），
   // 用它算会把 SWOLF 从 58 抬到 84，把一次不错的训练读成「效率很差」。
@@ -301,9 +299,10 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
     // 是「该派生没派生」。换算依据见 `app/lib/floors.ts`：真实库 6 个不同爬升值
     // （27/30/40/43/46/49m）全部精确等于 round(层数 × 3.048)，6/6 残差 <0.5m。
     // 文案必须带「约」—— 3.048m 是 Garmin 的标准楼层假设，真实层高因建筑而异。
-    ...(floors != null
-      ? [{ value: String(floors), unit: '层', label: '楼层（约）' }]
-      : []),    // 累计下降。真实库 **268/353** 有值（跑步 238 + 爬楼 30）。只给「累计爬升」
+    ...(typeMetrics.floors != null
+      ? [{ value: String(typeMetrics.floors), unit: '层', label: '楼层（约）' }]
+      : []),
+    // 累计下降。真实库 **268/353** 有值（跑步 238 + 爬楼 30）。只给「累计爬升」
     // 会漏掉下坡的离心负荷 —— 而离心收缩正是长下坡后延迟性酸痛（DOMS）的来源，
     // 也是「爬升 300m 但下降也是 300m（折返）」与「净爬升 300m（单向）」的分水岭。
     ...(activity.total_descent != null
@@ -349,11 +348,11 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
     // 游泳（÷时间≈划频）、跳绳（115–150 次/分）、爬楼（14.6–29.0 步/层）。
     // 语义唯一来源见 `app/lib/cycles.ts`；未确认 → 整格不渲染（不是 `--`，
     // 那是「数据缺失」的信号，这里是有值但不知道该叫什么）。
-    ...(cycleLabel != null && activity.total_cycles != null
+    ...(typeMetrics.cycles != null && typeMetrics.cyclesLabel != null
       ? [{
-          value: String(Math.round(activity.total_cycles)),
-          unit: cycleLabel.unit,
-          label: cycleLabel.label,
+          value: String(typeMetrics.cycles),
+          unit: typeMetrics.cyclesLabel.unit,
+          label: typeMetrics.cyclesLabel.label,
         }]
       : []),
     ...(running
@@ -769,11 +768,11 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
               // `!running`，于是力量/室内有氧/球类也会出现一列叫「计数」的表 ——
               // 而那些值的语义未确认（力量 `r(cyc, 时长) = −0.118`，室内有氧同名
               // 活动出现 5/19/66/474）。列名含糊比没有列更糟。
-              ...(cycleLabel != null && laps.some((l) => l.total_cycles != null)
+              ...(typeMetrics.cyclesLabel != null && laps.some((l) => l.total_cycles != null)
                 ? [{
                     key: 'cyc',
-                    label: swimming ? '划水次数' : cycleLabel.label.replace(/^总/, ''),
-                    unit: swimming ? '次' : cycleLabel.unit,
+                    label: swimming ? '划水次数' : typeMetrics.cyclesLabel.label.replace(/^总/, ''),
+                    unit: swimming ? '次' : typeMetrics.cyclesLabel.unit,
                   }]
                 : []),
               // 分段「时长」单位必须与单元格渲染格式一致：`formatDuration` 输出

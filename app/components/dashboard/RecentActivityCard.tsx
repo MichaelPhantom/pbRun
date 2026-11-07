@@ -3,6 +3,7 @@ import type { Activity } from "@/app/lib/types";
 import { formatDistance, formatDuration, formatPaceShort, formatListDateTime } from "@/app/lib/format";
 import { activityTypeLabel, isRunningType, isSwimmingType, needsTypeBadge } from "@/app/lib/sport";
 import { effectiveTimeSec, paceSecPer100m, formatPacePer100m, speedKmh } from "@/app/lib/pace";
+import { typeMetricsOf } from "@/app/lib/type-metrics";
 
 /** 仪表盘「最近活动」紧凑卡 (server component)。 */
 export function RecentActivityCard({ activity }: { activity: Activity }) {
@@ -22,6 +23,13 @@ export function RecentActivityCard({ activity }: { activity: Activity }) {
   // `??` 不行：`moving_time = 0`（设备未写 timer time）会被当成有值，显示 `0:00`。
   const duration = effectiveTimeSec(activity);
   const km = activity.distance != null ? Number(activity.distance) : null;
+  // 类型专属核心指标（楼层 / 总次数）。派生规则唯一来源
+  // `app/lib/type-metrics.ts` —— 与 `/list` 卡片、详情页共用同一份。
+  //
+  // 首页此前对非跑步活动只有「时长 + 类型徽标 + 心率」：爬楼 30 条
+  // （distance 全 0、training_load 全 null）在首页卡片上几乎是个空壳。
+  // 楼层只对爬楼派生、总次数只对语义已确认类型展示，两条门控都在模块内。
+  const typeMetrics = typeMetricsOf(activity);
 
   return (
     <Link
@@ -67,7 +75,9 @@ export function RecentActivityCard({ activity }: { activity: Activity }) {
       </div>
       {(activity.vdot_value != null ||
         activity.training_load != null ||
-        activity.average_heart_rate != null) && (
+        activity.average_heart_rate != null ||
+        typeMetrics.floorsText != null ||
+        typeMetrics.cycles != null) && (
         <div className="flex flex-wrap gap-3 text-[11px] text-fg-secondary">
           {/* VDOT 是跑步跑力指标: 非跑步活动即使 DB 里残留了值也不展示
               (详情页同样按 running 门控「即时跑力」)。 */}
@@ -84,6 +94,16 @@ export function RecentActivityCard({ activity }: { activity: Activity }) {
           {activity.average_heart_rate != null && (
             <span>
               心率 <span className="tnum font-medium text-fg-secondary">{Math.round(activity.average_heart_rate)}</span>
+            </span>
+          )}
+          {/* 类型专属核心指标（楼层 / 总次数）—— 非跑步活动的「这项运动练了什么」。 */}
+          {typeMetrics.floorsText != null && (
+            <span className="font-medium text-fg-secondary">{typeMetrics.floorsText}</span>
+          )}
+          {typeMetrics.cycles != null && typeMetrics.cyclesLabel != null && (
+            <span>
+              <span className="tnum font-medium text-fg-secondary">{typeMetrics.cycles}</span>{' '}
+              {typeMetrics.cyclesLabel.unit}
             </span>
           )}
         </div>

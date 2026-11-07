@@ -353,6 +353,7 @@ describe('CLI 脚本导入契约', () => {
 | `tests/unit/mcp/tool-scope-contract.test.ts` | MCP tool description 不声明统计口径/单位 | 文案是字符串常量，没有分支 |
 | `tests/unit/scripts/pace-parity.test.ts` | TS `app/lib/pace.ts` 与 CJS `scripts/common/pace.js` 两份实现漂移 —— 写入侧按一套口径落库、UI/AI 按另一套理解 | 两套实现各自 100% 覆盖、各自「算得对」；只有**逐值比对**才发现分歧。这类漂移不报错，只让数字悄悄错开 |
 | `tests/unit/components/lap-field-consumption.test.ts` | `ActivityLap` 的 47 个字段里有值却零消费（`lap_trigger` 3082/3082、`average_moving_pace` 2972/3082） | 与 `Activity` 那份同理：字段有值即「存在」，没人读不产生未覆盖分支 |
+| `tests/unit/lib/type-metrics.test.ts` | 三处调用方（`/list` 卡片 / 首页 `RecentActivityCard` / 详情页概览）各自派生「这个类型该显示什么核心指标」，漂移后每处都「算得对」 | 三处各有自己的组件测试且全绿 —— 单看任一处都自洽，只有**跨处对撞**才发现「列表有楼层、首页没有」。故派生规则抽成 `typeMetricsOf()` 单一来源，测试同时钉住两条门控（楼层只对 `floor_climbing`、`total_cycles` 只对语义白名单）与「数值单位同生共死」 |
 | `tests/unit/lib/db-time-base.test.ts` | 时长聚合（`totalDuration` / 区间表 `total_duration` / 加权权重 / VDOT 趋势）用经过时间，而配速用计时器时间 —— 同一行数据两个基数 | 两列都有值、SQL 都执行成功、类型都对；只有**同一行内对账**（区间秒数之和 vs `total_duration`）才暴露 |
 | `tests/unit/scripts/backfill-pace.test.js` | 回填脚本按错误时间基数重算（等于把旧缺陷刷成新数据）、失败却返回 0 | 正常路径下两种基数都产出「合法数字」；退出码只在异常路径分叉 |
 | `tests/unit/docs/api-route-coverage.test.ts` | 新增 API 路由未写进 README/API 文档 | 文档与代码是两棵树 |

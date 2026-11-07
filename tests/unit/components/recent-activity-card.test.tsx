@@ -206,4 +206,119 @@ describe('RecentActivityCard', () => {
     // 用「时长前后必须是空白/分隔符」的边界式判别，`??` 实现会是 ` 0:00 ·`。
     expect(container.textContent).not.toMatch(/\s0:00\s/);
   });
+
+  /**
+   * 类型专属核心指标（楼层 / 总次数）—— 与 `/list` 卡片、详情页共用
+   * `app/lib/type-metrics.ts`。
+   *
+   * 首页「最近活动」此前对非跑步活动只有「时长 + 类型徽标 + 心率」：
+   * 爬楼 30 条（`distance` 全 0、`training_load` 全 null）在首页卡片上
+   * 几乎是个空壳。这是「记录栏目只有跑步」的另一面 —— 筛到了也看不出什么。
+   *
+   * 两条门控在模块内（调用方不重写）：① 楼层只对 `floor_climbing` 派生；
+   * ② `total_cycles` 只对语义已确认类型展示（力量 51 条都有值但语义未知）。
+   */
+  test('爬楼卡片显示「约 15 层」（46m ÷ 3.048, 真实库实测值）', () => {
+    const { container } = render(
+      <RecentActivityCard
+        activity={act({
+          activity_type: 'floor_climbing',
+          name: '爬楼',
+          distance: 0,
+          duration: 1200,
+          moving_time: 1200,
+          total_ascent: 46,
+          total_cycles: 300,
+          average_heart_rate: null,
+          training_load: null,
+        })}
+      />,
+    );
+    expect(container.textContent).toContain('约 15 层');
+    // 距离 0 仍然不渲染「0.00 km」
+    expect(container.textContent).not.toContain('0.00 km');
+  });
+
+  test('跳绳卡片显示「总跳跃次数」（真实库 189/187/193）', () => {
+    const { container } = render(
+      <RecentActivityCard
+        activity={act({
+          activity_type: 'jump_rope',
+          name: '跳绳',
+          distance: 0,
+          duration: 95,
+          moving_time: 95,
+          total_cycles: 189,
+          average_heart_rate: null,
+          training_load: null,
+        })}
+      />,
+    );
+    expect(container.textContent).toContain('189');
+    expect(container.textContent).toContain('次跳跃');
+  });
+
+  test('游泳卡片显示「总划水次数」（真实库 518/798/923/695）', () => {
+    const { container } = render(
+      <RecentActivityCard
+        activity={act({
+          activity_type: 'lap_swimming',
+          name: '泳池',
+          distance: 0.775,
+          duration: 2088,
+          moving_time: 2088,
+          total_cycles: 518,
+          average_heart_rate: null,
+          training_load: null,
+        })}
+      />,
+    );
+    expect(container.textContent).toContain('518');
+    expect(container.textContent).toContain('次划水');
+  });
+
+  /**
+   * **力量课 51 条都有 `total_cycles`（51/51），但语义未确认** ——
+   * `r(cyc, 时长) = −0.118` 否掉了「次数」假设。把 73 显示成「73 次」是编造。
+   * 判别式：心率也置空，卡片上不应出现 73 这个数字的任何形态。
+   */
+  test('力量训练卡片不渲染 total_cycles（语义未确认, 不给兜底标签）', () => {
+    const { container } = render(
+      <RecentActivityCard
+        activity={act({
+          activity_type: 'strength_training',
+          name: '核心稳定性1',
+          distance: 0,
+          duration: 3609,
+          moving_time: 3609,
+          total_cycles: 73,
+          average_heart_rate: null,
+          training_load: null,
+        })}
+      />,
+    );
+    expect(container.textContent).not.toContain('73');
+    expect(container.textContent).not.toContain('总计数');
+  });
+
+  /**
+   * **楼层只对爬楼派生** —— 山地跑的 300m 爬升是「爬了多少层楼的高度」，
+   * 不是「爬了多少层楼」。若不加类型门控，会显示「约 98 层」，数字算得对、
+   * 语义是假的。
+   */
+  test('跑步（即使有 300m 爬升）不渲染楼层', () => {
+    const { container } = render(
+      <RecentActivityCard
+        activity={act({ name: '山地跑', activity_type: 'running', total_ascent: 300 })}
+      />,
+    );
+    expect(container.textContent).not.toContain('层');
+  });
+
+  test('跑步卡片不渲染 total_cycles（步幅周期数对用户无意义）', () => {
+    const { container } = render(
+      <RecentActivityCard activity={act({ name: '晨跑', total_cycles: 5234 })} />,
+    );
+    expect(container.textContent).not.toContain('5234');
+  });
 });

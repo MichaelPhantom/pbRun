@@ -13,6 +13,7 @@ import type { MonthSummary } from '@/app/lib/types';
 import { monthToRange } from '@/app/lib/date-utils';
 import { activityTypeLabel, activityTypeIcon, isRunningType, isSwimmingType, needsTypeBadge } from '@/app/lib/sport';
 import { effectiveTimeSec, paceSecPer100m, formatPacePer100m, speedKmh } from '@/app/lib/pace';
+import { typeMetricsOf } from '@/app/lib/type-metrics';
 
 const MONTHS_PAGE_SIZE = 6;
 
@@ -617,6 +618,16 @@ function ActivityCard({
     : null;
   // 无名称时按运动类型兜底 (而不是一律「跑步」—— 篮球/力量训练也被同步进库)
   const name = a.name || `${activityTypeLabel(a.activity_type)} ${formatListDateTime(a.start_time_local ?? a.start_time)}`;
+  // 非跑步活动的**类型专属核心指标**（楼层 / 总次数）。
+  //
+  // 为什么必须给：真实库 354 条里 120 条非跑步，而它们在卡片上原本只有
+  // 「时长 + 类型徽标」—— 爬楼 30 条（`distance` 全 0、`training_load` 全 null）
+  // 只显示一个时长，用户看到的是空壳，自然觉得「这些活动没什么内容」。
+  // 这是「记录栏目只有跑步」的另一面：不是筛选不到，而是**筛到了也看不出什么**。
+  //
+  // 派生规则（类型门控 + 语义白名单 + 数值单位同生共死）全部在
+  // `app/lib/type-metrics.ts` —— 详情页与首页卡片共用同一份，不在这里重写。
+  const typeMetrics = typeMetricsOf(a);
   // 时长走唯一口径（计时器时间优先，见 `app/lib/pace.ts`）。
   // 不要写 `a.moving_time ?? a.duration`：真实库有 lap 的 `moving_time = 0`
   // （未记录 timer time），`??` 会把 0 当成「有值」而显示 `0:00`。
@@ -693,6 +704,20 @@ function ActivityCard({
         {running && a.vdot_value != null && (
           <span className="text-fg-secondary">
             <span className="font-medium text-fg-secondary">{a.vdot_value.toFixed(1)}</span> 即时跑力
+          </span>
+        )}
+        {/*
+          非跑步活动的核心指标。跑步不渲染这两项（步幅周期数对用户无意义，
+          楼层只对爬楼派生）—— 它们与「训练负荷 / 即时跑力」并列，而不是
+          另起一行，保持卡片高度一致。
+        */}
+        {typeMetrics.floorsText != null && (
+          <span className="font-medium text-fg-secondary">{typeMetrics.floorsText}</span>
+        )}
+        {typeMetrics.cycles != null && typeMetrics.cyclesLabel != null && (
+          <span className="text-fg-secondary">
+            <span className="font-medium text-fg-secondary">{typeMetrics.cycles}</span>{' '}
+            {typeMetrics.cyclesLabel.unit}
           </span>
         )}
         <span className="ml-auto text-[11px] font-medium text-[var(--brand-text)]">

@@ -369,6 +369,154 @@ describe('ListClient 活动列表 (交互/筛选/无限滚动)', () => {
     expect(card).toHaveTextContent('力量训练');
   });
 
+  /**
+   * 非跑步卡片的**核心指标**必须出现 —— 否则「记录栏目只有跑步」的观感会
+   * 以另一种形式复现：卡片上有内容、但全是跑步才看得懂的内容。
+   *
+   * 真实库实测（354 条）：
+   *
+   * | 类型 | 条数 | 距离 | 训练负荷 | 卡片上原本能看到的 |
+   * |------|------|------|---------|-----------------|
+   * | 爬楼 | 30 | 全 0 | 全 null | 时长 + 「爬楼」徽标 |
+   * | 跳绳 | 3 | 全 0 | 全 null | 时长 + 「跳绳」徽标 |
+   * | 力量 | 51 | 全 0 | 51/51 | 时长 + 负荷 + 徽标 |
+   *
+   * 爬楼的核心语言是「楼层」（`total_ascent ÷ 3.048`，6 个真实爬升值 6/6 精确
+   * 拟合），跳绳的核心语言是「次数」（`total_cycles`，Σlap==session 3/3）。
+   * 这两项**详情页/AI 都有**，列表卡片却没有 —— 用户在列表上看到的是一条
+   * 「只有时长」的空壳，自然觉得「这些活动没什么内容」。
+   *
+   * 口径纪律（与详情页/AI 完全同源）：
+   *  - 楼层走 `floorsFromAscent`（唯一换算），只对 `floor_climbing` 派生；
+   *  - 总次数走 `cycleCountLabel`（唯一语义白名单），未确认类型整格不渲染。
+   */
+  test('爬楼卡片显示「楼层」（核心指标, 详情页/AI 同源）', () => {
+    renderList({
+      initialActivitiesByMonth: {
+        '2026-09': [
+          act({
+            activity_type: 'floor_climbing',
+            name: '爬楼',
+            distance: 0,
+            duration: 1200,
+            moving_time: 1200,
+            total_ascent: 46,
+            total_cycles: 300,
+            training_load: null,
+          }),
+        ],
+      },
+    });
+    const card = screen.getByRole('button', { name: /爬楼/ });
+    // 46 ÷ 3.048 = 15.09 → 约 15 层
+    expect(card).toHaveTextContent('约 15 层');
+    // 距离 0 仍然不渲染「0.00 公里」
+    expect(card).not.toHaveTextContent('0.00 公里');
+  });
+
+  /**
+   * **楼层只对爬楼派生** —— 山地跑的 300m 爬升是「爬了多少层楼的高度」，
+   * 不是「爬了多少层楼」，语义完全不同（`floors.ts` 头注释）。
+   *
+   * 若不加类型门控，一次带 300m 爬升的山地跑会显示「约 98 层」，
+   * 那是把一个跑步指标硬翻译成爬楼指标 —— 数字算得对，语义是假的。
+   */
+  test('跑步（即使有爬升）不渲染楼层', () => {
+    renderList({
+      initialActivitiesByMonth: {
+        '2026-09': [
+          act({ name: '山地跑', activity_type: 'running', total_ascent: 300, distance: 15 }),
+        ],
+      },
+    });
+    const card = screen.getByRole('button', { name: /山地跑/ });
+    expect(card).not.toHaveTextContent('层');
+  });
+
+  test('跳绳卡片显示「总跳跃次数」(真实库 189/187/193)', () => {
+    renderList({
+      initialActivitiesByMonth: {
+        '2026-09': [
+          act({
+            activity_type: 'jump_rope',
+            name: '跳绳',
+            distance: 0,
+            duration: 95,
+            moving_time: 95,
+            total_cycles: 189,
+            training_load: null,
+          }),
+        ],
+      },
+    });
+    const card = screen.getByRole('button', { name: /跳绳/ });
+    expect(card).toHaveTextContent('189');
+    expect(card).toHaveTextContent('次跳跃');
+  });
+
+  test('游泳卡片显示「总划水次数」(真实库 518/798/923/695)', () => {
+    renderList({
+      initialActivitiesByMonth: {
+        '2026-09': [
+          act({
+            activity_type: 'lap_swimming',
+            name: '泳池',
+            distance: 0.775,
+            duration: 2088,
+            moving_time: 2088,
+            total_cycles: 518,
+            training_load: null,
+          }),
+        ],
+      },
+    });
+    const card = screen.getByRole('button', { name: /泳池/ });
+    expect(card).toHaveTextContent('518');
+    expect(card).toHaveTextContent('次划水');
+  });
+
+  /**
+   * **语义未确认的类型整格不渲染** —— 绝不用「总计数 / 其他 / 杂项」兜底。
+   *
+   * 力量课 51 条都有 `total_cycles`（51/51），但 `r(cyc, 时长) = −0.118`
+   * 否掉了「次数」假设，而 `r = 0.68` 也不能证明它是别的东西。
+   * 把 73 显示成「73 次」是**编造语义**（第十一类缺陷）。
+   */
+  test('力量训练卡片不渲染 total_cycles（语义未确认, 不给兜底标签）', () => {
+    renderList({
+      initialActivitiesByMonth: {
+        '2026-09': [
+          act({
+            activity_type: 'strength_training',
+            name: '核心稳定性1',
+            distance: 0,
+            duration: 3609,
+            moving_time: 3609,
+            total_cycles: 73,
+            training_load: 60,
+          }),
+        ],
+      },
+    });
+    const card = screen.getByRole('button', { name: /核心稳定性1/ });
+    // 73 不得以任何形式出现（既不是「73 次」也不是「73 总计数」）
+    expect(card).not.toHaveTextContent('73');
+    expect(card).not.toHaveTextContent('总计数');
+  });
+
+  test('跑步卡片不渲染 total_cycles（步幅周期数对用户无意义）', () => {
+    renderList({
+      initialActivitiesByMonth: {
+        '2026-09': [
+          act({ name: '晨跑', total_cycles: 5234, average_cadence: 180 }),
+        ],
+      },
+    });
+    const card = screen.getByRole('button', { name: /晨跑/ });
+    expect(card).not.toHaveTextContent('5234');
+    expect(card).not.toHaveTextContent('总计数');
+  });
+
   test('无名称活动用时间兜底命名', () => {
     renderList({
       initialActivitiesByMonth: { '2026-09': [act({ name: '' })] },
