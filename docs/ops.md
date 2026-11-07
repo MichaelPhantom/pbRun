@@ -23,6 +23,40 @@
 | 数据库 | `app/data/activities.db`；`app/data` 是指向块存储 `/mnt/oci-block/pbrun-data` 的**符号链接** |
 | 数据同步 | cft cron（每日 08:30 / 13:30 / 22:30）直接写 DB，**不重启服务** |
 | MCP | 运行 `mcp-server/dist/`，改源码后须 `npm run build:mcp` 否则跑旧逻辑 |
+| hermes skill | `skills/pbrun-coaching/`（**仓库内唯一副本**），由 `~/.hermes/skills/leisure/pbrun-coaching` 软链指向它 |
+
+### hermes skill 的单一来源（2026-11 修复）
+
+`~/.hermes/skills/leisure/pbrun-coaching` **必须是指向本仓库的软链**：
+
+```bash
+ls -la ~/.hermes/skills/leisure/pbrun-coaching
+# pbrun-coaching -> /home/ubuntu/project/pbRun/skills/pbrun-coaching
+```
+
+**为什么**：这个 skill 是三大交付面（Web / MCP / skill）之一，但 2026-11 之前它
+只存在于 `~/.hermes` 下，**不在版本控制里、没有任何机器守卫**。实测已漂移出四处
+错误，全部会直接污染 AI 给出的训练建议：
+
+| 断言 | 曾写 | 真实情况 | 后果 |
+|------|------|---------|------|
+| HRV 阈值 | `>100ms` 恢复好 / `<60ms` 需减载 | `>100` 命中 **0/20**、`<60` 命中 **20/20** | 每次活动都被判「需减载」 |
+| 区间数组 | `[低于Z1, Z1..Z5]` 6 项 | **5 项，索引 0 = Z1** | 区间占比整体错位一格 |
+| Z3/Z4 边界 | `~85-90%` / `~90-95%` maxHR | `Z3 <87%` / `Z4 <93%` | 与页面区间对不上 |
+| 力量课平均心率 | `73–129` | **68–129** | 漏掉最低值那条 |
+
+**重建软链**（重装 hermes / 换机后必做）：
+
+```bash
+rm -rf ~/.hermes/skills/leisure/pbrun-coaching
+ln -s /home/ubuntu/project/pbRun/skills/pbrun-coaching \
+      ~/.hermes/skills/leisure/pbrun-coaching
+```
+
+**守护**：`tests/unit/docs/skill-doc-contract.test.ts` 把 skill 里的数字断言与
+`app/lib/hr-zones.ts`（`HR_ZONE_BOUNDS`）、`app/lib/sport.ts`
+（`RUNNING_ACTIVITY_TYPES`）和真实库覆盖率对撞。skill 若被移出仓库，该测试直接
+失败（**不允许「文件不在就静默跳过」**）。
 
 ### 日常命令
 
