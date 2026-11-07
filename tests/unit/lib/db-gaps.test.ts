@@ -40,6 +40,7 @@ import {
   isDatabaseAvailable,
 } from '@/app/lib/db';
 import fs from 'fs';
+import { statsPeriodRange } from '@/app/lib/date-utils';
 
 beforeEach(() => {
   // 必须 reset (而非 clear): clearAllMocks 不清空 mockReturnValueOnce 队列,
@@ -314,14 +315,21 @@ describe('getPersonalRecords', () => {
     expect(res.startDate <= res.endDate).toBe(true);
   });
 
-  test('week/month/year 窗口起点口径', () => {
+  test('week/month/year 窗口起点口径（week = ISO 周，不是滚动 7 天）', () => {
     prime([]);
     const week = getPersonalRecords('week');
+    // 第三十二类：`week` 必须与 `statsPeriodRange('week')` 同一来源（ISO 周，
+    // 周一起算），而不是「今天回推 7 天」。旧实现回推 7 天，与 /stats 九格
+    // 差一天 —— 2026-11-08 那天恰好把那场 11-01 07:38 的半马算进「本周」。
+    const expected = statsPeriodRange('week', week.endDate);
+    expect(week.startDate).toBe(expected.startDate);
     const diff =
       (new Date(week.endDate + 'T00:00:00Z').getTime() -
         new Date(week.startDate + 'T00:00:00Z').getTime()) /
       86400000;
-    expect(diff).toBe(7);
+    // ISO 周起点到今天：0..6 天（周日 6 天，周一 0 天）
+    expect(diff).toBeGreaterThanOrEqual(0);
+    expect(diff).toBeLessThanOrEqual(6);
 
     const year = getPersonalRecords('year');
     // 窗口起点应为**本地** 1 月 1 日 (YYYY-01-01)。
@@ -350,9 +358,9 @@ describe('getPersonalRecords', () => {
       // 6 个月前 = 2026-06-01 (同日钳制前恰为月初)
       const half = getPersonalRecords('6months');
       expect(half.startDate).toBe('2026-06-01');
-      // 「近一周」= 日历日回推 7 天
+      // 「本周」= ISO 周（周一起算）；2026-12-01 是周二 → 本周一 2026-11-30
       const week = getPersonalRecords('week');
-      expect(week.startDate).toBe('2026-11-24');
+      expect(week.startDate).toBe('2026-11-30');
     } finally {
       jest.useRealTimers();
     }

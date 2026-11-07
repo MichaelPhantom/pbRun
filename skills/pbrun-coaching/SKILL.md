@@ -46,6 +46,12 @@ description: 分析 pbRun (Garmin) 跑步数据出教练诊断报告、查最新
 5. **力量训练**（有力量记录时必须看，否则 ACWR 会凭空高/低）：`get_strength_sessions limit=20`
    （结构化画像）+ `get_strength_loads startDate/endDate`（逐日负荷）。
 6. **PR**：`get_personal_records period=year`（含最长单次距离）。
+   ⚠️ **周期词全站只有一个定义**：`week` 是 **ISO 周（周一起算）**，不是「今天回推 7 天」；
+   `total` 起点是 `2000-01-01`。网站 `/stats` 的「个人纪录」卡片已跟随页面 period，
+   与九格统计同一窗口。真实库 2026-11-08：ISO 周 5km PR **29:47**、最近一月 **24:56**、
+   2026 年 **23:30**、全历史 **20:29** —— **报 PR 必须带上周期**，否则「5km 最好成绩 20:29」
+   与用户在统计页看到的 23:30 会打架。`6months` 是唯一的滚动窗口（不属自然周期），
+   网站已不再使用它做默认展示。
 7. **深度课表复盘**（挑一次高质量快课做，可选但出报告很加分）：`get_activity activityId` + `get_activity_laps`（分段）+ `get_activity_records`（逐秒）+ `get_activity_track`（轨迹/海拔剖面）。
 
 ## 快速查看最新数据（「看看/同步最新跑步数据」类轻量请求）

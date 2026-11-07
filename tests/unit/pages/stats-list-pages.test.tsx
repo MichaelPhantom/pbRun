@@ -89,7 +89,10 @@ beforeAll(() => {
 
 beforeEach(() => {
   db.getStats.mockReturnValue(weekStats);
-  db.getPersonalRecords.mockReturnValue(prs);
+  // 个人纪录夹具跟随入参 period（第三十二类后页面传的是页面周期，不再是 '6months'）。
+  // 若写死 returnValue(prs)，`pr.period` 恒为 '6months'，卡片标题会与实际窗口脱节 ——
+  // 那正是缺陷本身的形态，测试不该复制它。
+  db.getPersonalRecords.mockImplementation((p: string) => ({ ...prs, period: p }));
   db.getMonthSummaries.mockReturnValue([
     { monthKey: '2026-09', totalDistance: 42.5, count: 6 },
   ]);
@@ -117,12 +120,14 @@ describe('app/stats/page.tsx', () => {
     );
     expect(db.getStats).toHaveBeenCalledWith('month');
     expect(db.getStats).toHaveBeenCalledWith('week'); // 周口径二次取数
-    expect(db.getPersonalRecords).toHaveBeenCalledWith('6months');
+    // 第三十二类：个人纪录必须跟随页面 period（旧实现硬编码 '6months'）
+    expect(db.getPersonalRecords).toHaveBeenCalledWith('month');
+    expect(db.getPersonalRecords).not.toHaveBeenCalledWith('6months');
     // 当前跑力 = 周平均 VDOT (46.7)
     expect(screen.getByText('46.7')).toBeInTheDocument();
     expect(screen.getByText('月数据统计')).toBeInTheDocument();
     expect(screen.getByText('共计跑步 12 次')).toBeInTheDocument();
-    expect(screen.getByText(/最近6个月/)).toBeInTheDocument();
+    expect(screen.getByText(/2026年03月26日-09月26日/)).toBeInTheDocument();
     // 汇总页 AI 教练跟随统计周期（月 → 近 30 天）
     expect(screen.getByTestId('global-coach')).toHaveTextContent('coach:30');
   });

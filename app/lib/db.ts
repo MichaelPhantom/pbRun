@@ -32,7 +32,7 @@ import {
 import type { VdotSample } from './insight';
 import { getPaceZoneBoundsFromVdot, getPaceZoneCenterFromVdot } from './vdot-pace';
 import { periodKeyOf, statsPeriodRange } from './date-utils';
-import { localDateRangeToUtc, localDateMinusDays, localMonthKeyMinusMonths, todayLocalDate } from './timezone';
+import { localDateRangeToUtc, localMonthKeyMinusMonths, todayLocalDate } from './timezone';
 import { hrZoneOf, resolveMaxHr } from './hr-zones';
 import { POWER_ZONE_NAMES, powerZoneOf } from './power-zones';
 import { resolveFtp } from './power';
@@ -729,14 +729,24 @@ export function getPersonalRecords(period: 'week' | 'month' | 'year' | 'total' |
   let startDate: string;
   const endDate = now;
   switch (period) {
+    // `week` / `month` / `year` / `total` **必须**走 `statsPeriodRange` —— 那是
+    // 「自然周期」的唯一实现（页面标题、`getStats` 的 SQL 过滤、统计类 AI 教练
+    // 的分析区间都取它）。旧实现自己写了一套：
+    //
+    // | period | `getPersonalRecords`（旧） | `statsPeriodRange` |
+    // |--------|---------------------------|--------------------|
+    // | week   | 滚动 7 天（11-01 起）      | **ISO 周**（11-02 周一） |
+    // | total  | `1970-01-01`              | `2000-01-01`       |
+    //
+    // 于是同一个「周」，九格统计与个人纪录差一天。2026-11-08 这天恰好可观测：
+    // 那场半马（UTC `10-31T23:38` = 业务时区 **11-01 07:38**）落在差出来的
+    // 那一天里 —— 滚动口径把它的前 5km 算成「本周 5km PR」，ISO 周不算。
+    // 两套「周」并存，用户无从判断哪个对。
     case 'week':
-      startDate = localDateMinusDays(endDate, 7);
-      break;
     case 'month':
-      startDate = `${endDate.slice(0, 7)}-01`;
-      break;
     case 'year':
-      startDate = `${endDate.slice(0, 4)}-01-01`;
+    case 'total':
+      startDate = statsPeriodRange(period, endDate).startDate;
       break;
     case '6months': {
       // 月末溢出防护: 「6 个月前」那一天若超出目标月天数 (如 8/31 → 2 月),

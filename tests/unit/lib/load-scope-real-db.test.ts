@@ -614,9 +614,9 @@ describeIfDb('真实库：训练负荷的合并口径 vs 跑步口径', () => {
     // UTC 日期与业务时区日期必须不同天 —— 这正是「读进程时区会错一天」的证据
     expect(row!.start_time.slice(0, 10)).toBe('2026-10-31');
     expect(row!.start_time_local.slice(0, 10)).toBe('2026-11-01');
-    // 且它确实是**最近 6 个月**的最长距离 —— 统计页的「单次跑步最长距离」
-    // 那一行就是 `getPersonalRecords('6months')` 的结果（全历史最长是
-    // 2026-02-22 的 21.75km，不在这个窗口内）。
+    // 它是**最近 6 个月**的最长距离（全历史最长是 2026-02-22 的 21.75km）。
+    // 第三十二类之后 `/stats` 的纪录卡片跟随页面 period，这条数据只用于证明
+    // 「UTC 与业务时区跨日确实存在」这个前提成立。
     const longest = db
       .prepare(
         `SELECT distance, start_time FROM activities

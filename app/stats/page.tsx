@@ -18,9 +18,19 @@ export default async function StatsPage({ searchParams }: PageProps) {
     ? (periodParam as StatsPeriod)
     : 'week';
 
+  // 个人纪录**跟随页面周期**（第三十二类缺陷）。
+  //
+  // 旧实现硬编码 `getPersonalRecords('6months')`：切到「周」时九格是本自然周、
+  // 个人纪录还是最近 6 个月；切到「总」时九格是全历史、个人纪录仍是最近 6 个月。
+  // 于是**全历史 5km PR 20:29 永远看不到**（页面只显示近 6 个月的 23:30），
+  // 用户以为自己的最好成绩就是 23:30。卡片标题虽写着「最近6个月」，但那句
+  // 标签本身就是在为错误的口径做背书 —— 与缺陷 18「文档替缺陷背书」同一形态。
+  //
+  // 现在与九格同一 `period`，`getPersonalRecords` 内部的窗口也复用
+  // `statsPeriodRange`（唯一来源），所以「周」在整页只有一个定义。
   const [data, pr, weekStats] = await Promise.all([
     getStats(period),
-    getPersonalRecords('6months'),
+    getPersonalRecords(period),
     getStats('week'),
   ]);
 
