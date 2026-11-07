@@ -104,6 +104,21 @@ describe('MCP tool description 必须声明统计口径', () => {
   });
 
   /**
+   * 按非跑步类型筛选时 `runDistance`/`runCount` 恒为 0 —— 必须显式警告，
+   * 否则模型会把这个 0 读成「这个月没运动」。
+   *
+   * 真实库实证：`months?type=lap_swimming` 的 totalDistance 为 2.05 / 3.28 /
+   * 0.78km，而 runDistance 三个月全为 0。模型若只看 runDistance 就会说
+   * 「用户最近三个月没有训练」。
+   */
+  test('get_month_summaries 声明按非跑步 type 筛选时 runDistance 恒为 0', () => {
+    const desc = configs.get('get_month_summaries')!.description ?? '';
+    expect(desc).toMatch(/按非跑步 type 筛选时/);
+    expect(desc).toMatch(/恒为 0/);
+    expect(desc).toMatch(/不要读成/);
+  });
+
+  /**
    * `type=all` 的语义必须在 description 里写明。
    *
    * 这是 UI「所有类型」的选项值，不是库里的类型键（生产库 353 条无一条叫 all）。

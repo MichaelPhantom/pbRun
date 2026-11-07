@@ -314,6 +314,48 @@ describe('ListClient 活动列表 (交互/筛选/无限滚动)', () => {
   });
 
   /**
+   * **按非跑步类型筛选时，月卡里程必须改用全类型口径**。
+   *
+   * 头部里程默认只算跑步（防止游泳距离混进跑量）。但用户主动选了「泳池游泳」
+   * 之后，他要看的就是游泳里程 —— 此时 `runDistance` 恒为 0，沿用「跑量为 0
+   * 就不渲染」的规则会让**游泳的里程彻底消失**。
+   *
+   * 真实库实证：`months?type=lap_swimming` 返回 totalDistance 2.05 / 3.28 / 0.78，
+   * runDistance 全为 0 —— 三个月的游泳里程在筛选后一个都看不到。
+   *
+   * 筛选是「我要看这一类」，里程口径必须跟着筛选走：未筛选 = 跑量，
+   * 按类型筛选 = 该类活动的距离。
+   */
+  test('月卡: 按非跑步类型筛选时显示该类里程 (runDistance 为 0 不隐藏)', async () => {
+    const fetchMock = global.fetch as unknown as jest.Mock;
+    fetchMock.mockImplementation((url: string) => {
+      if (url.includes('/api/activities/months')) {
+        return jsonResponse([
+          { monthKey: '2026-08', totalDistance: 2.05, count: 1, runDistance: 0, runCount: 0 },
+        ]);
+      }
+      return jsonResponse([]);
+    });
+    renderList({
+      initialMonthSummaries: [
+        {
+          monthKey: '2026-08',
+          totalDistance: 2.05,
+          count: 1,
+          runDistance: 0,
+          runCount: 0,
+        },
+      ],
+      initialActivitiesByMonth: { '2026-08': [act({ activity_type: 'lap_swimming', distance: 2.05 })] },
+      availableTypes: [{ type: 'lap_swimming', count: 4 }],
+    });
+    fireEvent.change(screen.getByLabelText('活动类型筛选'), { target: { value: 'lap_swimming' } });
+    const monthBtn = await screen.findByRole('button', { name: /2026年8月/ });
+    await waitFor(() => expect(monthBtn).toHaveTextContent('2.05 公里'));
+    expect(monthBtn).toHaveTextContent('1 次');
+  });
+
+  /**
    * 月卡「含 N 次其他」徽标只在**未按类型筛选**时有意义。
    *
    * 用户选了「力量训练」后，那 4 次全都是力量训练 —— 再标「含 4 次其他」是

@@ -438,13 +438,25 @@ export default function ListClient({
                   </span>
                   <span className="tnum flex items-center gap-3 text-sm text-fg-muted">
                     {/*
-                      里程只算跑步: 全类型会把游泳距离加进跑量 (真实库 2026-08 多 2.05km)。
-                      跑量为 0 时**整块不渲染**而不是显示「0.00 公里」——
-                      按「力量训练」筛选后跑量必然为 0，显示出来像同步失败。
+                      里程口径**跟着筛选走**：
+                       - 未筛选 → 只算跑步（`runDistance`）。全类型会把游泳距离
+                         加进跑量（真实库 2026-08 多 2.05km）。
+                       - 按某类型筛选 → 用 `totalDistance`。此时它就是「该类活动
+                         的里程」；若仍取 `runDistance`，筛选游泳/篮球/爬楼后
+                         `runDistance` 恒为 0，里程整块消失 —— 用户主动选了
+                         「泳池游泳」，最想看的游泳里程反而看不到。真实库实证
+                         `months?type=lap_swimming` 的 totalDistance 为
+                         2.05 / 3.28 / 0.78km 而 runDistance 全 0。
+                       - 里程为 0 时**整块不渲染**而不是显示「0.00 公里」——
+                         力量训练本来就没有距离语义，显示出来像同步失败。
                       缺 `runDistance`（旧调用方/旧 API 响应）时回落到 `totalDistance`。
                     */}
                     {(() => {
-                      const km = Number(summary.runDistance ?? summary.totalDistance);
+                      const km = Number(
+                        typeFilter === 'all'
+                          ? summary.runDistance ?? summary.totalDistance
+                          : summary.totalDistance,
+                      );
                       return km > 0 ? <span>{km.toFixed(2)} 公里</span> : null;
                     })()}
                     {/* 次数给全类型: 与展开后的卡片数严格一致, 另标出其中非跑步的条数 */}
