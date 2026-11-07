@@ -398,7 +398,10 @@ export async function registerTools(server: McpServer): Promise<void> {
       title: '个人纪录 (PB)',
       description:
         '指定周期内 1.6K/3K/5K/10K/半马/全马 的个人最佳成绩与最长距离。' +
-        '**跑步口径**：只统计跑步类活动，非跑步不计入。',
+        '**跑步口径**：只统计跑步类活动，非跑步不计入。' +
+        '**目标距离是 IAAF 标准值**（半马 21097.5m / 全马 42195m，与首页成绩预测同一来源）：' +
+        '门槛单向 —— 活动距离 < 目标即判为「无纪录」，所以一次标准半马（21.0975km）必然命中；' +
+        '`durationSeconds = null` 只表示该周期内确实没有跑够这个距离。',
       inputSchema: {
         period: z.enum(['week', 'month', 'year', 'total', '6months']).optional().describe('统计周期 (默认 total)'),
       },

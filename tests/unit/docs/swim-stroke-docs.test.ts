@@ -97,8 +97,10 @@ describe('docs/faq.md —— 缺陷 25 与判别式第二十问', () => {
     expect(faq).toMatch(/另一个消息层级/);
   });
 
-  test('判别式从十九句扩到三十八句', () => {
-    expect(faq).toMatch(/问三十八句/);
+  test('判别式从十九句扩到四十句', () => {
+    expect(faq).toMatch(/问四十句/);
+    expect(faq).not.toMatch(/问三十九句/);
+    expect(faq).not.toMatch(/问三十八句/);
     expect(faq).not.toMatch(/问三十七句/);
     expect(faq).not.toMatch(/问三十六句/);
     expect(faq).not.toMatch(/问三十五句/);
@@ -220,6 +222,32 @@ describe('docs/faq.md —— 缺陷 25 与判别式第二十问', () => {
   test('第三十八问存在且指向「三态纪律是否落到同一张表的每一列」（缺陷 47）', () => {    expect(faq).toMatch(/^38\.\s/m);
     expect(faq).toMatch(/38\.[^\n]{0,60}三态/);
     expect(faq).toMatch(/38\.[^\n]{0,200}每一列/);
+  });
+
+  test('第三十九问存在且指向「缺失占位符是否唯一」（缺陷 48）', () => {
+    expect(faq).toMatch(/^39\.\s/m);
+    expect(faq).toMatch(/39\.[^\n]{0,60}占位符/);
+    expect(faq).toMatch(/39\.[^\n]{0,400}静态扫描/);
+  });
+
+  test('第四十问存在且指向「同一常量在两处会不会给出相反结论」（缺陷 49）', () => {
+    expect(faq).toMatch(/^40\.\s/m);
+    expect(faq).toMatch(/40\.[^\n]{0,80}常量/);
+    expect(faq).toMatch(/40\.[^\n]{0,400}单向/);
+  });
+
+  test('缺陷 48 存在且讲的是「同一页面三种缺失写法」', () => {
+    expect(faq).toMatch(/^\| 48 \|/m);
+    expect(faq).toMatch(/48[^\n]{0,300}EMPTY_PLACEHOLDER|48[^\n]{0,300}`--`/);
+    expect(faq).toMatch(/48[^\n]{0,3000}StatsClient/);
+    expect(faq).toMatch(/48[^\n]{0,3000}ACWR/);
+  });
+
+  test('缺陷 49 存在且讲的是「半马距离两套常量」', () => {
+    expect(faq).toMatch(/^\| 49 \|/m);
+    expect(faq).toMatch(/49[^\n]{0,300}21100/);
+    expect(faq).toMatch(/49[^\n]{0,3000}21097\.5/);
+    expect(faq).toMatch(/49[^\n]{0,3000}race-distances/);
   });
 
   test('缺陷 47 存在且讲的是「整列恒为 -- 因为该运动不产出」', () => {

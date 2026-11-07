@@ -45,6 +45,7 @@ import {
   type StrengthLoadPoint,
 } from './strength';
 import { effectiveTimeSec, sampleSeconds, paceSecPerKm } from './pace';
+import { PR_DISTANCES } from './race-distances';
 
 
 /**
@@ -666,15 +667,16 @@ export function getStats(period?: 'week' | 'month' | 'year' | 'total'): StatsRes
   };
 }
 
-/** 个人纪录目标距离（米） */
-const PR_DISTANCES = [
-  { meters: 1600, label: '1.6公里' },
-  { meters: 3000, label: '3公里' },
-  { meters: 5000, label: '5公里' },
-  { meters: 10000, label: '10公里' },
-  { meters: 21100, label: '半程马拉松' },
-  { meters: 42200, label: '全程马拉松' },
-] as const;
+/**
+ * 个人纪录目标距离（米）来自 `app/lib/race-distances.ts`（唯一来源）。
+ *
+ * **第三十五类缺陷**：这里原来写 `21100` / `42200`，而 `vdot-pace.ts` 的
+ * `predictRaceTimes` 用 `21097.5` / `42195` —— 同一个「半马」两个数。
+ * 门槛是**单向**的（`bestTimeForDistanceMeters` 首行 `< targetMeters → null`），
+ * 于是一次标准半马（21.0975 km）会被 21100 判成「没跑够」，页面显示 `--`，
+ * 而首页同时给它预测出「半马 1:50:11」。真实库最大距离 21.74561 km 恰好
+ * 掩盖了这个缺陷 —— 下次标准距离的半马就会静默消失。
+ */
 
 /**
  * 计算单次活动中跑完 targetMeters 的最短用时。

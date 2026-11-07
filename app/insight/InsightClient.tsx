@@ -13,6 +13,7 @@ import { GlobalCoach } from '@/app/lib/components/ai/GlobalCoach';
 import { TIME_RANGE_DAYS_OPTIONS, TIME_RANGE_LABELS, type TimeRangeDays } from '@/app/lib/date-utils';
 import { hrZoneColor, zoneRangeLabel } from '@/app/lib/hr-zones';
 import { INSIGHT_LOAD_SCOPE_HINT, PERIODIZATION_SCOPE_HINT } from '@/app/lib/load-scope';
+import { EMPTY_PLACEHOLDER } from '@/app/lib/format';
 import { activityDetailPath } from '@/app/lib/routes';
 import type { InsightFinding, InsightResponse } from '@/app/lib/types';
 
@@ -312,7 +313,10 @@ export default function InsightClient({
         accent
         action={
           <Badge variant={acwrBadge.tone}>
-            ACWR {load.acwr != null ? load.acwr.toFixed(2) : '—'} · {acwrBadge.label}
+            {/* 第三十五类缺陷：这里原来写 `'—'`（em dash），全站是 `'--'`。
+                ACWR 为 null 时（慢性窗不足 28 天）徽章会渲染 `ACWR — · 历史不足`，
+                与同一页其它空值的 `--` 字形不同 —— 「缺失」要用户猜两次。 */}
+            ACWR {load.acwr != null ? load.acwr.toFixed(2) : EMPTY_PLACEHOLDER} · {acwrBadge.label}
           </Badge>
         }
       >

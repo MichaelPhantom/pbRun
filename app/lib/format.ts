@@ -3,9 +3,28 @@
  */
 import { toBusinessWallClock } from './timezone';
 
+/**
+ * 「没有值」的唯一占位符 —— 全站展示层必须用它，不许自己写 `-` / `—` / `N/A`。
+ *
+ * 第三十五类缺陷：全站 14 个格式化函数、`DataTable` 的缺失单元格兜底、详情页 /
+ * 区间表 / AI 数据块 60+ 处都是 `--`，但有两处自己写了一个字符：
+ *
+ * | 位置 | 旧占位符 | 生产表现 |
+ * |------|----------|----------|
+ * | `StatsClient.tsx`（个人纪录时长为空） | `-` | `/stats?period=week` 的「半程马拉松最佳成绩」渲染成 `-` |
+ * | `InsightClient.tsx`（ACWR 为空） | `—`（em dash） | 历史不足时徽章显示 `ACWR — · 历史不足` |
+ *
+ * 同一屏里 `-` / `—` / `--` 三种字形，「缺失」这件事本身要用户猜：单破折号
+ * 容易被读成「一个数字」或「负号」，em dash 又像排版符号。占位符必须唯一。
+ *
+ * 静态守卫：`tests/unit/lib/placeholder-consistency.test.tsx` 扫 `app/**`，
+ * 把单破折号当展示占位符即红（注释内说明与日期分隔符除外）。
+ */
+export const EMPTY_PLACEHOLDER = '--';
+
 /** 配速：秒/公里 → "5:30" 或 "5:30 /km" */
 export function formatPace(secondsPerKm: number | null | undefined, withUnit = true): string {
-  if (secondsPerKm == null || Number.isNaN(secondsPerKm)) return '--';
+  if (secondsPerKm == null || Number.isNaN(secondsPerKm)) return EMPTY_PLACEHOLDER;
   // 先整体取整再拆分, 否则 Math.round(秒%60) 可能得到 60 (如 359.6 → "5:60")。
   const total = Math.round(secondsPerKm);
   const min = Math.floor(total / 60);
@@ -16,19 +35,19 @@ export function formatPace(secondsPerKm: number | null | undefined, withUnit = t
 
 /** 距离：公里 → "10.05 km"（保留 2 位小数，入参已是 km） */
 export function formatDistance(km: number | null | undefined): string {
-  if (km == null || Number.isNaN(km)) return '--';
+  if (km == null || Number.isNaN(km)) return EMPTY_PLACEHOLDER;
   return `${Number(km).toFixed(2)} km`;
 }
 
 /** 距离：米 → "10.05 km"（用于分段等接口仍返回米的场景） */
 export function formatDistanceFromMeters(meters: number | null | undefined): string {
-  if (meters == null || Number.isNaN(meters)) return '--';
+  if (meters == null || Number.isNaN(meters)) return EMPTY_PLACEHOLDER;
   return `${(meters / 1000).toFixed(2)} km`;
 }
 
 /** 时长：秒 → "1:02:30" 或 "42:30" */
 export function formatDuration(seconds: number | null | undefined): string {
-  if (seconds == null || Number.isNaN(seconds)) return '--';
+  if (seconds == null || Number.isNaN(seconds)) return EMPTY_PLACEHOLDER;
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
   const s = Math.floor(seconds % 60);
@@ -39,7 +58,7 @@ export function formatDuration(seconds: number | null | undefined): string {
 
 /** 时长：秒 → "00:07:04"（个人纪录用，始终 HH:MM:SS） */
 export function formatDurationRecord(seconds: number | null | undefined): string {
-  if (seconds == null || Number.isNaN(seconds)) return '--';
+  if (seconds == null || Number.isNaN(seconds)) return EMPTY_PLACEHOLDER;
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
   const s = Math.floor(seconds % 60);
@@ -56,9 +75,9 @@ export function formatDurationRecord(seconds: number | null | undefined): string
  * 旧实现 `new Date(iso).getHours()` 在 UTC 服务器上会把 UTC 时刻原样展示。
  */
 export function formatDateTime(iso: string | null | undefined): string {
-  if (!iso) return '--';
+  if (!iso) return EMPTY_PLACEHOLDER;
   const wall = toBusinessWallClock(iso);
-  if (!wall) return '--';
+  if (!wall) return EMPTY_PLACEHOLDER;
   const [datePart, timePart] = wall.split('T');
   const [y, m, day] = datePart.split('-');
   const h = timePart.slice(0, 2);
@@ -68,9 +87,9 @@ export function formatDateTime(iso: string | null | undefined): string {
 
 /** 仅日期：YYYY/MM/DD（确定性格式, 不依赖系统 locale）。时区契约同 formatDateTime。 */
 export function formatDate(iso: string | null | undefined): string {
-  if (!iso) return '--';
+  if (!iso) return EMPTY_PLACEHOLDER;
   const wall = toBusinessWallClock(iso);
-  if (!wall) return '--';
+  if (!wall) return EMPTY_PLACEHOLDER;
   const [y, m, day] = wall.slice(0, 10).split('-');
   return `${y}/${m}/${day}`;
 }
@@ -79,9 +98,9 @@ const WEEKDAY_ZH = ['周日', '周一', '周二', '周三', '周四', '周五', 
 
 /** 列表项日期时间：YYYY/MM/DD(周x) HH:MM。时区契约同 formatDateTime。 */
 export function formatListDateTime(iso: string | null | undefined): string {
-  if (!iso) return '--';
+  if (!iso) return EMPTY_PLACEHOLDER;
   const wall = toBusinessWallClock(iso);
-  if (!wall) return '--';
+  if (!wall) return EMPTY_PLACEHOLDER;
   const [y, m, day] = wall.slice(0, 10).split('-');
   // 星期由业务时区日期决定: 用 Date.UTC 构造再读 getUTCDay, 避免进程 TZ
   const week = WEEKDAY_ZH[new Date(Date.UTC(Number(y), Number(m) - 1, Number(day))).getUTCDay()];
@@ -92,7 +111,7 @@ export function formatListDateTime(iso: string | null | undefined): string {
 
 /** 配速简短形式：4'57''（分'秒''） */
 export function formatPaceShort(secondsPerKm: number | null | undefined): string {
-  if (secondsPerKm == null || Number.isNaN(secondsPerKm)) return '--';
+  if (secondsPerKm == null || Number.isNaN(secondsPerKm)) return EMPTY_PLACEHOLDER;
   const min = Math.floor(secondsPerKm / 60);
   const sec = Math.round(secondsPerKm % 60);
   return `${min}'${sec.toString().padStart(2, '0')}''`;
@@ -107,7 +126,7 @@ export function formatMonthYear(yearMonth: string): string {
 
 /** 心率等整数 */
 export function formatInt(value: number | null | undefined, unit = ''): string {
-  if (value == null || Number.isNaN(value)) return '--';
+  if (value == null || Number.isNaN(value)) return EMPTY_PLACEHOLDER;
   return unit ? `${Math.round(value)} ${unit}` : String(Math.round(value));
 }
 
@@ -118,7 +137,7 @@ export function formatCadence(spm: number | null | undefined): string {
 
 /** 温度 */
 export function formatTemp(c: number | null | undefined): string {
-  if (c == null || Number.isNaN(c)) return '--';
+  if (c == null || Number.isNaN(c)) return EMPTY_PLACEHOLDER;
   return `${c.toFixed(1)} °C`;
 }
 

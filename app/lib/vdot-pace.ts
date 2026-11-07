@@ -7,6 +7,7 @@
  * 避免 TS 与同步脚本因常量分叉导致「展示配速区间」与「入库 VDOT」口径不一致。
  */
 import VC from './vdot-constants.json';
+import { HALF_MARATHON_M, MARATHON_M } from './race-distances';
 
 /** 给定 VDOT 与 %VO2max（0-1），返回该强度下的配速（秒/公里） */
 export function vdotToPaceSecPerKm(vdot: number, percentVo2max: number): number {
@@ -109,12 +110,17 @@ export interface RacePrediction {
   seconds: number | null;
 }
 
-/** 5K / 10K / 半马 / 全马 预测完赛时间列表 (秒)。 */
+/** 5K / 10K / 半马 / 全马 预测完赛时间列表 (秒)。
+ *
+ * 半马/全马距离引用 `app/lib/race-distances.ts`（唯一来源）—— 第三十五类缺陷：
+ * 这里原来写 `21097.5` / `42195`，而 `/stats` 个人纪录门槛写 `21100` / `42200`，
+ * 同一个比赛距离两个数。
+ */
 export function predictRaceTimes(vdot: number): RacePrediction[] {
   return [
     { label: "5K", distanceMeters: 5000, seconds: predictRaceTimeSec(vdot, 5000) },
     { label: "10K", distanceMeters: 10000, seconds: predictRaceTimeSec(vdot, 10000) },
-    { label: "半马", distanceMeters: 21097.5, seconds: predictRaceTimeSec(vdot, 21097.5) },
-    { label: "全马", distanceMeters: 42195, seconds: predictRaceTimeSec(vdot, 42195) },
+    { label: "半马", distanceMeters: HALF_MARATHON_M, seconds: predictRaceTimeSec(vdot, HALF_MARATHON_M) },
+    { label: "全马", distanceMeters: MARATHON_M, seconds: predictRaceTimeSec(vdot, MARATHON_M) },
   ];
 }

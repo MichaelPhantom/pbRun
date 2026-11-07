@@ -135,7 +135,11 @@ export default function StatsClient({ data, pr, period, currentVdot, coachRange 
 }
 
 function RecordRow({ item }: { item: PersonalRecordItem }) {
-  const timeStr = item.durationSeconds != null ? formatDurationRecord(item.durationSeconds) : '-';
+  // 第三十五类缺陷：这里原来写 `'-'`（单破折号），而全站是 `'--'`。
+  // 生产 `/stats?period=week` 的「半程马拉松最佳成绩」「全程马拉松最佳成绩」
+  // 因此渲染成 `-` —— 同一页的「单次跑步最长距离」空值却是 `--`。
+  // 直接调 `formatDurationRecord` 即可：它本身就把 null 转成占位符。
+  const timeStr = formatDurationRecord(item.durationSeconds);
   // 第二十七类缺陷：旧实现用 `new Date(iso).toLocaleDateString()`，读的是**进程
   // 时区**（TZ=UTC 的 CI 腿会把 2026-10-31T23:38Z 渲染成 10/31，而业务时区
   // 是 11/01 07:38）。`formatDate` 走 `toBusinessWallClock`（固定 +480），
