@@ -159,12 +159,32 @@ function startGeoSelect(): { lat: string; lng: string } {
 }
 
 /**
+ * 把「类型筛选」的输入归一成**真正的类型键**（`undefined` = 不过滤）。
+ *
+ * `all` / 空串是「所有类型」的 UI 语义，不是库里存在的类型值。若把它们当类型键
+ * 传进 SQL，`activity_type = 'all'` 命中 0 行 —— 用户选「所有类型」后月份列表正常、
+ * 展开的卡片却全部消失。生产库 353 条活动里没有一条叫 `all`。
+ *
+ * 归一放在 `db.ts` 这一层（而不是各 API route 各写一遍）：Web 的
+ * `/api/activities`、`/api/activities/months` 与 MCP 的 `list_activities`、
+ * `get_month_summaries` 全部经过这两个查询函数，收在一处才不会「一个端点认得
+ * `all`、另一个不认得」。
+ */
+export function normalizeTypeFilter(type?: string | null): string | undefined {
+  if (!type) return undefined;
+  const trimmed = type.trim();
+  if (!trimmed || trimmed === 'all') return undefined;
+  return trimmed;
+}
+
+/**
  * Get activities with pagination and filtering.
  */
 export function getActivities(
   params: ActivityQueryParams
 ): PaginatedResponse<Activity> {
-  const { page = 1, limit = 20, type, runningOnly, startDate, endDate } = params;
+  const { page = 1, limit = 20, type: rawType, runningOnly, startDate, endDate } = params;
+  const type = normalizeTypeFilter(rawType);
   const offset = (page - 1) * limit;
 
   const db = getDatabase();
@@ -264,12 +284,14 @@ export function getMonthSummaries(
   // 过滤条件与分页 total 必须**共用同一段 WHERE**，否则 total 与 data 会不同口径
   const where: string[] = ['start_time_local IS NOT NULL', 'length(start_time_local) >= 7'];
   const params: string[] = [];
-  if (filter?.type) {
+  // `all` / 空串 = 不过滤（与 `/api/activities`、MCP 同一归一函数）
+  const typeFilter = normalizeTypeFilter(filter?.type);
+  if (typeFilter) {
     // 归一规则必须与 `getActivityTypes` / UI `typeKeyOf` 一致: 空 `activity_type`
     // 视为 `running`。若写成 `activity_type = ?`, 下拉里选「跑步」会漏掉这些行
     // —— 下拉有选项、选中后却是空列表。
     where.push("COALESCE(NULLIF(activity_type, ''), 'running') = ?");
-    params.push(filter.type);
+    params.push(typeFilter);
   }
   if (filter?.q) {
     // 大小写不敏感: SQLite 的 LIKE 对 ASCII 已不区分, 中文按字面匹配。

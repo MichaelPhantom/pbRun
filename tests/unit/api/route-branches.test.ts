@@ -181,7 +181,7 @@ describe('/api/activities/months', () => {
     expect(body.total).toBe(14);
   });
 
-  test('type / q 过滤参数透传 (空串与 all 视为不过滤)', async () => {
+  test('type / q 过滤参数透传 (归一是 db 层单一来源)', async () => {
     mockDb.getMonthSummaries.mockReturnValue([]);
     await monthsGET(req('/api/activities/months?type=strength_training&q=%E6%A0%B8%E5%BF%83'));
     expect(mockDb.getMonthSummaries).toHaveBeenLastCalledWith(undefined, undefined, {
@@ -189,9 +189,10 @@ describe('/api/activities/months', () => {
       q: '核心',
     });
 
+    // `all` 原样透传，由 db.normalizeTypeFilter 归一（与 /api/activities 同一实现）
     await monthsGET(req('/api/activities/months?type=all&q='));
     expect(mockDb.getMonthSummaries).toHaveBeenLastCalledWith(undefined, undefined, {
-      type: undefined,
+      type: 'all',
       q: undefined,
     });
   });
@@ -285,26 +286,23 @@ describe('/api/activities', () => {
   });
 
   /**
-   * `type=all` 与空串必须视为「不过滤」，与 `/api/activities/months` 完全一致。
+   * `type=all` / 空串必须视为「不过滤」，与 `/api/activities/months` 完全一致。
    *
    * 前端两个端点由同一套筛选状态驱动（月度汇总 + 展开月份的卡片），若只有 months
    * 认得 `all`、activities 把字面量 `all` 当类型值去查，用户选「所有类型」后
    * 月份列表正常、展开的卡片却全部消失（`activity_type = 'all'` 匹配 0 行）。
    * 生产库实证：`activity_type = 'all'` 命中 0 条，而全库 353 条。
+   *
+   * 归一实现在 `db.normalizeTypeFilter`（单一来源），route 只负责透传原始值 ——
+   * 因此这里断言的是「原值透传」，归一效果由 db 层测试覆盖。
    */
-  test('type=all / 空串 → 视为不过滤 (与 months 端点同语义)', async () => {
+  test('type 原样透传给 getActivities (归一是 db 层单一来源)', async () => {
     mockDb.getActivities.mockReturnValue({ data: [], total: 0 });
     await activitiesGET(req('/api/activities?type=all'));
     expect(mockDb.getActivities).toHaveBeenLastCalledWith(
-      expect.objectContaining({ type: undefined }),
+      expect.objectContaining({ type: 'all' }),
     );
 
-    await activitiesGET(req('/api/activities?type='));
-    expect(mockDb.getActivities).toHaveBeenLastCalledWith(
-      expect.objectContaining({ type: undefined }),
-    );
-
-    // 真实类型仍要透传（不能为了兼容 all 把所有值都吞掉）
     await activitiesGET(req('/api/activities?type=strength_training'));
     expect(mockDb.getActivities).toHaveBeenLastCalledWith(
       expect.objectContaining({ type: 'strength_training' }),

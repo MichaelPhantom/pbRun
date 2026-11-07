@@ -103,6 +103,21 @@ describe('MCP tool description 必须声明统计口径', () => {
     expect(configs.get('list_activities')!.description).not.toMatch(/列出跑步活动/);
   });
 
+  /**
+   * `type=all` 的语义必须在 description 里写明。
+   *
+   * 这是 UI「所有类型」的选项值，不是库里的类型键（生产库 353 条无一条叫 all）。
+   * 若模型照字面传 `all` 而服务端没归一，会拿到空列表并推断「用户没有活动」——
+   * 这是「数据在库里、模型看不到」的静默缺陷，只有写进 description 才能防住。
+   */
+  test('list_activities / get_month_summaries 声明 type=all 为不过滤', () => {
+    for (const name of ['list_activities', 'get_month_summaries']) {
+      const desc = configs.get(name)!.description ?? '';
+      expect(desc).toMatch(/all/);
+      expect(desc).toMatch(/不过滤/);
+    }
+  });
+
   test('get_activity_comparables 声明 running=false 时配速派生字段为 null', () => {
     const desc = configs.get('get_activity_comparables')!.description ?? '';
     expect(desc).toMatch(/running=false/);

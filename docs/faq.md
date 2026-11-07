@@ -301,6 +301,7 @@ systemd-run --user --scope -- bash scripts/deploy-prod.sh   # 挪到无上限的
 | 5 | **`getActivities({type})` 用 `activity_type = ?`** | 空 `activity_type` 的行筛不出来 —— 下拉清单把空值归入 `running`（有选项），筛选 SQL 却匹配不到（空列表） | 改为 `COALESCE(NULLIF(activity_type,''),'running') = ?`，与下拉/月度筛选/UI 四处同一表达式 |
 | 6 | **`runningTypeClause` 只写 `IN (...)`** | `isRunningType(null) === true`（旧库兼容），但 SQL 的 `IN` 排除 NULL/空串 → 同一判定在 JS 说「是跑步」、在 SQL 说「不是」，详情页显示跑步卡片、`/stats` 不统计它 | 改为 `(activity_type IN (...) OR activity_type IS NULL OR activity_type = '')`，覆盖 19 处跑步口径查询 |
 | 7 | **AI prompt 写「距离: 0.00 km」** | 力量课 1 小时、距离 0 → prompt 里写「0.00 km」，模型按「几乎没动」解读，复盘里说「训练量极低」 | 距离三态进 prompt：`null` → `--`、`0` → `--（该运动无距离语义）`、`>0` → 正常里程 |
+| 8 | **`type=all` 只在 months 端点被归一** | UI 的「所有类型」选项值是字面量 `all`。`/api/activities/months?type=all` 返回全部，`/api/activities?type=all` 却把 `all` 当类型键查 —— 生产库命中 0 条。用户选「所有类型」后月份列表正常、展开的卡片全部消失 | 归一收进 `db.normalizeTypeFilter` 单一来源（`all`/空串 → 不过滤），两个查询函数都经过它；Web 两个端点与 MCP 两个工具因此自动同语义。MCP description 也写明「`all` 或留空 = 不过滤」 |
 
 **判别式（可复用的自检）**：对任何「筛选/搜索/展示」入口问三句 ——
 1. 它的**选项**来自全库还是当前视图？（缺陷 1、5）

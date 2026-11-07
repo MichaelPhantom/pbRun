@@ -35,7 +35,9 @@ export async function GET(request: NextRequest) {
     offset = p.value;
   }
 
-  // 过滤参数: 空串按「不过滤」处理, 长度设上限避免超长 LIKE 拖库
+  // 过滤参数: 空串按「不过滤」处理, 长度设上限避免超长 LIKE 拖库。
+  // `all` / 空串的归一收在 `db.normalizeTypeFilter` 单一来源（route 只透传原始值），
+  // 避免「一个端点认得 all、另一个把它当类型值查」。
   const typeRaw = searchParams.get('type');
   const qRaw = searchParams.get('q');
   if (typeRaw != null && typeRaw.length > 64) {
@@ -45,7 +47,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'q is too long' }, { status: 400 });
   }
   const filter = {
-    type: typeRaw && typeRaw !== 'all' ? typeRaw : undefined,
+    type: typeRaw ?? undefined,
     q: qRaw ? qRaw : undefined,
   };
 

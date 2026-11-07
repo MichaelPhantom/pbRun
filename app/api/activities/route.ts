@@ -39,13 +39,9 @@ export async function GET(request: NextRequest) {
   const params: ActivityQueryParams = {
     page: page.value,
     limit: limit.value,
-    // `type=all` 与空串视为「不过滤」，与 `/api/activities/months` 同语义 ——
-    // 两个端点由前端同一套筛选状态驱动（月度汇总 + 展开月份卡片），若只有
-    // months 认得 `all`，用户选「所有类型」后月份正常、展开的卡片却全部消失
-    // （`activity_type = 'all'` 命中 0 行；生产库 353 条全被筛掉）。
-    type: searchParams.get('type') && searchParams.get('type') !== 'all'
-      ? searchParams.get('type')!
-      : undefined,
+    // `type=all` / 空串的归一在 `db.normalizeTypeFilter` 内完成（单一来源），
+    // 与 `/api/activities/months`、MCP 的 `list_activities` 同一实现。
+    type: searchParams.get('type') ?? undefined,
     startDate: startDate.value,
     endDate: endDate.value,
   };

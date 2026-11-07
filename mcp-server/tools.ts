@@ -77,11 +77,12 @@ export async function registerTools(server: McpServer): Promise<void> {
       description:
         '列出活动（**全类型口径**：含跑步/游泳/球类/力量训练等，非跑步活动的配速与步频语义不同，' +
         '请勿当跑步配速解读）。支持分页、类型与日期过滤。distance 为公里, 配速为秒/公里。' +
+        'type 传 `all` 或留空 = 不过滤（返回全部运动）; 传具体键（如 strength_training）才筛选。' +
         '默认每页 20 条: pagination.total 为筛选后的总条数, 未取完时请用 offset 翻页 (limit 最大 100)。',
       inputSchema: {
         limit: z.number().int().min(1).max(100).optional().describe('每页数量 (1-100, 默认 20)'),
         offset: z.number().int().min(0).optional().describe('偏移量 (默认 0)'),
-        type: z.string().optional().describe('活动类型过滤, 如 running'),
+        type: z.string().optional().describe('活动类型过滤, 如 running / strength_training; all 或留空 = 全部类型'),
         startDate: z.string().optional().describe('开始日期 YYYY-MM-DD'),
         endDate: z.string().optional().describe('结束日期 YYYY-MM-DD'),
       },
@@ -434,7 +435,7 @@ export async function registerTools(server: McpServer): Promise<void> {
         '**双口径同行返回**：runDistance/runCount 只算跑步（月度跑量必须用它）, ' +
         'totalDistance/count 为全类型（与 list_activities 展开的卡片数一致）。' +
         '可按 type（原始 activity_type 键, 如 strength_training）与 q（名称或运动类型中文名）' +
-        '跨月过滤, 不匹配的月份不会出现。距离单位为公里。',
+        '跨月过滤, 不匹配的月份不会出现。type 传 `all` 或留空 = 不过滤。距离单位为公里。',
       inputSchema: {
         limit: z.number().int().min(1).max(100).optional().describe('返回月份数 (默认 12)'),
         offset: z.number().int().min(0).optional().describe('偏移量 (默认 0)'),

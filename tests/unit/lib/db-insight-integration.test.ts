@@ -447,6 +447,50 @@ describe('db.ts 洞察查询 (真实 SQL)', () => {
     expect(db.getMonthSummaries(undefined, undefined, { type: 'strength_training' })).toEqual([]);
   });
 
+  /**
+   * `type: 'all'` / 空串 = **不过滤**，不是「查一个叫 all 的类型」。
+   *
+   * UI 的「所有类型」选项值是 `all`。若把它当类型键传进 SQL，`activity_type = 'all'`
+   * 命中 0 行 —— 用户选「所有类型」后月份列表正常（months 端点做了归一），
+   * 展开的卡片却全部消失（activities 端点没做）。生产库 353 条活动里没有一条
+   * 叫 `all`，所以这是「静默返回空」而不是报错。
+   *
+   * 归一是 `db.normalizeTypeFilter` 单一来源，两个查询函数都经过它。
+   */
+  test('type=all / 空串 在 db 层归为不过滤 (不是查类型字面量)', async () => {
+    const db = await loadDb();
+    const unfiltered = db.getMonthSummaries() as { monthKey: string; count: number }[];
+
+    for (const t of ['all', '', '  ', null, undefined]) {
+      const got = db.getMonthSummaries(undefined, undefined, { type: t as never }) as {
+        monthKey: string; count: number;
+      }[];
+      expect(got).toEqual(unfiltered);
+    }
+
+    // getActivities 同理：不能因为 type='all' 返回空列表
+    const all = db.getActivities({ page: 1, limit: 100 });
+    const viaAll = db.getActivities({ page: 1, limit: 100, type: 'all' });
+    expect(viaAll.pagination.total).toBe(all.pagination.total);
+    expect(viaAll.pagination.total).toBeGreaterThan(0);
+
+    // 真实类型仍要过滤（归一不能把一切都吞掉）
+    const swim = db.getActivities({ page: 1, limit: 100, type: 'lap_swimming' });
+    expect(swim.pagination.total).toBe(1);
+    expect(swim.data.every((a) => a.activity_type === 'lap_swimming')).toBe(true);
+  });
+
+  test('normalizeTypeFilter 单点定义 (all/空串 → undefined, 其余 trim 后保留)', async () => {
+    const db = await loadDb();
+    expect(db.normalizeTypeFilter('all')).toBeUndefined();
+    expect(db.normalizeTypeFilter('')).toBeUndefined();
+    expect(db.normalizeTypeFilter(null)).toBeUndefined();
+    expect(db.normalizeTypeFilter(undefined)).toBeUndefined();
+    expect(db.normalizeTypeFilter('  ')).toBeUndefined();
+    expect(db.normalizeTypeFilter(' running ')).toBe('running');
+    expect(db.normalizeTypeFilter('strength_training')).toBe('strength_training');
+  });
+
   test('getMonthSummaries 支持 q 名称搜索 (全库范围)', async () => {
     const db = await loadDb();
     const hit = db.getMonthSummaries(undefined, undefined, { q: '泳池' }) as {
