@@ -11,7 +11,7 @@ import { DataTable } from '@/app/components/ui/DataTable';
 import ActivityTrendCharts, { trendChartTitle } from '@/app/lib/components/charts/ActivityTrendCharts';
 import { ActivityInsightPanel, ROLE_LABEL, ROLE_TONE } from '@/app/lib/components/charts/ActivityInsightPanel';
 import { AiAnalysis } from '@/app/lib/components/ai/AiAnalysis';
-import { activityTypeIcon, activityTypeName, isInformativeTypeValue, isRunningType, isSwimmingType, needsTypeBadge } from '@/app/lib/sport';
+import { activityTypeIcon, activityTypeName, isInformativeTypeValue, isRunningType, isSwimmingType, needsTypeBadge, producesTrainingLoad } from '@/app/lib/sport';
 import { powerIntensity } from '@/app/lib/power';
 import { hrZoneBadgeStyle } from '@/app/lib/hr-zones';
 import { dominantZone } from '@/app/lib/activity-insight';
@@ -274,7 +274,21 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
     ...(activity.max_heart_rate != null
       ? [{ value: String(Math.round(activity.max_heart_rate)), unit: 'bpm', label: '最大心率' }]
       : []),
-    { value: activity.training_load != null ? activity.training_load.toFixed(1) : '--', label: '训练负荷' },
+    // 训练负荷。**按「该运动是否产出」门控，不是按「这次有没有值」**（第十五类缺陷）。
+    //
+    // 项目纪律（`docs/features.md` §「活动数据块的『缺失』分两类」）：
+    // 「该运动不产出」→ 整项不输出；「该活动没测到」→ 保留标签 + `--`。
+    // AI 数据块早就走 `fmtNumIf` + `statRow`（整项略去），详情页却无条件渲染 ——
+    // 真实库 354 条里 56 条（爬楼 30 / 室内有氧 9 / 游泳 4 / 篮球 3 / HIIT 3 /
+    // 跳绳 3 / 乒乓 2 / 羽毛球 1 / 室内骑行 1）`training_load` 全为 NULL，
+    // 它们永远挂着一个「-- 训练负荷」，用户会读成同步失败。
+    //
+    // 判定必须走 `producesTrainingLoad` 单一来源（数据管线事实：跑步三类型 +
+    // 力量派生），页面不许自己写 `!running && !== 'strength_training'` ——
+    // 管线一旦给别的类型加派生，页面会静默不显示。
+    ...(producesTrainingLoad(activity.activity_type)
+      ? [{ value: activity.training_load != null ? activity.training_load.toFixed(1) : '--', label: '训练负荷' }]
+      : []),
     // 训练效果（TE）。真实库 **353/353** 有值（有氧 1.5–5.0，无氧 142/353 有值）。
     // 这是 Garmin 对整课生理刺激的官方评估，也是**非跑步唯一的强度量化手段** ——
     // 非跑步提示词明确要求「改用训练效果（TE）+ 心率区间分布 + 热量量化强度」，
@@ -290,7 +304,21 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
     ...(activity.calories != null
       ? [{ value: String(Math.round(activity.calories)), unit: 'kcal', label: '热量' }]
       : []),
-    { value: activity.total_ascent != null ? String(Math.round(activity.total_ascent)) : '--', unit: activity.total_ascent != null ? 'm' : undefined, label: '累计爬升' },
+    // 累计爬升。**必须与「累计下降」同口径按字段门控**（第十六类缺陷）。
+    //
+    // 真实库 354 条里 `total_ascent` 与 `total_descent` 的 NULL 模式**完全一致**
+    // （both_null = 85、mismatch = 0）：室内运动（力量 51 / 室内有氧 9 / 跑步机 7 /
+    // 游泳 4 / HIIT 3 / 跳绳 3 / 室内骑行 1 / 乒乓 2 / 羽毛球 1）与 1 条无 GPS 的跑步
+    // 全都成对为空。旧实现给「累计爬升」无条件渲染 `--`、给「累计下降」按 `!= null`
+    // 门控 —— 同页同一对字段两种处理，于是 85 条活动页面上只剩一个孤零零的
+    // 「-- 累计爬升」，读起来像同步失败。
+    //
+    // 口径与 AI 数据块一致：`fmtNumIf(activity.total_ascent)` 同样按字段存在性
+    // 整项略去。**不按运动类型白名单**（那会变成第三份「哪些类型有海拔」的判断，
+    // 而这正是本项目反复吃的亏）。
+    ...(activity.total_ascent != null
+      ? [{ value: String(Math.round(activity.total_ascent)), unit: 'm', label: '累计爬升' }]
+      : []),
     // 爬楼专属：楼层数。真实库 30 条 `floor_climbing` 是第二大类型，但全站此前
     // **零类型专属处理** —— 用户爬了 15 层，页面上只有「累计爬升 46m」，他自己
     // 无法验证这是几层。而**爬楼的行业语言是「楼层」不是「米」**。

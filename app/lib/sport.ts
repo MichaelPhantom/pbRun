@@ -171,6 +171,49 @@ export function needsTypeBadge(type: string | null | undefined): boolean {
   return type !== 'running';
 }
 
+/**
+ * 该运动类型是否**产出** `training_load`（训练负荷）。
+ *
+ * ## 为什么这是一个需要单独判定的问题
+ *
+ * 项目有一条纪律（`docs/features.md` §「活动数据块的『缺失』分两类」）：
+ *
+ * | 类别 | 输出 |
+ * |------|------|
+ * | **该运动不产出**（写入口限定类型 / 设备根本不写） | **整项不输出**（连标签） |
+ * | **该活动没测到**（数据源支持，只是这次没有） | 保留标签 + `--` |
+ *
+ * AI 数据块严格执行了这条（`fmtNumIf` + `statRow` 会把整项略去），但**详情页
+ * 概览没跟上** —— 那里是无条件渲染：
+ * `{ value: activity.training_load != null ? ... : '--', label: '训练负荷' }`。
+ *
+ * 真实库实证（354 条）：
+ *
+ * | 类型 | 条数 | `training_load` 有值 |
+ * |------|------|---------------------|
+ * | running / treadmill_running / track_running | 247 | **247/247** |
+ * | strength_training | 51 | **51/51**（2026-11-07 起按训练效应加权派生） |
+ * | 爬楼 / 室内有氧 / 游泳 / 篮球 / HIIT / 跳绳 / 乒乓 / 羽毛球 / 室内骑行 | 56 | **0/56** |
+ *
+ * 于是 56 条活动（占非跑步 120 条的 47%）在详情页永远挂着一个「-- 训练负荷」。
+ * 用户看到 `--` 会以为同步失败，而真相是这项运动根本没有这个指标 ——
+ * 与「平均功率」在 107 条非跑步活动上永远 `--` 是同一类噪音。
+ *
+ * ## 为什么不在页面里写类型判断
+ *
+ * 「哪些类型产出负荷」是**数据管线的事实**（`scripts/garmin/sync.js` 的
+ * `runnableTypes2` 与力量派生分支），不是展示层能猜的。页面若写
+ * `!isRunningType(t) && t !== 'strength_training'`，一旦管线给爬楼/游泳加上
+ * 派生，页面会静默不显示 —— 而「同一事实两处判断」正是本项目反复吃的亏。
+ *
+ * 空值按**产出**处理（旧库兼容，与 `isRunningType` 同向）：旧库没有
+ * `activity_type` 列时所有活动都是跑步，判成「不产出」会让历史数据凭空少一格。
+ */
+export function producesTrainingLoad(type: string | null | undefined): boolean {
+  if (!type) return true;
+  return isRunningType(type) || type === 'strength_training';
+}
+
 /** 子类型/运动类型是否值得展示（过滤设备只写「通用」的情况）。 */
 export function isInformativeTypeValue(
   raw: string | null | undefined,

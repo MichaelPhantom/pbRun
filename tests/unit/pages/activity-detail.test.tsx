@@ -845,7 +845,7 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
     expect(screen.queryByText('跑步')).toBeNull();
   });
 
-  test('非跑步活动 (泳池游泳): 隐藏配速/步频/步幅/跑力, 保留距离/时长/心率/负荷, 标题带类型徽标', async () => {
+  test('非跑步活动 (泳池游泳): 隐藏配速/步频/步幅/跑力, 保留距离/时长/心率, 标题带类型徽标', async () => {
     db.getActivityById.mockReturnValue({
       ...activity,
       activity_type: 'lap_swimming',
@@ -870,9 +870,12 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
       expect(within(overview).queryByText(label)).toBeNull();
     }
     // 通用指标照常
-    for (const label of ['距离', '时长', '平均心率', '训练负荷']) {
+    for (const label of ['距离', '时长', '平均心率']) {
       expect(within(overview).getByText(label)).toBeInTheDocument();
     }
+    // 训练负荷：游泳**不产出**（真实库 4/4 条 `training_load` 全 NULL）。
+    // 夹具里故意给了 45 —— 门控必须看「这个运动产不产出」，不看「这次有没有值」。
+    expect(within(overview).queryByText('训练负荷')).toBeNull();
     // 游泳专属: 秒/100m 而不是秒/公里。1670 s/km 直接展示是「27:50 /km」,
     // 量级与真实能力差 10 倍且不是游泳者的语言。1.5km / 2750s = 1.9636 km/h
     // → 360/1.9636 = 183.3 s/100m → 3:03。
@@ -1336,6 +1339,65 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
     expect(within(overview).getByText('热量')).toBeInTheDocument();
   });
 
+  /**
+   * 第十五类缺陷：详情页「训练负荷」对 56 条非跑步活动恒显示 `--`。
+   *
+   * 项目纪律（`docs/features.md` §「活动数据块的『缺失』分两类」）：
+   * 「该运动不产出」→ **整项不输出**；「该活动没测到」→ 保留标签 + `--`。
+   * AI 数据块早就按 `fmtNumIf` 整项略去，详情页却无条件渲染。
+   *
+   * 真实库 354 条实证：跑步 247/247 有值、力量 51/51 有值，
+   * **其余 9 类 0/56 全 NULL**（爬楼 30 / 室内有氧 9 / 游泳 4 / 篮球 3 /
+   * HIIT 3 / 跳绳 3 / 乒乓 2 / 羽毛球 1 / 室内骑行 1）。
+   *
+   * 夹具故意给 `training_load: 45`：门控必须看「这个运动产不产出」，
+   * 不是「这次有没有值」—— 否则库里出现脏值时仍会渲染。
+   */
+  test.each([
+    [7101, 'basketball', '篮球'],
+    [7102, 'floor_climbing', '爬楼'],
+    [7103, 'indoor_cardio', '室内有氧'],
+    [7104, 'hiit', 'HIIT'],
+    [7105, 'jump_rope', '跳绳'],
+    [7106, 'table_tennis', '乒乓球'],
+    [7107, 'badminton', '羽毛球'],
+    [7108, 'indoor_cycling', '室内骑行'],
+  ])('非跑步活动 (%s) 概览不渲染「训练负荷」整格 (真实库 0/56 有值)', async (id, type, label) => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: type,
+      sport_type: label,
+      sub_sport_type: '通用',
+      distance: 0,
+      training_load: 45, // 脏值: 即便有值也不该出现
+      average_pace: null,
+      vdot_value: null,
+    });
+    render(await page(String(id)));
+    const overview = screen.getByText('活动概览').closest('section')!;
+    expect(within(overview).queryByText('训练负荷')).toBeNull();
+    // 与运动类型无关的官方字段仍展示
+    expect(within(overview).getByText('时长')).toBeInTheDocument();
+    expect(within(overview).getByText('平均心率')).toBeInTheDocument();
+  });
+
+  test('力量训练仍渲染「训练负荷」(51/51 有值, 2026-11-07 起按 TE 派生)', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'strength_training',
+      sport_type: '力量训练',
+      sub_sport_type: '通用',
+      distance: 0,
+      training_load: 60,
+      average_pace: null,
+      vdot_value: null,
+    });
+    render(await page('7001-strength'));
+    const overview = screen.getByText('活动概览').closest('section')!;
+    expect(within(overview).getByText('训练负荷')).toBeInTheDocument();
+    expect(within(overview).getByText('60.0')).toBeInTheDocument();
+  });
+
   test('非跑步活动不渲染平均海拔/平均温度 (非跑步 0/107 有值, 室内无 GPS 无环境温度)', async () => {
     // 真实库 `avg_altitude` / `average_temperature` 在 107 条非跑步活动上全为 NULL
     // （写入口限定跑步类型）。即使库里被写入脏值，也不该出现在力量/球类页面上。
@@ -1613,6 +1675,7 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
       vdot_value: null,
       training_load: null,
       total_ascent: null,
+      total_descent: null,
       average_heart_rate: null,
       average_stride_length: null,
     });
@@ -1623,9 +1686,15 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
     expect(screen.queryByText(/配速 \/ 心率 \/ 步频 \/ 海拔 趋势/)).not.toBeInTheDocument();
     expect(screen.queryByText('跑步动态')).not.toBeInTheDocument();
     expect(screen.getByText('暂无分段数据')).toBeInTheDocument();
-    // 空字段 → -- 兜底
+    // 「该活动没测到」→ `--` 兜底（即时跑力 / 平均心率 / 训练负荷 / 步幅 4 格）
     const dashes = screen.getAllByText('--');
-    expect(dashes.length).toBeGreaterThanOrEqual(5);
+    expect(dashes.length).toBe(4);
+    // 「该运动不产出」→ 整格不渲染。`total_ascent = null` 时**不能**留一个
+    // 孤零零的「-- 累计爬升」—— 真实库 85 条活动（全部室内运动 + 1 条无 GPS 跑步）
+    // 的 `total_ascent` / `total_descent` 成对为空（mismatch = 0），同页
+    // 「累计下降」早就按字段门控了，两者必须同口径。
+    expect(screen.queryByText('累计爬升')).toBeNull();
+    expect(screen.queryByText('累计下降')).toBeNull();
     // 无 name → 用日期时间标题
     expect(screen.getByText(/跑步/)).toBeInTheDocument();
   });
