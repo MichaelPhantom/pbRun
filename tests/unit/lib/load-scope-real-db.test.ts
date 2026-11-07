@@ -230,8 +230,7 @@ describeIfDb('真实库：训练负荷的合并口径 vs 跑步口径', () => {
    * 若哪天力量课开始记录距离（或球类被误加进跑步口径），这句措辞就会
    * 指向错误的类型，用户会去力量卡里找那 10km。
    */
-  test('2026 年跑步 vs 全类型的距离差全部来自游泳/球类（力量距离恒 0）', () => {
-    const byType = db
+  test('2026 年跑步 vs 全类型的距离差全部来自游泳/球类（力量距离恒 0）', () => {    const byType = db
       .prepare(
         `SELECT activity_type AS t,
                 ROUND(SUM(COALESCE(distance, 0)), 2) AS km
@@ -264,5 +263,51 @@ describeIfDb('真实库：训练负荷的合并口径 vs 跑步口径', () => {
       .filter((r) => ['running', 'track_running', 'treadmill_running'].includes(r.t))
       .reduce((s, r) => s + r.km, 0);
     expect(diff / runKm).toBeLessThan(0.02);
+  });
+
+  /**
+   * **第十九类：「当前跑力」固定近一周，与所选周期无关。**
+   *
+   * `/stats` 的「当前跑力」来自 `getStats('week').averageVDOT`（页面固定二次
+   * 取数），而其余八格跟随 `period`。真实库：近 7 天 40.3（1 条）、
+   * 2026 全年均值 39.6（106 条）、全历史 39.3（123 条）。
+   *
+   * 这条守卫证明「三个数确实不同」—— 若哪天它们相等（例如数据太少），
+   * hint 存在的必要性就消失了，届时应重新评估措辞。
+   */
+  test('近一周 / 2026 全年 / 全历史 的 VDOT 均值互不相同（hint 有必要）', () => {
+    const recent = db
+      .prepare(
+        `SELECT AVG(vdot_value) AS v, COUNT(vdot_value) AS n
+         FROM activities
+         WHERE ${RUN} AND vdot_value IS NOT NULL
+           AND start_time_local >= date('now', '-6 days')`,
+      )
+      .get() as { v: number | null; n: number };
+    const year = db
+      .prepare(
+        `SELECT AVG(vdot_value) AS v, COUNT(vdot_value) AS n
+         FROM activities
+         WHERE ${RUN} AND vdot_value IS NOT NULL AND start_time_local LIKE '2026%'`,
+      )
+      .get() as { v: number | null; n: number };
+    const all = db
+      .prepare(
+        `SELECT AVG(vdot_value) AS v, COUNT(vdot_value) AS n
+         FROM activities WHERE ${RUN} AND vdot_value IS NOT NULL`,
+      )
+      .get() as { v: number | null; n: number };
+
+    // 全年与全历史样本量大（VDOT 只对 Z3+ 代表段计算，不是每次跑都有）
+    expect(year.n).toBeGreaterThan(50);
+    expect(all.n).toBeGreaterThan(100);
+    expect(year.v).not.toBeNull();
+    expect(all.v).not.toBeNull();
+
+    // 三个窗口的均值互不相同（差值 > 0.1）
+    expect(Math.abs((year.v as number) - (all.v as number))).toBeGreaterThan(0.1);
+    if (recent.n > 0) {
+      expect(Math.abs((recent.v as number) - (year.v as number))).toBeGreaterThan(0.1);
+    }
   });
 });

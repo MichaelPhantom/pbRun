@@ -189,4 +189,19 @@ describe('训练负荷口径标签的三处调用方', () => {
     const code = stripComments(src);
     expect(code.includes('跑步口径（不含游泳/球类）')).toBe(false);
   });
+
+  /**
+   * **「当前跑力」固定近一周，其余八格跟随所选周期**（第十九类缺陷）。
+   * 这条锁死 hint 来自模块，不许在页面里写死「近一周」。
+   */
+  test('/stats 的「当前跑力」hint 必须来自 CURRENT_VDOT_SCOPE_HINT', () => {
+    const src = read('app/stats/StatsClient.tsx');
+    expect(src).toMatch(
+      /import\s*\{[^}]*CURRENT_VDOT_SCOPE_HINT[^}]*\}\s*from\s*['"]@\/app\/lib\/load-scope['"]/,
+    );
+    expect(src).toMatch(/hint=\{CURRENT_VDOT_SCOPE_HINT\}/);
+    // 剥注释后不得再出现裸的「近一周」字面量
+    const code = stripComments(src);
+    expect(code.includes("hint=\"近一周\"")).toBe(false);
+  });
 });

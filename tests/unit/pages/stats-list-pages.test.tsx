@@ -207,6 +207,51 @@ describe('app/stats/page.tsx', () => {
     // 「训练负荷」这一格必须紧邻口径说明，而不是让用户去猜
     expect(screen.getByText('训练负荷')).toBeInTheDocument();
   });
+
+  /**
+   * **第十九类缺陷：「当前跑力」固定近一周，其余八格跟随所选周期。**
+   *
+   * `/stats` 的「当前跑力」来自 `getStats('week').averageVDOT`（页面固定
+   * 二次取数），而距离/配速/负荷/时长/心率/爬升/步频/步幅八格跟随 `period`。
+   * 用户切到「年」，八格变成全年，唯独跑力还是最近 7 天 —— 且没标注。
+   *
+   * 真实库：近 7 天 VDOT 40.3（1 条）、2026 全年均值 39.6（106 条）、
+   * 全历史 39.3（123 条）。在「年数据统计」标题下看到 40.3，读起来像
+   * 「今年平均跑力 40.3」。
+   *
+   * 口径本身是对的（「当前跑力」就该是最新的），错的是**没说明它不跟随周期**。
+   */
+  test('「当前跑力」必须标明是近一周口径（不跟随所选周期）', async () => {
+    render(await StatsPage({ searchParams: Promise.resolve({ period: 'year' }) }));
+    expect(screen.getByText('当前跑力')).toBeInTheDocument();
+    expect(screen.getByText('近一周')).toBeInTheDocument();
+    // 反面：不得让用户以为它跟随年度
+    expect(screen.queryByText('年度跑力')).toBeNull();
+  });
+
+  /**
+   * 切周期时「当前跑力」的数值**不应变化**（它固定取 week），而另八格会变。
+   * 这条钉住「不跟随」这个事实 —— 若有人把它改成跟随 period，本测试会红，
+   * 迫使改动者同时更新 hint 与文档。
+   */
+  test('切周期时「当前跑力」不变（固定 week），八格随之变', async () => {
+    db.getStats.mockImplementation((p: string) =>
+      p === 'week'
+        ? { ...weekStats, averageVDOT: 46.7 }
+        : { ...weekStats, averageVDOT: 39.6, totalDistance: 1893300, totalActivities: 208 },
+    );
+
+    const month = render(await StatsPage({ searchParams: Promise.resolve({ period: 'month' }) }));
+    expect(screen.getByText('46.7')).toBeInTheDocument();
+    month.unmount();
+
+    render(await StatsPage({ searchParams: Promise.resolve({ period: 'year' }) }));
+    // 当前跑力仍是 week 的 46.7（不是年的 39.6）
+    expect(screen.getByText('46.7')).toBeInTheDocument();
+    expect(screen.queryByText('39.6')).toBeNull();
+    // 而距离跟随年度变成 1893
+    expect(screen.getByText('1893')).toBeInTheDocument();
+  });
 });
 
 describe('app/list/page.tsx', () => {

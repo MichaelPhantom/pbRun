@@ -1,7 +1,7 @@
 'use client';
 
 import { formatPace, formatDurationRecord } from '@/app/lib/format';
-import { STATS_SCOPE_HINT } from '@/app/lib/load-scope';
+import { CURRENT_VDOT_SCOPE_HINT, STATS_SCOPE_HINT } from '@/app/lib/load-scope';
 import type { PersonalRecordsResponse, PersonalRecordItem } from '@/app/lib/types';
 import type { StatsResponse } from '@/app/lib/types';
 import type { TimeRangeDays } from '@/app/lib/date-utils';
@@ -84,7 +84,12 @@ export default function StatsClient({ data, pr, period, currentVdot, coachRange 
         */}
         <div className="mb-3 text-[11px] leading-relaxed text-fg-muted">{STATS_SCOPE_HINT}</div>
         <div className="grid grid-cols-3 gap-3 sm:grid-cols-3">
-          <StatCell label="当前跑力" value={currentVdot != null ? currentVdot.toFixed(1) : '--'} accent />
+          <StatCell
+            label="当前跑力"
+            value={currentVdot != null ? currentVdot.toFixed(1) : '--'}
+            accent
+            hint={CURRENT_VDOT_SCOPE_HINT}
+          />
           <StatCell label="距离 (公里)" value={(data.totalDistance / 1000).toFixed(0)} />
           <StatCell label="平均配速" value={formatPace(data.averagePace, false)} />
           <StatCell label="训练负荷" value={data.totalTrainingLoad != null ? data.totalTrainingLoad.toFixed(1) : '--'} />
@@ -145,11 +150,22 @@ function RecordRow({ item }: { item: PersonalRecordItem }) {
   );
 }
 
-function StatCell({ label, value, accent = false }: { label: string; value: string; accent?: boolean }) {
+function StatCell({
+  label,
+  value,
+  hint,
+  accent = false,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  accent?: boolean;
+}) {
   return (
     <div className="flex flex-col gap-0.5">
       <span className={`tnum text-lg font-semibold sm:text-xl ${accent ? 'text-[var(--brand-text)]' : 'text-fg'}`}>{value}</span>
       <span className="text-[11px] text-fg-secondary">{label}</span>
+      {hint && <span className="text-[10px] text-fg-muted">{hint}</span>}
     </div>
   );
 }

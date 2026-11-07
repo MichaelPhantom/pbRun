@@ -364,7 +364,11 @@ export async function registerTools(server: McpServer): Promise<void> {
         'get_training_load_analysis 的合并口径（跑步 + 力量）不同: 真实库 2026-08 ' +
         '这里 1715 而合并口径 2004（差 289 / 17%）、2026 全年 15668 vs 17171（差 1503）。两个口径都对, ' +
         '**算 ACWR/CTL/TSB 必须用 get_training_load_analysis 的合并值**, 不要拿本工具的 ' +
-        'totalTrainingLoad 去算; 反过来也不要因为两者不等就判定数据错误。',
+        'totalTrainingLoad 去算; 反过来也不要因为两者不等就判定数据错误。' +
+        '⚠️ **averageVDOT 是「该周期内」的算术平均**, 与网站 `/stats` 九格里的「当前跑力」' +
+        '**不是一回事** —— 后者固定取最近一周（真实库近 7 天 40.3 / 2026 全年均值 39.6 / ' +
+        '全历史 39.3）。要看某个周期的跑力水平用本工具的 averageVDOT, 要看「现在有多强」用 ' +
+        'get_vdot_trend 的最新点。',
       inputSchema: {
         period: PERIOD_ENUM.optional().describe('统计周期 (默认 total)'),
       },
