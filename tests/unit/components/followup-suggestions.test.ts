@@ -103,3 +103,52 @@ describe('suggestFollowups', () => {
     expect(s.some((x) => x.includes('PB'))).toBe(false);
   });
 });
+
+/**
+ * 力量训练专属追问（2026-11 新增）。
+ *
+ * 力量课走「非跑步」分支，旧建议会问「心率漂移说明了什么？有氧能力如何？」——
+ * 力量训练的心率响应滞后且峰值低（真实库 51 条平均心率 73–129），拿它评有氧能力
+ * 是错的维度。力量课真正该问的是**组结构是否合理、强度域与恢复预算、与跑步的负荷竞争**。
+ */
+describe('suggestFollowups — 力量训练', () => {
+  const strengthCtx = (over: Partial<FollowupContext> = {}) =>
+    ctx({
+      running: false,
+      strength: true,
+      activity: { distanceKm: 0, averagePace: null, averageHeartRate: 110, averageCadence: null, vdot: null, hasHrData: true },
+      ...over,
+    });
+
+  test('力量课不建议问心率漂移/有氧能力 (心率滞后且峰值低, 不是有氧指标)', () => {
+    const s = suggestFollowups(strengthCtx());
+    expect(s.some((x) => x.includes('心率漂移'))).toBe(false);
+    expect(s.some((x) => x.includes('有氧能力'))).toBe(false);
+  });
+
+  test('力量课建议问组结构/强度域与恢复预算', () => {
+    const s = suggestFollowups(strengthCtx());
+    expect(s.some((x) => /组结构|工作:休息|组数/.test(x))).toBe(true);
+    expect(s.some((x) => /强度域|训练效应|恢复/.test(x))).toBe(true);
+  });
+
+  test('力量课建议问与跑步的负荷竞争 (合并口径下力量课进 ACWR)', () => {
+    const s = suggestFollowups(strengthCtx());
+    expect(s.some((x) => /跑步|负荷/.test(x))).toBe(true);
+  });
+
+  test('力量课不出现「交叉训练」这种泛泛说法 (它有专属建议)', () => {
+    const s = suggestFollowups(strengthCtx());
+    expect(s.some((x) => x.includes('交叉训练'))).toBe(false);
+  });
+
+  test('安全兜底永远在最后 (力量课也不例外)', () => {
+    const s = suggestFollowups(strengthCtx());
+    expect(s[s.length - 1]).toContain('伤病');
+  });
+
+  test('strength 缺省时行为不变 (游泳等仍走通用交叉训练建议)', () => {
+    const s = suggestFollowups(ctx({ running: false, activity: { ...ctx().activity, distanceKm: 2, averageCadence: 48 } }));
+    expect(s.some((x) => x.includes('交叉训练'))).toBe(true);
+  });
+});

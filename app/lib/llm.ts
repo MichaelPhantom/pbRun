@@ -19,6 +19,12 @@ import {
   formatWorkoutExecution,
   formatWorkoutPlan,
 } from '@/app/lib/workout';
+import {
+  STRENGTH_DOMAIN_LABELS,
+  buildStrengthProfile,
+  describeStrengthStructure,
+  isStrengthType,
+} from '@/app/lib/strength';
 
 export { DEFAULT_MODEL } from '@/app/lib/model-curation';
 
@@ -485,11 +491,52 @@ export function buildAnalysisMessages(
     .filter((line): line is string => line != null)
     .join('\n');
 
+  // 力量训练专属数据块（2026-11 新增）。
+  //
+  // 力量课走「非跑步」分支，旧实现只输出「平均速度 / 训练效果 / 心率」—— 模型看不到
+  // **计划名、组结构、强度域**，也就无法回答「这堂课练得对不对」。而这三项恰好是力量
+  // 训练唯一真实可推导的分析维度（FIT 无 `set` 消息，动作名/重量/次数不可得，见
+  // `app/lib/strength.ts` 头注释）。
+  //
+  // 计划时长与实际时长必须**分两行**：课表是「一轮」模板（真实库「核心稳定性1」
+  // 计划 420s 而实际 3609s，用户做了多轮），混成一行会让模型把 7 分钟当成「本次练了
+  // 7 分钟」，进而判定「训练量过低」。FIT 无 set 消息，轮数不可得，故不推断轮数。
+  const strengthProfile = isStrengthType(activity.activity_type)
+    ? buildStrengthProfile(activity)
+    : null;
+  const strengthStructureText = strengthProfile
+    ? describeStrengthStructure(activity.workout_steps)
+    : null;
+  const strengthLines = strengthProfile
+    ? [
+        `力量训练计划: ${strengthProfile.planName ?? '--'}`,
+        strengthStructureText ? `组结构: ${strengthStructureText}` : null,
+        statRow([
+          ['有效组数', strengthProfile.workingSets > 0 ? String(strengthProfile.workingSets) : null],
+          ['休息段', strengthProfile.restSets > 0 ? String(strengthProfile.restSets) : null],
+          [
+            '工作:休息',
+            strengthProfile.workRestRatio != null ? `${strengthProfile.workRestRatio.toFixed(1)}:1` : null,
+          ],
+        ]),
+        strengthProfile.plannedSeconds > 0
+          ? `计划时长: ${formatDuration(strengthProfile.plannedSeconds)}（课表一轮模板, 非本次实际时长）  实际时长: ${formatDuration(dur)}`
+          : null,
+        `强度域: ${STRENGTH_DOMAIN_LABELS[strengthProfile.intensityDomain]}` +
+          `（按训练效应判定${strengthProfile.aerobicEffect != null ? `, 有氧 TE ${strengthProfile.aerobicEffect.toFixed(1)}` : ''}` +
+          `${strengthProfile.anaerobicEffect != null ? `, 无氧 TE ${strengthProfile.anaerobicEffect.toFixed(1)}` : ''}）`,
+        // 数据边界必须写进数据块：不写，模型会「合理推断」出深蹲 80kg×5 组。
+        '数据边界: 重量与次数不可得 —— FIT 文件不含 set 消息, 动作名/重量/次数仅 Garmin 云端 exerciseSets 提供, 本地同步管线只下 FIT。不要编造容量(组数×重量)数据。',
+      ]
+        .filter((line): line is string => line != null)
+        .join('\n')
+    : null;
+
   const user = `${profileBlock ? profileBlock + '\n\n' : ''}【活动】
 日期: ${date}
 名称: ${activity.name || '--'}  类型: ${typeName}${running ? '' : '（非跑步）'}
 距离: ${dist.toFixed(2)} km  移动时长: ${formatDuration(dur)}  总时长: ${formatDuration(activity.duration)}
-${workoutLines ? `${workoutLines}\n` : ''}${runningLines}
+${workoutLines ? `${workoutLines}\n` : ''}${strengthLines ? `${strengthLines}\n` : ''}${runningLines}
 ${commonLines}
 
 ${lapTitle}

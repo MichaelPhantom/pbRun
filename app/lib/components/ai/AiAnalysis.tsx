@@ -10,6 +10,7 @@ import { useModelCatalog } from './useModelCatalog';
 import { useStickToBottom } from './useStickToBottom';
 import { suggestFollowups } from './followup-suggestions';
 import { isRunningType } from '@/app/lib/sport';
+import { isStrengthType } from '@/app/lib/strength';
 import type { ChatMessage } from '@/app/lib/llm';
 import type { Activity } from '@/app/lib/types';
 
@@ -56,6 +57,9 @@ export function AiAnalysis({
   // 活动口径: 跑步与其它运动（游泳/球类/力量训练）的可展示指标与文案完全不同,
   // 判定单点来自 app/lib/sport.ts（与 DB SQL / 详情页共用同一份列表）。
   const running = isRunningType(activity?.activity_type);
+  // 力量训练有自己的分析维度（组结构/强度域/恢复预算），追问建议不能套用
+  // 「心率漂移 → 有氧能力」这条跑步视角。
+  const strength = isStrengthType(activity?.activity_type);
 
   const [turns, setTurns] = useState<Turn[]>([]);
   const [status, setStatus] = useState<Status>('idle');
@@ -307,6 +311,7 @@ export function AiAnalysis({
           // 非跑步活动(游泳/球类/力量训练)不推步频/跑姿/PB 类追问:
           // 这些指标的分母与语义都是跑步专属, 泳池的 cadence 是划水频次。
           running,
+          strength,
           activity: {
             distanceKm: activity?.distance ?? 0,
             averagePace: activity?.average_pace ?? null,

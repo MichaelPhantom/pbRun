@@ -259,22 +259,30 @@ describe('buildAnalysisMessages', () => {
    * 同时 NON_RUNNING_SYSTEM_PROMPT 还要求模型「用训练负荷评估强度」并把负荷
    * 列为「所有运动都有的指标」—— prompt 与数据源直接矛盾，模型只能编或抱怨缺数据。
    */
-  test('非跑步 prompt 不得引用数据里不存在的指标 (训练负荷/TSS/IF)', () => {
+  /**
+   * 游泳（及球类/爬楼/跳绳）**不计算**训练负荷 —— 数据里不会出现，prompt 不得引用。
+   *
+   * 注意：2026-11 力量训练接入后，**力量课有派生负荷**（数据块会给「力量负荷」），
+   * 所以「非跑步一律无负荷」不再成立。本条只针对**非力量**的非跑步活动；
+   * 力量训练的口径见 `describe('buildAnalysisMessages — 力量训练')`。
+   */
+  test('非力量的非跑步活动 (游泳) 不得引用负荷/TSS/IF', () => {
     const [system, user] = buildAnalysisMessages(
       fakeActivity({ activity_type: 'lap_swimming', training_load: null, average_power: null }),
       [],
     );
     expect(system.content).not.toContain('训练负荷（TL）');
     expect(system.content).not.toContain('负荷定位');
-    // 「所有运动都有的指标」这句本身没问题，但不能把负荷算进去（它只有跑步活动有）
+    // 「所有运动都有的指标」这句本身没问题，但不能把负荷算进去（它只有跑步/力量有）
     expect(system.content).toContain('时长 / 心率 / 热量');
     expect(system.content).not.toContain('时长 / 心率 / 负荷 / 热量');
-    // 明确告知模型不要引用
-    expect(system.content).toContain('不要引用训练负荷');
+    // 明确告知模型游泳不计算负荷（力量训练另有说明）
+    expect(system.content).toContain('不计算负荷');
     // 数据块里也不出现这些整行
     expect(user.content).not.toContain('平均功率');
     expect(user.content).not.toContain('标准化功率');
     expect(user.content).not.toContain('训练负荷');
+    expect(user.content).not.toContain('力量负荷');
   });
 
   test('非跑步活动的分段用时长而非配速 (游泳每段「配速」不是跑步配速)', () => {
@@ -553,5 +561,104 @@ describe('buildFollowupMessages', () => {
   test('新问题被截断到 2000 字符', () => {
     const msgs = buildFollowupMessages(fakeActivity(), [], '', [], 'z'.repeat(5000));
     expect(msgs[msgs.length - 1].content.length).toBe(2000);
+  });
+});
+
+/**
+ * 力量训练的 AI 数据块（2026-11-07 新增）。
+ *
+ * 力量课走的是「非跑步」分支，旧实现只输出「平均速度 / 训练效果 / 心率」——
+ * 模型看不到**计划名、组结构、强度域**，也就无法回答「这堂课练得对不对」。
+ * 而这三项恰好是力量训练唯一真实可推导的分析维度（FIT 无 set 消息，
+ * 动作名/重量/次数不可得）。缺了它们，AI 只能凭时长和心率编故事。
+ */
+describe('buildAnalysisMessages — 力量训练', () => {
+  const strengthSteps = JSON.stringify(
+    Array.from({ length: 14 }, (_, i) => ({
+      duration_type: 'time',
+      duration_sec: i % 2 === 0 ? 40 : 20,
+      intensity: i % 2 === 0 ? 'active' : 'rest',
+    })),
+  );
+
+  const strength = () =>
+    fakeActivity({
+      activity_id: 652761578,
+      name: '核心稳定性1',
+      activity_type: 'strength_training',
+      sport_type: '训练',
+      sub_sport_type: '力量',
+      distance: 0,
+      duration: 3609,
+      moving_time: 3609,
+      average_pace: null,
+      average_cadence: null,
+      vdot_value: null,
+      average_heart_rate: 73,
+      max_heart_rate: 108,
+      calories: 127,
+      training_load: 60,
+      total_training_effect: 0.1,
+      total_anaerobic_training_effect: 0,
+      primary_benefit: '通用',
+      recovery_time: 2089,
+      workout_name: '核心稳定性1',
+      workout_steps: strengthSteps,
+    });
+
+  test('数据块含计划名 + 组结构 + 强度域 + 力量负荷', () => {
+    const [, user] = buildAnalysisMessages(strength(), []);
+    // 计划名（模型要能说「这堂课是核心稳定性1」）
+    expect(user.content).toContain('核心稳定性1');
+    // 组结构：「40s 做 / 20s 歇 × 7」—— 这是唯一能描述课表形态的真实数据
+    expect(user.content).toContain('40s 做 / 20s 歇 × 7');
+    // 有效组数
+    expect(user.content).toMatch(/有效组数: 7/);
+    // 强度域（TE 0.1 → recovery）
+    expect(user.content).toMatch(/强度域: 恢复/);
+    // 负荷（合并口径下力量课也有负荷，模型才能解释 ACWR）
+    expect(user.content).toContain('60');
+  });
+
+  test('计划时长与实际时长必须分开 (课表是一轮模板, 不是本次实际)', () => {
+    const [, user] = buildAnalysisMessages(strength(), []);
+    // 计划 420s = 7:00, 实际 3609s = 1:00:09
+    expect(user.content).toMatch(/计划时长: 7:00/);
+    expect(user.content).toMatch(/实际时长: 1:00:09/);
+    // 绝不把 420s 当成「本次练了 7 分钟」
+    expect(user.content).not.toMatch(/移动时长: 7:00/);
+  });
+
+  test('数据边界写进数据块 (模型不得编造重量/次数)', () => {
+    const [, user] = buildAnalysisMessages(strength(), []);
+    expect(user.content).toMatch(/重量|次数/);
+    expect(user.content).toMatch(/不可得|不含 set|exerciseSets/);
+    // 边界句本身会写「组数×重量」作为**禁止项**；要断言的是容量不以**数据字段**出现
+    // （例如「总容量: 1200 kg」「重量: 80kg」这种可被模型直接引用的行）。
+    expect(user.content).not.toMatch(/^总容量:/m);
+    expect(user.content).not.toMatch(/^训练容量:/m);
+    expect(user.content).not.toMatch(/^\s*重量: \d/m);
+    expect(user.content).not.toMatch(/\d+\s*kg/);
+  });
+
+  test('无课表的力量课 → 不输出组结构行 (而不是写一堆 0)', () => {
+    const [, user] = buildAnalysisMessages(
+      fakeActivity({
+        activity_type: 'strength_training',
+        distance: 0,
+        average_pace: null,
+        workout_name: null,
+        workout_steps: null,
+      }),
+      [],
+    );
+    expect(user.content).not.toMatch(/组结构:/);
+    expect(user.content).not.toMatch(/有效组数:/);
+  });
+
+  test('跑步活动不出现力量专属行 (口径隔离)', () => {
+    const [, user] = buildAnalysisMessages(fakeActivity(), fakeLaps());
+    expect(user.content).not.toMatch(/组结构:/);
+    expect(user.content).not.toMatch(/强度域:/);
   });
 });

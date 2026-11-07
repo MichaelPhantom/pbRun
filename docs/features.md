@@ -1057,9 +1057,33 @@ avgPaceSecPerKm: 350 }` 三个数互相矛盾（350×7=2450≠2520），而 `Wea
 用户做了多轮。FIT 无 `set` 消息，**真实轮数不可得**，因此画像只报课表结构本身
 （`describeStrengthStructure` 输出「40s 做 / 20s 歇 × 7」），**不推断「做了 8 轮」**。
 
+#### AI 上下文（力量课不走「非跑步」通用分支的默认值）
+
+力量课在 `buildAnalysisMessages` 里走「非跑步」分支，但**必须**额外注入四项专属数据，
+否则模型只能凭时长和心率编故事：
+
+| 注入项 | 值 | 为什么必须有 |
+|---|---|---|
+| `力量训练计划` | `workout_name` | 模型要能说「这堂课是核心稳定性1」 |
+| `组结构` | `describeStrengthStructure` 输出「40s 做 / 20s 歇 × 7」 | 唯一能描述课表形态的真实数据 |
+| `有效组数 / 休息段 / 工作:休息` | 画像派生 | 判断课表类型与刺激性质 |
+| `计划时长 / 实际时长`（**分两行**） | 420s vs 3609s | 混成一行会让模型把 7 分钟当成本次训练量 |
+| `强度域`（按 TE 判定） | `recovery/base/tempo/high` | 力量心率滞后，判强度必须看 TE |
+| 数据边界句 | 「重量与次数不可得」 | 不写，模型会「合理推断」出深蹲 80kg×5 |
+
+同时 `SINGLE_NON_RUNNING_PROMPT` 已修正一处**新旧矛盾**：旧文案写「非跑步活动不计算
+训练负荷，数据里也不会出现」，而力量课现在**有**派生负荷。现文案区分「只有力量训练
+有派生负荷（不可与 Garmin 官方 training_load_peak 直接比）」与「游泳/球类/爬楼/跳绳
+不计算负荷」。守护：`tests/unit/lib/coach-prompt-data-alignment.test.ts`（4 例）。
+
+追问建议也按类型分流（`followup-suggestions.ts` 的 `strength` 标志）：力量课不再问
+「心率漂移说明了什么？有氧能力如何？」（错的维度），改问组结构合理性 / 强度域与恢复
+预算 / 与跑步的负荷竞争。守护：`tests/unit/components/followup-suggestions.test.ts`（6 例）。
+
 守护：`tests/unit/lib/strength.test.ts`（32 例）、`strength-merge.test.ts`（9 例）、
 `strength-summary.test.ts`（10 例）、`db-strength.test.ts`（12 例）、
-`strength-sync-parity.test.ts`（5 例）、页面测试（首页 11 / 分析 15 / 详情 54）。
+`strength-sync-parity.test.ts`（5 例）、`llm.test.ts`（力量数据块 5 例）、
+页面测试（首页 11 / 分析 15 / 详情 54）。
 
 ---
 

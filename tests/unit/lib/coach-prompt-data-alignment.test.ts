@@ -230,3 +230,34 @@ describe('幽灵指标不得以「要你分析」的形式出现', () => {
     expect(SINGLE_RUNNING_PROMPT).toContain('不是同一个');
   });
 });
+
+describe('力量训练数据块 ↔ 提示词对齐 (2026-11 新增)', () => {
+  /**
+   * 力量训练在 2026-11 接入了**派生负荷**（`app/lib/strength.ts`，按训练效应加权），
+   * 与跑步 `training_load` 同量纲。但非跑步 prompt 旧文案仍写着「训练负荷由跑步专用
+   * 公式产生，非跑步活动不计算，数据里也不会出现」—— 与新数据直接矛盾。
+   *
+   * 提示词要求模型忽略数据里**真实存在**的字段，是最难发现的一类缺陷：模型要么
+   * 违反指令引用它，要么装看不见，两条路都在伤害可信度。
+   */
+  test('非跑步 prompt 不再声称「非跑步活动不计算训练负荷」', () => {
+    expect(SINGLE_NON_RUNNING_PROMPT).not.toContain('非跑步活动不计算');
+    expect(SINGLE_NON_RUNNING_PROMPT).not.toContain('数据里也不会出现（若出现，视为数据异常并忽略）');
+  });
+
+  test('非跑步 prompt 要求力量训练引用派生负荷并说明口径', () => {
+    // 力量课有 load（合并口径下还进 ACWR），必须允许并引导模型使用
+    expect(SINGLE_NON_RUNNING_PROMPT).toContain('力量训练');
+    expect(SINGLE_NON_RUNNING_PROMPT).toMatch(/派生负荷|力量负荷/);
+  });
+
+  test('非跑步 prompt 要求引用组结构/计划名/强度域 (真实可推导的三项)', () => {
+    expect(SINGLE_NON_RUNNING_PROMPT).toContain('组结构');
+    expect(SINGLE_NON_RUNNING_PROMPT).toContain('强度域');
+  });
+
+  test('非跑步 prompt 明确禁止编造重量/次数 (FIT 无 set 消息)', () => {
+    expect(SINGLE_NON_RUNNING_PROMPT).toMatch(/重量|次数/);
+    expect(SINGLE_NON_RUNNING_PROMPT).toMatch(/不可得|不要编造|编造/);
+  });
+});
