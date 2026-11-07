@@ -517,6 +517,76 @@ describe('ListClient 活动列表 (交互/筛选/无限滚动)', () => {
     expect(card).not.toHaveTextContent('总计数');
   });
 
+  /**
+   * **力量课的有效组数**（第二大类 51 条）。
+   *
+   * 力量课 51 条都有 `total_cycles` 但语义未确认（`r(cyc, 时长) = −0.118`），
+   * 已故那格不渲染。但**组数**是另一个字段 —— 来自 `workout_steps` 的组结构
+   * （active/interval 步数），详情页「有效组数」与 AI 数据块都在用。
+   * 若因为 cycles 被否掉就把力量课整类当成「没有可展示指标」，51 条依然是空壳。
+   *
+   * 真实库 `545564519`（跑前激活1）：6 个 active + 6 个 rest → 6 组。
+   */
+  test('力量训练卡片显示「有效组数」（来自 workout_steps, 不是 total_cycles）', () => {
+    const steps = JSON.stringify(
+      Array.from({ length: 6 }, () => [
+        { duration_sec: 45, intensity: 'active' },
+        { duration_sec: 15, intensity: 'rest' },
+      ]).flat(),
+    );
+    renderList({
+      initialActivitiesByMonth: {
+        '2026-09': [
+          act({
+            activity_type: 'strength_training',
+            name: '跑前激活1',
+            distance: 0,
+            duration: 1087,
+            moving_time: 1087,
+            total_cycles: 73,
+            workout_steps: steps,
+            training_load: 20,
+          }),
+        ],
+      },
+    });
+    const card = screen.getByRole('button', { name: /跑前激活1/ });
+    expect(card).toHaveTextContent('6 组');
+    // total_cycles 依然不渲染（语义未确认）
+    expect(card).not.toHaveTextContent('73');
+    expect(card).not.toHaveTextContent('总计数');
+  });
+
+  test('无 workout_steps 的力量课不显示「0 组」（没课表 ≠ 没做组）', () => {
+    renderList({
+      initialActivitiesByMonth: {
+        '2026-09': [
+          act({
+            activity_type: 'strength_training',
+            name: '力量训练',
+            distance: 0,
+            duration: 535,
+            moving_time: 535,
+            workout_steps: null,
+          }),
+        ],
+      },
+    });
+    const card = screen.getByRole('button', { name: /力量训练/ });
+    expect(card).not.toHaveTextContent('0 组');
+  });
+
+  test('跑步即使有 workout_steps 也不显示组数（力量课专属语义）', () => {
+    const steps = JSON.stringify([{ duration_sec: 45, intensity: 'active' }]);
+    renderList({
+      initialActivitiesByMonth: {
+        '2026-09': [act({ name: '晨跑', workout_steps: steps })],
+      },
+    });
+    const card = screen.getByRole('button', { name: /晨跑/ });
+    expect(card).not.toHaveTextContent('组');
+  });
+
   test('无名称活动用时间兜底命名', () => {
     renderList({
       initialActivitiesByMonth: { '2026-09': [act({ name: '' })] },

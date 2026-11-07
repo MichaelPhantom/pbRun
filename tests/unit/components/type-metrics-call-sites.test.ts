@@ -81,8 +81,26 @@ describe('类型专属指标：三处调用方共用 type-metrics.ts', () => {
 
   test('模块同时导出数值与文案（详情页要分开排版, 卡片要整句）', () => {
     const src = read('app/lib/type-metrics.ts');
-    for (const field of ['floors', 'floorsText', 'cycles', 'cyclesLabel']) {
+    for (const field of ['floors', 'floorsText', 'cycles', 'cyclesLabel', 'workingSets']) {
       expect(src).toMatch(new RegExp(`${field}\\s*:`));
     }
+  });
+
+  /**
+   * **力量课的有效组数必须走同一模块** —— 它是第二大类（51 条）唯一的
+   * 类型专属指标。若某个调用方自己调 `buildStrengthProfile` 数一遍组数，
+   * 详情页/AI/卡片三处的「有效组数」就会各算一套。
+   *
+   * 例外：详情页有独立的「力量训练分析」卡片（`strengthProfile`），
+   * 那里本来就用 `buildStrengthProfile` —— 但那是**详情页专属的深挖面板**，
+   * 不是卡片指标。故本断言只覆盖两个**卡片**调用方。
+   */
+  test.each([
+    'app/list/ListClient.tsx',
+    'app/components/dashboard/RecentActivityCard.tsx',
+  ])('%s 的力量组数必须来自 typeMetrics（不得自己调 buildStrengthProfile）', (file) => {
+    const src = read(file);
+    expect(src).toMatch(/typeMetrics\.workingSets/);
+    expect(src).not.toMatch(/buildStrengthProfile\s*\(/);
   });
 });

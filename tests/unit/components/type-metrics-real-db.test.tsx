@@ -131,6 +131,47 @@ describeIfDb('真实库：类型专属核心指标端到端', () => {
   });
 
   /**
+   * **力量课的有效组数**（第二大类 51 条，49 条有课表）。
+   *
+   * 这是 `total_cycles` 被否掉之后**仍然可展示**的指标 —— 来自 `workout_steps`
+   * 的组结构，不是设备计的数字。若不做这一格，51 条力量在卡片上依然只有
+   * 「时长 + 负荷 + 徽标」，用户看不出「这堂课做了几组」。
+   */
+  test('49 条有课表的力量训练全部渲染「N 组」', () => {
+    const rows = rowsOf('strength_training');
+    expect(rows.length).toBe(51);
+    const withSteps = rows.filter((a) => {
+      try {
+        const parsed = JSON.parse(String(a.workout_steps ?? '[]'));
+        return Array.isArray(parsed) && parsed.length > 0;
+      } catch {
+        return false;
+      }
+    });
+    // 真实库 49/51 有课表（544549643 / 564776703 两条没有）
+    expect(withSteps.length).toBe(49);
+    const missing = withSteps
+      .filter((a) => !/\d+ 组/.test(textOf(a)))
+      .map((a) => a.activity_id);
+    expect(missing).toEqual([]);
+  });
+
+  test('2 条无课表的力量训练不渲染「0 组」（没课表 ≠ 没做组）', () => {
+    const rows = rowsOf('strength_training').filter((a) => {
+      try {
+        const parsed = JSON.parse(String(a.workout_steps ?? '[]'));
+        return !Array.isArray(parsed) || parsed.length === 0;
+      } catch {
+        return true;
+      }
+    });
+    expect(rows.length).toBe(2);
+    for (const a of rows) {
+      expect(textOf(a)).not.toContain('0 组');
+    }
+  });
+
+  /**
    * **234 条跑步一条都不许出现楼层** —— 194 条有爬升，山地跑会全变楼层。
    *
    * 这是最容易漏的一条：真实库有爬升的跑步占多数，若不按类型门控，

@@ -145,6 +145,104 @@ describe('typeMetricsOf —— 总次数（仅语义已确认类型）', () => {
   });
 });
 
+/**
+ * 力量课的**有效组数**（`workingSets`）—— 与 `total_cycles` 完全不同的字段。
+ *
+ * 力量课 51 条都有 `total_cycles`（51/51）但语义未确认（`r(cyc, 时长) = −0.118`）；
+ * 而 `workingSets` 来自 `workout_steps` 的组结构（active/interval 的步数），
+ * 语义明确 —— 详情页「有效组数」与 AI 数据块都在用。
+ *
+ * 两者必须**分开判定**：因为 `total_cycles` 被否掉，就把力量课整类当成
+ * 「没有可展示指标」，等于让第二大类（51 条）继续是空壳。
+ */
+describe('typeMetricsOf —— 力量有效组数', () => {
+  /** 真实库 `545564519`（跑前激活1）的 `workout_steps`：6 个 active + 6 个 rest。 */
+  const SIX_SETS = JSON.stringify([
+    { duration_sec: 45, intensity: 'active' },
+    { duration_sec: 15, intensity: 'rest' },
+    { duration_sec: 45, intensity: 'active' },
+    { duration_sec: 15, intensity: 'rest' },
+    { duration_sec: 45, intensity: 'active' },
+    { duration_sec: 15, intensity: 'rest' },
+    { duration_sec: 45, intensity: 'active' },
+    { duration_sec: 15, intensity: 'rest' },
+    { duration_sec: 45, intensity: 'active' },
+    { duration_sec: 15, intensity: 'rest' },
+    { duration_sec: 45, intensity: 'active' },
+    { duration_sec: 15, intensity: 'rest' },
+  ]);
+
+  test('6 个 active 步 → workingSets = 6（真实库 545564519）', () => {
+    const m = typeMetricsOf({
+      activity_type: 'strength_training',
+      workout_steps: SIX_SETS,
+      name: '跑前激活1',
+    });
+    expect(m.workingSets).toBe(6);
+  });
+
+  test('workout_steps 为已解析数组（不是 JSON 字符串）也能算', () => {
+    const m = typeMetricsOf({
+      activity_type: 'strength_training',
+      workout_steps: JSON.parse(SIX_SETS),
+    });
+    expect(m.workingSets).toBe(6);
+  });
+
+  /**
+   * **没有课表的 2 条力量课 → `null`，不是 0**。
+   *
+   * 显示「0 组」是把「设备没记课表」读成「一个组都没做」—— 那是假数据。
+   * 真实库 `544549643` / `564776703` 就是这两条。
+   */
+  test('无 workout_steps → null（不是「0 组」）', () => {
+    expect(typeMetricsOf({ activity_type: 'strength_training' }).workingSets).toBeNull();
+    expect(typeMetricsOf({ activity_type: 'strength_training', workout_steps: null }).workingSets).toBeNull();
+    expect(typeMetricsOf({ activity_type: 'strength_training', workout_steps: '' }).workingSets).toBeNull();
+    expect(typeMetricsOf({ activity_type: 'strength_training', workout_steps: '[]' }).workingSets).toBeNull();
+  });
+
+  test('坏 JSON → null（不抛异常）', () => {
+    expect(
+      typeMetricsOf({ activity_type: 'strength_training', workout_steps: '{not json' }).workingSets,
+    ).toBeNull();
+  });
+
+  /** 只有 active、没有 rest 的课表同样算组数（continuous 结构）。 */
+  test('全 active 无 rest → 仍算有效组数', () => {
+    const m = typeMetricsOf({
+      activity_type: 'strength_training',
+      workout_steps: JSON.stringify([
+        { duration_sec: 600, intensity: 'active' },
+      ]),
+    });
+    expect(m.workingSets).toBe(1);
+  });
+
+  /** 非力量类型即使带了 `workout_steps` 也不给（那是力量课专属语义）。 */
+  test.each(['running', 'floor_climbing', 'lap_swimming', 'basketball', 'hiit'])(
+    '%s 即使有 workout_steps 也不给 workingSets',
+    (type) => {
+      expect(typeMetricsOf({ activity_type: type, workout_steps: SIX_SETS }).workingSets).toBeNull();
+    },
+  );
+
+  /**
+   * **`total_cycles` 与 `workingSets` 互相独立** —— 力量课同时有这两个字段，
+   * 但只有后者可展示。这条钉住「不要因为 cycles 被否掉就连组数一起丢」。
+   */
+  test('力量课：cycles 为 null 但 workingSets 有值', () => {
+    const m = typeMetricsOf({
+      activity_type: 'strength_training',
+      total_cycles: 73,
+      workout_steps: SIX_SETS,
+    });
+    expect(m.cycles).toBeNull();
+    expect(m.cyclesLabel).toBeNull();
+    expect(m.workingSets).toBe(6);
+  });
+});
+
 describe('typeMetricsOf —— 组合与边界', () => {
   test('爬楼同时有楼层与步数（两个指标都要给）', () => {
     const m = typeMetricsOf({ activity_type: 'floor_climbing', total_ascent: 46, total_cycles: 300 });
@@ -156,11 +254,11 @@ describe('typeMetricsOf —— 组合与边界', () => {
 
   test('普通跑步：两个字段都 null（卡片只剩时长 + 配速）', () => {
     const m = typeMetricsOf({ activity_type: 'running', total_ascent: 120, total_cycles: 5000 });
-    expect(m).toEqual({ floors: null, floorsText: null, cycles: null, cyclesLabel: null });
+    expect(m).toEqual({ floors: null, floorsText: null, cycles: null, cyclesLabel: null, workingSets: null });
   });
 
   test('空对象不抛异常', () => {
     expect(() => typeMetricsOf({})).not.toThrow();
-    expect(typeMetricsOf({})).toEqual({ floors: null, floorsText: null, cycles: null, cyclesLabel: null });
+    expect(typeMetricsOf({})).toEqual({ floors: null, floorsText: null, cycles: null, cyclesLabel: null, workingSets: null });
   });
 });

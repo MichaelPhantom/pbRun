@@ -31,10 +31,16 @@
  *    游泳 / 跳绳 / 爬楼）。力量课 51 条都有 `total_cycles`（51/51），但
  *    `r(cyc, 时长) = −0.118` 否掉了「次数」假设 —— 把 73 写成「73 次」是编造。
  *    **未确认类型整格不渲染，绝不用「总计数/其他/杂项」兜底**。
+ * 3. **力量课的 `total_cycles` 不可用，但「有效组数」可用** —— 两者是完全不同的
+ *    字段，不要因为前者被否掉就连后者一起丢。力量课 49/51 有 `workout_steps`
+ *    （组结构 JSON），`buildStrengthProfile()` 从中数出 `workingSets`（active/
+ *    interval 且非循环控制步）。这是**真实可推导**的（详情页与 AI 都在用），
+ *    卡片上也必须给 —— 否则 51 条力量（第二大类）依然只有「时长 + 负荷 + 徽标」。
  */
 
 import { cycleCountLabel } from '@/app/lib/cycles';
 import { floorsFromAscent, formatFloors } from '@/app/lib/floors';
+import { buildStrengthProfile, isStrengthType } from '@/app/lib/strength';
 
 /** 一条活动的类型专属核心指标。 */
 export interface TypeMetrics {
@@ -49,6 +55,15 @@ export interface TypeMetrics {
   cycles: number | null;
   /** `total_cycles` 的完整标签（`label` + `unit`）；与 `cycles` 同生共死。 */
   cyclesLabel: { label: string; unit: string } | null;
+  /**
+   * 力量课的**有效组数**（active/interval 且非循环控制步的步数）。
+   *
+   * 与 `cycles` 是两个完全不同的字段：力量课 51 条都有 `total_cycles` 但语义
+   * 未确认（`r(cyc, 时长) = −0.118`），而 `workingSets` 是从 `workout_steps`
+   * 的组结构数出来的，语义明确（详情页「有效组数」与 AI 数据块都在用）。
+   * 仅 `strength_training` 且 `workout_steps` 可解析时非 null。
+   */
+  workingSets: number | null;
 }
 
 /** 类型专属指标所需的最小活动形状（`Activity` 天然满足）。 */
@@ -56,6 +71,11 @@ export interface TypeMetricsSource {
   activity_type?: string | null;
   total_ascent?: number | null;
   total_cycles?: number | null;
+  /** 力量课组结构 JSON（`strength_training` 专用，49/51 有值）。 */
+  workout_steps?: unknown;
+  /** 力量课计划名回落链的一环（`buildStrengthProfile` 需要）。 */
+  name?: string | null;
+  workout_name?: string | null;
 }
 
 /**
@@ -78,11 +98,23 @@ export function typeMetricsOf(activity: TypeMetricsSource): TypeMetrics {
       ? Math.round(activity.total_cycles)
       : null;
 
+  // 力量课的有效组数。**不是** `total_cycles` 的替身 —— 前者来自组结构
+  // （`workout_steps` 里 active/interval 的步数），后者是设备计的数字且语义
+  // 未确认。两者可以同时为 null（没有课表的力量课），也可以一个有值另一个没有。
+  //
+  // 门控：① 只对 `strength_training`；② `workingSets > 0` 才给 —— 没有
+  // `workout_steps` 的 2 条力量课会得到 0，显示「0 组」是把「没课表」读成
+  // 「没做组」，那是假数据。
+  const sets = isStrengthType(activity.activity_type)
+    ? buildStrengthProfile(activity).workingSets
+    : 0;
+
   return {
     floors: floorsValue,
     floorsText: formatFloors(floorsValue),
     cycles: cyclesValue,
     // 标签与数值同生共死：没有数值就不给标签，避免渲染出孤零零的「次划水」。
     cyclesLabel: cyclesValue == null ? null : label,
+    workingSets: sets > 0 ? sets : null,
   };
 }

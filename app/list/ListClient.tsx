@@ -720,6 +720,17 @@ function ActivityCard({
             {typeMetrics.cyclesLabel.unit}
           </span>
         )}
+        {/*
+          力量课的有效组数。**不是** `total_cycles` 的替身 —— 力量 51 条都有
+          `total_cycles` 但语义未确认（`r(cyc, 时长) = −0.118`），而组数来自
+          `workout_steps` 的组结构，详情页与 AI 数据块都在用。
+          没有课表的 2 条力量课是 `null`（不是「0 组」）。
+        */}
+        {typeMetrics.workingSets != null && (
+          <span className="text-fg-secondary">
+            <span className="font-medium text-fg-secondary">{typeMetrics.workingSets}</span> 组
+          </span>
+        )}
         <span className="ml-auto text-[11px] font-medium text-[var(--brand-text)]">
           查看详情 · AI 复盘 →
         </span>

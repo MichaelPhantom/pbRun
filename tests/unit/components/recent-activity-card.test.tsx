@@ -315,6 +315,54 @@ describe('RecentActivityCard', () => {
     expect(container.textContent).not.toContain('层');
   });
 
+  /**
+   * 力量课**有效组数**（来自 `workout_steps` 的组结构，不是 `total_cycles`）。
+   * 首页此前对力量课只有「时长 + 负荷 + 心率 + 徽标」—— 51 条（第二大类）
+   * 看不出「这堂课做了几组」。真实库 `545564519` 6 active + 6 rest → 6 组。
+   */
+  test('力量训练卡片显示「有效组数」', () => {
+    const steps = JSON.stringify(
+      Array.from({ length: 6 }, () => [
+        { duration_sec: 45, intensity: 'active' },
+        { duration_sec: 15, intensity: 'rest' },
+      ]).flat(),
+    );
+    const { container } = render(
+      <RecentActivityCard
+        activity={act({
+          activity_type: 'strength_training',
+          name: '跑前激活1',
+          distance: 0,
+          duration: 1087,
+          moving_time: 1087,
+          total_cycles: 73,
+          workout_steps: steps,
+          average_heart_rate: null,
+          training_load: null,
+        })}
+      />,
+    );
+    expect(container.textContent).toContain('6 组');
+    // total_cycles 依然不渲染
+    expect(container.textContent).not.toContain('73');
+  });
+
+  test('无 workout_steps 的力量课不显示「0 组」', () => {
+    const { container } = render(
+      <RecentActivityCard
+        activity={act({
+          activity_type: 'strength_training',
+          name: '力量训练',
+          distance: 0,
+          workout_steps: null,
+          average_heart_rate: null,
+          training_load: null,
+        })}
+      />,
+    );
+    expect(container.textContent).not.toContain('0 组');
+  });
+
   test('跑步卡片不渲染 total_cycles（步幅周期数对用户无意义）', () => {
     const { container } = render(
       <RecentActivityCard activity={act({ name: '晨跑', total_cycles: 5234 })} />,

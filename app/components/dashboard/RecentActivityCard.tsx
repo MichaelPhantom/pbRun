@@ -77,7 +77,8 @@ export function RecentActivityCard({ activity }: { activity: Activity }) {
         activity.training_load != null ||
         activity.average_heart_rate != null ||
         typeMetrics.floorsText != null ||
-        typeMetrics.cycles != null) && (
+        typeMetrics.cycles != null ||
+        typeMetrics.workingSets != null) && (
         <div className="flex flex-wrap gap-3 text-[11px] text-fg-secondary">
           {/* VDOT 是跑步跑力指标: 非跑步活动即使 DB 里残留了值也不展示
               (详情页同样按 running 门控「即时跑力」)。 */}
@@ -104,6 +105,12 @@ export function RecentActivityCard({ activity }: { activity: Activity }) {
             <span>
               <span className="tnum font-medium text-fg-secondary">{typeMetrics.cycles}</span>{' '}
               {typeMetrics.cyclesLabel.unit}
+            </span>
+          )}
+          {/* 力量课有效组数（来自 workout_steps 的组结构，不是 total_cycles）。 */}
+          {typeMetrics.workingSets != null && (
+            <span>
+              <span className="tnum font-medium text-fg-secondary">{typeMetrics.workingSets}</span> 组
             </span>
           )}
         </div>
