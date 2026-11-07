@@ -151,6 +151,40 @@ describe('app/stats/page.tsx', () => {
     expect(screen.getByTestId('global-coach')).toHaveTextContent('coach:365');
   });
 
+  /**
+   * **第二十七类：`/stats` 个人纪录的日期读进程时区，不是固定 +480 业务时区。**
+   *
+   * `RecordRow` 与「单次跑步最长距离」都用
+   * `new Date(iso).toLocaleDateString('zh-CN', …)` —— 它读的是**进程/浏览器时区**。
+   *
+   * 生产库真实数据：`longestRunDate = 2026-10-31T23:38:57.000Z`，业务时区
+   * （+480）是 **2026-11-01 07:38**，也就是「11 月那场半马」。而 CI 的
+   * `TZ=UTC` 那条腿会把它渲染成 **2026/10/31** —— 同一个 PR 在两条腿上显示
+   * 不同的日期，用户看到的日期也可能随手机时区漂移。
+   *
+   * 全站时区契约（`app/lib/timezone.ts`，固定 +480）要求所有「展示时间」都从
+   * `toBusinessWallClock` 派生 —— `formatDate` / `formatListDateTime` 都遵守，
+   * 只有这两处漏了。
+   */
+  test('个人纪录日期必须走业务时区（不读进程时区）', async () => {
+    db.getPersonalRecords.mockReturnValue({
+      ...prs,
+      longestRunDate: '2026-10-31T23:38:57.000Z',
+      records: [
+        {
+          distanceLabel: '半程马拉松最佳成绩',
+          durationSeconds: 6499,
+          paceSeconds: 308,
+          achievedAt: '2026-10-31T23:38:57.000Z',
+        },
+      ],
+    });
+    render(await StatsPage({ searchParams: Promise.resolve({ period: 'week' }) }));
+    // 业务时区 +480 → 2026/11/01（进程时区为 UTC 时会渲染成 2026/10/31）
+    expect(screen.queryByText('2026/10/31')).not.toBeInTheDocument();
+    expect(screen.getAllByText('2026/11/01').length).toBeGreaterThanOrEqual(2);
+  });
+
   test('非法 period → 回落 week', async () => {
     render(await StatsPage({ searchParams: Promise.resolve({ period: 'bogus' }) }));
     expect(db.getStats).toHaveBeenCalledWith('week');

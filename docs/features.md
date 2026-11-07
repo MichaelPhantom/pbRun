@@ -119,6 +119,7 @@ pbRun 是跑步分析工具，但 Garmin 同步会把篮球/游泳/力量训练�
 | `/insight` 强度分布标题 | 由**实际非零区间**派生（`zoneRangeLabel`：Z1–Z5 / Z3–Z4 / Z1, Z2, Z4），旧文案写死「Z1–Z6」是空承诺；配色只有 `--z1..--z5` |
 | 分析页「当前跑力」副标题 | 「近一周跑步平均」而非「近一周活动平均」—— `currentVdot` 来自 `getStats('week').averageVDOT`，是跑步口径 |
 | 丹尼尔斯页「当前跑力」说明 | 「近一周跑步活动的 VDOT 平均值」并注明「只含跑步，游泳/球类不参与」—— 同源 `getStats('week')` |
+| `/stats` 个人纪录 · 日期时区 | 第二十七类缺陷：`RecordRow` 与「单次跑步最长距离」两处用 `new Date(iso).toLocaleDateString('zh-CN', …)` 渲染达成日期 —— 它读的是**进程/浏览器时区**，不是项目的固定 +480 业务时区。真实库 `longestRunDate = 2026-10-31T23:38:57.000Z`（那场半马）的业务时区是 **2026-11-01 07:38**，而 CI 的 `TZ=UTC` 腿渲染成 **2026/10/31** —— 同一个 PR 在两条腿上显示不同日期，用户手机时区一变记录日期也跟着漂。现改走 `formatDate`（`toBusinessWallClock`，与 `formatDateTime`/`formatListDateTime` 同一契约）。新增静态守卫 `tests/unit/ci/timezone-display-hygiene.test.ts`：`app/**` 下不得出现 `toLocaleDateString`/`toLocaleString`/`toLocaleTimeString`（剥注释后匹配） |
 | `/stats` 个人纪录「单次最长距离」 | 「单次跑步最长距离」而非「单次训练最长距离」—— `getPersonalRecords` 带 `runningTypeClause`，游泳/球类不计入 |
 | 全局教练【区间环比】次数行 | 「跑步次数」而非「次数」—— `getPeriodStats` 是跑步口径，模型若读成全部活动数会误判训练频率 |
 | 活动详情页分段表 | 隐藏配速与步频列，不给「最快段」徽章；游泳改展示「配速 /100m」列（`distance = 0` 的休息段为 `--`） |

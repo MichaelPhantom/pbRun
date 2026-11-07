@@ -96,6 +96,11 @@ description: 分析 pbRun (Garmin) 跑步数据出教练诊断报告、查最新
 - get_activity 还提供官方指标：`garmin_vo2max`（官方值，区别于本地推算的 vdot_value）、`threshold_heart_rate`、`recovery_time`、`primary_benefit`、`user_weight`（公斤，供功率体重比）。这些是教练画像的好料，一次抓齐。
 - ⚠️ **不要拿 `user_height` / `resting_heart_rate_fit` / `hr_zone_boundaries` 当个人指标**：前两者是**设备配置快照**（`resting_heart_rate_fit` 覆盖约六成活动、仅 7 个取值 42–48，同一天多条活动同值；`user_height` 全库只有 4 个取值且无任何计算引用），`hr_zone_boundaries` 是设备原始边界（21 套方案随固件而变）。app 的心率区间一律走 `resolveMaxHr()` 本地重算，跨活动才可比。
 - ⚠️ **`hrv_rmssd` 不要用来判断单次训练的恢复状态**（详见下节「HRV 的正确用法」）。
+- ⚠️ **日期/时间一律是业务时区（固定 +480，Asia/Shanghai），不是 UTC 也不是本机时区**。
+  `achievedAt` / `longestRunDate` / `start_time` 都是带 `Z` 的 UTC ISO，但**展示日期必须走
+  `app/lib/timezone.ts`**（`formatDate` / `formatDateTime` / `formatListDateTime`）。真实库
+  `2026-10-31T23:38:57.000Z`（那场半马）的业务日期是 **2026-11-01**，不是 10-31。
+  用户问「我哪天跑的」时，**别把 UTC 日期当答案**；跨日的记录（约 1/3 的清晨跑）会差一天。
 - **`total_training_effect`（TE）是**所有运动类型都有的强度量化字段**（含全部非跑步活动；库内无一活动缺该值）**。非跑步活动 `training_load` 普遍为 NULL（设备只对跑步三类型 + 力量课产出负荷），**判强度只能靠 TE + 心率区间 + 热量**。两个陷阱：① **`TE = 0` 是有效值**（羽毛球 `560273729` 精确为 0、跳绳 3 条 0–0.1），代表「这课基本没有训练刺激」，不要当成缺失跳过；② TE 与 `training_load` **是两套口径**，不要互相换算，也不要把 TE 当负荷分并入 ACWR/CTL/TSB。
 
 ## 教练诊断框架

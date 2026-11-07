@@ -1,6 +1,6 @@
 'use client';
 
-import { formatPace, formatDurationRecord } from '@/app/lib/format';
+import { formatPace, formatDurationRecord, formatDate } from '@/app/lib/format';
 import { CURRENT_VDOT_SCOPE_HINT, STATS_SCOPE_HINT } from '@/app/lib/load-scope';
 import type { PersonalRecordsResponse, PersonalRecordItem } from '@/app/lib/types';
 import type { StatsResponse } from '@/app/lib/types';
@@ -115,7 +115,7 @@ export default function StatsClient({ data, pr, period, currentVdot, coachRange 
               </span>
               {pr.longestRunDate && (
                 <span className="tnum ml-2 text-xs text-fg-muted">
-                  {new Date(pr.longestRunDate).toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' })}
+                  {formatDate(pr.longestRunDate)}
                 </span>
               )}
             </div>
@@ -136,9 +136,11 @@ export default function StatsClient({ data, pr, period, currentVdot, coachRange 
 
 function RecordRow({ item }: { item: PersonalRecordItem }) {
   const timeStr = item.durationSeconds != null ? formatDurationRecord(item.durationSeconds) : '-';
-  const dateStr = item.achievedAt
-    ? new Date(item.achievedAt).toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' })
-    : '';
+  // 第二十七类缺陷：旧实现用 `new Date(iso).toLocaleDateString()`，读的是**进程
+  // 时区**（TZ=UTC 的 CI 腿会把 2026-10-31T23:38Z 渲染成 10/31，而业务时区
+  // 是 11/01 07:38）。`formatDate` 走 `toBusinessWallClock`（固定 +480），
+  // 与全站「展示时间」同一契约。
+  const dateStr = item.achievedAt ? formatDate(item.achievedAt) : '';
   return (
     <li className="flex items-center justify-between px-1 py-3">
       <span className="text-sm text-fg-secondary">{item.distanceLabel}</span>

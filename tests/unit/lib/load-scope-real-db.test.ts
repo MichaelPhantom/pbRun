@@ -587,4 +587,44 @@ describeIfDb('真实库：训练负荷的合并口径 vs 跑步口径', () => {
     expect(row.strengthLoad).toBe(408);
     expect(row.combinedLoad).toBe(row.runLoad + row.strengthLoad);
   });
+
+  /**
+   * **第二十七类：`/stats` 个人纪录日期读进程时区。**
+   *
+   * `getPersonalRecords` 的 `achievedAt` / `longestRunDate` 都是**带 Z 的 UTC ISO**。
+   * 业务时区（+480）与 UTC 相差 8 小时，跨日的那几条在两条 CI 腿上会渲染成
+   * 不同的日期。
+   *
+   * 这条守卫钉住「确实存在跨日的记录」—— 若真实库里所有 PR 时间都落在 UTC
+   * 08:00 之后（不可能跨日），这条说明就没有意义了。
+   *
+   * 真实库：`longestRunDate = 2026-10-31T23:38:57.000Z`（业务时区 11-01 07:38），
+   * 另有 1.6km / 3km 的 `achievedAt = 2026-08-18T22:06:18.000Z`（业务 08-19 06:06）。
+   */
+  test('个人纪录的 UTC 时间戳确实跨日（业务时区 +480 与 UTC 不同一天）', () => {
+    const row = db
+      .prepare(
+        `SELECT activity_id, start_time, start_time_local, distance
+         FROM activities
+         WHERE start_time = '2026-10-31T23:38:57.000Z'`,
+      )
+      .get() as { activity_id: number; start_time: string; start_time_local: string; distance: number } | undefined;
+
+    expect(row).toBeDefined();
+    // UTC 日期与业务时区日期必须不同天 —— 这正是「读进程时区会错一天」的证据
+    expect(row!.start_time.slice(0, 10)).toBe('2026-10-31');
+    expect(row!.start_time_local.slice(0, 10)).toBe('2026-11-01');
+    // 且它确实是**最近 6 个月**的最长距离 —— 统计页的「单次跑步最长距离」
+    // 那一行就是 `getPersonalRecords('6months')` 的结果（全历史最长是
+    // 2026-02-22 的 21.75km，不在这个窗口内）。
+    const longest = db
+      .prepare(
+        `SELECT distance, start_time FROM activities
+         WHERE ${RUN} AND distance > 0
+           AND substr(start_time_local, 1, 10) >= '2026-05-08'
+         ORDER BY distance DESC LIMIT 1`,
+      )
+      .get() as { distance: number; start_time: string };
+    expect(longest.start_time).toBe('2026-10-31T23:38:57.000Z');
+  });
 });
