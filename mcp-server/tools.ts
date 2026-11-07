@@ -362,7 +362,7 @@ export async function registerTools(server: McpServer): Promise<void> {
         'totalDistance 为米, totalDuration 为秒。' +
         '⚠️ **totalTrainingLoad 是纯跑步负荷, 不是合并负荷** —— 与 ' +
         'get_training_load_analysis 的合并口径（跑步 + 力量）不同: 真实库 2026-08 ' +
-        '这里 1715 而合并口径 2004（差 289 / 17%）、2026 全年差 1666。两个口径都对, ' +
+        '这里 1715 而合并口径 2004（差 289 / 17%）、2026 全年 15668 vs 17171（差 1503）。两个口径都对, ' +
         '**算 ACWR/CTL/TSB 必须用 get_training_load_analysis 的合并值**, 不要拿本工具的 ' +
         'totalTrainingLoad 去算; 反过来也不要因为两者不等就判定数据错误。',
       inputSchema: {

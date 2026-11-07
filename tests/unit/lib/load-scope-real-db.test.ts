@@ -14,7 +14,8 @@
  * | `/stats` | `getStats`（带 `runningTypeClause`） | 纯跑步 |
  *
  * 真实库逐月差值：2026-08 跑步 1715 vs 合并 2004（+289 / 17%）、
- * 2026-02 1727 vs 2025（+298 / 17%）、2026 全年 18122 vs 19788（+1666）。
+ * 2026-02 1727 vs 2025（+298 / 17%）、2026 全年 15668 vs 17171（+1503）、
+ * 全历史 18122 vs 19788（+1666）。
  *
  * ## 为什么必须查真实库
  *
@@ -145,25 +146,53 @@ describeIfDb('真实库：训练负荷的合并口径 vs 跑步口径', () => {
     expect(bad).toEqual([]);
   });
 
-  /** 2026 全年：差 1666（这是「同一个词两个数」在年度尺度上的量级）。 */
-  test('2026 全年：合并 − 跑步 = 力量负荷（真实库 1666）', () => {
+  /**
+   * **2026 全年：合并 − 跑步 = 力量负荷（15668 vs 17171，差 1503）**。
+   *
+   * ⚠️ 这里精确钉住数字，是因为本轮曾把**全历史**的 18122 / 19788 / +1666
+   * 误写成「2026 全年」—— 两者相差 2454 / 2617，看起来都「合理」，只有
+   * 逐字核对才发现。文档、skill、MCP 描述里引用的每一个数字都必须有对应的
+   * 机器断言，否则抄错一次就会扩散到三处交付面。
+   */
+  test('2026 全年：合并 − 跑步 = 力量负荷（15668 / 17171 / +1503）', () => {
     const row = db
       .prepare(
         `SELECT
            SUM(CASE WHEN ${RUN} THEN COALESCE(training_load, 0) ELSE 0 END) AS runLoad,
            SUM(CASE WHEN activity_type = 'strength_training'
-                    THEN COALESCE(training_load, 0) ELSE 0 END) AS strengthLoad
+                    THEN COALESCE(training_load, 0) ELSE 0 END) AS strengthLoad,
+           SUM(COALESCE(training_load, 0)) AS allLoad
          FROM activities
          WHERE start_time_local LIKE '2026%'`,
       )
-      .get() as { runLoad: number; strengthLoad: number };
-    // 力量负荷是正数且量级合理（不是 0、也不吞掉跑量）
-    expect(row.strengthLoad).toBeGreaterThan(1000);
-    expect(row.runLoad).toBeGreaterThan(15000);
-    // 差值占跑步负荷的 5%–20%（真实库 9.2%）
-    const share = row.strengthLoad / row.runLoad;
-    expect(share).toBeGreaterThan(0.05);
-    expect(share).toBeLessThan(0.2);
+      .get() as { runLoad: number; strengthLoad: number; allLoad: number };
+    expect(Math.round(row.runLoad)).toBe(15668);
+    expect(Math.round(row.strengthLoad)).toBe(1503);
+    expect(Math.round(row.allLoad)).toBe(17171);
+    // 差值 ≡ 力量负荷（合并口径只加 load）
+    expect(Math.round(row.allLoad - row.runLoad)).toBe(1503);
+  });
+
+  /**
+   * **全历史**是另一组数（18122 / 19788 / +1666），与 2026 全年**不是**一回事。
+   *
+   * 这条单独钉住，正是为了拦住「把全历史当年度」这类事实错误 —— 两个数
+   * 都「看起来像年负荷」，抄错后文档与代码会一致地错，没有任何测试能发现。
+   */
+  test('全历史：18122 / 19788 / +1666（与 2026 全年是不同数字）', () => {
+    const row = db
+      .prepare(
+        `SELECT
+           SUM(CASE WHEN ${RUN} THEN COALESCE(training_load, 0) ELSE 0 END) AS runLoad,
+           SUM(COALESCE(training_load, 0)) AS allLoad
+         FROM activities`,
+      )
+      .get() as { runLoad: number; allLoad: number };
+    expect(Math.round(row.runLoad)).toBe(18122);
+    expect(Math.round(row.allLoad)).toBe(19788);
+    expect(Math.round(row.allLoad - row.runLoad)).toBe(1666);
+    // 两个数必须不同 —— 若哪天相等，说明某处查询条件写错了
+    expect(Math.round(row.runLoad)).not.toBe(15668);
   });
 
   /**
