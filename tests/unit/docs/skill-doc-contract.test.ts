@@ -292,3 +292,54 @@ describe('skill 不得把设备配置值当个人指标', () => {
     expect(skill).not.toMatch(/user_weight\/user_height\/resting_heart_rate_fit/);
   });
 });
+
+/**
+ * 第十类缺陷第二轮：SWOLF / feel / RPE / 出汗量。
+ *
+ * 这四项全部是「FIT 里一直有 → 解析器不读 → skill 或文档断言不可得」。
+ * 与第一轮（`total_cycles`）同一判据，只是命中的字段不同。
+ *
+ * 三条纪律必须写进 skill，否则模型会给出**看起来专业但错误**的结论：
+ *  1. SWOLF 绝不能跨池长比较、也不能折算（50m 的 75 折成 37 是错的）；
+ *  2. `workout_feel = 0` 是有效值（14/251 条「感觉很差」）；
+ *  3. 出汗量是设备估算值且有 1000 ml/h 上限，必须带「约」。
+ */
+describe('skill 的 SWOLF / 主观感受 / 出汗量口径', () => {
+  test('skill 必须声明 SWOLF 的公式与不可跨池长比较', () => {
+    expect(skill).toMatch(/SWOLF/);
+    // 公式：单趟秒数 + 单趟划水次数
+    expect(skill).toMatch(/单趟用时.*单趟划水次数|单趟秒数.*单趟划水次数/);
+    // 两条铁律
+    expect(skill).toMatch(/不能跨池长|绝不能跨池长|不可跨池长/);
+    expect(skill).toMatch(/不能折算|绝不能折算|折算.*错/);
+  });
+
+  test('skill 里 4 条游泳的 SWOLF 值必须与真实库一致', () => {
+    // 58 / 65 / 75 / 62 —— 由 app/lib/swim.ts 从真实库字段算出，非抄表
+    for (const v of [58, 65, 75, 62]) expect(skill).toContain(String(v));
+  });
+
+  test('skill 必须声明 feel = 0 是有效值（不是缺失）', () => {
+    expect(skill).toMatch(/workout_feel/);
+    // 必须出现「0 是有效值」这类明确断言，否则模型会用真值判断
+    expect(skill).toMatch(/0.*有效值|0.*不是缺失|14\/251/);
+  });
+
+  test('skill 必须声明 RPE 是 1–10 且 0 不合法', () => {
+    expect(skill).toMatch(/workout_rpe/);
+    expect(skill).toMatch(/1[–\-]10|Borg/);
+  });
+
+  test('skill 必须声明出汗量是估算值且有速率上限', () => {
+    expect(skill).toMatch(/est_sweat_loss/);
+    expect(skill).toMatch(/估算|保守下限/);
+    // 1000 ml/h 上限是「不能当实测值」的证据
+    expect(skill).toMatch(/1000\s*ml\/h|1500[–\-]2000/);
+    expect(skill).toMatch(/「?约」?/);
+  });
+
+  test('skill 不得再断言「泳池长度/趟数不可得」', () => {
+    expect(skill).not.toMatch(/pool_length[^。\n]*(不可得|不提供|没有)/);
+    expect(skill).not.toMatch(/num_active_lengths[^。\n]*(不可得|不提供|没有)/);
+  });
+});

@@ -362,3 +362,47 @@ describe('游泳划频与总划水次数：数据块与提示词对齐', () => {
     expect(user.content).toContain('划频: 44 次/分');
   });
 });
+
+/**
+ * 第十类缺陷第二轮：主观感受 / 出汗量 / SWOLF 的**提示词**侧。
+ *
+ * 数据块给了模型这些字段（`llm.test.ts` 已守），但提示词若不说清「怎么用」，
+ * 模型会犯三类错：
+ *
+ * 1. 把 `workout_feel` / `workout_rpe`（用户填的）当客观指标做负荷计算；
+ * 2. 把 `est_sweat_loss`（设备估算 + 1000 ml/h 上限）当实测值给补液建议；
+ * 3. 把 SWOLF 跨池长比较或折算（50m 的 75 折成 37 是错的）。
+ *
+ * 这三条都不是「措辞不严谨」—— 它们直接决定模型给出的是专业建议还是错误建议。
+ */
+describe('主观感受 / 出汗量 / SWOLF：提示词必须说清用法', () => {
+  test('提示词必须声明主观感受是用户填的、不是设备测的', () => {
+    expect(SINGLE_RUNNING_PROMPT).toMatch(/主观感受|workout_feel/);
+    expect(SINGLE_RUNNING_PROMPT).toMatch(/用户.*(自己选|填写|输入)|不是设备测/);
+  });
+
+  test('提示词必须禁止把体感当客观指标', () => {
+    // 真实库 r(feel,rpe) = −0.856，体感与客观高度自洽 —— 但 RPE 含睡眠/情绪/天气
+    expect(SINGLE_RUNNING_PROMPT).toMatch(/\*\*不要\*\*把体感\s*\n?当客观指标|不要\*\*把体感/);
+  });
+
+  test('提示词必须声明出汗量是估算值且有速率上限', () => {
+    expect(SINGLE_RUNNING_PROMPT).toMatch(/出汗量|est_sweat_loss/);
+    expect(SINGLE_RUNNING_PROMPT).toMatch(/估算/);
+    expect(SINGLE_RUNNING_PROMPT).toMatch(/1000\s*ml\/h|1500[–\-]2000/);
+    expect(SINGLE_RUNNING_PROMPT).toMatch(/保守下限/);
+  });
+
+  test('非跑步提示词必须声明 SWOLF 带池长且不可折算', () => {
+    expect(SINGLE_NON_RUNNING_PROMPT).toMatch(/SWOLF/);
+    expect(SINGLE_NON_RUNNING_PROMPT).toMatch(/带池长|必须带池长/);
+    expect(SINGLE_NON_RUNNING_PROMPT).toMatch(/不能跨池长|绝不能跨池长/);
+    expect(SINGLE_NON_RUNNING_PROMPT).toMatch(/不能折算|绝不能折算/);
+  });
+
+  test('提示词不得再把「划频」列为设备不写的字段（缺陷 15 的残留）', () => {
+    // 缺陷 15 修过一次（划频可得），但数据纪律里曾同时列了「划频」与「总划水次数」
+    expect(SINGLE_RUNNING_PROMPT).not.toMatch(/设备不写[^。\n]*划频/);
+    expect(SINGLE_NON_RUNNING_PROMPT).not.toMatch(/设备不写[^。\n]*划频/);
+  });
+});

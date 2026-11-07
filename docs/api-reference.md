@@ -227,6 +227,9 @@ GET /api/activities/{id}
   "calories": 1487,
   "average_temperature": 24,
   "total_cycles": 10319,
+  "workout_feel": 75,
+  "workout_rpe": 2,
+  "est_sweat_loss": 1794,
   "vdot_value": 37.4,
   "training_load": 198,
   "garmin_vo2max": 55,
@@ -267,6 +270,28 @@ GET /api/activities/{id}
   （第十类缺陷：此前解析器整体丢弃该字段，全库不存在）。
 - 游泳另可用 `distance(km) × 1000 ÷ total_cycles` 得**每划距离**（真实库 1.35–2.95 m/划），
   这是技术分析的核心指标（划频高但每划距离短 = 抓水效率低）。
+- **主观感受 / 主观用力 / 估计出汗量（真实库 251–349/353）**：
+  - `workout_feel`：用户主动输入的主观感受，取值 `0 / 25 / 50 / 75 / 100`（很差 → 很好）。
+    **`0` 是有效值**（14/251 条「感觉很差」），判空必须用 `!= null`。
+  - `workout_rpe`：主观用力（Borg CR10，**1–10**，`0` 不是合法档）。
+    与 `workout_feel` 严格反向：`r = −0.856`（n=251），feel 各档 RPE 均值
+    8.1 / 5.9 / 3.8 / 2.4 / 1.4。**偏离样本仅 1/251（0.4%）** —— 出现即值得单独解释。
+  - `est_sweat_loss`：**设备估算**出汗量（ml，349/353，游泳 0/4）。
+    内部速率上限约 **1000 ml/h**（88/306 条已触顶，实测 max = 999），
+    而真实出汗率可达 1500–2000 ml/h —— 它是**保守下限**，引用必须带「约」。
+- **泳池规格与 SWOLF（仅游泳，4/4）**：
+  - `pool_length`（**米**）：FIT 的 scale=100（厘米）已由 `fit-file-parser` 应用，
+    解析后直接是米（25/50）。**不要再 ÷100**。
+  - `num_active_lengths`：活跃趟数（不含池边休息）。
+  - 自证不变式：`num_active_lengths × pool_length == distance × 1000`
+    （775=31×25、1075=43×25、2200=44×50、2050=41×50，4/4 精确相等）。
+  - **SWOLF = 单趟秒数 + 单趟划水次数**
+    = `活跃lap计时器秒之和 ÷ 趟数` + `total_cycles ÷ 趟数`。
+    真实库 58（25m）/ 65（25m）/ 75（50m）/ 62（50m）。
+    ⚠️ **绝不能跨池长比较，也绝不能折算** —— 50m 池的 SWOLF 天然约为 25m 的两倍；
+    把 50m 的 75 折成 37 会远低于任何真实 25m 值（转身与蹬壁在长池里被摊薄）。
+    ⚠️ 时间基数必须是**活跃 lap 的计时器时间之和**，不是活动级 `moving_time`
+    （后者含池边休息，599287904 有 804s，会把 SWOLF 从 58 抬到 84）。
 - `hr_zone_boundaries` / `power_zone_boundaries` / `devices` / `workout_steps` /
   `route_cells` / `route_bounds` 均为 **JSON 字符串**，需自行 `JSON.parse`。
 - `workout_steps` 是**多步**课表（真实库 120/285 条 > 1 步，最多 21 步）。
@@ -1140,6 +1165,10 @@ GET /api/llm/models
 | 时长的时间基数 | **计时器时间 `moving_time`**（配速、`totalDuration`、区间表 `total_duration`、TSS、`training_load` 全部同基数） | `582132079` 的 `duration` 10465s / `moving_time` 2621s → 配速按 2621s 算 |
 | 心率 / 步频 / 卡路里 | bpm / spm / kcal | `150` / `170` / `500` |
 | `activities.total_cycles` / `activity_laps.total_cycles` | **次数（绝对计数，不是频率）** | `518` = 518 次划水（游泳）；`189` = 189 次跳跃（跳绳） |
+| `activities.pool_length` | **米**（FIT scale=100 已应用） | `25` = 25m 池；不要再 ÷100 |
+| `activities.workout_feel` | 无量纲，5 档 | `0 / 25 / 50 / 75 / 100`（0 = 很差，**有效值**） |
+| `activities.workout_rpe` | 无量纲，Borg CR10 1–10 | `2` = 很轻松；`0` 不合法 |
+| `activities.est_sweat_loss` | **毫升（设备估算）** | `1794` = 约 1794 ml（有 ~1000 ml/h 速率上限） |
 
 换算速记：DB 的 `activities.distance` 是公里，`activity_laps.distance` 是米，
 `activity_records.distance` 又是公里。聚合前务必按上表换算。

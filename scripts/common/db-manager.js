@@ -115,6 +115,14 @@ class DatabaseManager {
         calories INTEGER,                             -- 热量消耗（卡路里）
         average_temperature REAL,                     -- 平均温度（摄氏度）
         total_cycles INTEGER,                         -- 总计数（游泳=总划水次数/跳绳=总跳跃/跑步=步幅周期/爬楼=总步数）
+        -- 泳池规格（游泳 SWOLF 的两个输入；真实库 4/4）
+        pool_length INTEGER,                          -- 池长（米，25/50；FIT scale=100 已应用）
+        num_active_lengths INTEGER,                   -- 活跃趟数（不含池边休息；× pool_length == distance）
+        -- 主观感受（唯一由用户主动输入的字段；真实库 251/353）
+        workout_feel INTEGER,                         -- 主观感受 0/25/50/75/100（很糟→很好）
+        workout_rpe INTEGER,                          -- 主观用力程度 1–10（Borg CR10）
+        -- 估计出汗量（真实库 349/353；设备估算值，速率上限约 1000ml/h）
+        est_sweat_loss INTEGER,                       -- 估计出汗量（毫升）
         vdot_value REAL,                              -- VDOT 跑力值
         training_load INTEGER,                        -- 训练负荷
 
@@ -197,7 +205,13 @@ class DatabaseManager {
       ['route_bounds', 'TEXT'],                      // 抗尖峰包围盒 JSON
       ['route_km', 'REAL'],                          // 清洗后轨迹长度 (公里)
       // 总计数（FIT session/lap 的 total_cycles；第十类缺陷 2026-11-07）
-      ['total_cycles', 'INTEGER']                    // 游泳=总划水/跳绳=总跳跃/跑步=步幅周期/爬楼=总步数
+      ['total_cycles', 'INTEGER'],                   // 游泳=总划水/跳绳=总跳跃/跑步=步幅周期/爬楼=总步数
+      // 泳池规格 + 主观感受 + 出汗量（第十类缺陷第二轮 2026-11-07）
+      ['pool_length', 'INTEGER'],                    // 池长（米）；SWOLF 的基准
+      ['num_active_lengths', 'INTEGER'],             // 活跃趟数；× pool_length == distance
+      ['workout_feel', 'INTEGER'],                   // 主观感受 0/25/50/75/100
+      ['workout_rpe', 'INTEGER'],                    // 主观用力 1–10（Borg CR10）
+      ['est_sweat_loss', 'INTEGER']                  // 估计出汗量（ml）
     ];
     for (const [name, type] of newActivityColumns) {
       try {

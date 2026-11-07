@@ -141,6 +141,22 @@ export async function registerTools(server: McpServer): Promise<void> {
         '每划距离 = distance(km)×1000 ÷ total_cycles（游泳技术分析核心指标）；' +
         '泳姿在 session 级恒为 255（无效），lap 级 swim_stroke 才有真实值，' +
         '当前未入库，需要时说明「泳姿仅 Garmin 云端可见」。' +
+        '**主观感受 / 出汗量 / 泳池规格（真实库 251–349/353）**：' +
+        'workout_feel 是用户主动输入的主观感受，取值 0/25/50/75/100（很差→很好），' +
+        '**0 是有效值**（14/251 条「感觉很差」），判空必须 != null；' +
+        'workout_rpe 是主观用力（Borg CR10 1–10，0 不是合法档），' +
+        '与 workout_feel 严格反向（r=−0.856，feel 各档 RPE 均值 8.1/5.9/3.8/2.4/1.4）——' +
+        '两者偏离（feel≥75 且 RPE≥6，或 feel≤25 且 RPE≤3）仅 1/251 命中，出现即值得单独解释；' +
+        'est_sweat_loss 是**设备估算**出汗量（ml，349/353，游泳 0/4），' +
+        '内部速率上限约 1000 ml/h（88/306 条已触顶），真实出汗率可达 1500–2000 ml/h，' +
+        '**是保守下限**，补液建议按它算会偏低，引用必须带「约」；' +
+        'pool_length（米，FIT scale=100 已应用，不要再 ÷100）/num_active_lengths（活跃趟数）' +
+        '仅游泳有（4/4），自证：num_active_lengths × pool_length == distance×1000（4/4 精确）；' +
+        'SWOLF = 单趟秒数 + 单趟划水次数 = (活跃lap计时器秒之和 ÷ 趟数) + (total_cycles ÷ 趟数)，' +
+        '真实库 58(25m)/65(25m)/75(50m)/62(50m)——**绝不能跨池长比较，也绝不能折算**' +
+        '（50m 的 75 折成 37 会远低于任何真实 25m 值，转身蹬壁在长池被摊薄）；' +
+        '时间基数必须是活跃 lap 的计时器时间之和，不是活动级 moving_time（后者含池边休息，' +
+        '599287904 有 804s，会把 SWOLF 从 58 抬到 84）。' +
         'JSON 字段需自行 parse; 字段缺失表示该活动无对应数据。',
       inputSchema: {
         activityId: z.number().int().positive().describe('活动 ID'),

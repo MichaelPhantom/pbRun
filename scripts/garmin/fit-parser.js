@@ -531,6 +531,60 @@ class GarminFITParser {
       activityData.total_cycles = totalCycles;
     }
 
+    // 泳池规格（`pool_length` / `num_active_lengths`）—— 第十类缺陷第二轮。
+    //
+    // 游泳的技术效率指标 SWOLF 需要这两个字段：
+    //   SWOLF = 单趟用时秒 + 单趟划水次数 = (活跃秒/趟数) + (总划水/趟数)
+    //
+    // 真实库 4/4 条游泳都有值，且 `num_active_lengths × pool_length` **精确等于**
+    // `total_distance`（775/1075/2200/2050），这是字段没读错的自证不变式。
+    //
+    // `pool_length` 的 FIT scale 是 100（设备存厘米），fit-file-parser 已应用
+    // scale → 解析后直接是**米**（实测 25/50）。不要再 ÷100。
+    const poolLength = this._safeGetInt(session, 'pool_length');
+    if (poolLength != null && poolLength > 0) {
+      activityData.pool_length = poolLength;
+    }
+    const activeLengths = this._safeGetInt(session, 'num_active_lengths');
+    if (activeLengths != null && activeLengths > 0) {
+      activityData.num_active_lengths = activeLengths;
+    }
+
+    // 主观感受（`workout_feel` / `workout_rpe`）—— 第十类缺陷第二轮。
+    //
+    // 这是**唯一**由用户主动输入的数据（Garmin 活动结束后弹窗问「感觉如何/多累」），
+    // 覆盖 **251/353**（全部跑步 + 游泳 + 1 条室内骑行；力量/球类/爬楼不弹窗）。
+    //
+    // `workout_feel`：0 / 25 / 50 / 75 / 100（很糟 → 很好），5 档。
+    // `workout_rpe`：FIT scale=10 → 解析后是 1–10 的整数（Borg CR10 量表）。
+    //
+    // 自证：真实库 `r(feel, rpe) = −0.856`（感觉越好 RPE 越低），且 feel 各档的
+    // RPE 均值严格单调（0→8.1、25→5.9、50→3.8、75→2.4、100→1.4）。若解析错位
+    // （比如 rpe 忘了 scale=10），相关性会消失。
+    //
+    // 0 是**有效值**（feel=0 = 感觉很糟），不能当缺失 —— 故用 `!= null` 而非真值判断。
+    const feel = this._safeGetInt(session, 'workout_feel');
+    if (feel != null) {
+      activityData.workout_feel = feel;
+    }
+    const rpe = this._safeGetInt(session, 'workout_rpe');
+    if (rpe != null && rpe > 0) {
+      activityData.workout_rpe = rpe;
+    }
+
+    // 估计出汗量（`est_sweat_loss`，毫升）—— 第十类缺陷第二轮。
+    //
+    // 覆盖 **349/353**（除游泳 0/4 外的全部类型）。这是补液建议的直接依据，
+    // 而提示词此前只能让模型「凭时长和温度猜」。
+    //
+    // **必须标注是设备估算值**：实测速率上限恰好 999–1000 ml/h（88/306 条
+    // 达到该上限），说明设备内部有 cap；真实出汗率可达 1500–2000 ml/h。
+    // 所以它是「保守下限」而不是精确值 —— 展示时写「约」。
+    const sweatLoss = this._safeGetInt(session, 'est_sweat_loss');
+    if (sweatLoss != null && sweatLoss > 0) {
+      activityData.est_sweat_loss = sweatLoss;
+    }
+
     return activityData;
   }
 

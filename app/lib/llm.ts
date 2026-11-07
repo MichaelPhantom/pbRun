@@ -13,6 +13,8 @@ import { activityTypeName, isRunningType, isSwimmingType } from '@/app/lib/sport
 import { powerIntensity } from '@/app/lib/power';
 import { ascentToSpanRatio, elevationSpan } from '@/app/lib/elevation';
 import { floorsFromAscent, formatFloors } from '@/app/lib/floors';
+import { feelLabel, feelRpeDivergent, formatSweatLoss, rpeLabel, sweatRateMlPerHour } from '@/app/lib/feel';
+import { activeSwimSeconds, formatSwolf, swolfOf } from '@/app/lib/swim';
 import { effectiveTimeSec, paceSecPer100m, formatPacePer100m, speedKmh } from '@/app/lib/pace';
 import { lapSectionTitle, lapStartDistancesMeters, lapRangeLabel } from '@/app/lib/lap-label';
 import {
@@ -456,6 +458,32 @@ export function buildAnalysisMessages(
                         ];
                       })()
                     : []),
+                  // SWOLF（= 单趟秒数 + 单趟划水次数）—— 游泳唯一把「快」和「省」
+                  // 合成一个数的技术指标。同样 25m，48s+20划=68 比 40s+32划=72
+                  // 更高效；单看配速会把后者误判为更好。
+                  //
+                  // 时间基数必须是**活跃 lap 的计时器时间之和**，不是活动级
+                  // `moving_time`（含池边休息，599287904 有 804s）—— 用后者会把
+                  // SWOLF 从 58 抬到 84。真实库 4 条：58/65/75/62。
+                  //
+                  // 文案必须带池长：50m 池的值天然约为 25m 的两倍，折算也是错的
+                  // （50m 的 75 折成 37 会远低于任何真实 25m 值）。
+                  ...(() => {
+                    const swolf = swolfOf(
+                      activeSwimSeconds(laps),
+                      activity.num_active_lengths,
+                      activity.total_cycles,
+                      activity.pool_length,
+                    );
+                    const text = formatSwolf(swolf);
+                    if (text == null) return [];
+                    return [
+                      `SWOLF: ${text}（单趟秒数 + 单趟划水次数；**只在同池长内可比, 不要折算到其它池长**）`,
+                      ...(activity.pool_length != null && activity.num_active_lengths != null
+                        ? [`池长/趟数: ${Math.round(activity.pool_length)}m 池 × ${Math.round(activity.num_active_lengths)} 趟`]
+                        : []),
+                    ];
+                  })(),
                 ];
               })()
             : []),
@@ -555,6 +583,44 @@ export function buildAnalysisMessages(
     // 区间时间现在 348/348 全覆盖（本地 5 区口径由逐秒心率推导），标签恒有值；
     // 保留 `fmtZoneTimes` 的 `--` 兜底只为旧库/异常活动（无心率记录时写入侧不落值）。
     `心率区间时间: ${fmtZoneTimes(activity.time_in_hr_zone)}`,
+    // 主观感受 / 主观用力 —— **唯一由用户主动输入**的数据（真实库 251/353）。
+    //
+    // 这是「体感 vs 数据」对比的唯一来源：客观指标说「这课很轻」（TE 3.4、
+    // 平均心率 145），而用户标了 RPE 8，才是真正值得解释的信号。实测 251 条里
+    // 只有 1 条（0.4%）偏离，说明两个字段高度自洽 —— 偏离样本才值得单独讲。
+    //
+    // 所有类型都输出（按字段存在性）：力量/球类不弹窗是设备行为，不是「这类运动
+    // 不该有体感」。`feel = 0` 是有效值（14/251 条「感觉很差」），
+    // 判空必须 `!= null` —— 用真值判断会静默丢掉这 14 条。
+    ...
+      [feelLabel(activity.workout_feel) != null || rpeLabel(activity.workout_rpe) != null
+        ? statRow([
+            ['主观感受', feelLabel(activity.workout_feel)],
+            ['主观用力', rpeLabel(activity.workout_rpe) != null
+              ? `RPE ${Math.round(activity.workout_rpe!)}/10（${rpeLabel(activity.workout_rpe)}）`
+              : null],
+            // 偏离标记：只有 0.4% 命中，出现即值得模型单独解释「为什么体感和
+            // 数据不一致」—— 而这恰恰是客观指标完全无法回答的问题。
+            ['体感偏离', feelRpeDivergent(activity.workout_feel, activity.workout_rpe) ? '是' : null],
+          ])
+        : null],
+    // 估计出汗量 —— 补液建议的直接依据（真实库 349/353，除游泳 0/4）。
+    //
+    // **必须写「约」并说明是设备估算**：实测 306 条有效速率里 88 条撞上
+    // 999–1000 ml/h 的设备上限（p99=999、max=999，无一超过 1000），而真实出汗率
+    // 可达 1500–2000 ml/h。它是**保守下限**，模型若当实测值给出补液建议会偏低。
+    ...(() => {
+      const text = formatSweatLoss(activity.est_sweat_loss);
+      if (text == null) return [];
+      const rate = sweatRateMlPerHour(activity.est_sweat_loss, effectiveTimeSec(activity));
+      return [
+        statRow([
+          ['估计出汗量', text],
+          ['出汗速率', rate != null ? `约 ${rate} ml/h` : null],
+        ]),
+        '出汗量说明: 设备估算值且内部速率上限约 1000 ml/h（88/306 条已触顶），真实出汗率可达 1500–2000 ml/h —— 它是**保守下限**，补液建议按它算会偏低。',
+      ];
+    })(),
   ]
     .filter((line): line is string => line != null)
     .join('\n');

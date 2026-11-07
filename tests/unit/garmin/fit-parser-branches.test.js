@@ -216,6 +216,100 @@ describe('_extractActivityData 分支', () => {
   });
 
   /**
+   * 泳池规格（`pool_length` / `num_active_lengths`）—— 第十类缺陷第二轮。
+   *
+   * 游泳的 SWOLF 需要这两个字段。真实库 4/4 条游泳都有值，且
+   * `num_active_lengths × pool_length` **精确等于** `total_distance`
+   * （775=31×25、1075=43×25、2200=44×50、2050=41×50）——
+   * 这是「两个字段都没读错」的自证不变式。
+   *
+   * `pool_length` 的 FIT scale 是 100（设备存厘米），`fit-file-parser` 已应用
+   * scale → 解析后**直接是米**（实测 25/50）。再 ÷100 会得到 0.25m 的池子。
+   */
+  test('pool_length / num_active_lengths: 有值 → 写入（单位已是米/趟）', () => {
+    const out = p._extractActivityData({
+      sessions: [{ total_distance: 775, pool_length: 25, num_active_lengths: 31 }],
+    });
+    expect(out.pool_length).toBe(25);
+    expect(out.num_active_lengths).toBe(31);
+    // 自证：趟数 × 池长 == 距离
+    expect(out.num_active_lengths * out.pool_length).toBe(775);
+  });
+
+  test('pool_length 不得再 ÷100（scale=100 已由 parser 应用）', () => {
+    const out = p._extractActivityData({
+      sessions: [{ total_distance: 2200, pool_length: 50, num_active_lengths: 44 }],
+    });
+    expect(out.pool_length).toBe(50);
+    expect(out.pool_length).not.toBe(0.5);
+    expect(out.num_active_lengths * out.pool_length).toBe(2200);
+  });
+
+  test('pool_length / num_active_lengths: 缺失/0 → undefined', () => {
+    const out = p._extractActivityData({ sessions: [{}] });
+    expect(out.pool_length).toBeUndefined();
+    expect(out.num_active_lengths).toBeUndefined();
+    const zero = p._extractActivityData({
+      sessions: [{ pool_length: 0, num_active_lengths: 0 }],
+    });
+    expect(zero.pool_length).toBeUndefined();
+    expect(zero.num_active_lengths).toBeUndefined();
+  });
+
+  /**
+   * 主观感受（`workout_feel` / `workout_rpe`）—— 第十类缺陷第二轮。
+   *
+   * **`workout_feel = 0` 是有效值**（真实库 14/251 条「感觉最糟」）。
+   * 任何 `if (feel)` 的真值判断都会静默丢掉这 14 条 —— 这是本轮最容易犯的错。
+   */
+  test('workout_feel = 0 必须写入（0 是「感觉很差」, 不是缺失）', () => {
+    const out = p._extractActivityData({ sessions: [{ workout_feel: 0 }] });
+    expect(out.workout_feel).toBe(0);
+    // 用 toBeDefined 而不是 toBeTruthy —— 后者会在 0 上失败
+    expect(out.workout_feel).toBeDefined();
+  });
+
+  test('workout_feel 五档全部原样写入（0/25/50/75/100）', () => {
+    for (const v of [0, 25, 50, 75, 100]) {
+      expect(p._extractActivityData({ sessions: [{ workout_feel: v }] }).workout_feel).toBe(v);
+    }
+  });
+
+  test('workout_rpe 1–10 原样写入（FIT scale=10 已应用, 是整数）', () => {
+    for (const v of [1, 5, 10]) {
+      expect(p._extractActivityData({ sessions: [{ workout_rpe: v }] }).workout_rpe).toBe(v);
+    }
+  });
+
+  test('workout_rpe = 0 → undefined（Borg 量表从 1 开始, 0 不是合法档）', () => {
+    expect(p._extractActivityData({ sessions: [{ workout_rpe: 0 }] }).workout_rpe).toBeUndefined();
+  });
+
+  test('workout_feel / workout_rpe 缺失 → undefined', () => {
+    const out = p._extractActivityData({ sessions: [{}] });
+    expect(out.workout_feel).toBeUndefined();
+    expect(out.workout_rpe).toBeUndefined();
+  });
+
+  /**
+   * 估计出汗量（`est_sweat_loss`，毫升）—— 第十类缺陷第二轮。
+   *
+   * 覆盖 **349/353**（除游泳 0/4）。实测速率上限恰好 999–1000 ml/h
+   * （88/306 条达到上限），说明设备内部有 cap —— 展示必须带「约」。
+   */
+  test('est_sweat_loss: 有值 → 写入（毫升）', () => {
+    expect(p._extractActivityData({ sessions: [{ est_sweat_loss: 519 }] }).est_sweat_loss).toBe(519);
+    expect(p._extractActivityData({ sessions: [{ est_sweat_loss: 1794 }] }).est_sweat_loss).toBe(1794);
+  });
+
+  test('est_sweat_loss: 缺失/0 → undefined', () => {
+    expect(p._extractActivityData({ sessions: [{}] }).est_sweat_loss).toBeUndefined();
+    expect(
+      p._extractActivityData({ sessions: [{ est_sweat_loss: 0 }] }).est_sweat_loss,
+    ).toBeUndefined();
+  });
+
+  /**
    * 回归（2026-10-27 审计）：解析器**不得**从 session 里读 `training_load`
    * 一族的字段名 —— 它们都不在 `fit-file-parser` 的 SDK profile 里，
    * 读取恒为 null（死读）。`training_load` 的唯一来源是 `sync.js` 的

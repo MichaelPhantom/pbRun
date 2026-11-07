@@ -1021,3 +1021,188 @@ describe('游泳划频', () => {
     expect(user.content).toContain('188spm');
   });
 });
+
+/**
+ * 第十类缺陷第二轮：主观感受 / 出汗量 / 游泳 SWOLF。
+ *
+ * 三个字段的共同点：**FIT 里一直有，解析器从不读，文档还宣称「不可得」**。
+ *
+ * | 字段 | 真实库覆盖 | 语义 |
+ * |------|-----------|------|
+ * | `workout_feel` | **251/353** | 主观感受 0/25/50/75/100 |
+ * | `workout_rpe` | **251/353** | 主观用力 1–10（Borg CR10） |
+ * | `est_sweat_loss` | **349/353** | 估计出汗量（ml，设备估算） |
+ * | `pool_length` / `num_active_lengths` | **4/4**（游泳） | SWOLF 的两个输入 |
+ *
+ * 它们是「体感 vs 数据」对比的唯一来源 —— 客观指标说「这课很轻」，用户标了
+ * RPE 9，才是真正需要解释的信号。实测 `r(feel, rpe) = −0.856`，且 feel 各档
+ * 的 RPE 均值严格单调（8.1 / 5.9 / 3.8 / 2.4 / 1.4），说明是真实用户输入。
+ */
+describe('buildAnalysisMessages — 主观感受与出汗量', () => {
+  test('feel / rpe 都输出中文档位而不是裸数字', () => {
+    const [, user] = buildAnalysisMessages(
+      fakeActivity({ workout_feel: 25, workout_rpe: 6 }),
+      [],
+    );
+    expect(user.content).toContain('主观感受: 较差');
+    expect(user.content).toContain('主观用力: RPE 6/10（有点吃力）');
+    // 裸数字会让模型无法解读「25 比 50 好还是差」
+    expect(user.content).not.toContain('主观感受: 25');
+  });
+
+  test('feel = 0 必须输出「很差」（14/251 条是 0，真值判断会丢掉它们）', () => {
+    const [, user] = buildAnalysisMessages(fakeActivity({ workout_feel: 0 }), []);
+    expect(user.content).toContain('主观感受: 很差');
+    // 绝不能因为 0 是 falsy 就整行不输出
+    expect(user.content).not.toContain('主观感受: --');
+  });
+
+  test('两者都缺失 → 整行不输出（不是「主观感受: --」的噪音）', () => {
+    const [, user] = buildAnalysisMessages(fakeActivity(), []);
+    expect(user.content).not.toContain('主观感受');
+    expect(user.content).not.toContain('主观用力');
+  });
+
+  test('体感与数据偏离 → 输出「体感偏离: 是」（真实库仅 1/251 命中）', () => {
+    const [, user] = buildAnalysisMessages(
+      fakeActivity({ workout_feel: 100, workout_rpe: 8 }),
+      [],
+    );
+    expect(user.content).toContain('体感偏离: 是');
+  });
+
+  test('体感自洽 → 不输出偏离标记（0.4% 命中率, 不能恒为「是」）', () => {
+    const [, user] = buildAnalysisMessages(
+      fakeActivity({ workout_feel: 75, workout_rpe: 2 }),
+      [],
+    );
+    expect(user.content).not.toContain('体感偏离');
+  });
+
+  test('出汗量带「约」+ 速率 + 上限说明（349/353）', () => {
+    const [, user] = buildAnalysisMessages(
+      fakeActivity({ est_sweat_loss: 1794, moving_time: 6588 }),
+      [],
+    );
+    expect(user.content).toContain('估计出汗量: 约 1794 ml');
+    expect(user.content).toContain('出汗速率: 约 980 ml/h');
+    // 必须告诉模型这是估算值且有上限 —— 否则它会把 1794ml 当实测值
+    expect(user.content).toContain('保守下限');
+    expect(user.content).toContain('1000 ml/h');
+  });
+
+  test('出汗速率绝不输出 > 1000（88/306 条已触顶, 实测 max=999）', () => {
+    const [, user] = buildAnalysisMessages(
+      fakeActivity({ est_sweat_loss: 500, moving_time: 600 }),
+      [],
+    );
+    // 500ml / 600s = 3000 ml/h 属脏数据，必须被 cap 到 1000
+    expect(user.content).toContain('出汗速率: 约 1000 ml/h');
+    const m = user.content.match(/出汗速率: 约 (\d+) ml\/h/);
+    expect(m).not.toBeNull();
+    expect(Number(m![1])).toBeLessThanOrEqual(1000);
+  });
+
+  test('出汗量缺失 → 整行不输出（游泳 0/4）', () => {
+    const [, user] = buildAnalysisMessages(
+      fakeActivity({ activity_type: 'lap_swimming', est_sweat_loss: null }),
+      [],
+    );
+    expect(user.content).not.toContain('估计出汗量');
+    expect(user.content).not.toContain('出汗速率');
+  });
+});
+
+/**
+ * 游泳 SWOLF 的数据块接入。
+ *
+ * 真实库 4 条全部可算（活跃 lap 计时器时间之和 / 趟数 + 总划水 / 趟数）：
+ *
+ * | id | 池长 | 趟数 | 活跃秒 | 总划水 | SWOLF |
+ * |----|------|------|--------|--------|-------|
+ * | 599287904 | 25m | 31 | 1283 | 518 | 58 |
+ * | 614598589 | 25m | 43 | 2010 | 798 | 65 |
+ * | 617083438 | 50m | 44 | 2370 | 923 | 75 |
+ * | 630387237 | 50m | 41 | 1862 | 695 | 62 |
+ *
+ * 时间基数必须是**活跃 lap 的计时器时间之和**：活动级 `moving_time` 含池边休息
+ * （599287904 有 804s），用它会把 SWOLF 从 58 抬到 84。
+ */
+describe('buildAnalysisMessages — 游泳 SWOLF', () => {
+  const swimLaps = (): ActivityLap[] => [
+    { activity_id: 1, lap_index: 0, distance: 50, moving_time: 97, duration: 97, total_cycles: 41 },
+    { activity_id: 1, lap_index: 1, distance: 0, moving_time: 684, duration: 684, total_cycles: 0 },
+    { activity_id: 1, lap_index: 2, distance: 25, moving_time: 18, duration: 18, total_cycles: 5 },
+    { activity_id: 1, lap_index: 3, distance: 75, moving_time: 165, duration: 165, total_cycles: 55 },
+  ] as ActivityLap[];
+
+  const swim = (over: Partial<Activity> = {}) =>
+    fakeActivity({
+      activity_id: 599287904,
+      activity_type: 'lap_swimming',
+      sport_type: '游泳',
+      sub_sport_type: '泳池游泳',
+      distance: 0.775,
+      average_pace: 1670,
+      average_cadence: 24,
+      vdot_value: null,
+      total_cycles: 518,
+      pool_length: 25,
+      num_active_lengths: 31,
+      moving_time: 2088,
+      ...over,
+    });
+
+  test('SWOLF 带池长（25m 池的 58 与 50m 池的 58 不是一回事）', () => {
+    // 与真实库等价的 lap：4 个活跃段共 1283s、518 划（Σlap == session，4/4 精确成立）
+    const laps = [
+      { activity_id: 1, lap_index: 0, distance: 200, moving_time: 400, duration: 400, total_cycles: 160 },
+      { activity_id: 1, lap_index: 1, distance: 200, moving_time: 400, duration: 400, total_cycles: 160 },
+      { activity_id: 1, lap_index: 2, distance: 200, moving_time: 400, duration: 400, total_cycles: 160 },
+      { activity_id: 1, lap_index: 3, distance: 175, moving_time: 83, duration: 83, total_cycles: 38 },
+      { activity_id: 1, lap_index: 4, distance: 0, moving_time: 804, duration: 804, total_cycles: 0 },
+    ] as ActivityLap[];
+    const [, user] = buildAnalysisMessages(swim(), laps);
+    // 1283/31 = 41.4s + 518/31 = 16.7划 = 58.1 → 58
+    expect(user.content).toContain('SWOLF: 58（25m 池）');
+    expect(user.content).not.toContain('SWOLF: 58（50m 池）');
+  });
+
+  test('真实库 599287904：活跃 1283s / 31 趟 / 518 划 → SWOLF 58（25m 池）', () => {
+    // 构造与真实库等价的 lap（14 个活跃段共 1283s、518 划；休息段 804s 不计入）
+    const laps = [
+      { activity_id: 1, lap_index: 0, distance: 775, moving_time: 1283, duration: 1283, total_cycles: 518 },
+      { activity_id: 1, lap_index: 1, distance: 0, moving_time: 804, duration: 804, total_cycles: 0 },
+    ] as ActivityLap[];
+    const [, user] = buildAnalysisMessages(swim(), laps);
+    expect(user.content).toContain('SWOLF: 58（25m 池）');
+    expect(user.content).toContain('池长/趟数: 25m 池 × 31 趟');
+    // 必须声明不可跨池长比较
+    expect(user.content).toContain('只在同池长内可比');
+  });
+
+  test('50m 池的 SWOLF 必须标 50m（不可与 25m 池的 58 直接比）', () => {
+    const laps = [
+      { activity_id: 1, lap_index: 0, distance: 2200, moving_time: 2369, duration: 2369, total_cycles: 923 },
+    ] as ActivityLap[];
+    const [, user] = buildAnalysisMessages(
+      swim({ activity_id: 617083438, distance: 2.2, pool_length: 50, num_active_lengths: 44, total_cycles: 923 }),
+      laps,
+    );
+    expect(user.content).toContain('SWOLF: 75（50m 池）');
+    expect(user.content).not.toContain('SWOLF: 75（25m 池）');
+  });
+
+  test('缺 pool_length / num_active_lengths → 整项不输出（不能猜池长）', () => {
+    const [, user] = buildAnalysisMessages(
+      swim({ pool_length: null, num_active_lengths: null }),
+      swimLaps(),
+    );
+    expect(user.content).not.toContain('SWOLF');
+  });
+
+  test('跑步活动绝不输出 SWOLF（步幅周期数不是划水次数）', () => {
+    const [, user] = buildAnalysisMessages(fakeActivity({ total_cycles: 3352 }), fakeLaps());
+    expect(user.content).not.toContain('SWOLF');
+  });
+});

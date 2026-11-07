@@ -23,6 +23,8 @@ import {
 } from '@/app/lib/lap-label';
 import { elevationSpan } from '@/app/lib/elevation';
 import { floorsFromAscent } from '@/app/lib/floors';
+import { feelLabel, formatSweatLoss, rpeLabel } from '@/app/lib/feel';
+import { activeSwimSeconds, formatSwolf, swolfOf } from '@/app/lib/swim';
 import { effectiveTimeSec, paceSecPer100m, formatPacePer100m, speedKmh } from '@/app/lib/pace';
 import { evaluateWorkoutExecution, formatWorkoutPlan } from '@/app/lib/workout';
 import {
@@ -103,6 +105,23 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
   const floors = activity.activity_type === 'floor_climbing'
     ? floorsFromAscent(activity.total_ascent)
     : null;
+  // 游泳 SWOLF（= 单趟秒数 + 单趟划水次数）。时间基数必须用**活跃 lap 的计时器
+  // 时间之和**，不是活动级 `moving_time` —— 后者含池边休息（599287904 有 804s），
+  // 用它算会把 SWOLF 从 58 抬到 84，把一次不错的训练读成「效率很差」。
+  // 真实库 4 条全部可算：58（25m）/ 65（25m）/ 75（50m）/ 62（50m）。
+  const swolf = swimming
+    ? swolfOf(
+        activeSwimSeconds(laps),
+        activity.num_active_lengths,
+        activity.total_cycles,
+        activity.pool_length,
+      )
+    : null;
+  // 主观感受 / RPE —— **唯一由用户主动输入**的数据（251/353）。所有类型都给：
+  // 力量课不弹窗（51/51 无值），但那是设备不采集，不是我们不该展示 —— 一旦有值
+  // 就必须显示。`feel = 0` 是有效值（14 条「感觉很差」），判空走 `!= null`。
+  const feelText = feelLabel(activity.workout_feel);
+  const rpeText = rpeLabel(activity.workout_rpe);
   // 课表（FIT workout_step）: 唯一能回答「这堂课本来该怎么跑」的数据源。
   // 解析层的三层缺陷（多步被压成最后一步 / 毫秒当秒 / mm/s 当秒每公里）都在
   // app/lib/workout.ts 里统一处理; 这里只决定呈现。
@@ -333,6 +352,29 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
     ...(swimming && activity.average_cadence != null
       ? [{ value: String(Math.round(activity.average_cadence)), unit: '次/分', label: '划频' }]
       : []),
+    // 游泳 SWOLF —— 唯一把「快」和「省」合成一个数的技术指标。
+    //
+    // SWOLF = 单趟用时(秒) + 单趟划水次数。同样 25m，48s+20划=68 比 40s+32划=72
+    // 更高效（后者虽快但每划推进短）—— 单看配速会误判成后者更好。
+    //
+    // 文案**必须带池长**：50m 池的值天然约为 25m 的两倍，直接跨池长比较会得出
+    // 「25m 池更高效」的错误结论；折算是错的（50m 的 75 折成 37 会远低于任何
+    // 真实 25m 值，因为转身蹬壁在长池里被摊薄）。见 `app/lib/swim.ts`。
+    ...(swolf != null
+      ? [{
+          value: formatSwolf(swolf) ?? '--',
+          label: 'SWOLF',
+        }]
+      : []),
+    // 池长 / 活跃趟数 —— SWOLF 的两个输入，必须同屏才可自证。
+    // `num_active_lengths × pool_length == distance` 在真实库 4/4 精确成立
+    // （775=31×25、1075=43×25、2200=44×50、2050=41×50），用户可自己核对。
+    ...(swimming && activity.pool_length != null
+      ? [{ value: String(Math.round(activity.pool_length)), unit: 'm', label: '池长' }]
+      : []),
+    ...(swimming && activity.num_active_lengths != null
+      ? [{ value: String(Math.round(activity.num_active_lengths)), unit: '趟', label: '活跃趟数' }]
+      : []),
     // 平均功率按字段存在性渲染: 真实库 241/241 条跑步活动都有功率, 107 条非跑步
     // 活动全部为 NULL(0/107)。旧实现无条件渲染该格, 非跑步页会永远显示 '--' ——
     // 与「隐藏配速整列而不是显示 --」是同一原则: 一个恒为空的数据格会让人
@@ -394,6 +436,28 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
     // AI 数据块早已输出、详情页却从未展示。与「建议恢复」成对，构成官方结论区。
     ...(activity.primary_benefit
       ? [{ value: activity.primary_benefit, label: '训练收益' }]
+      : []),
+    // 主观感受 / 主观用力 —— **唯一由用户主动输入**的数据（真实库 251/353）。
+    //
+    // 这是「体感 vs 数据」对比的唯一来源：客观指标（TE 3.4 / 平均心率 145）说
+    // 「这课中等」，而用户标了 RPE 8，才是真正值得解释的信号。实测 251 条里
+    // 只有 1 条（0.4%）偏离，说明两个字段高度自洽 —— 偏离样本才值得单独讲。
+    //
+    // 两格都按**字段存在性**渲染，不按运动类型门控：力量/球类不弹窗是设备行为，
+    // 不是「这类运动不该有体感」。跑步必须显示（233/233 有值）。
+    ...(feelText != null
+      ? [{ value: feelText, label: '主观感受' }]
+      : []),
+    ...(rpeText != null
+      ? [{ value: `${Math.round(activity.workout_rpe!)}`, unit: '/10', label: `主观用力（${rpeText}）` }]
+      : []),
+    // 估计出汗量 —— 补液建议的直接依据（真实库 349/353，除游泳 0/4）。
+    //
+    // 文案带「约」不是措辞偏好：实测 306 条有效速率里 88 条撞上 999–1000 ml/h
+    // 的设备上限（p99 = 999、max = 999，无一超过 1000），而真实出汗率可达
+    // 1500–2000 ml/h。它是**保守下限**，不加限定词就等于把它当实测值。
+    ...(formatSweatLoss(activity.est_sweat_loss) != null
+      ? [{ value: formatSweatLoss(activity.est_sweat_loss)!, label: '估计出汗量' }]
       : []),
   ];
 

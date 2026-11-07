@@ -542,13 +542,14 @@ describe('Activity 的每个字段都必须被消费或显式记账', () => {
   const leaves = collectLeaves(interfaces, 'Activity');
 
   test('解析器确实覆盖到 Activity 的全部字段 (防假绿)', () => {
-    // **精确** 73 个字段（2026-11-07 新增 `total_cycles` —— 第十类缺陷：
-    // FIT session 的 `total_cycles` 在真实库 349/353 都有值，但解析器从不读取，
-    // 导致「游泳总划水次数」「跳绳总跳跃次数」全站不存在，而文档四处断言
-    // 「不可得」。用等号而不是 >=: 新增一列就必须在这里显式确认「它要么被消费、
-    // 要么进 allowlist 并写明理由」, 否则守卫会随着 types.ts 的扩张而悄悄放宽
+    // **精确** 78 个字段（2026-11-07 新增 5 个 —— 第十类缺陷第二轮：
+    // `pool_length` / `num_active_lengths`（游泳 SWOLF 的输入，4/4）、
+    // `workout_feel` / `workout_rpe`（唯一由用户主动输入的数据，251/353）、
+    // `est_sweat_loss`（补液建议依据，349/353）。FIT 里一直有，解析器从不读。
+    // 用等号而不是 >=: 新增一列就必须在这里显式确认「它要么被消费、要么进
+    // allowlist 并写明理由」, 否则守卫会随着 types.ts 的扩张而悄悄放宽
     // （>= 的旧写法正是这样埋下假绿的）。同步修改: docs/features.md §1.5 标题字段数。
-    expect(leaves.size).toBe(73);
+    expect(leaves.size).toBe(78);
     // 抽查四个不同区块：基础/跑姿/功率/区间
     expect(leaves.has('activity_id')).toBe(true);
     expect(leaves.has('average_vertical_ratio')).toBe(true);

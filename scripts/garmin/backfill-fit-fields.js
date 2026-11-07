@@ -77,6 +77,12 @@ async function main() {
         // 总计数（第十类缺陷 2026-11-07）：游泳=总划水/跳绳=总跳跃/爬楼=总步数。
         // FIT 里一直有（349/353），此前解析器不读 → 全库该列不存在。
         'total_cycles',
+        // 泳池规格 + 主观感受 + 出汗量（第十类缺陷第二轮）：
+        // pool_length/num_active_lengths 是 SWOLF 的输入（4/4）；
+        // workout_feel/workout_rpe 是唯一由用户主动输入的字段（251/353）；
+        // est_sweat_loss 是补液建议依据（349/353，设备估算值）。
+        'pool_length', 'num_active_lengths',
+        'workout_feel', 'workout_rpe', 'est_sweat_loss',
       ];
       for (const f of fields) {
         if (a[f] != null) patch[f] = a[f];

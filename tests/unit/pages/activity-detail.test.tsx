@@ -1013,6 +1013,179 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
   });
 
   /**
+   * 游泳 SWOLF + 池长/趟数（第十类缺陷第二轮）。
+   *
+   * SWOLF = 单趟用时(秒) + 单趟划水次数。它把「快」和「省」合成一个数：
+   * 同样 25m，48s+20划=68 比 40s+32划=72 更高效（后者虽快但每划推进短）。
+   *
+   * **文案必须带池长**：50m 池的值天然约为 25m 的两倍，直接跨池长比较会得出
+   * 「25m 池更高效」的错误结论；折算也是错的（50m 的 75 折成 37 会远低于任何
+   * 真实 25m 值，因为转身蹬壁在长池里被摊薄）。
+   */
+  test('游泳概览展示 SWOLF（带池长）+ 池长/活跃趟数', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'lap_swimming',
+      sport_type: '游泳',
+      distance: 0.775,
+      total_cycles: 518,
+      pool_length: 25,
+      num_active_lengths: 31,
+      moving_time: 2088,
+      average_cadence: 24,
+      vdot_value: null,
+    });
+    // 活跃 lap：1283s / 518 划；另有 804s 池边休息段（必须不计入）
+    db.getActivityLaps.mockReturnValue([
+      { ...laps[0], id: 61, lap_index: 1, distance: 775, moving_time: 1283, duration: 1283, total_cycles: 518 },
+      { ...laps[1], id: 62, lap_index: 2, distance: 0, moving_time: 804, duration: 804, total_cycles: 0 },
+    ]);
+    render(await page('5007'));
+    const overview = screen.getByText('活动概览').closest('section')!;
+    // 1283/31 = 41.4s + 518/31 = 16.7划 = 58.1 → 58
+    expect(within(overview).getByText('SWOLF')).toBeInTheDocument();
+    expect(within(overview).getByText('58（25m 池）')).toBeInTheDocument();
+    // 池长与趟数是 SWOLF 的输入，必须同屏才能自证（趟数 × 池长 == 距离）
+    expect(within(overview).getByText('池长')).toBeInTheDocument();
+    expect(within(overview).getByText('25')).toBeInTheDocument();
+    expect(within(overview).getByText('活跃趟数')).toBeInTheDocument();
+    expect(within(overview).getByText('31')).toBeInTheDocument();
+  });
+
+  test('50m 池的 SWOLF 标注 50m（不可与 25m 池的值直接比）', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'lap_swimming',
+      sport_type: '游泳',
+      distance: 2.2,
+      total_cycles: 923,
+      pool_length: 50,
+      num_active_lengths: 44,
+      average_cadence: 23,
+      vdot_value: null,
+    });
+    db.getActivityLaps.mockReturnValue([
+      { ...laps[0], id: 63, lap_index: 1, distance: 2200, moving_time: 2369, duration: 2369, total_cycles: 923 },
+    ]);
+    render(await page('5008'));
+    const overview = screen.getByText('活动概览').closest('section')!;
+    expect(within(overview).getByText('75（50m 池）')).toBeInTheDocument();
+    expect(within(overview).queryByText(/25m 池/)).toBeNull();
+  });
+
+  test('缺 pool_length → SWOLF 整项不渲染（不猜池长）', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'lap_swimming',
+      sport_type: '游泳',
+      distance: 0.775,
+      total_cycles: 518,
+      pool_length: null,
+      num_active_lengths: null,
+      vdot_value: null,
+    });
+    render(await page('5009'));
+    const overview = screen.getByText('活动概览').closest('section')!;
+    expect(within(overview).queryByText('SWOLF')).toBeNull();
+    expect(within(overview).queryByText('池长')).toBeNull();
+  });
+
+  /**
+   * 主观感受 / 主观用力 / 估计出汗量（第十类缺陷第二轮）。
+   *
+   * `workout_feel` / `workout_rpe` 是**唯一由用户主动输入**的数据（251/353）。
+   * 两格都按**字段存在性**渲染，不按运动类型门控 —— 力量/球类不弹窗是设备
+   * 行为，不是「这类运动不该有体感」。跑步必须显示（233/233 有值）。
+   */
+  test('跑步概览展示「主观感受」与「主观用力」（用户主动输入, 不是类型专属）', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'running',
+      workout_feel: 25,
+      workout_rpe: 6,
+    });
+    render(await page('5010'));
+    const overview = screen.getByText('活动概览').closest('section')!;
+    expect(within(overview).getByText('主观感受')).toBeInTheDocument();
+    expect(within(overview).getByText('较差')).toBeInTheDocument();
+    expect(within(overview).getByText('主观用力（有点吃力）')).toBeInTheDocument();
+    expect(within(overview).getByText('6')).toBeInTheDocument();
+  });
+
+  test('feel = 0 必须渲染「很差」（14/251 条是 0, 真值判断会丢掉它们）', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'running',
+      workout_feel: 0,
+      workout_rpe: 8,
+    });
+    render(await page('5011'));
+    const overview = screen.getByText('活动概览').closest('section')!;
+    expect(within(overview).getByText('主观感受')).toBeInTheDocument();
+    expect(within(overview).getByText('很差')).toBeInTheDocument();
+  });
+
+  test('feel/rpe 缺失 → 两格都不渲染（不是「--」）', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'running',
+      workout_feel: null,
+      workout_rpe: null,
+    });
+    render(await page('5012'));
+    const overview = screen.getByText('活动概览').closest('section')!;
+    expect(within(overview).queryByText('主观感受')).toBeNull();
+    expect(within(overview).queryByText(/主观用力/)).toBeNull();
+  });
+
+  test('力量课有 feel/rpe 也要展示（按字段存在性, 不按类型门控）', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'strength_training',
+      sport_type: '训练',
+      distance: 0,
+      average_pace: null,
+      average_cadence: null,
+      vdot_value: null,
+      workout_feel: 75,
+      workout_rpe: 3,
+    });
+    render(await page('5013'));
+    const overview = screen.getByText('活动概览').closest('section')!;
+    expect(within(overview).getByText('主观感受')).toBeInTheDocument();
+    expect(within(overview).getByText('良好')).toBeInTheDocument();
+  });
+
+  test('估计出汗量带「约」（设备估算值, 349/353）', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'running',
+      est_sweat_loss: 1794,
+    });
+    render(await page('5014'));
+    const overview = screen.getByText('活动概览').closest('section')!;
+    expect(within(overview).getByText('估计出汗量')).toBeInTheDocument();
+    expect(within(overview).getByText('约 1794 ml')).toBeInTheDocument();
+    // 去掉「约」就变成「实测 1794ml」的假话
+    expect(within(overview).queryByText('1794 ml')).toBeNull();
+  });
+
+  test('游泳出汗量缺失（0/4）→ 整格不渲染', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'lap_swimming',
+      sport_type: '游泳',
+      distance: 0.775,
+      total_cycles: 518,
+      est_sweat_loss: null,
+      vdot_value: null,
+    });
+    render(await page('5015'));
+    const overview = screen.getByText('活动概览').closest('section')!;
+    expect(within(overview).queryByText('估计出汗量')).toBeNull();
+  });
+
+  /**
    * **可推算却从未推算** 缺陷族在详情页的呈现（2026-10-27）。
    *
    * `intensity_factor` / `training_stress_score` / `average_power_to_weight`

@@ -104,6 +104,44 @@ export interface Activity {
    */
   total_cycles?: number;
 
+  /**
+   * 池长（米）。游泳 SWOLF 的基准。真实库 4/4（25/25/50/50）。
+   *
+   * 自证不变式：`num_active_lengths × pool_length == distance × 1000`
+   * （775/1075/2200/2050 全部精确命中）。**SWOLF 绝不能跨池长比较** ——
+   * 50m 池的值天然约为 25m 的两倍，折算也是错的（见 `app/lib/swim.ts`）。
+   */
+  pool_length?: number;
+
+  /** 活跃趟数（不含池边休息）。`num_active_lengths × pool_length == distance`。 */
+  num_active_lengths?: number;
+
+  /**
+   * 主观感受（Garmin 活动结束后的弹窗）：0 / 25 / 50 / 75 / 100（很糟 → 很好）。
+   *
+   * **0 是有效值**（感觉最差），不是缺失 —— 判空必须用 `!= null`。
+   * 真实库 251/353（全部跑步 + 游泳 + 1 条室内骑行；力量/球类/爬楼不弹窗）。
+   * 自证：与 `workout_rpe` 的相关系数 −0.856（感觉越好越不累）。
+   */
+  workout_feel?: number;
+
+  /**
+   * 主观用力程度（Borg CR10 量表 1–10）。真实库 251/353。
+   *
+   * 与 `workout_feel` 严格反向单调：feel 0→RPE 均值 8.1、25→5.9、50→3.8、
+   * 75→2.4、100→1.4。这是**唯一**由用户主动输入的数据 —— 客观指标（TE/心率）
+   * 与它偏离时，才是「体感与数据不一致」的真信号。
+   */
+  workout_rpe?: number;
+
+  /**
+   * 估计出汗量（毫升）。真实库 349/353（除游泳 0/4）。
+   *
+   * ⚠️ **设备估算值，且有速率上限**：实测 88/306 条达到 999–1000 ml/h 的天花板，
+   * 而真实出汗率可达 1500–2000 ml/h。所以它是**保守下限**，展示必须带「约」。
+   */
+  est_sweat_loss?: number;
+
   // VDOT 跑力值
   vdot_value?: number | null;                   // VDOT 跑力值（Daniels；仅 Z3+ 代表性强度，轻松/恢复跑为 null）
   training_load?: number | null;                 // 训练负荷（无量纲; 由 calculateTrainingLoad 派生, FIT 无此字段）
