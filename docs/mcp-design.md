@@ -49,8 +49,9 @@ pbRun/
 
 ### 3.1 基础数据 (复用 db.ts, 14 个)
 
-> **口径**：除 `list_activities` / `get_month_summaries`（活动日志，全类型）外，
-> 其余统计类工具均为**跑步口径**（只含 `running` / `track_running` / `treadmill_running`），
+> **口径**：`list_activities` 是**全类型**（活动日志）；`get_month_summaries` 是**双口径同行**
+> （`runDistance`/`runCount` 只跑步，`totalDistance`/`count` 全类型），其余统计类工具均为
+> **跑步口径**（只含 `running` / `track_running` / `treadmill_running`），
 > 见 `docs/features.md` §1.1。MCP 直接复用 `app/lib/db.ts`，与 Web 端完全同源，
 > 不存在「MCP 数据比页面多」的口径漂移。
 >

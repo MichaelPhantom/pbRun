@@ -564,6 +564,29 @@ describe('ListClient 活动列表 (交互/筛选/无限滚动)', () => {
     await waitFor(() => expect(screen.queryByRole('button', { name: /2026年6月/ })).not.toBeInTheDocument());
   });
 
+  /**
+   * 本地搜索也必须命中**运动类型的中文名**，与服务端 `q` 同口径。
+   *
+   * 真实库 51 条力量课名称是「全身循环2」「核心稳定性1」，不含「力量」二字。
+   * 若本地只查 name：服务端按类型名返回了该月，本地却过滤成「该月无匹配活动」——
+   * 用户看到的是本地那层，结论与服务端相反。
+   */
+  test('本地搜索命中运动类型中文名 (与服务端 q 同口径)', () => {
+    renderList({
+      initialActivitiesByMonth: {
+        '2026-09': [
+          act({ activity_id: 7001, activity_type: 'strength_training', name: '全身循环2', distance: 0 }),
+          act({ activity_id: 7002, name: '两江新区 - 基础训练' }),
+        ],
+      },
+    });
+    const search = screen.getByLabelText('搜索活动');
+    fireEvent.change(search, { target: { value: '力量' } });
+    // 名称里没有「力量」, 但类型中文名是「力量训练」→ 应命中
+    expect(screen.getByRole('button', { name: /全身循环2/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /两江新区/ })).not.toBeInTheDocument();
+  });
+
   test('筛选下拉: 活动无 activity_type → 归入「跑步」', () => {
     renderList({
       initialActivitiesByMonth: { '2026-09': [act({ activity_type: '' } as Partial<Activity>)] },

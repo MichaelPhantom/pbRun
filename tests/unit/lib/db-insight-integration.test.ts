@@ -383,6 +383,10 @@ describe('db.ts 洞察查询 (真实 SQL)', () => {
     expect(types.find((t) => t.type === 'running')).toEqual({ type: 'running', count: 4 });
     // 不允许出现空字符串类型
     expect(types.some((t) => t.type === '')).toBe(false);
+
+    // 筛选路径也必须命中空类型行: 否则「下拉能选跑步、筛出来却少一条」
+    const filtered = db.getActivities({ page: 1, limit: 50, type: 'running' });
+    expect(filtered.data.some((a) => a.activity_id === 99)).toBe(true);
   });
 
   /**
@@ -452,6 +456,41 @@ describe('db.ts 洞察查询 (真实 SQL)', () => {
     expect(hit[0].count).toBe(1);
 
     expect(db.getMonthSummaries(undefined, undefined, { q: '不存在的名称' })).toEqual([]);
+  });
+
+  /**
+   * 搜索必须**同时匹配运动类型的中文名**，而不只是活动名称。
+   *
+   * 真实库 51 条力量训练的名称是「全身循环2」「跑前激活1」「核心稳定性1」——
+   * 里面**没有一个字**是「力量」。用户想找力量课，最自然的输入是「力量」，
+   * 若搜索只查 `name LIKE`，这 51 条一条都搜不到，用户会以为库里没有力量训练。
+   *
+   * 同理「游泳」能搜到（名称恰好是「泳池游泳」），但「爬楼」30 条名称恰好是
+   * 「爬楼」也侥幸命中 —— 这类「恰好命中」正是缺陷被长期掩盖的原因。
+   */
+  test('getMonthSummaries 搜索命中运动类型中文名 (不只是活动名称)', async () => {
+    // 插入一条真实形态的力量训练: 名称「全身循环2」**不含**「力量」二字
+    // (生产库 51 条力量课全部如此: 全身循环/跑前激活/核心稳定性…)
+    const mgr = new DatabaseManager(tmpDb);
+    mgr.upsertActivity({
+      activity_id: 77, name: '全身循环2', activity_type: 'strength_training',
+      start_time: '2026-09-25T12:00:00.000Z', start_time_local: '2026-09-25T20:00:00',
+      distance: 0, duration: 3600, moving_time: 3600, elapsed_time: 3600,
+    });
+    mgr.close();
+
+    const db = await loadDb();
+    // 名称里没有「力量」, 但类型中文名是「力量训练」→ 必须能搜到
+    const hit = db.getMonthSummaries(undefined, undefined, { q: '力量' }) as {
+      monthKey: string; count: number;
+    }[];
+    expect(hit).toHaveLength(1);
+    expect(hit[0].monthKey).toBe('2026-09');
+    expect(hit[0].count).toBe(1);
+
+    // 名称搜索仍然有效 (两条路径是 OR, 不是替换)
+    const byName = db.getMonthSummaries(undefined, undefined, { q: '泳池' }) as { count: number }[];
+    expect(byName[0].count).toBe(1);
   });
 
   test('getMonthSummaries 分页 total 随过滤条件变化', async () => {

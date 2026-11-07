@@ -532,10 +532,21 @@ export function buildAnalysisMessages(
         .join('\n')
     : null;
 
+  // 距离行：零距离活动（力量训练/爬楼/HIIT/跳绳，真实库 97/353 条 `distance = 0`）
+  // 不写「0.00 km」—— 这些运动**本来就没有距离语义**，写出来模型会按「几乎没动」
+  // 解读，在复盘里说「训练量极低」。缺距离（`null`）仍写 `--`，那是真的没同步到。
+  // 与 `/list` 卡片、仪表盘 `RecentActivityCard`、详情页概览同一纪律。
+  const distanceText =
+    activity.distance == null
+      ? '距离: --'
+      : activity.distance > 0
+        ? `距离: ${dist.toFixed(2)} km`
+        : '距离: --（该运动无距离语义）';
+
   const user = `${profileBlock ? profileBlock + '\n\n' : ''}【活动】
 日期: ${date}
 名称: ${activity.name || '--'}  类型: ${typeName}${running ? '' : '（非跑步）'}
-距离: ${dist.toFixed(2)} km  移动时长: ${formatDuration(dur)}  总时长: ${formatDuration(activity.duration)}
+${distanceText}  移动时长: ${formatDuration(dur)}  总时长: ${formatDuration(activity.duration)}
 ${workoutLines ? `${workoutLines}\n` : ''}${strengthLines ? `${strengthLines}\n` : ''}${runningLines}
 ${commonLines}
 

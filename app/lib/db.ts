@@ -36,7 +36,7 @@ import { localDateRangeToUtc, localDateMinusDays, localMonthKeyMinusMonths, toda
 import { hrZoneOf, resolveMaxHr } from './hr-zones';
 import { POWER_ZONE_NAMES, powerZoneOf } from './power-zones';
 import { resolveFtp } from './power';
-import { RUNNING_ACTIVITY_TYPES } from './sport';
+import { RUNNING_ACTIVITY_TYPES, ACTIVITY_TYPE_LABELS } from './sport';
 import {
   buildStrengthProfile,
   mergeStrengthIntoTrainingLoads,
@@ -174,7 +174,10 @@ export function getActivities(
   const queryParams: (string | number)[] = [];
 
   if (type) {
-    query += ' AND activity_type = ?';
+    // 归一规则与 `getActivityTypes` / `getMonthSummaries` / UI `typeKeyOf` 一致：
+    // 空 `activity_type` 视为 `running`。四处必须用同一表达式，否则「下拉里能选
+    // 跑步、筛出来却少几条」—— 数据在库里，筛选器把它藏了。
+    query += " AND COALESCE(NULLIF(activity_type, ''), 'running') = ?";
     queryParams.push(type);
   }
   if (runningOnly) {
@@ -251,12 +254,11 @@ export function getMonthSummaries(
 ): MonthSummary[] | { data: MonthSummary[]; total: number } {
   const db = getDatabase();
   const hasType = hasActivityColumn('activity_type');
-  const runTypes = RUNNING_ACTIVITY_TYPES.map((t) => `'${t}'`).join(',');
   const runCountExpr = hasType
-    ? `SUM(CASE WHEN activity_type IN (${runTypes}) THEN 1 ELSE 0 END)`
+    ? `SUM(CASE WHEN ${runningTypeExpr('activities')} THEN 1 ELSE 0 END)`
     : 'COUNT(*)';
   const runDistanceExpr = hasType
-    ? `SUM(CASE WHEN activity_type IN (${runTypes}) THEN distance ELSE 0 END)`
+    ? `SUM(CASE WHEN ${runningTypeExpr('activities')} THEN distance ELSE 0 END)`
     : 'SUM(distance)';
 
   // 过滤条件与分页 total 必须**共用同一段 WHERE**，否则 total 与 data 会不同口径
@@ -270,9 +272,22 @@ export function getMonthSummaries(
     params.push(filter.type);
   }
   if (filter?.q) {
-    // 大小写不敏感: SQLite 的 LIKE 对 ASCII 已不区分, 中文按字面匹配
-    where.push('name LIKE ? ESCAPE ?');
-    params.push(`%${escapeLike(filter.q)}%`, '\\');
+    // 大小写不敏感: SQLite 的 LIKE 对 ASCII 已不区分, 中文按字面匹配。
+    //
+    // **必须同时匹配运动类型的中文名**：真实库 51 条力量课的名称是「全身循环2」
+    // 「跑前激活1」「核心稳定性1」—— 里面没有一个字是「力量」。用户想找力量课，
+    // 最自然的输入就是「力量」，若只查 `name LIKE`，这 51 条一条都搜不到。
+    // 类型名匹配用 `IN` 精确列出（而不是把中文名拼进 LIKE），因为类型名是
+    // 有限集合（`ACTIVITY_TYPE_LABELS`），精确匹配不会误命中。
+    const typeNames = matchingTypeKeys(filter.q);
+    const nameCond = 'name LIKE ? ESCAPE ?';
+    if (typeNames.length > 0) {
+      where.push(`(${nameCond} OR COALESCE(NULLIF(activity_type, ''), 'running') IN (${typeNames.map(() => '?').join(',')}))`);
+      params.push(`%${escapeLike(filter.q)}%`, '\\', ...typeNames);
+    } else {
+      where.push(nameCond);
+      params.push(`%${escapeLike(filter.q)}%`, '\\');
+    }
   }
   const whereClause = `WHERE ${where.join(' AND ')}`;
 
@@ -318,6 +333,25 @@ export function getMonthSummaries(
 /** 转义 LIKE 通配符（用户输入的 `%` / `_` 应按字面匹配）。 */
 function escapeLike(raw: string): string {
   return raw.replace(/[\\%_]/g, (c) => `\\${c}`);
+}
+
+/**
+ * 找出中文名包含 `q` 的活动类型键（用于搜索同时匹配类型名）。
+ *
+ * 为什么需要：真实库 51 条力量训练的名称是「全身循环2」「跑前激活1」「核心稳定性1」，
+ * 里面**没有一个字**是「力量」。用户想找力量课，最自然的输入就是「力量」—— 若搜索
+ * 只查 `name LIKE`，这 51 条一条都搜不到，用户会以为库里没有力量训练。
+ *
+ * 返回类型**键**（如 `strength_training`），由调用方拼成 SQL `IN (...)`：
+ * 类型名是有限集合（`ACTIVITY_TYPE_LABELS` 的 13 项），精确匹配不会像
+ * `LIKE '%力量%'` 那样误命中名称里恰好含「力量」二字的跑步活动。
+ */
+function matchingTypeKeys(q: string): string[] {
+  const needle = q.trim();
+  if (!needle) return [];
+  return Object.entries(ACTIVITY_TYPE_LABELS)
+    .filter(([, label]) => label.includes(needle))
+    .map(([key]) => key);
 }
 
 /**
@@ -1939,11 +1973,27 @@ function mapPeerRow(r: PeerActivityRow): PeerActivity {
  *
  * 跑步类型集合来自 `sport.ts` 的 `RUNNING_ACTIVITY_TYPES`（单一来源，
  * 与客户端 `isRunningType` 共用），避免 SQL 与 JS 两套列表漂移。
+ *
+ * **空值必须算跑步**：`isRunningType(null)` 返回 `true`（旧库未迁移
+ * `activity_type` 时所有活动都是跑步）。若 SQL 只写 `IN (...)`，NULL/空串行会被
+ * 排除在跑步统计之外 —— 同一个判定在 JS 里说「是跑步」、在 SQL 里说「不是」，
+ * 于是详情页卡片显示跑步、`/stats` 却不统计它。生产库当前 0 条空类型，
+ * 但写入路径允许（`upsertActivity` 不强制该列）。
  */
 function runningTypeClause(alias: string): string {
   if (!hasActivityColumn('activity_type')) return '1=1';
   const list = RUNNING_ACTIVITY_TYPES.map((t) => `'${t}'`).join(',');
-  return `${alias}.activity_type IN (${list})`;
+  return `(${alias}.activity_type IN (${list}) OR ${alias}.activity_type IS NULL OR ${alias}.activity_type = '')`;
+}
+
+/**
+ * 行级「是否跑步」的 SQL 表达式（用于 `SUM(CASE WHEN ...)` 聚合）。
+ *
+ * 与 `runningTypeClause` 同口径但可内联进 SELECT —— 月度汇总要在一行里同时算
+ * 「跑步里程」与「全类型里程」，不能拆成两个 WHERE。
+ */
+function runningTypeExpr(alias: string): string {
+  return runningTypeClause(alias);
 }
 
 /**

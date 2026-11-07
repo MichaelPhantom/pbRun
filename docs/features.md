@@ -49,6 +49,13 @@ pbRun 是跑步分析工具，但 Garmin 同步会把篮球/游泳/力量训练�
 跑步类型集合为 `running` / `track_running` / `treadmill_running`（`db.runningTypeClause`
 与 `db.isRunningType` 单点定义）；缺 `activity_type` 列或值为空时按跑步处理（旧库兼容）。
 
+**「按跑步处理」必须同时体现在 JS 与 SQL 两侧**：`isRunningType(null) === true`，因此
+`runningTypeClause` 写成 `(activity_type IN (...) OR activity_type IS NULL OR activity_type = '')`，
+而不是裸 `IN (...)` —— 后者会把 NULL/空串行排除在跑步统计之外，同一个判定在 JS 里说
+「是跑步」、在 SQL 里说「不是」，于是详情页显示跑步卡片、`/stats` 却不统计它。
+同理「筛某个类型」用 `COALESCE(NULLIF(activity_type,''),'running') = ?`（下拉清单、
+月度筛选、活动列表三处同一表达式）。
+
 **写入侧也必须同口径**：不只是查询要筛跑步，**回填脚本写入 `vdot_value` /
 `training_load` 时同样只处理跑步类型**（`scripts/garmin/backfill-vdot.js` 的
 `isRunningActivity`）。否则只要非跑步活动存在「距离 >400m + 带心率/配速」的 lap
@@ -80,7 +87,8 @@ pbRun 是跑步分析工具，但 Garmin 同步会把篮球/游泳/力量训练�
 | 位置 | 非跑步活动的处理 |
 |------|-----------------|
 | `/list` 类型下拉 | **数据源是全库类型清单**（`getActivityTypes`，按条数降序），不是「已加载月份里出现过的类型」—— 页面默认只预取最近 1 个月，该月只有跑步时下拉就只剩「跑步」（真实库 353 条里 120 条非跑步）。选项带全库条数（「力量训练 (51)」），值仍是原始 `activity_type`，文案走 `activityTypeLabel` 中文名（按拼音排序）；空 `activity_type` 归一成 `running` 键，不再与真实 `running` 分裂成两个同名选项 |
-| `/list` 筛选与搜索 | **跨月生效**：条件作为 SQL `WHERE` 作用在月度汇总本身（`getMonthSummaries(limit, offset, {type, q})`），不匹配的月份不出现，首个匹配月自动展开并取数。只在展开的单月里过滤会让用户选「力量训练」时当月没有力量课就只看到「无匹配」，必须逐月点开找 |
+| `/list` 筛选与搜索 | **跨月生效**：条件作为 SQL `WHERE` 作用在月度汇总本身（`getMonthSummaries(limit, offset, {type, q})`），不匹配的月份不出现，首个匹配月自动展开并取数。只在展开的单月里过滤会让用户选「力量训练」时当月没有力量课就只看到「无匹配」，必须逐月点开找。**搜索同时匹配名称与运动类型中文名**（`q=力量` 命中 51 条「全身循环2」这类名称不含「力量」的力量课）—— 本地即时过滤与服务端 SQL 必须同一口径，否则服务端返回该月、本地却显示「无匹配」 |
+| `/list` 类型归一 | 空 `activity_type` 视为 `running`，**四处必须同表达式**：下拉清单 `getActivityTypes`、月度筛选 `COALESCE(NULLIF(activity_type,''),'running') = ?`、活动列表 `getActivities({type})`、UI `typeKeyOf`。任一处写成 `activity_type = ?` 都会让「下拉里有跑步选项、选中后少几条」 |
 | `/list` 月卡 | 里程只算跑步且 `0` 时不渲染（按「力量训练」筛选后跑量必然为 0，显示「0.00 公里」像同步失败）；「含 N 次其他」徽标只在未按类型筛选时显示（筛选后这些活动不是「其他」） |
 | `/list` 活动卡片 | 零距离活动（真实库 97/353 条：力量训练 51、爬楼 30、室内有氧 9、HIIT/跳绳/室内骑行各 3/3/1）**不渲染距离块**，只留时长 + 类型徽标 —— `distance = 0` 是「该运动没有距离语义」，`distance = null` 才是数据缺失（仍显示 `--`） |
 | 活动卡片 / 仪表盘「最近活动」 | 隐藏配速（泳池 1670s/km、乒乓 30826s/km 不是跑步配速）与「即时跑力 / VDOT」（跑步跑力指标），改显示类型徽标；无名称时按类型兜底命名。训练负荷与心率与运动类型无关，照常展示。零距离活动不渲染距离块（见上方 `/list` 活动卡片行） |

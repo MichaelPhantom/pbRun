@@ -323,8 +323,16 @@ export default function ListClient({
       out = out.filter((a) => typeKeyOf(a) === typeFilter);
     }
     if (searchQuery.trim()) {
+      // 与 `getMonthSummaries` 的 `q` 口径**必须一致**：名称 OR 类型中文名。
+      // 真实库 51 条力量课名称是「全身循环2」「核心稳定性1」，不含「力量」二字 ——
+      // 若本地只查 name，服务端会返回该月、本地却显示「该月无匹配活动」，
+      // 两层给出互相矛盾的结论（用户看到的是本地那层）。
       const q = searchQuery.trim().toLowerCase();
-      out = out.filter((a) => (a.name || '').toLowerCase().includes(q));
+      out = out.filter(
+        (a) =>
+          (a.name || '').toLowerCase().includes(q) ||
+          activityTypeLabel(a.activity_type).includes(searchQuery.trim()),
+      );
     }
     // 复制后再排序 —— 否则无过滤时 out === 状态数组, sort 会原地改写 React state。
     return [...out].sort(

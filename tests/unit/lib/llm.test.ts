@@ -127,11 +127,39 @@ describe('buildAnalysisMessages', () => {
     expect(user.content).not.toContain('Garmin VO2max');
   });
 
-  test('缺失距离时显示0.00 km而非NaN', () => {
+  /**
+   * 缺失距离 → `--`（不是 `0.00 km`）。
+   *
+   * `0.00 km` 把「数据缺失」写成了「距离为零」，模型会据此说「这次几乎没跑」。
+   * 与零距离活动（该运动无距离语义）的显示分开：两者都不该出现 `0.00 km`。
+   */
+  test('缺失距离时显示 -- 而非 0.00 km / NaN', () => {
     const a = fakeActivity();
     delete (a as Partial<Activity>).distance;
     const [, user] = buildAnalysisMessages(a, []);
-    expect(user.content).toContain('距离: 0.00 km');
+    expect(user.content).toContain('距离: --');
+    expect(user.content).not.toContain('0.00 km');
+    expect(user.content).not.toContain('NaN');
+  });
+
+  /**
+   * 零距离活动（力量训练/爬楼/HIIT/跳绳）不能写「距离: 0.00 km」。
+   *
+   * 真实库 97/353 条活动 `distance = 0`，其中力量训练 51 条、爬楼 30 条 ——
+   * 这些运动**本来就没有距离语义**。写「0.00 km」会让模型按「几乎没动」解读，
+   * 进而在复盘里说「本次训练量极低」，而实际是练了 1 小时的核心课。
+   * 与 `/list` 卡片、仪表盘卡片、详情页概览同一纪律。
+   */
+  test('零距离活动 (力量训练) 不写「距离: 0.00 km」', () => {
+    const a = fakeActivity({
+      activity_type: 'strength_training',
+      distance: 0,
+      duration: 3609,
+      moving_time: 3609,
+    });
+    const [, user] = buildAnalysisMessages(a, []);
+    expect(user.content).not.toContain('0.00 km');
+    expect(user.content).toContain('移动时长: 1:00:09');
   });
 
   test('分段行使用累计距离区间（laps含非整公里段，序号会误导）', () => {

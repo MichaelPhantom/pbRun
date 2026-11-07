@@ -106,6 +106,21 @@ describe('getActivities 跑步口径', () => {
     expect(countSql).toMatch(/activity_type IN/);
   });
 
+  /**
+   * 空 / NULL `activity_type` 必须算跑步，与 `isRunningType(null) === true` 一致。
+   *
+   * 旧库（未迁移 `activity_type` 列）里所有活动都是跑步。若 SQL 只写
+   * `activity_type IN ('running', ...)`，NULL 行会被排除 —— 同一判定在 JS 里说
+   * 「是跑步」、在 SQL 里说「不是」，于是详情页显示跑步卡片，`/stats` 却不统计它。
+   * 这是「口径唯一来源」必须覆盖空值的直接后果。
+   */
+  test('runningOnly → 空/NULL activity_type 也算跑步 (与 isRunningType 一致)', () => {
+    getActivities({ runningOnly: true });
+    const sql = mockPrepare.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(sql).toMatch(/activity_type IS NULL/);
+    expect(sql).toMatch(/activity_type = ''/);
+  });
+
   test('默认（活动日志口径）不加跑步过滤', () => {
     getActivities({});
     const sql = mockPrepare.mock.calls.map((c) => String(c[0])).join('\n');
