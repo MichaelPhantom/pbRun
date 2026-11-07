@@ -842,6 +842,83 @@ describe('ListClient 活动列表 (交互/筛选/无限滚动)', () => {
     expect(screen.queryByText(/共 \d+ 次活动/)).not.toBeInTheDocument();
   });
 
+  /**
+   * 第三层：**本月只有跑步**时，把库里其他运动做成可点击的快捷入口。
+   *
+   * 前两层（下拉带条数、顶部摘要）都要求用户「主动去看别处」。而用户报的
+   * 「记录栏目还是只有跑步类型」，恰恰是**只看主体内容**就下结论 ——
+   * 默认展开的 2026-11 只有 3 条跑步。这一层把其他运动摆在他正在看的月份上方。
+   */
+  describe('本月只有跑步 → 其他运动快捷入口', () => {
+    const fullLibrary = [
+      { type: 'running', count: 234 },
+      { type: 'strength_training', count: 51 },
+      { type: 'floor_climbing', count: 30 },
+      { type: 'lap_swimming', count: 4 },
+    ];
+
+    test('本月全部是跑步 + 有全库清单 → 渲染其他运动 chip（不含跑步）', () => {
+      renderList({
+        availableTypes: fullLibrary,
+        initialActivitiesByMonth: {
+          '2026-09': [
+            act({ activity_id: 9001, activity_type: 'running', name: '晨跑' }),
+            act({ activity_id: 9002, activity_type: 'treadmill_running', name: '跑步机' }),
+          ],
+        },
+      });
+      expect(screen.getByText(/这个月只有跑步/)).toBeInTheDocument();
+      // 三个非跑步类型各一个 chip，跑步/跑步机本身不出现
+      expect(screen.getByRole('button', { name: /力量训练/ })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /爬楼/ })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /泳池游泳/ })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^跑步 234$/ })).not.toBeInTheDocument();
+      // 条数必须带出来，否则用户不知道「力量训练」在这个库里有多少
+      expect(screen.getByRole('button', { name: /力量训练/ })).toHaveTextContent('51');
+    });
+
+    test('本月出现非跑步活动 → 不渲染（用户自己就能看见，不打扰）', () => {
+      renderList({
+        availableTypes: fullLibrary,
+        initialActivitiesByMonth: {
+          '2026-09': [
+            act({ activity_id: 9101, activity_type: 'running', name: '晨跑' }),
+            act({ activity_id: 9102, activity_type: 'strength_training', name: '全身循环2' }),
+          ],
+        },
+      });
+      expect(screen.queryByText(/这个月只有跑步/)).not.toBeInTheDocument();
+    });
+
+    test('已生效类型筛选 → 不渲染（用户已经知道有别的运动）', () => {
+      renderList({ availableTypes: fullLibrary });
+      fireEvent.change(screen.getByLabelText('活动类型筛选'), { target: { value: 'running' } });
+      expect(screen.queryByText(/这个月只有跑步/)).not.toBeInTheDocument();
+    });
+
+    test('无 availableTypes → 不渲染（不知道还有哪些类型）', () => {
+      renderList({ availableTypes: [] });
+      expect(screen.queryByText(/这个月只有跑步/)).not.toBeInTheDocument();
+    });
+
+    test('点 chip → 按该类型重新拉取月度汇总（服务端过滤 + 自动展开首月）', async () => {
+      (global.fetch as jest.Mock).mockImplementation((url: string) =>
+        url.includes('/api/activities/months')
+          ? jsonResponse([{ monthKey: '2026-01', totalDistance: 0, count: 51 }])
+          : jsonResponse([]),
+      );
+      renderList({ availableTypes: fullLibrary });
+      fireEvent.click(screen.getByRole('button', { name: /力量训练/ }));
+
+      await waitFor(() => {
+        const calls = (global.fetch as jest.Mock).mock.calls.map((c) => String(c[0]));
+        expect(calls.some((u) => u.includes('/api/activities/months') && u.includes('type=strength_training'))).toBe(true);
+      });
+      // 下拉同步到被点的类型（而不是只有服务端变了、UI 还显示「所有类型」）
+      expect(screen.getByLabelText('活动类型筛选')).toHaveValue('strength_training');
+    });
+  });
+
   test('类型筛选为「跑步」时, 无 activity_type 的活动被保留 (旧库兼容)', () => {
     renderList({
       initialActivitiesByMonth: { '2026-09': [act({ activity_type: '' } as Partial<Activity>)] },

@@ -367,6 +367,38 @@ export default function ListClient({
     };
   }, [availableTypes]);
 
+  /**
+   * **当前展开月里出现的运动类型键**。
+   *
+   * 用来判断「这个月是不是只有跑步」—— 这正是用户报「记录栏目还是只有跑步类型」
+   * 的真实场景：默认展开最近 1 个月，2026-11 只有 3 条且全是跑步，
+   * 于是下拉里有 13 类、页面主体却只见跑步，用户以为库里只有跑步。
+   */
+  const expandedMonthTypes = useMemo(() => {
+    if (!expandedMonth) return [] as string[];
+    const items = activitiesByMonth[expandedMonth] ?? [];
+    return Array.from(new Set(items.map(typeKeyOf)));
+  }, [expandedMonth, activitiesByMonth]);
+
+  /**
+   * 「本月只有跑步，但库里还有别的运动」时要展示的快捷入口。
+   *
+   * 三个前置条件缺一不可：
+   *  1. 有全库清单（否则不知道还有哪些类型）；
+   *  2. 当前没有生效的类型筛选（已筛到别的类型时用户已经知道有别的运动）；
+   *  3. 本月已加载且**全部是跑步**（有任何非跑步活动时，用户自己就能看见）。
+   *
+   * 为什么不是常驻 chip 行：那与下拉框重复，且在有非跑步活动的月份是噪音。
+   * 只在「看起来只有跑步」时出现，才既有用又不打扰。
+   */
+  const otherTypesHint = useMemo(() => {
+    if (availableTypes.length === 0) return [] as { type: string; count: number }[];
+    if (typeFilter !== 'all') return [];
+    if (expandedMonthTypes.length === 0) return [];
+    if (expandedMonthTypes.some((t) => !isRunningType(t))) return [];
+    return availableTypes.filter((t) => !isRunningType(t.type));
+  }, [availableTypes, typeFilter, expandedMonthTypes]);
+
   return (
     <div className="flex min-w-0 flex-col gap-6">
       {/*
@@ -379,6 +411,35 @@ export default function ListClient({
           全库共 <span className="tnum font-medium text-fg-secondary">{librarySummary.total}</span> 次活动
           · <span className="tnum font-medium text-fg-secondary">{librarySummary.kinds}</span> 种运动
         </p>
+      )}
+      {/*
+        第三层：**本月只有跑步**时，直接把库里其他运动做成可点的入口。
+
+        用户不需要先想到「要去下拉框里找」—— 那是发现了问题的人才会做的事。
+        这里把「还有力量训练 51 次、爬楼 30 次…」摆在他正在看的那个月上面，
+        点一下就是筛选后的结果（服务端会自动展开首个匹配月）。
+      */}
+      {otherTypesHint.length > 0 && (
+        <div className="rounded-xl border border-border bg-surface px-4 py-3">
+          <p className="text-xs text-fg-muted">
+            这个月只有跑步。库里还有{' '}
+            <span className="tnum font-medium text-fg-secondary">{otherTypesHint.length}</span> 种运动：
+          </p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {otherTypesHint.map((t) => (
+              <button
+                key={t.type}
+                type="button"
+                onClick={() => onTypeChange(t.type)}
+                className="card-hover inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-2.5 py-1 text-[11px] text-fg-secondary hover:text-[var(--brand-text)]"
+              >
+                <span aria-hidden>{activityTypeIcon(t.type)}</span>
+                {activityTypeLabel(t.type)}
+                <span className="tnum text-fg-muted">{t.count}</span>
+              </button>
+            ))}
+          </div>
+        </div>
       )}
       <div className="flex flex-wrap items-center gap-3">
         <label className="sr-only" htmlFor="activity-type-filter">
