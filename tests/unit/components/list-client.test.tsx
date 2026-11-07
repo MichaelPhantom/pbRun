@@ -766,6 +766,75 @@ describe('ListClient 活动列表 (交互/筛选/无限滚动)', () => {
   });
 
   /**
+   * **构成必须截断**：真实库 2026-01 有 7 种非跑步运动（爬楼 16 / 力量 7 /
+   * 乒乓 2 / 羽毛球 1 / 篮球 1 / 室内有氧 1 / 室内骑行 1）。全列出来会把月卡
+   * 头部撑爆（单行 `justify-between`，手机上直接溢出）。
+   *
+   * 判别式：前 3 种按条数降序出现，第 4 种之后不再逐个列，改为「等 N 种」。
+   */
+  test('月卡: 非跑步类型过多时截断为前 3 种 + 等 N 种', () => {
+    renderList({
+      initialMonthSummaries: [
+        {
+          monthKey: '2026-01',
+          totalDistance: 0,
+          count: 50,
+          runDistance: 0,
+          runCount: 21,
+          typeBreakdown: [
+            { type: 'running', count: 20 },
+            { type: 'floor_climbing', count: 16 },
+            { type: 'strength_training', count: 7 },
+            { type: 'table_tennis', count: 2 },
+            { type: 'badminton', count: 1 },
+            { type: 'basketball', count: 1 },
+            { type: 'indoor_cardio', count: 1 },
+            { type: 'indoor_cycling', count: 1 },
+            { type: 'treadmill_running', count: 1 },
+          ],
+        },
+      ],
+      initialActivitiesByMonth: { '2026-01': [act()] },
+    });
+    const monthBtn = screen.getByRole('button', { name: /2026年1月/ });
+    // 前 3 种（按条数降序）在
+    expect(monthBtn).toHaveTextContent('爬楼 16');
+    expect(monthBtn).toHaveTextContent('力量训练 7');
+    expect(monthBtn).toHaveTextContent('乒乓球 2');
+    // 第 4 种之后不逐个列
+    expect(monthBtn).not.toHaveTextContent('羽毛球 1');
+    expect(monthBtn).not.toHaveTextContent('室内骑行 1');
+    // 合并成「等 7 种」（非跑步共 7 种）
+    expect(monthBtn).toHaveTextContent('等 7 种');
+  });
+
+  /**
+   * 3 种以内**不截断、不加「等 N 种」** —— 否则「含 力量训练 4 等 1 种」这种
+   * 冗余文案会出现在最常见的月份上。
+   */
+  test('月卡: 非跑步类型不超过 3 种时不加「等 N 种」', () => {
+    renderList({
+      initialMonthSummaries: [
+        {
+          monthKey: '2026-09',
+          totalDistance: 42.5,
+          count: 25,
+          runDistance: 42.5,
+          runCount: 21,
+          typeBreakdown: [
+            { type: 'running', count: 21 },
+            { type: 'strength_training', count: 4 },
+          ],
+        },
+      ],
+      initialActivitiesByMonth: { '2026-09': [act()] },
+    });
+    const monthBtn = screen.getByRole('button', { name: /2026年9月/ });
+    expect(monthBtn).toHaveTextContent('力量训练 4');
+    expect(monthBtn).not.toHaveTextContent('等');
+  });
+
+  /**
    * `typeBreakdown` 缺失（旧 API 响应 / 旧单测夹具）时**回落旧徽标**，
    * 信息量不倒退 —— 宁可有「含 4 次其他」，也不要什么都没有。
    */

@@ -17,6 +17,15 @@ import { typeMetricsOf } from '@/app/lib/type-metrics';
 
 const MONTHS_PAGE_SIZE = 6;
 
+/**
+ * 月卡「含 …」徽标最多列几种非跑步运动。
+ *
+ * 真实库 2026-01 有 7 种（爬楼 16 / 力量 7 / 乒乓 2 / 羽毛球 1 / 篮球 1 /
+ * 室内有氧 1 / 室内骑行 1）。月卡头部是单行 `justify-between`，全列出来在手机上
+ * 会溢出；取前 3 种（按条数降序）足够回答「这个月还有什么」，其余合并成「等 N 种」。
+ */
+const MAX_BREAKDOWN_TYPES = 3;
+
 /** 活动类型键：空值/缺列归入 `running`（与 `isRunningType` 的旧库兼容口径一致）。 */
 function typeKeyOf(a: Activity): string {
   return a.activity_type || 'running';
@@ -509,7 +518,7 @@ export default function ListClient({
                   <span className="font-medium text-fg">
                     {formatMonthYear(summary.monthKey)}
                   </span>
-                  <span className="tnum flex items-center gap-3 text-sm text-fg-muted">
+                  <span className="tnum flex flex-wrap items-center justify-end gap-x-3 gap-y-1 text-sm text-fg-muted">
                     {/*
                       里程口径**跟着筛选走**（类型筛选与搜索词都算筛选）：
                        - 未筛选 → 只算跑步（`runDistance`）。全类型会把游泳距离
@@ -559,12 +568,21 @@ export default function ListClient({
                       const breakdown = summary.typeBreakdown ?? [];
                       const others = breakdown.filter((b) => !isRunningType(b.type));
                       if (others.length > 0) {
+                        // **必须截断**：真实库 2026-01 有 7 种非跑步运动
+                        // （爬楼 16 / 力量 7 / 乒乓 2 / 羽毛球 1 / 篮球 1 /
+                        // 室内有氧 1 / 室内骑行 1），全列出来会把月卡头部撑爆
+                        // （`flex items-center justify-between` 单行，手机上直接
+                        // 溢出）。按条数降序取前 3 种，其余合并成「等 N 种」——
+                        // 用户知道「还有别的」，且最相关的三种就在眼前。
+                        const shown = others.slice(0, MAX_BREAKDOWN_TYPES);
+                        const rest = others.length - shown.length;
                         return (
                           <span className="rounded bg-[var(--surface-2)] px-1.5 py-0.5 text-[10px] text-fg-secondary">
                             含{' '}
-                            {others
+                            {shown
                               .map((b) => `${activityTypeLabel(b.type)} ${b.count}`)
                               .join(' · ')}
+                            {rest > 0 ? ` 等 ${others.length} 种` : ''}
                           </span>
                         );
                       }
