@@ -319,6 +319,14 @@ describe('app/analysis/AnalysisClient.tsx 渲染', () => {
     expect(screen.getByText('Fatigue (ATL)')).toBeInTheDocument();
     expect(screen.getByText('Form (TSB)')).toBeInTheDocument();
 
+    /**
+     * 第十八类缺陷：分析页的 CTL/ATL/TSB 与负荷图都是**合并口径**（跑步 + 力量），
+     * 而 `/stats` 的「训练负荷」是纯跑步口径 —— 同一个词两个数（真实库 2026-08
+     * 差 289 / 17%）。力量卡在页面下方，负荷图在上方，不在这里说明占比，
+     * 用户看到 ACWR 变化找不到原因。
+     */
+    expect(screen.getByText(/合并口径：含力量负荷 100（占 [\d.]+%）/)).toBeInTheDocument();
+
     // 分析范围 Segmented: 近一周/近一月/近三月/近半年/全部
     for (const [label, d] of [
       ['近一周', 7],

@@ -250,6 +250,84 @@ describe('DashboardPage (首页) 数据编排', () => {
     expect(screen.getByText(/近 \d+ 次跑步/)).toBeInTheDocument();
     expect(screen.queryByText(/次活动/)).toBeNull();
   });
+
+  /**
+   * **第十八类缺陷：同一个词「训练负荷」在首页与 `/stats` 是两个口径。**
+   *
+   * | 页面 | 数据源 | 口径 | 真实库 2026-08 |
+   * |------|--------|------|----------------|
+   * | 首页「本月概览」 | `getCombinedTrainingLoads` | 跑步 + 力量 | **2004** |
+   * | `/stats` | `getStats`（带 `runningTypeClause`） | 纯跑步 | **1715** |
+   *
+   * 差 289（17%），而两处标签都只写「训练负荷」。用户点「全部统计 →」过去，
+   * 看到同一个名字下小了一截的数字，既不知道谁对，也不知道差在哪。
+   *
+   * 更隐蔽的是**同一行四格两种口径**：本月距离 / 跑步天数 / 平均配速 都来自
+   * 跑步口径，唯独训练负荷是合并口径 —— 四格并列时没人会怀疑第四个。
+   */
+  test('「训练负荷」必须标明是合并口径（含力量），与 /stats 的跑步口径区分', async () => {
+    render(await DashboardPage());
+    // 当月力量 2 次 × 负荷 50 = 100 → hint 必须点名这 100 是力量那部分
+    expect(screen.getByText('跑步 + 力量合并（力量负荷 100）')).toBeInTheDocument();
+    // 反面：不得只写「训练负荷」而不给任何口径说明
+    expect(screen.queryByText('训练负荷')).not.toBeNull(); // 标签本身仍在
+  });
+
+  /**
+   * hint 里的力量负荷必须与**力量卡上的「本月负荷」同源** —— 两处各算一遍
+   * 必然漂移（本项目已在配速时间基数、类型徽标上吃过两次亏）。
+   */
+  test('负荷 hint 的力量数值与力量卡「本月负荷」一致', async () => {
+    render(await DashboardPage());
+    const hint = screen.getByText(/跑步 \+ 力量合并（力量负荷 \d+）/).textContent ?? '';
+    const strengthCard = screen.getByText('力量训练').closest('section')!;
+    const loadLabel = within(strengthCard).getByText('本月负荷');
+    // StatCard 结构: value 在 label 之前的兄弟节点
+    const cardLoad = loadLabel.parentElement?.previousElementSibling?.textContent ?? '';
+    expect(hint).toContain(`力量负荷 ${cardLoad.replace(/[^\d]/g, '')}`);
+  });
+
+  /**
+   * 本月无力量负荷时，合并值 ≡ 跑步值。此时继续挂「合并」会让用户以为
+   * 首页与 `/stats` 的两个数不同 —— 必须明说这是纯跑步口径。
+   */
+  test('本月无力量负荷 → hint 明说跑步口径（不挂「合并」）', async () => {
+    db.getStrengthSessions.mockReturnValue({
+      data: [strengthSession({ startTimeLocal: `${prevMonthStr}-20T18:00:00` })],
+      total: 1,
+      returned: 1,
+      limit: 20,
+      offset: 0,
+    });
+    render(await DashboardPage());
+    expect(screen.getByText('跑步口径（本月无力量负荷）')).toBeInTheDocument();
+    expect(screen.queryByText(/跑步 \+ 力量合并/)).toBeNull();
+  });
+
+  /**
+   * **「本月距离」也是跑步口径** —— 与「训练负荷」同一行的另三格里，
+   * 只有它会在合并口径下变化（力量只加 `load`，不改 distance/runs/duration），
+   * 但用户不知道这件事。
+   *
+   * 真实库 2026 年：跑步口径 1893.3km vs 全类型 1903.53km（差 10.23km，来自
+   * 游泳/球类）。数字小不代表口径可以不标 —— 用户拿「本月距离」与 Garmin
+   * 上的「总里程」对不上时，没有任何线索说明差在哪。
+   */
+  test('「本月距离」必须标明是跑步口径（不含游泳/球类）', async () => {
+    render(await DashboardPage());
+    expect(screen.getByText('跑步口径（不含游泳/球类）')).toBeInTheDocument();
+  });
+
+  /**
+   * **年度热力图标题必须写「跑步」** —— 数据源 `getDailyDistances` 带
+   * `runningTypeClause`，真实库 2026 年比全类型少 10.23km。标题只写
+   * 「2026 年度里程」会让用户以为那是全部运动的总里程。
+   */
+  test('年度热力图标题写「跑步里程」（数据源 getDailyDistances 是跑步口径）', async () => {
+    render(await DashboardPage());
+    expect(screen.getByText(new RegExp(`${now.getFullYear()} 年度跑步里程`))).toBeInTheDocument();
+    expect(screen.queryByText(new RegExp(`^${now.getFullYear()} 年度里程$`))).toBeNull();
+  });
 });
 
 describe('DashboardPage 力量训练展示', () => {

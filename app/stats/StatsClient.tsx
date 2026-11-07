@@ -1,6 +1,7 @@
 'use client';
 
 import { formatPace, formatDurationRecord } from '@/app/lib/format';
+import { STATS_SCOPE_HINT } from '@/app/lib/load-scope';
 import type { PersonalRecordsResponse, PersonalRecordItem } from '@/app/lib/types';
 import type { StatsResponse } from '@/app/lib/types';
 import type { TimeRangeDays } from '@/app/lib/date-utils';
@@ -71,7 +72,17 @@ export default function StatsClient({ data, pr, period, currentVdot, coachRange 
         accent
         action={<Segmented items={periodItems} value={period} size="sm" />}
       >
-        <div className="mb-3 text-xs text-fg-secondary">共计跑步 {data.totalActivities ?? 0} 次</div>
+        <div className="mb-3 text-xs text-fg-secondary">
+          共计跑步 {data.totalActivities ?? 0} 次
+        </div>
+        {/*
+          第十八类缺陷：这九格**全部**是跑步口径（`getStats()` 的 SQL 带
+          `runningTypeClause`，见 `db.ts:595`），但一个字都没说。首页「本月概览」
+          的「训练负荷」来自 `getCombinedTrainingLoads`（跑步 + 力量），真实库
+          2026-08 两处分别是 1715 与 2004，差 289（17%），却共用一个名字。
+          一句话覆盖九格 —— 不必逐格标注。
+        */}
+        <div className="mb-3 text-[11px] leading-relaxed text-fg-muted">{STATS_SCOPE_HINT}</div>
         <div className="grid grid-cols-3 gap-3 sm:grid-cols-3">
           <StatCell label="当前跑力" value={currentVdot != null ? currentVdot.toFixed(1) : '--'} accent />
           <StatCell label="距离 (公里)" value={(data.totalDistance / 1000).toFixed(0)} />

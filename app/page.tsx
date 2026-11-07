@@ -5,6 +5,7 @@ import { predictRaceTimes } from "@/app/lib/vdot-pace";
 import { computeTrainingLoads, trainingLoadFetchStart, tsbStatus } from "@/app/lib/training-load";
 import { todayLocalDate, localMonthKeyOf, localMonthKeyMinusMonths } from "@/app/lib/timezone";
 import { formatDistance, formatDuration, formatPace } from "@/app/lib/format";
+import { monthLoadScopeHint, DISTANCE_SCOPE_HINT } from "@/app/lib/load-scope";
 import { SectionCard } from "@/app/components/ui/SectionCard";
 import { StatCard } from "@/app/components/ui/StatCard";
 import { Badge } from "@/app/components/ui/Badge";
@@ -191,13 +192,26 @@ export default async function DashboardPage() {
             label="本月距离"
             delta={Math.abs(thisMonthKm - lastMonthKm) > 0.05 ? thisMonthKm - lastMonthKm : null}
             deltaLabel="vs 上月"
+            hint={DISTANCE_SCOPE_HINT}
           />
           <StatCard
             value={thisMonthRuns}
             label="跑步天数"
           />
           <StatCard value={monthAvgPace != null ? formatPace(monthAvgPace, false) : "--"} unit="/km" label="平均配速" />
-          <StatCard value={monthLoad.toFixed(0)} label="训练负荷" />
+          {/*
+            「训练负荷」是**合并口径**（跑步 + 力量），相邻三格是跑步口径 ——
+            同一个词在 `/stats` 是纯跑步（`getStats` 带 `runningTypeClause`），
+            真实库 2026-08 两处差 289（17%）。不标口径，用户点「全部统计 →」
+            过去会看到同一个名字下小了一截的数字。
+            hint 与数值同源：力量负荷来自上面同一份 `strengthThisMonth`，
+            与力量卡「本月负荷」对得上（合并值 − 力量值 = 跑步值，可当场自证）。
+          */}
+          <StatCard
+            value={monthLoad.toFixed(0)}
+            label="训练负荷"
+            hint={monthLoadScopeHint(strengthThisMonth.totalLoad)}
+          />
         </div>
       </SectionCard>
 
@@ -255,8 +269,10 @@ export default async function DashboardPage() {
         </SectionCard>
       )}
 
-      {/* 年度热力图 */}
-      <SectionCard title={`${year} 年度里程`} accent>
+      {/* 年度热力图。数据源 `getDailyDistances` 带 `runningTypeClause` ——
+          真实库 2026 年比全类型少 10.23km（游泳 4 条 + 球类 6 条有距离）。
+          标题只写「年度里程」会让用户以为那是全部运动的总里程。 */}
+      <SectionCard title={`${year} 年度跑步里程`} accent>
         <YearHeatmap data={dailyDistances} year={year} />
         <div className="mt-2 flex items-center justify-end gap-1.5 text-[10px] text-fg-muted">
           <span>少</span>

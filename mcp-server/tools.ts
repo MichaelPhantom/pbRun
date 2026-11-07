@@ -359,7 +359,12 @@ export async function registerTools(server: McpServer): Promise<void> {
       description:
         '指定周期（周/月/年/全部）的汇总统计。**跑步口径**：只统计跑步类活动' +
         '（running/track_running/treadmill_running），游泳/球类/力量训练不计入。' +
-        'totalDistance 为米, totalDuration 为秒。',
+        'totalDistance 为米, totalDuration 为秒。' +
+        '⚠️ **totalTrainingLoad 是纯跑步负荷, 不是合并负荷** —— 与 ' +
+        'get_training_load_analysis 的合并口径（跑步 + 力量）不同: 真实库 2026-08 ' +
+        '这里 1715 而合并口径 2004（差 289 / 17%）、2026 全年差 1666。两个口径都对, ' +
+        '**算 ACWR/CTL/TSB 必须用 get_training_load_analysis 的合并值**, 不要拿本工具的 ' +
+        'totalTrainingLoad 去算; 反过来也不要因为两者不等就判定数据错误。',
       inputSchema: {
         period: PERIOD_ENUM.optional().describe('统计周期 (默认 total)'),
       },

@@ -442,6 +442,52 @@ describe('skill 的训练效果（TE）口径（第十七类缺陷）', () => {
   });
 });
 
+/**
+ * **第十八类缺陷：同一个词「训练负荷」在 `/stats` 与首页/分析页是两个口径。**
+ *
+ * skill 是三大交付面之一（Web 站 / MCP server / hermes skill），模型读它来回答
+ * 「我最近负荷多少」。若 skill 不写明 `/stats` 是纯跑步口径，模型会把那个数
+ * 当成合并负荷去算 ACWR —— 或者反过来，用户报「两个页面数字不一样」时
+ * 模型去「修」一个本来正确的口径。
+ */
+describe('skill 的「训练负荷」口径（第十八类缺陷）', () => {
+  test('skill 必须声明 /stats 的训练负荷是纯跑步口径', () => {
+    expect(skill).toMatch(/\/stats/);
+    expect(skill).toMatch(/纯跑步口径|跑步口径[^\n]{0,20}不含力量/);
+  });
+
+  /** 两个口径的具体差值 —— 让模型知道「不一样」是设计而非 bug。 */
+  test('skill 必须点名两处的真实差值（1715 / 2004）', () => {
+    expect(skill).toMatch(/1715/);
+    expect(skill).toMatch(/2004/);
+  });
+
+  /**
+   * 最容易被误判成 bug 的一条：用户说「首页和 /stats 数字不一样」。
+   * skill 必须明确「这是设计，不要去改」。
+   */
+  test('skill 必须声明两处数字不同是设计而非缺陷', () => {
+    expect(skill).toMatch(/两个口径都对|是设计|不是缺陷|别.*改代码/);
+  });
+
+  /** 真实库反证：两处确实不同（否则「必须标注」这句话没有依据）。 */
+  test('真实库：/stats 口径 ≡ 纯跑步负荷，且小于合并负荷', () => {
+    if (!hasProdDb) return;
+    const RUN = `(activity_type IN ('running','track_running','treadmill_running')
+                  OR activity_type IS NULL OR activity_type = '')`;
+    const row = query<{ runLoad: number; allLoad: number }>(
+      `SELECT
+         SUM(CASE WHEN ${RUN} THEN COALESCE(training_load, 0) ELSE 0 END) AS runLoad,
+         SUM(COALESCE(training_load, 0)) AS allLoad
+       FROM activities
+       WHERE start_time_local LIKE '2026-08%'`,
+    )[0];
+    // 真实库 2026-08：跑步 1715 vs 合并 2004
+    expect(Math.round(row.runLoad)).toBe(1715);
+    expect(Math.round(row.allLoad)).toBe(2004);
+  });
+});
+
 describe('skill 的分段角色口径必须与设备记录一致（第十二类缺陷）', () => {
   /**
    * 缺陷 24：详情页分段「角色」列一直存在，但它是按**配速推断**的，

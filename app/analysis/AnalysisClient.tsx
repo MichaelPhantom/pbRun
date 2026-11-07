@@ -20,6 +20,7 @@ import { StatCard } from '@/app/components/ui/StatCard';
 import { Segmented } from '@/app/components/ui/Segmented';
 import { Badge } from '@/app/components/ui/Badge';
 import { tsbStatus } from '@/app/lib/training-load';
+import { combinedLoadScopeHint } from '@/app/lib/load-scope';
 import type {
   HrZoneStat,
   VDOTTrendPoint,
@@ -172,6 +173,14 @@ export default function AnalysisClient({
 
       {/* 训练负荷 */}
       <SectionCard title="训练负荷 (Fitness / Freshness)" accent action={<Badge variant={tsbTone.tone}>{tsbTone.label}</Badge>}>
+        {/*
+          第十八类缺陷：CTL/ATL/TSB 与负荷图都是**合并口径**（跑步 + 力量），
+          而 `/stats` 的「训练负荷」是纯跑步口径 —— 同一个词两个数。
+          力量卡在下方，若这里不说明，用户看到 ACWR 变化找不到原因。
+        */}
+        <div className="mb-3 text-[11px] leading-relaxed text-fg-muted">
+          {combinedLoadScopeHint(strength.strengthLoad, strength.combinedLoad)}
+        </div>
         <div className="mb-3 grid grid-cols-3 gap-3">
           <StatCard value={ctl.toFixed(0)} label="Fitness (CTL)" accent hint="42 天体能基线" />
           <StatCard value={atl.toFixed(0)} label="Fatigue (ATL)" hint="7 天急性疲劳" />

@@ -189,6 +189,24 @@ describe('app/stats/page.tsx', () => {
     render(again);
     expect(screen.getAllByText('--').length).toBeGreaterThanOrEqual(5);
   });
+
+  /**
+   * **第十八类缺陷：`/stats` 的九格全是跑步口径，但一个字都没说。**
+   *
+   * `getStats()` 的 SQL 带 `runningTypeClause('activities')`（`db.ts:595`），
+   * 所以「训练负荷」这里是**纯跑步**；而首页「本月概览」的「训练负荷」来自
+   * `getCombinedTrainingLoads`（跑步 + 力量）。真实库 2026-08 两处分别是
+   * 1715 与 2004，差 289（17%），却共用一个名字。
+   *
+   * 修法不是把 `/stats` 改成合并（那会让「跑步数据统计」名不副实），
+   * 而是**在页面上说清口径**。断言的是用户看到的字面。
+   */
+  test('九格统计必须声明「跑步口径」（与首页合并口径区分）', async () => {
+    render(await StatsPage({ searchParams: Promise.resolve({ period: 'month' }) }));
+    expect(screen.getByText(/跑步口径/)).toBeInTheDocument();
+    // 「训练负荷」这一格必须紧邻口径说明，而不是让用户去猜
+    expect(screen.getByText('训练负荷')).toBeInTheDocument();
+  });
 });
 
 describe('app/list/page.tsx', () => {
