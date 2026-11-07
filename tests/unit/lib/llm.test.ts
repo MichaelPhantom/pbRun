@@ -1306,3 +1306,90 @@ describe('buildAnalysisMessages — total_cycles 语义白名单', () => {
     expect(user.content).not.toContain('总计数');
   });
 });
+
+/**
+ * 第十二类缺陷：分段**训练角色**来自设备（FIT lap `intensity`），不是配速推断。
+ *
+ * 设备在 lap 里记录了每段意图（warmup / interval / recovery / rest / cooldown），
+ * 覆盖真实库 **3058/3137（97.5%）**。旧实现从不读它，AI 数据块只给配速序列 ——
+ * 模型只能自己猜「哪几段是主课」，而配速推断与设备值仅 **73.2% 一致**（747/1021 段）。
+ *
+ * 间歇课复盘的核心问题正是「主课段执行得怎么样、恢复段够不够」，角色必须显式给出。
+ */
+describe('buildAnalysisMessages — 分段训练角色（设备 intensity）', () => {
+  const lap = (over: Partial<ActivityLap>): ActivityLap =>
+    ({
+      activity_id: 1,
+      lap_index: 0,
+      distance: 1000,
+      duration: 300,
+      average_pace: 300,
+      average_heart_rate: 160,
+      average_cadence: 180,
+      ...over,
+    }) as ActivityLap;
+
+  test('warmup / interval / recovery / cooldown 都要出现在分段行里', () => {
+    const [, user] = buildAnalysisMessages(fakeActivity(), [
+      lap({ lap_index: 0, intensity: 'warmup', average_pace: 400 }),
+      lap({ lap_index: 1, intensity: 'interval', average_pace: 280 }),
+      lap({ lap_index: 2, intensity: 'recovery', average_pace: 420 }),
+      lap({ lap_index: 3, intensity: 'cooldown', average_pace: 410 }),
+    ]);
+    expect(user.content).toContain('热身');
+    expect(user.content).toContain('主课段');
+    expect(user.content).toContain('恢复段');
+    expect(user.content).toContain('冷身');
+  });
+
+  test('rest 也归为「恢复段」（组间完全休息同属恢复）', () => {
+    const [, user] = buildAnalysisMessages(fakeActivity(), [
+      lap({ lap_index: 0, intensity: 'rest' }),
+    ]);
+    expect(user.content).toContain('恢复段');
+  });
+
+  /**
+   * `active` 是**最重要的否定用例**：设备把匀速跑也标 active（真实库 657456825
+   * 全程 22 段都是 active）。若把它当「主课段」，一次匀速慢跑会整场被标成主课，
+   * 比现在的配速推断更糟。`active` 只说「这段在计时」。
+   */
+  test('active 不输出任何角色（只表示「在计时」，匀速跑全程都是 active）', () => {
+    const [, user] = buildAnalysisMessages(fakeActivity(), [
+      lap({ lap_index: 0, intensity: 'active' }),
+      lap({ lap_index: 1, intensity: 'active' }),
+    ]);
+    expect(user.content).not.toContain('主课段');
+    expect(user.content).not.toContain('热身');
+    expect(user.content).not.toContain('匀速');
+  });
+
+  test('无 intensity 的分段不输出角色（不猜，交给模型看配速）', () => {
+    const [, user] = buildAnalysisMessages(fakeActivity(), [
+      lap({ lap_index: 0 }),
+      lap({ lap_index: 1 }),
+    ]);
+    expect(user.content).not.toContain('主课段');
+    expect(user.content).not.toContain('恢复段');
+  });
+
+  test('非跑步活动同样输出角色（游泳间歇也有 warmup/interval）', () => {
+    const [, user] = buildAnalysisMessages(
+      fakeActivity({ activity_type: 'lap_swimming', distance: 0.775, total_cycles: 518 }),
+      [
+        lap({ lap_index: 0, intensity: 'warmup', distance: 100 }),
+        lap({ lap_index: 1, intensity: 'interval', distance: 200 }),
+      ],
+    );
+    expect(user.content).toContain('热身');
+    expect(user.content).toContain('主课段');
+  });
+
+  test('255 是无效哨兵，不输出角色', () => {
+    const [, user] = buildAnalysisMessages(fakeActivity(), [
+      lap({ lap_index: 0, intensity: '255' }),
+    ]);
+    expect(user.content).not.toContain('主课段');
+    expect(user.content).not.toContain('恢复段');
+  });
+});

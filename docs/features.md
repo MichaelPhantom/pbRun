@@ -529,7 +529,7 @@ FTP 缺失不猜 / 海拔比值 / 尖峰过滤）、`tests/unit/pages/activity-d
 - 反例已排除：`start_tz_offset_min` 等 6 个聚类/记账列确实不在 `Activity` 里，
   但仍在 schema 里 —— 它们留在账本里是对的。
 
-#### `ActivityLap` 的 44 个字段也要机器审计（2026-10-27 补齐）
+#### `ActivityLap` 的 44 个字段也要机器审计（2026-10-27 补齐，2026-11-07 扩到 46）
 
 `Activity` 有完整守卫，但 `ActivityLap`（44 字段）**一直没有** —— lap 层可以安静地积累
 同类缺陷。补守卫时一次审计就找出 **14 个零消费字段**，其中三个有真实数据：
@@ -549,6 +549,10 @@ FTP 缺失不猜 / 海拔比值 / 尖峰过滤）、`tests/unit/pages/activity-d
 判据与 `Activity` 那份**完全一致**（同一个概念不写两套实现）：字段数精确 `toBe(44)`、
 未消费必须进账本、账本必须保持真实、账本键必须是真实列、schema 每列三头必须落一头。
 四个方向都做过缺陷注入验证（删账本条目 / 塞已消费字段 / 塞幻影列 / 改字段数）。
+
+> 字段数此后随第十/十一/十二类缺陷增长：`total_cycles`（第十类）→ 45、
+> `intensity`（第十二类）→ 46。守卫里的等号是**有意的**：每加一列都必须显式
+> 确认「它要么被消费、要么进账本并写明理由」，否则守卫会随 `types.ts` 扩张悄悄放宽。
 
 #### 配速与统计的时间基数：计时器时间，不是经过时间（2026-10-27）
 
@@ -1964,16 +1968,135 @@ SWOLF = 单趟用时（秒） + 单趟划水次数
 
 ##### 仍未提取的 FIT 字段（按价值排序，本轮未做）
 
-| 字段 | 覆盖 | 为什么值得做 | 风险 |
-|------|------|------------|------|
-| lap 级 `swim_stroke` | lap 级有真实值 | session 级恒 255（无效），但 lap 级有 freestyle/backstroke/breaststroke/mixed —— 能区分泳姿结构 | 需新增 lap 列，且同一活动可能混合泳姿 |
-| `avg_fractional_cadence` | 252/353 | 步频小数部分（真实值 0.11–0.91），只有跑步/球类有 | 增量信息很小 |
-| `enhanced_avg_respiration_rate` | 19/353 | 呼吸频率（仅跑步），可作强度旁证 | 覆盖太低 |
-| `total_work` | 246/353 | 总做功（焦耳） | **纯冗余**：与 `avg_power × timer` 逐条比值 0.999–1.002，不加 |
+见本节末尾「第十二类缺陷」的「仍未提取：lap 级 `swim_stroke`」小节 ——
+`swim_stroke` 是唯一确认有价值但尚未入库的字段，其余三个字段经复核主动排除。
 
-`training_load_peak` 覆盖 353/353，但量级是 `uint32` 原值（实测 2918977），
-**语义与 scale 未确认，不可当 `training_load` 用** —— 已在
-`fit-parser-sdk-fields.test.ts` 的 allowlist 里写明理由。
+#### 第十二类缺陷：设备记录了「这段是什么」，我们却按配速猜（2026-11-07）
+
+第十至十一类是「字段没进库」与「标签是假的」。第十二类是更隐蔽的一类：
+**字段进库的位置本来是对的，但我们从来没读它 —— 而是用另一个字段去推断它的值，
+并且把推断结果当成事实展示给用户和 AI。**
+
+详情页「分段数据」表一直有一列「角色」（热身 / 主课 / 恢复 / 冷身 / 匀速）。
+它看起来像读出来的，实际是 `activity-insight.ts:analyzeLaps` 用**配速**算的：
+
+```
+hard  = pace < 均值 × 0.92          → 主课
+easy  = pace > 均值 × 1.12          → 热身/恢复/冷身（看位置）
+其余                                 → 匀速
+```
+
+而设备在 FIT lap 里**明确记录了每段的意图** —— `intensity` 字段：
+
+| 取值 | 含义 | 段数（真实库） |
+|------|------|---------------|
+| `interval` | 间歇主课段 | 2392 |
+| `cooldown` | 冷身 | 182 |
+| `recovery` | 间歇恢复段 | 168 |
+| `warmup` | 热身 | 147 |
+| `rest` | 完全休息（组间/池边） | 106 |
+| `active` | **这段在计时**（不表达意图） | 63 |
+
+覆盖 **3058/3137 段（97.5%）**、287 条活动。解析器从未读取它 ——
+`activity_laps` 表连这一列都不存在。
+
+##### 判据（与第十至十一类同一套，两条全中）
+
+| 判据 | 检验 | 结果 |
+|------|------|------|
+| **结构自证** | `warmup` 是否恒在首段、`cooldown` 是否恒在末段、`interval`/`recovery` 是否严格交替 | **9/9 完美**（见下表） |
+| **独立锚点** | 与配速/心率推断的交叉一致率 | **73.2%**（747/1021 段）—— 不高，但这正是设备值的价值：它记录**意图**，配速只反映**结果** |
+
+真实库多段活动实测（全部 9 条含 `warmup`/`cooldown` 的活动）：
+
+```
+651707081  warmup,warmup,warmup,interval,recovery,interval,recovery,...,cooldown,cooldown
+648412964  warmup,warmup,warmup,interval,recovery,...,interval,cooldown,cooldown,cooldown
+647455345  warmup,warmup,interval,interval,recovery,...,interval,cooldown,cooldown
+639982410  warmup,warmup,warmup,interval,rest,interval,rest,...,cooldown,cooldown,cooldown
+```
+
+`warmup` 恒在索引 0（可以连续多段）、`cooldown` 恒延续到最后一个索引、
+`interval` 与 `recovery`/`rest` 严格交替 —— 这是**计划结构**才有的形态，
+随机噪声或解析错位几乎不可能出现。这一条不变式已固化为
+`app/lib/lap-intensity.ts:validateLapRoles()`。
+
+##### 推断错在哪（274 段的典型样本）
+
+| 活动 | 段 | 设备记录 | 配速推断 | 为什么错 |
+|------|----|---------|---------|---------|
+| 647455345 | 第 1 段 | **热身** | 主课 | 首段配速偏快（起跑下坡/顺风），推断只看「快于均值 8%」 |
+| 648412964 | 第 2 段 | **热身** | 匀速 | 热身中段配速接近全程均值 |
+| 650375691 | 第 1 段 | **热身** | 匀速 | 同上，首段恰好不快 |
+| 651707081 | 第 3 段 | **热身** | 恢复 | 连续 3 段热身，第 3 段配速抬升被判成恢复 |
+
+**这不只是「角色列错了一个词」**：`workLaps`（主课段数）、`workDistanceMeters`、
+`workAvgPaceSecPerKm`、`workAvgHeartRate`、`workHrDrift`（主课漂移）——
+整块派生分析全部建立在 `role === 'work'` 之上。角色判错，主课漂移、主课均配速、
+「主课执行得怎么样」全部跟着错，而这些结论会原样进入 AI 上下文。
+
+##### `active` 为什么映射为 `null`（绝不猜测）
+
+`active` 是 63 段里最容易被误用的一类。它**只表示「这段在计时」**，
+不表达训练意图。真实库 `657456825` 全程 **22 段都是 `active`** —— 那是一次匀速慢跑。
+
+若把 `active` 当 `work`，一次匀速慢跑会整场被标成「主课 22 段」，
+比现在的配速推断**更糟**（推断至少判 `steady`）。故：
+
+| intensity | 角色 | 理由 |
+|-----------|------|------|
+| `interval` | `work` | 间歇主课段，无歧义 |
+| `recovery` / `rest` | `recovery` | 组间完全休息同属恢复 |
+| `warmup` | `warmup` | 无歧义 |
+| `cooldown` | `cooldown` | 无歧义 |
+| `active` | **`null`**（回落推断） | 只说「在计时」；推断对匀速跑判 `steady`，是对的 |
+| `255` / 缺失 | **`null`**（回落推断） | 设备没写，不是一种角色 |
+
+##### 修法（五个面 + 一个来源标记）
+
+1. **解析器**：`_extractLapsData` 读 `lap.intensity`，**存原始字符串**
+   （`255`/空串不写）。不在这里映射成角色 —— 数据库只负责如实保存设备说了什么，
+   角色口径将来变了不需要迁移数据。
+2. **schema**：`activity_laps` 45→46 列（`intensity TEXT`）+ 一条迁移条目。
+3. **角色映射**：新增 `app/lib/lap-intensity.ts`（`lapRoleFromIntensity()` /
+   `isDeviceRole()` / `validateLapRoles()`）。**设备值优先、推断兜底**。
+4. **来源可查**：`ActivityLapAnalysis.laps[].roleSource: 'device' | 'inferred'` ——
+   否则将来又会出现「不知道这个角色是猜的还是读的」。详情页徽标带 `·` 标记与
+   `title` 提示（「设备记录的训练角色（FIT lap intensity = warmup）」）。
+5. **AI 数据块**：分段行输出设备角色（`ROLE_LABEL_AI`：热身/主课段/恢复段/冷身/匀速）。
+   间歇课复盘的核心问题就是「主课段执行得怎么样、恢复段够不够」，模型此前只能看
+   配速序列**自己猜**哪几段是主课。
+6. **回填**：`db.updateLapFields(activityId, laps, columns)`（列名白名单防注入），
+   `updateLapCycles()` 保留为 `@deprecated` 包装。
+
+##### 纪律
+
+- **设备记录的「意图」比从结果反推的「事实」更可信**。配速是结果，会被地形、
+  风向、起跑状态污染；`intensity` 是用户/设备在**计划层**写下的意图。两者冲突时
+  以设备为准，但必须能区分来源（`roleSource`）。
+- **不确定的枚举值宁可返回 `null` 回落，也不要猜**。`active` 若当 `work`，
+  匀速跑会整场变「主课」—— 猜测的错误方向比不猜更糟。
+- **原始值与语义分层存放**。DB 存 `intensity` 字符串，角色映射放展示层
+  （`lap-intensity.ts`）。将来 Garmin 改枚举、或本项目改口径，不需要动数据。
+- **派生指标的错误会放大**。一个角色的错会污染 `workLaps`/`workHrDrift`/
+  「主课均配速」四个数字，而这四个数字会原样喂给 AI。
+
+##### 仍未提取：lap 级 `swim_stroke`（下一个待做）
+
+同一轮扫描确认 lap 级 `swim_stroke` 有**真实泳姿**（session 级恒 255）：
+`599287904` 的 28 段里出现 breaststroke/freestyle/mixed/backstroke，
+`614598589` 26 段 24 段 freestyle。它能做「各泳姿效率对比」
+（按泳姿汇总距离/时间算秒每 100m）。仍未入库 —— 需新增 lap 列，
+且同一活动可能混合泳姿，展示时必须带泳姿标签。
+
+另三个字段经复核**不做**（不是遗漏，是主动排除）：
+
+| 字段 | 结论 |
+|------|------|
+| `avg_fractional_cadence` | 只是步频的**小数部分**（+0.34 → 182.7 spm vs 整数 182），精度增量 ≤0.5 spm |
+| `enhanced_avg_respiration_rate` | 仅 19/353，覆盖太低 |
+| `total_work` | 与 `avg_power × timer` 逐条精确相等（0.999–1.002），纯冗余 |
+| `avg_stroke_distance` | FIT 里恒 0（4/4），不可用；每划距离必须用 `distance ÷ total_cycles` |
 
 ### 2.2 汇总页：区间与趋势优先
 
@@ -2134,6 +2257,7 @@ AI 教练有两种**能力维度**，它们的数据单位与结论都不同，*
 | **lap 级区间秒数只由 app 5 区模型推导** | `scripts/garmin/fit-parser.js` 的 `_assignLapZoneSeconds`（按 `cumulative_time` 半开窗口切分逐秒样本，长度恒 5）；设备原始数组一律进 `device_time_in_*_zone` | `tests/unit/garmin/lap-zone-scope.test.js`（设备 7/8 槽数组不得进统一列；推导长度恒 5；各 lap 求和 ≈ 活动级；无 FTP/无心率时不写列；`cumulative_time` 缺失/倒退时跳过） |
 | **`insertLaps` 的列集合必须取所有 lap 的键并集** | `scripts/common/db-manager.js`（旧实现只看 `lapsData[0]`，真实丢弃 `599287904`/`614598589` 各 14/12 个 lap 的配速/速度/步频） | `tests/unit/common/db-manager-lap-columns.test.js`（首段缺键时后续 lap 的值必须进库；反向缺键绑 NULL；三 lap 各有独有字段；整体替换语义不变） |
 | **lap 级区间必须有消费方** | `ActivityDetailClient` 分段表「主要区间」列（`dominantZone`）；`activity-coach-context` 的「分段主区间 0.0-1.0km=Z2…」（累计距离区间，非 0 基序号；功率区间另受 `running` 门控） | `tests/unit/pages/activity-detail.test.tsx`（列头恒在、有数据展示 Z 徽章、无数据 `--`、非跑步同样展示）；`tests/unit/lib/activity-coach-context.test.ts`（单段不输出、全空不输出、非跑步不出功率区间） |
+| **分段角色来自设备（FIT lap `intensity`），不是配速推断** | `app/lib/lap-intensity.ts`（`lapRoleFromIntensity` / `isDeviceRole` / `validateLapRoles`，唯一映射来源）；`activity-insight.ts:analyzeLaps` 设备值优先 + `roleSource`；`ActivityDetailClient` 徽标带 `·` 与 `title`；`llm.ts` 的 `ROLE_LABEL_AI` | `tests/unit/lib/lap-intensity.test.ts`（19 例：六种 intensity 映射、**`active`→`null` 绝不猜**、255/未知值→null、大小写空白、结构自证 warmup 首段/cooldown 末段、9/9 真实形态）；`tests/unit/lib/activity-insight.test.ts`（设备值优先于配速、`roleSource` 正确）；`tests/unit/pages/activity-detail.test.tsx`（设备角色不等 insight 请求、`active` 回落推断、title 区分设备/推断）；`tests/unit/lib/llm.test.ts`（分段行输出角色、`active` 不输出、非跑步同样输出） |
 | **`training_load` 不是 FIT 官方字段** | `scripts/garmin/sync.js` 的 `calculateTrainingLoad` 派生（时长 × 心率区间因子）；`app/lib/types.ts` / `app/lib/llm.ts` 注释同步勘误 | `tests/unit/garmin/fit-parser-branches.test.js`（四个历史字段名 + `training_load_peak` 均不得产出 `training_load`） |
 | **字段必须被消费（算出来 ≠ 展示）** | `InsightClient.tsx` / `insight-coach.ts` / `ActivityInsightPanel.tsx` / `llm.ts` | `tests/unit/components/insight-field-consumption.test.ts`（递归展开 `InsightResponse` / `ActivityInsightResponse` / `Activity` 全部叶子字段, 剥离注释后逐个断言被消费; 消费方 = 展示入口的 import 传递闭包, 死代码模块不算; allowlist 反查腐化） |
 | **可推算字段必须真的推算** | `app/lib/power.ts`（FTP 回退 / IF / TSS / W·kg⁻¹ / 峰值过滤）/ `app/lib/elevation.ts`（净高差 / 爬升比） | `tests/unit/lib/power.test.ts`（28 例: 33→241 FTP 回退、TSS 用 moving_time、尖峰过滤、显式值优先）+ `tests/unit/lib/elevation.test.ts`（12 例: 净高差 ≠ 累计爬升、越界拒绝） |
@@ -2149,7 +2273,7 @@ AI 教练有两种**能力维度**，它们的数据单位与结论都不同，*
 | **覆盖率门槛留有余量** | `jest.config.js` + `threshold-margin.test.ts` | `tests/unit/ci/threshold-margin.test.ts`（每组每项 ≥1.5pt，且不可用降门槛来满足） |
 | **配速/速度的时间基数 = 计时器时间 `moving_time`** | `app/lib/pace.ts`（`effectiveTimeSec` / `paceSecPerKm` / `speedKmh`）+ CJS 镜像 `scripts/common/pace.js`；写入侧 `fit-parser.js`（活动级 + lap 级）、`backfill-vdot.js`、`sync.js`、`scripts/strava/sync.js`；读取侧 `db.ts`、`validate-data.js` | `tests/unit/scripts/pace-parity.test.ts`（14 种时间形态逐值比对 + 真实库锚点：`582132079` 6:35 而非 26:19、`598287817` lap 7 从 60792 降到 24500）+ `tests/unit/garmin/fit-parser-branches.test.js`（活动级与 lap 级都断言 `average_pace` 更接近计时器口径、`average_speed × average_pace = 3600`）+ `tests/unit/scripts/backfill-pace.test.js`（18 例：单位差、幂等、dry-run、极端段、退出码 1）+ `tests/e2e/activity-detail.spec.ts`（判别式：`distToTimer < distToElapsed`） |
 | **所有时长聚合与配速同基数** | `db.ts` 的 `getStats` / `getPeriodStats` 的 `totalDuration`、`getPaceZoneStats` / `getPowerZoneStats` / `getHrZoneStats` 的 `total_duration` 与加权权重、`getVDOTTrend().total_duration`、`getPersonalRecords` 插值、`getTrainingLoads().duration`、`getInsightActivityRows().durationSeconds`、`activity-insight.ts` 的 `lap.durationSec`、`llm.ts` 的 `dur` 与非跑步分段时长 | `tests/unit/lib/db-time-base.test.ts`（14 例真实 SQL：每条聚合路径都断言具体数字 3900 而非 5100 / 260 而非 340 s/km；七条注入路径逐一验证转红）+ `tests/unit/lib/db-insight-integration.test.ts`（5K PR 1786 而非 1800）+ `tests/unit/lib/activity-insight.test.ts`（`moving_time` 4s vs `duration` 60s → 无最快段，注入后转红） |
-| **`ActivityLap` 的 44 个字段必须被消费或记账** | 账本 `LAP_FIELD_ALLOWLIST`（`tests/unit/components/lap-field-consumption.test.ts`）+ 两条推导链同基数断言 | 字段数精确 `toBe(44)`、正向未消费为空、反向账本无已消费项、账本键必须是真实列、schema 每列三头必须落一头；四个方向均做过缺陷注入 |
+| **`ActivityLap` 的 46 个字段必须被消费或记账** | 账本 `LAP_FIELD_ALLOWLIST`（`tests/unit/components/lap-field-consumption.test.ts`）+ 两条推导链同基数断言 | 字段数精确 `toBe(46)`、正向未消费为空、反向账本无已消费项、账本键必须是真实列、schema 每列三头必须落一头；四个方向均做过缺陷注入 |
 | **校验器必须能失败（时间基数）** | `validate-data.js` 的活动级/lap 级配速断言、区间秒数基准、`backfill-hr-zones.js` / `backfill-power-zones.js` / `backfill-lap-zones.js` 的 `expected` 基准全部改用 `effectiveTimeSec` / `speedKmh` / `paceSecPerKm` | `tests/unit/scripts/validate-data.test.js`（旧断言 `average_pace === duration/distance` 已删除 —— 它把错误口径锁死；问题数据用例必须命中） |
 | **UI 时长格与配速同口径，且 `moving_time = 0` 必须回退** | `ListClient.tsx` / `RecentActivityCard.tsx` / `ActivityDetailClient.tsx`（概览 + 分段表）/ `powerIntensity` 全部 import `effectiveTimeSec`，不写 `moving_time ?? duration` 或 `moving_time \|\| duration` | `tests/unit/components/list-client.test.tsx` + `tests/unit/components/recent-activity-card.test.tsx`（`moving_time: 0` / `duration: 2800` → 必须显示 46:40；`??` 实现显示 0:00，注入后两条同时转红）+ `tests/unit/pages/activity-detail.test.tsx` + `tests/unit/lib/power.test.ts`（TSS 2201s 而非 5000s） |
 | **`LoadInsight.weekly` 的 `n`/`seconds` 必须进教练上下文** | `insight-coach.ts` 的「周训练量」块（`week km/时长/次数/TL`） | `tests/unit/lib/insight-coach.test.ts`（两个 ISO 周必须逐字输出 `49.7km/5:16:40/5次/430TL`；删掉整块立即转红）+ `tests/unit/components/insight-field-consumption.test.ts`（内联对象字面量字段必须进入字段集合 —— 旧解析器只收多行 interface，`weekly` 整块漏掉，该字段族**永远绿**） |

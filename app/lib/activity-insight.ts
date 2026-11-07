@@ -7,6 +7,7 @@ import { powerZoneSecondsFromSamples } from './power-zones';
 import { resolveFtp } from './power';
 import { effectiveTimeSec, groupHeartRate, groupPaceSecPerKm } from './pace';
 import { classifyActivity } from './insight-compare';
+import { lapRoleFromIntensity } from './lap-intensity';
 import type {
   ActivityComparison,
   ActivityEnvironmentSummary,
@@ -137,6 +138,16 @@ export interface LapInput {
   hrZoneSeconds?: number[] | null;
   /** 该 lap 的功率区间秒数（app 5 区 %FTP 口径，长度恒为 5）。无 FTP 时为 null。 */
   powerZoneSeconds?: number[] | null;
+  /**
+   * 该 lap 的**设备记录角色**（FIT lap `intensity` 原值）—— 第十二类缺陷。
+   *
+   * 有值且能映射成角色时**优先于配速/心率推断**：设备记录的是计划意图
+   * （warmup / interval / recovery / cooldown），推断只能从结果反推。
+   * 真实库实测两者只有 73.2% 一致（747/1021 段）—— 推断会错。
+   *
+   * `active` / `255` / 缺失一律回落到推断（`active` 只表示「在计时」）。
+   */
+  intensity?: string | null;
 }
 
 /**
@@ -180,6 +191,26 @@ export function analyzeLaps(
 
   const roles: ActivityLapAnalysis['laps'] = laps.map((l, i) => {
     let role: ActivityLapAnalysis['laps'][number]['role'] = 'steady';
+    // **设备记录优先**（第十二类缺陷）。FIT lap `intensity` 覆盖 3058/3137（97.5%），
+    // 它记录的是**计划意图**；下面那套配速/心率推断只能从**结果**反推 ——
+    // 实测两者仅 73.2% 一致（747/1021 段），推断会错（如第一段配速快就被当成
+    // 主课，而设备标的是热身）。`active` 映射为 null（只表示「在计时」），
+    // 落到下面的推断路径 —— 那条对匀速跑本来就判 steady，是对的。
+    const deviceRole = lapRoleFromIntensity(l.intensity);
+    if (deviceRole != null) {
+      return {
+        lapIndex: l.lapIndex,
+        distanceMeters: l.distanceMeters,
+        paceSecPerKm: l.paceSecPerKm,
+        heartRate: l.heartRate,
+        cadence: l.cadence,
+        power: l.power,
+        hrZoneSeconds: normalizeZoneSeconds(l.hrZoneSeconds),
+        powerZoneSeconds: normalizeZoneSeconds(l.powerZoneSeconds),
+        role: deviceRole,
+        roleSource: 'device',
+      };
+    }
     const p = metricOf(l);
     // 配速不可信的段（如 4 秒尾段）不参与「快/慢」判定，一律 steady。
     // 否则量化噪声会把一段 14 m 的收尾判成「主课」，让一次匀速慢跑
@@ -195,6 +226,7 @@ export function analyzeLaps(
         hrZoneSeconds: normalizeZoneSeconds(l.hrZoneSeconds),
         powerZoneSeconds: normalizeZoneSeconds(l.powerZoneSeconds),
         role,
+        roleSource: 'inferred',
       };
     }
     if (baseline != null && p != null) {
@@ -222,6 +254,7 @@ export function analyzeLaps(
       hrZoneSeconds: normalizeZoneSeconds(l.hrZoneSeconds),
       powerZoneSeconds: normalizeZoneSeconds(l.powerZoneSeconds),
       role,
+      roleSource: 'inferred',
     };
   });
 
@@ -530,6 +563,11 @@ export function buildActivityInsight(params: {
       // 设备原始数组（7/8 槽）若因历史脏数据出现在统一列，会被这条校验挡掉。
       hrZoneSeconds: parseZoneJson(l.time_in_hr_zone),
       powerZoneSeconds: parseZoneJson(l.time_in_power_zone),
+      // 设备记录的分段角色（FIT lap `intensity`）—— 第十二类缺陷。
+      // 有值时**优先于配速推断**：设备记录的是计划意图，推断只能从结果反推
+      // （实测仅 73.2% 一致）。`active` 会在 `lapRoleFromIntensity` 里被映射成
+      // null（它只表示「在计时」），自然回落到推断路径。
+      intensity: l.intensity ?? null,
     }));
 
   const dc = computeDecouplingPct(params.records);

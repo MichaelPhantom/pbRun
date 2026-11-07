@@ -112,15 +112,18 @@ async function main() {
         recordsUpdated++;
       }
 
-      // lap 级 `total_cycles` 回填（第十类缺陷续）。
+      // lap 级字段回填（第十类缺陷续 / 第十二类缺陷）。
       //
-      // 只补这一列，**不重写整个 lap**：`insertLaps` 会先 DELETE 再 INSERT，
+      // 只补指定列，**不重写整个 lap**：`insertLaps` 会先 DELETE 再 INSERT，
       // 拿解析结果整体覆盖库里的 lap。而解析器不产出的列（`cumulative_time`
       // 由解析器算、但 `lap_trigger` 等历史字段可能不同）会被覆盖成 NULL ——
       // 对已有 3137 段真实数据的库来说风险太大。
-      // 改为按 `lap_index` 逐段 UPDATE，只动 total_cycles 一列。
+      // 改为按 `lap_index` 逐段 UPDATE，只动传进去的列。
+      //
+      // `intensity`（第十二类缺陷）：设备记录的分段角色，覆盖 3058/3137（97.5%）。
+      // 详情页的「角色」列此前按配速推断，与设备值仅 73.2% 一致。
       if (Array.isArray(parsed.laps) && parsed.laps.length > 0) {
-        const n = db.updateLapCycles(id, parsed.laps);
+        const n = db.updateLapFields(id, parsed.laps, ['total_cycles', 'intensity']);
         if (n > 0) lapsUpdated++;
       }
 

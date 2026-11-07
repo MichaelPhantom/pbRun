@@ -148,6 +148,13 @@ export async function registerTools(server: McpServer): Promise<void> {
         '每划距离 = distance(km)×1000 ÷ total_cycles（游泳技术分析核心指标）；' +
         '泳姿在 session 级恒为 255（无效），lap 级 swim_stroke 才有真实值，' +
         '当前未入库，需要时说明「泳姿仅 Garmin 云端可见」。' +
+        '**分段训练角色来自设备，不是配速推断**：`get_activity_laps` 返回的 lap.intensity 是 ' +
+        'FIT 里设备记录的计划结构（warmup/interval/recovery/rest/cooldown/active，' +
+        '覆盖 3058/3137 段 = 97.5%）。映射：interval→主课、recovery/rest→恢复、' +
+        'warmup→热身、cooldown→冷身；**active 只表示「这段在计时」不是主课** ' +
+        '（657456825 全程 22 段都是 active，一次匀速跑），遇到 active/255/缺失请按配速自行判断。' +
+        '旧版按配速推断角色，与设备值仅 73.2% 一致（747/1021 段），典型错误是把配速偏快的' +
+        '首段判成「主课」而设备标的是「热身」——复盘间歇课必须以 intensity 为准。' +
         '**主观感受 / 出汗量 / 泳池规格（真实库 251–349/353）**：' +
         'workout_feel 是用户主动输入的主观感受，取值 0/25/50/75/100（很差→很好），' +
         '**0 是有效值**（14/251 条「感觉很差」），判空必须 != null；' +
@@ -190,7 +197,12 @@ export async function registerTools(server: McpServer): Promise<void> {
         '**游泳（lap_swimming/open_water）的配速语言是秒/100m**：本工具返回的 `average_pace` ' +
         '是秒/公里，每 100m 配速 = `average_pace ÷ 10`（仅对秒/公里成立，不要对 km/h 做 ÷10，' +
         'km/h 换算要 360 ÷ 速度）；' +
-        '`distance = 0` 的休息段没有配速语义，`average_pace` 为 null，不要读成 0。',
+        '`distance = 0` 的休息段没有配速语义，`average_pace` 为 null，不要读成 0。' +
+        '**`intensity` 是设备记录的分段训练角色**（FIT lap intensity，覆盖 3058/3137 = 97.5%）：' +
+        'warmup→热身、interval→主课、recovery/rest→恢复、cooldown→冷身；' +
+        '**`active` 只表示「这段在计时」，不是主课**（657456825 全程 22 段都是 active）；' +
+        '`255`/缺失 = 设备未记录，此时才可按配速推断。' +
+        '设备值与按配速推断仅 73.2% 一致（747/1021 段），复盘间歇课以 intensity 为准。',
       inputSchema: {
         activityId: z.number().int().positive().describe('活动 ID'),
       },

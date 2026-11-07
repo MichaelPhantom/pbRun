@@ -305,6 +305,24 @@ GET /api/activities/{id}
     把 50m 的 75 折成 37 会远低于任何真实 25m 值（转身与蹬壁在长池里被摊薄）。
     ⚠️ 时间基数必须是**活跃 lap 的计时器时间之和**，不是活动级 `moving_time`
     （后者含池边休息，599287904 有 804s，会把 SWOLF 从 58 抬到 84）。
+- **分段训练角色（`activity_laps.intensity`，覆盖 3058/3137 = 97.5%）**：
+  设备在 FIT lap 里记录的**计划意图**，不是按配速推断的。DB 存**原始字符串**，
+  角色映射属于展示层（`app/lib/lap-intensity.ts:lapRoleFromIntensity`）：
+
+  | `intensity` | 角色 | 说明 |
+  |-------------|------|------|
+  | `interval` | `work`（主课） | 间歇主课段 |
+  | `recovery` / `rest` | `recovery`（恢复） | 组间完全休息同属恢复 |
+  | `warmup` | `warmup`（热身） | 恒在首段（可连续多段） |
+  | `cooldown` | `cooldown`（冷身） | 恒延续到末段 |
+  | `active` | **`null`（不猜）** | 只表示「这段在计时」；657456825 全程 22 段都是 `active`（匀速跑） |
+  | `255` / 缺失 | **`null`（不猜）** | 设备没写，不是一种角色 |
+
+  旧实现用配速推断角色（`pace < 均值×0.92` → 主课），与设备值仅
+  **73.2% 一致（747/1021 段）**，274 段判错 —— 典型是把配速偏快的首段判成「主课」
+  而设备标的是「热身」。设备值优先、推断兜底，来源由
+  `ActivityLapAnalysis.laps[].roleSource`（`device` / `inferred`）区分。
+  结构自证：`warmup` 恒在索引 0、`cooldown` 恒在末段（9/9 完美）。
 - `hr_zone_boundaries` / `power_zone_boundaries` / `devices` / `workout_steps` /
   `route_cells` / `route_bounds` 均为 **JSON 字符串**，需自行 `JSON.parse`。
 - `workout_steps` 是**多步**课表（真实库 120/285 条 > 1 步，最多 21 步）。
@@ -1182,6 +1200,7 @@ GET /api/llm/models
 | `activities.workout_feel` | 无量纲，5 档 | `0 / 25 / 50 / 75 / 100`（0 = 很差，**有效值**） |
 | `activities.workout_rpe` | 无量纲，Borg CR10 1–10 | `2` = 很轻松；`0` 不合法 |
 | `activities.est_sweat_loss` | **毫升（设备估算）** | `1794` = 约 1794 ml（有 ~1000 ml/h 速率上限） |
+| `activity_laps.intensity` | **设备记录的原始字符串**（不是角色枚举） | `warmup` / `interval` / `recovery` / `rest` / `cooldown` / `active`；角色映射走 `app/lib/lap-intensity.ts` |
 
 换算速记：DB 的 `activities.distance` 是公里，`activity_laps.distance` 是米，
 `activity_records.distance` 又是公里。聚合前务必按上表换算。

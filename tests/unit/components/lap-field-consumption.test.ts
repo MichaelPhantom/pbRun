@@ -192,12 +192,13 @@ const lapFields = parseActivityLapFields(typesSrc);
 
 describe('ActivityLap 的每个字段都必须被消费或显式记账', () => {
   test('解析器确实覆盖到 ActivityLap 的全部字段 (防假绿)', () => {
-    // **精确** 45 个字段（2026-11-07 新增 `total_cycles` —— 第十类缺陷：FIT lap
-    // 的 `total_cycles` 一直有值，解析器从不读取。游泳的 `Σlap cycles == session
-    // cycles` 精确成立，所以分段划水次数能与活动级对上）。用等号而不是 >=: 新增
-    // 一列必须在这里显式确认「它要么被消费、要么进账本并写明理由」，否则守卫会随
-    // types.ts 扩张悄悄放宽。同步修改: docs/features.md 里记录的 lap 字段数。
-    expect(lapFields.length).toBe(45);
+    // **精确** 46 个字段（2026-11-07 新增 `intensity` —— 第十二类缺陷：FIT lap
+    // 的 `intensity` 一直有值（3058/3137 = 97.5%），解析器从不读取，详情页的
+    // 「角色」列反而按配速推断 —— 实测与设备值仅 73.2% 一致，274 段判错）。
+    // 用等号而不是 >=: 新增一列必须在这里显式确认「它要么被消费、要么进账本并
+    // 写明理由」，否则守卫会随 types.ts 扩张悄悄放宽。同步修改:
+    // docs/features.md 里记录的 lap 字段数。
+    expect(lapFields.length).toBe(46);
     // 抽查四个不同区块：时间/配速/功率/区间
     expect(lapFields).toContain('cumulative_time');
     expect(lapFields).toContain('average_pace');

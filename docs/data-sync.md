@@ -502,7 +502,7 @@ CREATE TABLE activities (
 
 #### laps 表
 
-存储分段数据（真实 schema 为 `activity_laps`，44 列；完整列集合见
+存储分段数据（真实 schema 为 `activity_laps`，46 列；完整列集合见
 `scripts/common/db-manager.js` 的 `declaredColumns('activity_laps')`）。
 
 ```sql

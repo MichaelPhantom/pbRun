@@ -110,13 +110,27 @@ describe('skill 的 HRV 口径必须与修复后的实现一致（缺陷 19）',
     expect(skill).toMatch(/>\s*0\.2|>0\.2/);
   });
 
-  test('skill 里写的 hrv 覆盖数与真实库一致', () => {
+  /**
+   * **提示词里的绝对分母会随每次同步漂移**（真实踩到过：库里 353 条时 skill 写
+   * `20/353`，同步进第 354 条活动后这条断言立刻转红，而 skill 的**结论**没错）。
+   *
+   * 分母是「当前库有多少条活动」，不是训练学事实 —— 每同步一次就变。把这种数字
+   * 写进提示词，等于给模型一个**会过期的**事实，而它读到时无从判断过期。
+   * 故 skill 只写**稳定量级**（约 6%），守卫校验的是「量级仍与真实库一致」。
+   */
+  test('skill 的 hrv 覆盖量级与真实库一致（不写会漂移的绝对分母）', () => {
     if (!hasProdDb) return;
     const [{ n }] = query<{ n: number }>(
       'SELECT COUNT(*) AS n FROM activities WHERE hrv_rmssd IS NOT NULL',
     );
     const [{ total }] = query<{ total: number }>('SELECT COUNT(*) AS total FROM activities');
-    expect(skill).toContain(`${n}/${total}`);
+    const pct = Math.round((100 * n) / total);
+    // skill 写「约 6%」—— 允许 ±2 个百分点（同步带来的自然漂移）
+    const claimed = /覆盖约?\s*(\d+)%/.exec(skill);
+    expect(claimed).not.toBeNull();
+    expect(Math.abs(Number(claimed![1]) - pct)).toBeLessThanOrEqual(2);
+    // 且不得再写死绝对分母（`20/353` 这类）
+    expect(skill).not.toMatch(/hrv_rmssd[^\n]{0,40}\d+\/\d{3,}/);
   });
 
   test('真实库：修复后 ratio 必须全部落在生理区间内（>0.2 一条都不许有）', () => {
@@ -385,5 +399,38 @@ describe('skill 的 total_cycles 语义白名单', () => {
     expect(cycleSection.length).toBeGreaterThan(100);
     // 白名单表里只应出现这三个运动名作为「可解读」项
     expect(cycleSection).toMatch(/游泳[\s\S]*跳绳[\s\S]*爬楼/);
+  });
+});
+
+describe('skill 的分段角色口径必须与设备记录一致（第十二类缺陷）', () => {
+  /**
+   * 缺陷 24：详情页分段「角色」列一直存在，但它是按**配速推断**的，
+   * 而设备在 FIT lap 的 `intensity` 里明确记录了计划意图（覆盖 97.5%）。
+   * 两者只有 73.2% 一致 —— skill 若不声明这一点，模型会自己按配速重判。
+   */
+  test('skill 必须声明分段角色来自设备 `intensity`，不是配速推断', () => {
+    expect(skill).toMatch(/intensity/);
+    expect(skill).toMatch(/设备记录|来自设备/);
+    expect(skill).toMatch(/不是配速推断|不要自己按配速|不要按配速重判/);
+  });
+
+  test('skill 必须声明 `active` 只表示「在计时」，不是主课', () => {
+    expect(skill).toMatch(/active/);
+    // 必须把 active 与「主课」明确切开
+    expect(skill).toMatch(/active[^\n]{0,40}(在计时|不是主课)/);
+  });
+
+  test('skill 必须给出 73.2% 的交叉一致率（证明推断会错）', () => {
+    expect(skill).toMatch(/73\.2/);
+    expect(skill).toMatch(/747\s*\/\s*1021|1021/);
+  });
+
+  test('skill 必须声明结构自证（warmup 首段 / cooldown 末段）', () => {
+    expect(skill).toMatch(/warmup[^\n]{0,30}(索引 0|首段|开头)/);
+    expect(skill).toMatch(/cooldown[^\n]{0,30}(末段|结尾|最后)/);
+  });
+
+  test('skill 不得再声称「角色是按配速算的」作为正确做法', () => {
+    expect(skill).not.toMatch(/角色[^\n]{0,20}按配速(计算|推断|得出)/);
   });
 });

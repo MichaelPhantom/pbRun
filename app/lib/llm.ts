@@ -14,6 +14,22 @@ import { powerIntensity } from '@/app/lib/power';
 import { ascentToSpanRatio, elevationSpan } from '@/app/lib/elevation';
 import { floorsFromAscent, formatFloors } from '@/app/lib/floors';
 import { cycleSemanticOf } from '@/app/lib/cycles';
+import { lapRoleFromIntensity, type LapRole } from '@/app/lib/lap-intensity';
+
+/**
+ * AI 数据块里的分段角色词。
+ *
+ * 与 UI 的 `ROLE_LABEL` 是同一组语义，但**文案不同**：UI 是徽标（短），
+ * 数据块是句子（要能直接读）。用「主课段」而不是「主课」，避免模型把它
+ * 当成一个动作名称。
+ */
+const ROLE_LABEL_AI: Record<LapRole, string> = {
+  warmup: '热身',
+  work: '主课段',
+  recovery: '恢复段',
+  cooldown: '冷身',
+  steady: '匀速',
+};
 import { feelLabel, feelRpeDivergent, formatSweatLoss, rpeLabel, sweatRateMlPerHour } from '@/app/lib/feel';
 import { activeSwimSeconds, formatSwolf, swolfOf } from '@/app/lib/swim';
 import { effectiveTimeSec, paceSecPer100m, formatPacePer100m, speedKmh } from '@/app/lib/pace';
@@ -300,6 +316,16 @@ export function buildAnalysisMessages(
       const parts = running
         ? [seg, formatPace(l.average_pace, false)]
         : [seg, formatDuration(effectiveTimeSec(l) ?? 0)];
+      // 分段训练角色（第十二类缺陷）。**设备记录优先**（FIT lap `intensity`，
+      // 覆盖 3058/3137 = 97.5%）；读不出才回落到配速/心率推断。
+      //
+      // 为什么必须进数据块：间歇课复盘的核心问题是「主课段执行得怎么样、
+      // 恢复段够不够」，而模型此前只能看配速序列**自己猜**哪几段是主课 ——
+      // 与设备记录只有 73.2% 一致（747/1021 段）。给角色等于直接告诉它计划结构。
+      //
+      // `active` 不输出（只表示「在计时」，不表达意图），匀速跑整场都是 active。
+      const lapRole = lapRoleFromIntensity(l.intensity);
+      if (lapRole != null) parts.push(ROLE_LABEL_AI[lapRole]);
       if (l.average_heart_rate != null) parts.push(`${Math.round(l.average_heart_rate)}bpm`);
       if (running && l.average_cadence != null) parts.push(`${Math.round(l.average_cadence)}spm`);
       // 分段计数的**唯一标签来源** `app/lib/cycles.ts`（第十一类缺陷）。

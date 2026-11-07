@@ -78,10 +78,10 @@ description: 分析 pbRun (Garmin) 跑步数据出教练诊断报告、查最新
 - **vdot_value 只对 Z3+ 代表强度段计算，轻松/恢复跑为 null**。判断"峰值速度能力"要用**有 vdot 的快课**（间歇/阈值），别用历史均值——均值被大量轻松跑拉低，会严重低估跑者真实速度储备。报告里要区分"峰值 VDOT"和"日常 VDOT"。
 - **部分课表配速异常**（如 11:17/km、8:08/km、7:23/km）= 停表/步行/GPS 漂移计入用时。做统计和 PR 判断前先识别剔除，别当成真实能力，也别据此下"跑者变慢"结论。
 - **get_activity_records / get_activity_track 输出巨大**（1MB+，自动落 spillover 文件）。用 `execute_code` + hermes_tools.read_file 读盘处理，**不要重拉 API**。逐秒 records 的 cadence/power/pace 等有 None，聚合排序前先 `if x is not None` 过滤，否则 `TypeError: '<' not supported between NoneType and int`。
-- **time_in_hr_zone / time_in_power_zone 是 JSON 字符串数组，长度恒为 5，索引 0 = Z1**（`[Z1,Z2,Z3,Z4,Z5]`，**没有**「低于 Z1」这一项；真实库 353/353 与 246/246 全部恰好 5 个元素）。需 json.parse 后按索引直接跨活动聚合。活动级区间边界看该活动的 `hr_zone_boundaries`（设备原始，21 套方案），app 的 5 区一律由 `resolveMaxHr()`（`.env MAX_HR`）本地重算，与全局 get_hr_zone_analysis 的 zoneRanges 同源，但**设备原始边界不可跨活动比较**。
+- **time_in_hr_zone / time_in_power_zone 是 JSON 字符串数组，长度恒为 5，索引 0 = Z1**（`[Z1,Z2,Z3,Z4,Z5]`，**没有**「低于 Z1」这一项；真实库**全部活动**与全部有功率的活动都是恰好 5 个元素，无一例外）。需 json.parse 后按索引直接跨活动聚合。活动级区间边界看该活动的 `hr_zone_boundaries`（设备原始，21 套方案），app 的 5 区一律由 `resolveMaxHr()`（`.env MAX_HR`）本地重算，与全局 get_hr_zone_analysis 的 zoneRanges 同源，但**设备原始边界不可跨活动比较**。
 - `get_activity` 里 `workout_steps`（课表）、`hr_zone_boundaries`/`power_zone_boundaries`、`devices`、`workout_name` 等是 **JSON 字符串字段**，需自行 parse。
 - get_activity 还提供官方指标：`garmin_vo2max`（官方值，区别于本地推算的 vdot_value）、`threshold_heart_rate`、`recovery_time`、`primary_benefit`、`user_weight`（公斤，供功率体重比）。这些是教练画像的好料，一次抓齐。
-- ⚠️ **不要拿 `user_height` / `resting_heart_rate_fit` / `hr_zone_boundaries` 当个人指标**：前两者是**设备配置快照**（`resting_heart_rate_fit` 210/353 仅 7 个取值 42–48，同一天多条活动同值；`user_height` 全库只有 4 个取值且无任何计算引用），`hr_zone_boundaries` 是设备原始边界（21 套方案随固件而变）。app 的心率区间一律走 `resolveMaxHr()` 本地重算，跨活动才可比。
+- ⚠️ **不要拿 `user_height` / `resting_heart_rate_fit` / `hr_zone_boundaries` 当个人指标**：前两者是**设备配置快照**（`resting_heart_rate_fit` 覆盖约六成活动、仅 7 个取值 42–48，同一天多条活动同值；`user_height` 全库只有 4 个取值且无任何计算引用），`hr_zone_boundaries` 是设备原始边界（21 套方案随固件而变）。app 的心率区间一律走 `resolveMaxHr()` 本地重算，跨活动才可比。
 - ⚠️ **`hrv_rmssd` 不要用来判断单次训练的恢复状态**（详见下节「HRV 的正确用法」）。
 
 ## 教练诊断框架
@@ -254,7 +254,8 @@ description: 分析 pbRun (Garmin) 跑步数据出教练诊断报告、查最新
 - **泳姿**：session 级 `swim_stroke` 恒为 255（无效），但 **FIT lap 级有真实泳姿**
   （freestyle / backstroke / breaststroke / mixed，真实库 4 条游泳的 lap 里都有）。
   ⚠️ 但**目前未入库**（`activity_laps` 没有该列），所以数据块里不会有泳姿 ——
-  不要索要，也不要写「建议补齐泳姿记录」。
+  不要索要，也不要写「建议补齐泳姿记录」。这是**下一个待做的字段**（第十二类缺陷
+  同一轮扫描确认，价值明确但需新增 lap 列且同一活动可能混合泳姿）。
 - 旧版 skill 曾声称「总划水次数与泳姿都拿不到」—— **那是假话**，
   已由第十类缺陷修正（FIT 里一直有，是解析器不读）。
 
@@ -317,20 +318,20 @@ SWOLF = 单趟用时（秒） + 单趟划水次数
 ### 主观感受与 RPE：唯一由用户主动输入的数据
 
 - `workout_feel`：0 / 25 / 50 / 75 / 100（很差 → 很好）。数据块给中文标签。
-  **`0` 是有效值**（14/251 条「感觉很差」），不是缺失。
+  **`0` 是有效值**（约 6% 的填写者选「感觉很差」），不是缺失。
 - `workout_rpe`：Borg CR10 **1–10**（`0` 不合法）。数据块给「RPE 6/10（有点吃力）」。
-- 覆盖 **251/353**（全部跑步 + 游泳 + 1 条室内骑行；力量/球类/爬楼不弹窗）。
-- 两者严格反向：`r = −0.856`（n=251），feel 各档 RPE 均值
+- 覆盖**约七成活动**（全部跑步 + 游泳 + 1 条室内骑行；力量/球类/爬楼不弹窗）。
+- 两者严格反向：`r = −0.856`，feel 各档 RPE 均值
   **8.1 / 5.9 / 3.8 / 2.4 / 1.4**（严格单调）。
 
-**偏离样本仅 1/251（0.4%）**（feel ≥ 75 且 RPE ≥ 6，或 feel ≤ 25 且 RPE ≤ 3）。
+**偏离样本仅 1 条（0.4%）**（feel ≥ 75 且 RPE ≥ 6，或 feel ≤ 25 且 RPE ≤ 3）。
 数据块出现 `体感偏离: 是` 时才值得单独解释 —— 而这恰恰是客观指标完全无法回答的
 问题：「数据说这课很轻，你为什么觉得吃力」。**不要把体感当客观指标**用于
 负荷计算或能力评估。
 
 ### 估计出汗量：设备估算值，且有速率上限
 
-- `est_sweat_loss` 覆盖 **349/353**（除游泳 0/4）。数据块给「约 1794 ml」+
+- `est_sweat_loss` 覆盖**除游泳外的全部活动**（游泳 0/4）。数据块给「约 1794 ml」+
   「约 980 ml/h」。
 - **必须带「约」**：实测 306 条有效速率里 **88 条**撞上 999–1000 ml/h 的设备上限
   （p99=999、max=999，无一超过 1000），而真实出汗率可达 **1500–2000 ml/h**。
@@ -343,6 +344,15 @@ SWOLF = 单趟用时（秒） + 单趟划水次数
   多段 0），这些段 `average_pace` 为 `null` —— 是「没有配速语义」，不是「配速为 0」。
 - 最大段可能很长（617083438 有一段 1800m），不要假设每段是 25/50m 池长。
 - `average_pace` 在 lap 上仍是秒/公里，同样 ÷10 得秒/100m。
+- **分段训练角色来自设备，不是配速推断**（2026-11 修订）：`activity_laps.intensity`
+  是 FIT 里设备记录的计划意图，覆盖 **3058/3137 段 = 97.5%**。映射：
+  `interval`→主课、`recovery`/`rest`→恢复、`warmup`→热身、`cooldown`→冷身；
+  **`active` 只表示「这段在计时」不是主课**（`657456825` 全程 22 段都是 `active`，
+  一次匀速慢跑），`255`/缺失 = 设备未记录。
+  ⚠️ 旧版按配速推断角色，与设备值仅 **73.2% 一致（747/1021 段）**，典型错误是把
+  配速偏快的**首段**判成「主课」而设备标的是「热身」。**复盘间歇课必须以 `intensity`
+  为准**，不要自己按配速重判。
+  结构自证：`warmup` 恒在索引 0、`cooldown` 恒延续到末段（9/9 完美）。
 
 ### 负荷：游泳不进 ACWR/CTL/TSB
 
@@ -354,7 +364,7 @@ SWOLF = 单趟用时（秒） + 单趟划水次数
 
 ### 先说结论：`hrv_rmssd` 不是单次训练指标
 
-库里的 `hrv_rmssd` 是**运动过程中**由 FIT `hrv` 消息算出的 RMSSD，覆盖 **20/353（5.7%）**。
+库里的 `hrv_rmssd` 是**运动过程中**由 FIT `hrv` 消息算出的 RMSSD，**只覆盖约 6% 的活动**。
 运动中的 HRV 受呼吸频率、运动伪迹、漏拍影响极大，**不能用来判断「今天恢复得好不好」**。
 Garmin 官方的 HRV Status 是**隔夜静息测量**，与这个字段**不是一回事**，不能互相替代或类比。
 

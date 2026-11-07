@@ -294,6 +294,20 @@ export interface ActivityLap {
    * 那是「没有划水」，不是「划水 0 次」。
    */
   total_cycles?: number;
+  /**
+   * 本段**训练角色**（FIT lap `intensity` 原值）—— 第十二类缺陷。
+   *
+   * 设备记录的计划结构：`warmup` / `interval` / `recovery` / `rest` /
+   * `cooldown` / `active`。覆盖真实库 **3058/3137（97.5%）**。
+   *
+   * **不要直接展示这个原始值** —— 角色映射走 `app/lib/lap-intensity.ts`
+   * 的 `lapRoleFromIntensity()`（`interval` → 主课、`rest`/`recovery` → 恢复、
+   * `active` → **不猜**，因为它只表示「在计时」）。
+   *
+   * 与旧的按配速推断相比：实测两者只有 **73.2% 一致**（747/1021 段），
+   * 设备值记录的是**意图**，配速只反映**结果** —— 前者才是计划结构。
+   */
+  intensity?: string;
 }
 
 /** 单条活动内逐条记录（用于心率/步频/步幅/配速趋势图） */
@@ -836,6 +850,14 @@ export interface ActivityLapAnalysis {
     /** 该 lap 的功率区间秒数（app 5 区 %FTP 口径，长度恒为 5）。无 FTP/功率时为 null。 */
     powerZoneSeconds: number[] | null;
     role: 'warmup' | 'work' | 'recovery' | 'cooldown' | 'steady';
+    /**
+     * 角色的**来源** —— `device`（FIT lap `intensity`，设备记录的计划意图）
+     * 或 `inferred`（按配速/心率反推）—— 第十二类缺陷。
+     *
+     * UI 据此在徽标上加「设备」标记：用户需要知道这是计划里的角色，
+     * 还是本项目按配速猜的。实测两者只有 73.2% 一致。
+     */
+    roleSource: 'device' | 'inferred';
   }[];
   workLaps: number;                               // 主课段数
   workDistanceMeters: number;

@@ -400,3 +400,39 @@ describe('游泳划频的单位声明', () => {
     },
   );
 });
+
+describe('分段角色必须声明「来自设备 intensity，不是配速推断」（第十二类缺陷）', () => {
+  /**
+   * 缺陷 24：详情页分段「角色」列一直按配速推断，而设备在 FIT lap 的
+   * `intensity` 里明确记录了计划意图（覆盖 3058/3137 = 97.5%）。两者只有
+   * 73.2% 一致 —— 模型若不知道这一点，会自己按配速重判主课段。
+   */
+  test('get_activity 声明分段角色来自设备 intensity', () => {
+    const desc = configs.get('get_activity')!.description ?? '';
+    expect(desc).toMatch(/intensity/);
+    expect(desc).toMatch(/设备记录|来自设备/);
+    expect(desc).toMatch(/不是配速推断|不是.*推断/);
+    expect(desc).toMatch(/73\.2/);
+  });
+
+  test('get_activity 声明 active 只表示「在计时」不是主课', () => {
+    const desc = configs.get('get_activity')!.description ?? '';
+    expect(desc).toMatch(/active[^\n]{0,60}(在计时|不是主课)/);
+    expect(desc).toMatch(/657456825/);
+  });
+
+  test('get_activity_laps 声明 intensity 的映射与 active 陷阱', () => {
+    const desc = configs.get('get_activity_laps')!.description ?? '';
+    expect(desc).toMatch(/intensity/);
+    expect(desc).toMatch(/3058\/3137|97\.5%/);
+    expect(desc).toMatch(/warmup/);
+    expect(desc).toMatch(/interval/);
+    expect(desc).toMatch(/active/);
+    expect(desc).toMatch(/不是主课/);
+  });
+
+  test('get_activity_laps 不得把 intensity 说成「按配速推断」', () => {
+    const desc = configs.get('get_activity_laps')!.description ?? '';
+    expect(desc).not.toMatch(/intensity[^\n]{0,40}按配速(推断|计算)/);
+  });
+});

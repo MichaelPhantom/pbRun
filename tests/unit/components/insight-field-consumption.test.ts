@@ -92,10 +92,10 @@ const ACTIVITY_FIELD_ALLOWLIST: Record<string, string> = {
 
   // ---- 语义陷阱：同名不同口径 ----
   // 这是本表最重要的一条。`max_heart_rate_fit` 是**手表里的用户配置值**,
-  // 不是本次实测峰值: 真实库 140/140 都等于 hr_zone_boundaries 的最后一个元素,
+  // 不是本次实测峰值: 真实库 145/145 都等于 hr_zone_boundaries 的最后一个元素,
   // 且从不小于 max_heart_rate（后者最高 192）。展示成「最大心率」会直接撒谎。
   max_heart_rate_fit:
-    '设备设置的最大心率(配置值), 不是本次实测峰值; 140/140 等于区间边界末项, 展示会与 max_heart_rate 冲突',
+    '设备设置的最大心率(配置值), 不是本次实测峰值; 145/145 等于区间边界末项, 展示会与 max_heart_rate 冲突',
   // `devices` 是已脱敏的设备列表 JSON, 对训练解读无用（且已从 API 剥离序列号）。
   devices: '已脱敏设备列表 JSON, 与训练表现无关',
 

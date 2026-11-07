@@ -24,6 +24,7 @@ import {
 import { elevationSpan } from '@/app/lib/elevation';
 import { floorsFromAscent } from '@/app/lib/floors';
 import { cycleCountLabel } from '@/app/lib/cycles';
+import { lapRoleFromIntensity } from '@/app/lib/lap-intensity';
 import { feelLabel, formatSweatLoss, rpeLabel } from '@/app/lib/feel';
 import { activeSwimSeconds, formatSwolf, swolfOf } from '@/app/lib/swim';
 import { effectiveTimeSec, paceSecPer100m, formatPacePer100m, speedKmh } from '@/app/lib/pace';
@@ -165,11 +166,17 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
     return () => ac.abort();
   }, [activity.activity_id]);
 
-  // 分段角色映射 (lap_index → 角色), 供「分段数据」表展示
-  const roleByLap = new Map<number, ActivityInsightResponse['lapAnalysis']['laps'][number]['role']>();
+  // 分段角色映射 (lap_index → 角色), 供「分段数据」表展示。
+  //
+  // 角色有**两个来源**（第十二类缺陷）：
+  //  - `device`：FIT lap `intensity`，设备记录的计划意图（覆盖 3058/3137 = 97.5%）。
+  //    它在 `laps` 里就能直接读到，**不需要等 insight 请求**。
+  //  - `inferred`：`insight.lapAnalysis` 按配速/心率反推（实测与设备值仅 73.2% 一致）。
+  //
+  // 旧实现只有后者，于是：① 角色列要等一次额外请求才出现；② 拿到的是**猜测**。
+  // 现在设备值优先，`insight` 只作兜底。
   const zoneByLap = new Map<number, ActivityInsightResponse['lapAnalysis']['laps'][number]>();
   insight?.lapAnalysis.laps.forEach((l) => {
-    roleByLap.set(l.lapIndex, l.role);
     zoneByLap.set(l.lapIndex, l);
   });
 
@@ -759,7 +766,16 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
               // 最快段高亮只对跑步有意义: 非跑步的 lap.average_pace 是「每公里
               // 游泳/击球时间」, 拿它排序得到的「最快」不是运动学概念。
               const isBest = running && lap.lap_index === bestLapIndex;
-              const role = roleByLap.get(lap.lap_index);
+              // 角色**优先取设备值**（第十二类缺陷）。`lap.intensity` 直接来自
+              // 本行数据，无需等 insight 请求；只有 `active`/255/缺失时才回落到
+              // insight 的配速推断。两者只有 73.2% 一致 —— 设备记录的是计划意图。
+              const deviceRole = lapRoleFromIntensity(lap.intensity);
+              const inferred = zoneByLap.get(lap.lap_index);
+              const role = deviceRole ?? inferred?.role;
+              // 来源直接取服务端的 `roleSource`（而不是本地再推一遍 deviceRole != null）：
+              // 两处判定若分叉，徽标提示会与实际来源不符。
+              const roleSource = deviceRole != null ? 'device' : inferred?.roleSource;
+              const roleIsDevice = roleSource === 'device';
               return {
                 key: lap.id,
                 highlight: isBest,
@@ -768,8 +784,22 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
                   // 旧实现直接打印 `lap.lap_index`（0 基存储键），表格第一行是 0。
                   i: <span className="font-medium text-fg">{lapOrdinalAt(i)}</span>,
                   role: role ? (
-                    <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium leading-none sm:text-[11px] ${ROLE_CELL_CLASS[ROLE_TONE[role]]}`}>
+                    <span
+                      className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium leading-none sm:text-[11px] ${ROLE_CELL_CLASS[ROLE_TONE[role]]}`}
+                      // 设备值与推断值必须能区分：用户要知道这是计划里的角色
+                      // 还是本项目按配速猜的（实测两者仅 73.2% 一致）。
+                      title={
+                        roleIsDevice
+                          ? `设备记录的训练角色（FIT lap intensity = ${lap.intensity}）`
+                          : '按配速/心率推断的角色（该段设备未记录 intensity）'
+                      }
+                    >
                       {ROLE_LABEL[role]}
+                      {roleIsDevice && (
+                        <span className="ml-0.5 opacity-60" aria-label="设备记录">
+                          ·
+                        </span>
+                      )}
                     </span>
                   ) : (
                     <span className="text-fg-muted">--</span>

@@ -2000,3 +2000,67 @@ describe('total_cycles 语义白名单（第十一类缺陷）', () => {
     }
   });
 });
+
+/**
+ * 第十二类缺陷：分段**训练角色**来自设备（FIT lap `intensity`），不是配速推断。
+ *
+ * 设备在 lap 里记录了每段意图（覆盖真实库 3058/3137 = 97.5%）。旧实现从不读它，
+ * 角色列按配速推断 —— 实测与设备值仅 **73.2% 一致**（747/1021 段）。
+ * 最典型：第一段配速快就被推断成「主课」，而设备明确标的是「热身」。
+ */
+describe('分段角色优先取设备值（第十二类缺陷）', () => {
+  test('lap.intensity = warmup → 直接显示「热身」，不等 insight 请求', async () => {
+    db.getActivityById.mockReturnValue({ ...activity, activity_type: 'running' });
+    db.getActivityLaps.mockReturnValue([
+      { ...laps[0], id: 81, lap_index: 1, intensity: 'warmup', average_pace: 300 },
+      { ...laps[1], id: 82, lap_index: 2, intensity: 'interval', average_pace: 420 },
+      { ...laps[0], id: 83, lap_index: 3, intensity: 'cooldown', average_pace: 400 },
+    ]);
+    // insight 故意不返回角色 —— 设备值必须独立生效
+    render(await page('6001'));
+    // 第一段配速 300 比第二段 420 快，配速推断会判它「主课」；设备值说是热身。
+    expect(within(screen.getByRole('table', { name: '每公里分段数据' })).getAllByText('热身').length)
+      .toBeGreaterThan(0);
+    expect(within(screen.getByRole('table', { name: '每公里分段数据' })).getAllByText('主课').length)
+      .toBeGreaterThan(0);
+    expect(within(screen.getByRole('table', { name: '每公里分段数据' })).getAllByText('冷身').length)
+      .toBeGreaterThan(0);
+  });
+
+  test('lap.intensity = active → 不显示设备角色（回落到推断，active 只说「在计时」）', async () => {
+    db.getActivityById.mockReturnValue({ ...activity, activity_type: 'running' });
+    db.getActivityLaps.mockReturnValue([
+      { ...laps[0], id: 84, lap_index: 1, intensity: 'active', average_pace: 340 },
+    ]);
+    render(await page('6002'));
+    const table = screen.getByRole('table', { name: '每公里分段数据' });
+    // 单段匀速跑：设备只标 active，不该出现「主课」
+    expect(within(table).queryByText('主课')).toBeNull();
+  });
+
+  test('设备角色带「设备记录」提示（区分设备值与推断值）', async () => {
+    db.getActivityById.mockReturnValue({ ...activity, activity_type: 'running' });
+    db.getActivityLaps.mockReturnValue([
+      { ...laps[0], id: 85, lap_index: 1, intensity: 'interval', average_pace: 340 },
+    ]);
+    render(await page('6003'));
+    const badge = screen.getAllByText('主课')[0].closest('span[title]');
+    expect(badge).toHaveAttribute('title', expect.stringContaining('设备记录'));
+    expect(badge).toHaveAttribute('title', expect.stringContaining('intensity'));
+  });
+
+  test('无 intensity 时回落 insight 推断角色', async () => {
+    db.getActivityById.mockReturnValue({ ...activity, activity_type: 'running' });
+    db.getActivityLaps.mockReturnValue([
+      { ...laps[0], id: 86, lap_index: 1, average_pace: 340 },
+    ]);
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ data: { lapAnalysis: { laps: [{ lapIndex: 1, role: 'work' }] } } }),
+    });
+    render(await page('6004'));
+    await waitFor(() => expect(screen.getByText('主课')).toBeInTheDocument());
+    const badge = screen.getAllByText('主课')[0].closest('span[title]');
+    expect(badge).toHaveAttribute('title', expect.stringContaining('推断'));
+  });
+});

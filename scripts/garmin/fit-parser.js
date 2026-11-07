@@ -787,6 +787,23 @@ class GarminFITParser {
         lapData.total_cycles = lapCycles;
       }
 
+      // 训练角色（FIT lap `intensity`）—— 第十二类缺陷。
+      //
+      // 设备在 lap 里**明确记录了每段的意图**（warmup / interval / recovery /
+      // rest / cooldown / active），覆盖真实库 **3058/3137（97.5%）**。
+      // 旧实现从不读它，详情页的「角色」列反而按配速推断 —— 实测与设备值
+      // 只有 **73.2% 一致**（747/1021 段），274 段判错（如 647455345 第 1 段
+      // 设备标「热身」而配速推断成「主课」）。
+      //
+      // 存**原始字符串**而不是角色枚举：角色映射属于展示层（`app/lib/lap-intensity.ts`），
+      // 数据库只负责如实保存设备说了什么。这样将来角色口径变了不需要迁移数据。
+      // `255` 是 FIT 的无效哨兵（0xFF），不写入 —— 那是「设备没写」，不是一种角色。
+      const lapIntensity = lap.intensity;
+      if (lapIntensity != null && lapIntensity !== 255 && lapIntensity !== '') {
+        const str = String(lapIntensity).trim();
+        if (str) lapData.intensity = str;
+      }
+
       lapsData.push(lapData);
     }
 

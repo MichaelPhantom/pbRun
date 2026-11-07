@@ -806,3 +806,102 @@ describe('配速可信度门槛 (MIN_RELIABLE_LAP_SEC)', () => {
     expect(insight.lapAnalysis.workLaps).toBe(0);
   });
 });
+
+/**
+ * 第十二类缺陷：分段角色**设备值优先**（FIT lap `intensity`），推断只作兜底。
+ *
+ * 设备在 lap 里记录了计划意图（覆盖 3058/3137 = 97.5%），旧实现从不读它、
+ * 全靠配速推断 —— 实测两者仅 73.2% 一致（747/1021 段），274 段判错。
+ * 最典型：第一段配速偏快就被推断成「主课」，而设备明确标的是「热身」。
+ */
+describe('analyzeLaps — 设备 intensity 优先（第十二类缺陷）', () => {
+  const lap = (over: Partial<LapInput>): LapInput => ({
+    lapIndex: 0,
+    distanceMeters: 1000,
+    paceSecPerKm: 400,
+    heartRate: 150,
+    cadence: 180,
+    power: null,
+    ...over,
+  });
+
+  test('设备 intensity 优先于配速推断（首段快但设备标热身）', () => {
+    const r = analyzeLaps([
+      lap({ lapIndex: 0, paceSecPerKm: 300, intensity: 'warmup' }),
+      lap({ lapIndex: 1, paceSecPerKm: 420, intensity: 'interval' }),
+      lap({ lapIndex: 2, paceSecPerKm: 430, intensity: 'cooldown' }),
+    ]);
+    // 首段配速 300 比均值快得多，纯配速推断会判「主课」；设备说是热身。
+    expect(r.laps[0].role).toBe('warmup');
+    expect(r.laps[0].roleSource).toBe('device');
+    expect(r.laps[1].role).toBe('work');
+    expect(r.laps[1].roleSource).toBe('device');
+    expect(r.laps[2].role).toBe('cooldown');
+    expect(r.laps[2].roleSource).toBe('device');
+  });
+
+  test('rest 归为 recovery（组间完全休息同属恢复）', () => {
+    const r = analyzeLaps([lap({ lapIndex: 0, intensity: 'rest' })]);
+    expect(r.laps[0].role).toBe('recovery');
+    expect(r.laps[0].roleSource).toBe('device');
+  });
+
+  /**
+   * `active` 只表示「这段在计时」—— 657456825 全程 22 段都是 active（一次匀速慢跑）。
+   * 若当 work，整场会被标成「主课 22 段」，比配速推断更糟。必须回落到推断。
+   */
+  test('active 回落到推断，且 roleSource 为 inferred', () => {
+    const r = analyzeLaps([
+      lap({ lapIndex: 0, paceSecPerKm: 400, intensity: 'active' }),
+      lap({ lapIndex: 1, paceSecPerKm: 402, intensity: 'active' }),
+      lap({ lapIndex: 2, paceSecPerKm: 398, intensity: 'active' }),
+    ]);
+    // 三段配速几乎相同 → 推断为 steady，不是 work
+    for (const l of r.laps) {
+      expect(l.role).toBe('steady');
+      expect(l.roleSource).toBe('inferred');
+    }
+    expect(r.workLaps).toBe(0);
+  });
+
+  test('无 intensity 时走推断路径（roleSource = inferred）', () => {
+    const r = analyzeLaps(laps());
+    expect(r.laps[0].role).toBe('warmup');
+    expect(r.laps[0].roleSource).toBe('inferred');
+    expect(r.laps[1].role).toBe('work');
+    expect(r.laps[1].roleSource).toBe('inferred');
+  });
+
+  test('设备值不参与「配速可信度」过滤（4 秒碎片也能有设备角色）', () => {
+    // 4 秒尾段的配速是量化噪声，推断路径会跳过它（判 steady）；
+    // 但设备如果明确记录了 cooldown，就该采信设备。
+    const r = analyzeLaps([
+      lap({ lapIndex: 0, paceSecPerKm: 400, intensity: 'interval' }),
+      lap({ lapIndex: 1, distanceMeters: 14, paceSecPerKm: 279, durationSec: 4, intensity: 'cooldown' }),
+    ]);
+    expect(r.laps[1].role).toBe('cooldown');
+    expect(r.laps[1].roleSource).toBe('device');
+  });
+
+  test('255 是无效哨兵 → 回落推断', () => {
+    const r = analyzeLaps([
+      lap({ lapIndex: 0, paceSecPerKm: 400, intensity: '255' }),
+      lap({ lapIndex: 1, paceSecPerKm: 402 }),
+    ]);
+    for (const l of r.laps) expect(l.roleSource).toBe('inferred');
+  });
+
+  test('设备 work 段参与 workLaps / 主课漂移统计', () => {
+    const r = analyzeLaps([
+      lap({ lapIndex: 0, paceSecPerKm: 500, heartRate: 120, intensity: 'warmup' }),
+      lap({ lapIndex: 1, paceSecPerKm: 300, heartRate: 165, intensity: 'interval' }),
+      lap({ lapIndex: 2, paceSecPerKm: 460, heartRate: 140, intensity: 'recovery' }),
+      lap({ lapIndex: 3, paceSecPerKm: 290, heartRate: 178, intensity: 'interval' }),
+      lap({ lapIndex: 4, paceSecPerKm: 500, heartRate: 130, intensity: 'cooldown' }),
+    ]);
+    expect(r.workLaps).toBe(2);
+    expect(r.workDistanceMeters).toBe(2000);
+    // 设备 work 段心率 165 → 178，漂移 +13
+    expect(r.workHrDrift).toBe(13);
+  });
+});

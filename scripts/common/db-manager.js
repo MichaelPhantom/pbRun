@@ -318,6 +318,10 @@ class DatabaseManager {
         calories INTEGER,                             -- 热量消耗（卡路里）
         average_temperature REAL,                     -- 平均温度（摄氏度）
         total_cycles INTEGER,                         -- 总计数（游泳=本段划水次数/跳绳=本段跳跃次数）
+        -- 训练角色（FIT lap intensity）：warmup/interval/recovery/rest/cooldown/active。
+        -- **设备记录的计划结构**，不是按配速推断的（第十二类缺陷 2026-11-07）。
+        -- 覆盖 3058/3137 lap（97.5%）；active 只表示「在计时」不表示主课。
+        intensity TEXT,
 
         FOREIGN KEY (activity_id) REFERENCES activities(activity_id) ON DELETE CASCADE
       )
@@ -330,7 +334,8 @@ class DatabaseManager {
       ['device_time_in_hr_zone', 'TEXT'], ['device_time_in_power_zone', 'TEXT'],
       ['device_time_in_speed_zone', 'TEXT'], ['device_time_in_cadence_zone', 'TEXT'],
       ['lap_trigger', 'TEXT'], ['start_time', 'DATETIME'],
-      ['total_cycles', 'INTEGER']
+      ['total_cycles', 'INTEGER'],
+      ['intensity', 'TEXT']
     ];
     for (const [name, type] of newLapColumns) {
       try {
@@ -502,15 +507,55 @@ class DatabaseManager {
   }
 
   /**
-   * 按 `lap_index` 只更新 `total_cycles` 一列（回填专用）。
+   * 按 `lap_index` 只更新**指定列**（回填专用）。
    *
    * 为什么不复用 `insertLaps`：那是「先 DELETE 再整体 INSERT」，拿解析结果
    * 覆盖库里的 lap。解析器不产出的列会被写成 NULL —— 对已有 3137 段真实数据
-   * 的库风险太大。本方法只动一列，幂等且不碰其它字段。
+   * 的库风险太大。本方法只动传入的列，幂等且不碰其它字段。
    *
    * @param {number} activityId
-   * @param {Array<{lap_index:number, total_cycles?:number}>} laps
+   * @param {Array<{lap_index:number}>} laps
+   * @param {string[]} columns 要更新的列名（必须来自白名单，防止拼 SQL 注入）
    * @returns {number} 实际更新的 lap 段数
+   */
+  updateLapFields(activityId, laps, columns) {
+    if (!Array.isArray(laps) || laps.length === 0) return 0;
+    if (!Array.isArray(columns) || columns.length === 0) return 0;
+    // 列名白名单：只允许已知的 lap 列，杜绝把外部字符串拼进 SQL。
+    const allowed = new Set(this._lapColumns());
+    const cols = columns.filter((c) => allowed.has(c));
+    if (cols.length === 0) return 0;
+    const setClause = cols.map((c) => `${c} = ?`).join(', ');
+    const stmt = this.db.prepare(
+      `UPDATE activity_laps SET ${setClause} WHERE activity_id = ? AND lap_index = ?`
+    );
+    let n = 0;
+    const tx = this.db.transaction((rows) => {
+      for (const lap of rows) {
+        // 至少有一列非空才更新，否则纯属空转。
+        if (!cols.some((c) => lap[c] != null)) continue;
+        const values = cols.map((c) => lap[c] ?? null);
+        const r = stmt.run(...values, activityId, lap.lap_index);
+        n += r.changes;
+      }
+    });
+    tx(laps);
+    return n;
+  }
+
+  /** activity_laps 表实际列名集合 (缓存)。 */
+  _lapColumns() {
+    if (!this._lapColsCache) {
+      const rows = this.db.prepare('PRAGMA table_info(activity_laps)').all();
+      this._lapColsCache = new Set(rows.map((r) => r.name));
+    }
+    return this._lapColsCache;
+  }
+
+  /**
+   * 按 `lap_index` 只更新 `total_cycles` 一列（回填专用，保留旧签名）。
+   *
+   * @deprecated 用 `updateLapFields(activityId, laps, ['total_cycles'])`。
    */
   updateLapCycles(activityId, laps) {
     if (!Array.isArray(laps) || laps.length === 0) return 0;
