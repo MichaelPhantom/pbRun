@@ -406,3 +406,44 @@ describe('主观感受 / 出汗量 / SWOLF：提示词必须说清用法', () =>
     expect(SINGLE_NON_RUNNING_PROMPT).not.toMatch(/设备不写[^。\n]*划频/);
   });
 });
+
+/**
+ * 第十一类缺陷：提示词必须声明 `total_cycles` 的语义白名单。
+ *
+ * 数据块已经**不再输出**语义未确认类型的 cycles（`llm.test.ts` 已守），
+ * 但提示词还要说清「如果别处给了这个数字，不要解读」—— 因为：
+ *
+ * 1. 历史会话/缓存里可能还有旧格式数据块；
+ * 2. MCP 的 `get_activity` 直接返回原始行，`total_cycles` 一定在里面；
+ * 3. 模型可能从 `num_laps`、分段行等间接推出「次数」。
+ *
+ * 三条反证必须写进提示词，否则模型会「合理推断」出「做了 436 次」。
+ */
+describe('total_cycles 语义白名单：提示词必须说清', () => {
+  test('非跑步提示词必须声明只有游泳/跳绳/爬楼能解读', () => {
+    expect(SINGLE_NON_RUNNING_PROMPT).toMatch(/total_cycles/);
+    expect(SINGLE_NON_RUNNING_PROMPT).toMatch(/游泳/);
+    expect(SINGLE_NON_RUNNING_PROMPT).toMatch(/跳绳/);
+    expect(SINGLE_NON_RUNNING_PROMPT).toMatch(/爬楼/);
+  });
+
+  test('非跑步提示词必须点名力量/室内有氧/球类语义未确认', () => {
+    expect(SINGLE_NON_RUNNING_PROMPT).toMatch(/力量/);
+    expect(SINGLE_NON_RUNNING_PROMPT).toMatch(/室内有氧/);
+    expect(SINGLE_NON_RUNNING_PROMPT).toMatch(/语义未确认|未确认/);
+  });
+
+  test('提示词必须带上反证数字（否则模型会自己「合理推断」）', () => {
+    // 力量：r(cyc, 时长) = −0.118；室内有氧：5/19/66/474
+    expect(SINGLE_NON_RUNNING_PROMPT).toMatch(/-0\.118|−0\.118/);
+    expect(SINGLE_NON_RUNNING_PROMPT).toMatch(/5\/19\/66\/474|5.*19.*66.*474/);
+  });
+
+  test('提示词必须禁止把球类的「总计数」当训练量解读', () => {
+    expect(SINGLE_NON_RUNNING_PROMPT).toMatch(/球类[^。\n]*未确认|不要[^。\n]*球类[^。\n]*总计数/);
+  });
+
+  test('提示词不得再声称球类「总计数 = 挥拍/触球次数」', () => {
+    expect(SINGLE_NON_RUNNING_PROMPT).not.toMatch(/球类\s*=\s*(挥拍|触球)/);
+  });
+});

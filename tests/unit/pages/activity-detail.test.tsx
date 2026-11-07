@@ -1887,3 +1887,116 @@ describe('力量训练活动详情', () => {
     expect(within(card).getByText(/^实际$/).parentElement?.textContent).toContain('1:00:09');
   });
 });
+
+/**
+ * 第十一类缺陷：`total_cycles` 的语义白名单。
+ *
+ * 第十类缺陷修好后，详情页留了 `: '总计数'` 兜底 —— 把**语义未确认**的数字
+ * 当成确定值展示。真实库两处反证：
+ *
+ * | 类型 | 反证 |
+ * |------|------|
+ * | 力量 | `r(total_cycles, 时长) = −0.118`（n=51）；同模板「核心稳定性4」15.2min→51、28.1min→40 |
+ * | 室内有氧 | 同名「5 分钟平板支撑挑战」出现 5 / 19 / 66 / 474 |
+ *
+ * 现在只展示两条判据都满足的类型（结构自证 `Σlap==session` + 独立锚点）。
+ */
+describe('total_cycles 语义白名单（第十一类缺陷）', () => {
+  test('力量训练不展示「总计数」（r(cyc, 时长) = −0.118）', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'strength_training',
+      sport_type: '训练',
+      distance: 0,
+      total_cycles: 436,
+      vdot_value: null,
+    });
+    render(await page('5100'));
+    const overview = screen.getByText('活动概览').closest('section')!;
+    expect(within(overview).queryByText('总计数')).toBeNull();
+    expect(within(overview).queryByText('436')).toBeNull();
+  });
+
+  test('室内有氧不展示「总计数」（同名平板支撑出现 5/19/66/474）', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'indoor_cardio',
+      sport_type: '室内有氧',
+      distance: 0,
+      total_cycles: 474,
+      vdot_value: null,
+    });
+    render(await page('5101'));
+    const overview = screen.getByText('活动概览').closest('section')!;
+    expect(within(overview).queryByText('总计数')).toBeNull();
+    expect(within(overview).queryByText('474')).toBeNull();
+  });
+
+  test('球类不展示「总计数」（结构自证对得上但无独立锚点）', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'basketball',
+      sport_type: '篮球',
+      distance: 1.66581,
+      total_cycles: 1685,
+      vdot_value: null,
+    });
+    render(await page('5102'));
+    const overview = screen.getByText('活动概览').closest('section')!;
+    expect(within(overview).queryByText('总计数')).toBeNull();
+    expect(within(overview).queryByText('1685')).toBeNull();
+  });
+
+  test('游泳仍展示「总划水次数」（Σlap==session 4/4 + ÷时间≈划频）', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'lap_swimming',
+      sport_type: '游泳',
+      distance: 0.775,
+      total_cycles: 518,
+      pool_length: 25,
+      num_active_lengths: 31,
+      vdot_value: null,
+    });
+    render(await page('5103'));
+    const overview = screen.getByText('活动概览').closest('section')!;
+    expect(within(overview).getByText('总划水次数')).toBeInTheDocument();
+    expect(within(overview).getByText('518')).toBeInTheDocument();
+  });
+
+  test('爬楼仍展示「总步数」（Σlap==session 30/30 + 14.6–29.0 步/层）', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'floor_climbing',
+      sport_type: '爬楼',
+      distance: 0,
+      total_ascent: 46,
+      total_cycles: 349,
+      vdot_value: null,
+    });
+    render(await page('5104'));
+    const overview = screen.getByText('活动概览').closest('section')!;
+    expect(within(overview).getByText('总步数')).toBeInTheDocument();
+    expect(within(overview).getByText('349')).toBeInTheDocument();
+  });
+
+  test('力量课分段表不出「计数」列（列名含糊比没有列更糟）', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'strength_training',
+      sport_type: '训练',
+      distance: 0,
+      total_cycles: 436,
+      vdot_value: null,
+    });
+    db.getActivityLaps.mockReturnValue([
+      { ...laps[0], id: 71, lap_index: 1, distance: 0, total_cycles: 40 },
+      { ...laps[1], id: 72, lap_index: 2, distance: 0, total_cycles: 50 },
+    ]);
+    render(await page('5105'));
+    const table = screen.queryByRole('table');
+    if (table) {
+      expect(within(table).queryByRole('columnheader', { name: /^计数$/ })).toBeNull();
+    }
+  });
+});

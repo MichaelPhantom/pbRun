@@ -343,3 +343,47 @@ describe('skill 的 SWOLF / 主观感受 / 出汗量口径', () => {
     expect(skill).not.toMatch(/num_active_lengths[^。\n]*(不可得|不提供|没有)/);
   });
 });
+
+/**
+ * 第十一类缺陷：`total_cycles` 的语义白名单。
+ *
+ * skill 是三大交付面之一，模型会直接引用它的话术。第十类缺陷修好后 skill 写了
+ * 「游泳总划水次数 / 跳绳总跳跃次数 / 爬楼总步数 / 球类 = 挥拍/触球动作周期数」——
+ * 最后那条是**未经验证的断言**（篮球 53min 1685 次 = 32「触球」/分，荒谬）。
+ */
+describe('skill 的 total_cycles 语义白名单', () => {
+  test('skill 必须声明只有游泳/跳绳/爬楼能解读', () => {
+    expect(skill).toMatch(/total_cycles/);
+    expect(skill).toMatch(/只有三种|三种确认|只有下面三种/);
+  });
+
+  test('skill 必须点名力量训练的反证（r = −0.118）', () => {
+    expect(skill).toMatch(/力量训练/);
+    expect(skill).toMatch(/-0\.118|−0\.118/);
+    // 同模板时长翻倍反而更少 —— 这是最直观的反证
+    expect(skill).toMatch(/15\.2|28\.1/);
+  });
+
+  test('skill 必须点名室内有氧的反证（5 / 19 / 66 / 474）', () => {
+    expect(skill).toMatch(/室内有氧/);
+    expect(skill).toMatch(/5\s*\/\s*19\s*\/\s*66\s*\/\s*474|474/);
+  });
+
+  test('skill 不得再断言球类 total_cycles = 挥拍/触球次数', () => {
+    expect(skill).not.toMatch(/球类\s*=\s*挥拍/);
+    expect(skill).not.toMatch(/球类\s*=\s*触球/);
+    expect(skill).not.toMatch(/球类.*动作周期数/);
+  });
+
+  test('skill 必须声明「结构自证只证明一致，不证明语义」', () => {
+    expect(skill).toMatch(/结构自证只证明|不证明.*语义|不证明.*读的是什么/);
+  });
+
+  test('skill 的三条白名单必须与 cycles.ts 同源（不得抄出第四个类型）', () => {
+    // 允许提到跑步（作为「不展示」的反例），但不得把球类/力量列为「可解读」
+    const cycleSection = skill.slice(skill.indexOf('只有三种运动能解读'));
+    expect(cycleSection.length).toBeGreaterThan(100);
+    // 白名单表里只应出现这三个运动名作为「可解读」项
+    expect(cycleSection).toMatch(/游泳[\s\S]*跳绳[\s\S]*爬楼/);
+  });
+});

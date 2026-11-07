@@ -13,6 +13,7 @@ import { activityTypeName, isRunningType, isSwimmingType } from '@/app/lib/sport
 import { powerIntensity } from '@/app/lib/power';
 import { ascentToSpanRatio, elevationSpan } from '@/app/lib/elevation';
 import { floorsFromAscent, formatFloors } from '@/app/lib/floors';
+import { cycleSemanticOf } from '@/app/lib/cycles';
 import { feelLabel, feelRpeDivergent, formatSweatLoss, rpeLabel, sweatRateMlPerHour } from '@/app/lib/feel';
 import { activeSwimSeconds, formatSwolf, swolfOf } from '@/app/lib/swim';
 import { effectiveTimeSec, paceSecPer100m, formatPacePer100m, speedKmh } from '@/app/lib/pace';
@@ -291,6 +292,8 @@ export function buildAnalysisMessages(
   // K1..Kn 会误导模型以为每段恰为 1 公里（实测曾致模型质疑数据自洽性）。
   // 区间标签走 `lap-label.ts` 的 `lapRangeLabel`（与详情页/AI 上下文同源）。
   const lapStarts = lapStartDistancesMeters(ordered);
+  // 分段计数的语义（第十一类缺陷）。放在 map 外：整个活动的语义是同一个。
+  const cycleSem = cycleSemanticOf(activity.activity_type);
   const lapLines = ordered
     .map((l, i) => {
       const seg = lapRangeLabel(lapStarts[i], l.distance) ?? '--';
@@ -299,16 +302,20 @@ export function buildAnalysisMessages(
         : [seg, formatDuration(effectiveTimeSec(l) ?? 0)];
       if (l.average_heart_rate != null) parts.push(`${Math.round(l.average_heart_rate)}bpm`);
       if (running && l.average_cadence != null) parts.push(`${Math.round(l.average_cadence)}spm`);
-      // 游泳分段的**本段划水次数**（FIT lap `total_cycles`）。真实库 4 条游泳的
-      // `Σlap cycles == session cycles` 精确成立，所以分段划水次数能与活动级
-      // 总划水次数对上 —— 模型可以据此判断「哪一趟效率高」（同距离划得少 = 好）。
-      // 只在游泳输出：跑步 lap 的 cycles 是步幅周期数，没有语义。
-      if (!running && l.total_cycles != null) {
+      // 分段计数的**唯一标签来源** `app/lib/cycles.ts`（第十一类缺陷）。
+      //
+      // 旧实现是 `!running && l.total_cycles != null` —— 于是力量/室内有氧/球类
+      // 的分段也会被标成「N划」（游泳专用词），而那些值的语义根本未确认
+      // （力量 `r(cyc, 时长) = −0.118`；室内有氧同名活动 5/19/66/474）。
+      // 现在只对白名单类型（游泳/跳绳/爬楼）输出，且单位跟着语义走。
+      if (cycleSem != null && l.total_cycles != null) {
         const m = l.distance;
-        // 0 距离休息段的 cycles 为 0，不输出（那是「没有划水」，不是「划水 0 次」）
+        // 0 距离休息段的 cycles 为 0，不输出（那是「没有划水/没有跳」，不是「0 次」）
         if (l.total_cycles > 0) {
-          parts.push(`${Math.round(l.total_cycles)}划`);
-          if (m != null && m > 0) {
+          // 游泳用「划」，跳绳用「跳」，爬楼用「步」—— 同一个字段三种单位
+          const unitChar = cycleSem.unit.replace(/^次/, '');
+          parts.push(`${Math.round(l.total_cycles)}${unitChar}`);
+          if (m != null && m > 0 && cycleSem.unit === '次划水') {
             parts.push(`${(m / l.total_cycles).toFixed(2)}m/划`);
           }
         }

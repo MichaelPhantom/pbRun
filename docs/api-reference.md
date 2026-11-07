@@ -257,17 +257,30 @@ GET /api/activities/{id}
 - `average_speed` 与 `max_speed` 均为 **km/h**（FIT 解析器以 `speedUnit:'km/h'` 解析后原样落库；Strava 源同为 km/h）。不要按 m/s 再乘 3.6 —— 那会把 16.5 km/h 报成 59.4 km/h。
 - `vdot_value` 仅在 Z3+ 代表性强度段计算，日常轻松/恢复跑为 `null`。
 - `training_load` 优先 FIT 官方值，缺省按时长 × 心率档回退。
-- **`total_cycles` 的语义随运动而变，绝不能跨类型比较，也绝不能 ×2**：
-  游泳 = **总划水次数**（真实库 4/4：518/798/923/695，自证 ① `Σlap.total_cycles ==
-  session.total_cycles` 4/4 精确相等、② `total_cycles ÷ 活跃时间 ≈ average_cadence`
-  518/21.4min = 24.2 vs FIT 24）；跳绳 = **总跳跃次数**（189/187/193）；
-  跑步 = 步幅周期数（≈ `average_cadence` × 计时器分钟）；爬楼 = 总步数；
-  球类 = 挥拍/触球动作周期数。真实库覆盖 **349/353**（`indoor_cycling` 0/1、
-  `indoor_cardio` 6/9，其余全满）。
+- **`total_cycles` 的语义随运动而变，绝不能跨类型比较，也绝不能 ×2**。
+  但**只有三种类型确认了语义**（判据：结构自证 `Σlap == session` + 独立锚点）：
+  - 游泳 = **总划水次数**（4/4：518/798/923/695，自证 ① `Σlap.total_cycles ==
+    session.total_cycles` 4/4 精确相等、② `total_cycles ÷ 活跃时间 ≈ average_cadence`
+    518/21.4min = 24.2 vs FIT 24）；
+  - 跳绳 = **总跳跃次数**（3/3：189/187/193，自证 ① Σlap==session 3/3 精确、
+    ② ÷时长 = 115–150 次/分，落在跳绳常识区间 100–160）；
+  - 爬楼 = **总步数**（30/30，自证 ① Σlap==session 30/30 精确、② ÷楼层 = 14.6–29.0
+    步/层，与 14 级台阶约 20 步吻合）。
+  跑步 = 步幅周期数（≈ `average_cadence` ÷ 2，对跑者无语义，不展示）。
+  ⚠️ **力量训练 / 室内有氧 / HIIT / 球类的 `total_cycles` 语义未确认，不要解读**：
+  - 力量：`r(total_cycles, moving_time) = −0.118`（n=51，几乎无关）。同模板
+    「核心稳定性4」15.2 分钟课 `cyc=51`、28.1 分钟课 `cyc=40` —— 时长翻倍反而更少。
+    且 `activity_laps` **0/51**（设备不写 lap 消息），`Σlap == session` 这条自证用不了；
+    `num_laps` 恒为 37/41/42/43/44/49（随课表模板变，与时长无关），也不是组数。
+  - 室内有氧：同名「5 分钟平板支撑挑战」9 条里出现 **5 / 19 / 66 / 474**（95 倍跨度）。
+    平板支撑只有 1 次，任何「次数」解释都不成立。
+  - 球类：结构自证对得上（篮球 3/3、乒乓 2/2、羽毛 1/1），但**没有任何独立量能
+    说清这个数是什么** —— 篮球 53 分钟 1685 次折合 32「触球」/分，不符合球类常识。
   ⚠️ `average_cadence` 对跑步做过 ×2（单侧周期 → spm），但 `total_cycles` 是
   **绝对计数** —— 对 518 次划水再 ×2 得 1036，与 775m ÷ 1.5m/划 对不上。
   由 `scripts/garmin/fit-parser.js` 直接从 FIT session/lap 的 `total_cycles` 读取
   （第十类缺陷：此前解析器整体丢弃该字段，全库不存在）。
+  语义白名单的唯一来源是 `app/lib/cycles.ts`（未确认类型返回 `null` → 整项不渲染）。
 - 游泳另可用 `distance(km) × 1000 ÷ total_cycles` 得**每划距离**（真实库 1.35–2.95 m/划），
   这是技术分析的核心指标（划频高但每划距离短 = 抓水效率低）。
 - **主观感受 / 主观用力 / 估计出汗量（真实库 251–349/353）**：
@@ -1164,7 +1177,7 @@ GET /api/llm/models
 | 时长 / 配速 | 秒 (s) / 秒每公里 (s/km) | `3000` / `300` = 5:00/km |
 | 时长的时间基数 | **计时器时间 `moving_time`**（配速、`totalDuration`、区间表 `total_duration`、TSS、`training_load` 全部同基数） | `582132079` 的 `duration` 10465s / `moving_time` 2621s → 配速按 2621s 算 |
 | 心率 / 步频 / 卡路里 | bpm / spm / kcal | `150` / `170` / `500` |
-| `activities.total_cycles` / `activity_laps.total_cycles` | **次数（绝对计数，不是频率）** | `518` = 518 次划水（游泳）；`189` = 189 次跳跃（跳绳） |
+| `activities.total_cycles` / `activity_laps.total_cycles` | **计数（绝对计数，不是频率）；仅游泳/跳绳/爬楼的语义已确认** | `518` = 518 次划水（游泳）；`189` = 189 次跳跃（跳绳）；力量/室内有氧/HIIT/球类语义未确认，不要解读 |
 | `activities.pool_length` | **米**（FIT scale=100 已应用） | `25` = 25m 池；不要再 ÷100 |
 | `activities.workout_feel` | 无量纲，5 档 | `0 / 25 / 50 / 75 / 100`（0 = 很差，**有效值**） |
 | `activities.workout_rpe` | 无量纲，Borg CR10 1–10 | `2` = 很轻松；`0` 不合法 |

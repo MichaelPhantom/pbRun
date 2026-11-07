@@ -23,6 +23,7 @@ import {
 } from '@/app/lib/lap-label';
 import { elevationSpan } from '@/app/lib/elevation';
 import { floorsFromAscent } from '@/app/lib/floors';
+import { cycleCountLabel } from '@/app/lib/cycles';
 import { feelLabel, formatSweatLoss, rpeLabel } from '@/app/lib/feel';
 import { activeSwimSeconds, formatSwolf, swolfOf } from '@/app/lib/swim';
 import { effectiveTimeSec, paceSecPer100m, formatPacePer100m, speedKmh } from '@/app/lib/pace';
@@ -105,6 +106,9 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
   const floors = activity.activity_type === 'floor_climbing'
     ? floorsFromAscent(activity.total_ascent)
     : null;
+  // `total_cycles` 的展示标签 —— 语义唯一来源 `app/lib/cycles.ts`。
+  // 未确认类型（力量/室内有氧/HIIT/球类）返回 `null` → 整格不渲染。
+  const cycleLabel = cycleCountLabel(activity.activity_type);
   // 游泳 SWOLF（= 单趟秒数 + 单趟划水次数）。时间基数必须用**活跃 lap 的计时器
   // 时间之和**，不是活动级 `moving_time` —— 后者含池边休息（599287904 有 804s），
   // 用它算会把 SWOLF 从 58 抬到 84，把一次不错的训练读成「效率很差」。
@@ -313,31 +317,26 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
     ...(activity.average_temperature != null
       ? [{ value: activity.average_temperature.toFixed(1), unit: '°C', label: '平均温度' }]
       : []),
-    // 总计数（`total_cycles`）—— 第十类缺陷（2026-11-07）。
+    // 总计数（`total_cycles`）—— 第十类缺陷 + 第十一类缺陷。
     //
-    // FIT 里一直有（真实库 **349/353**），但解析器从不读取它，于是「游泳总划水
-    // 次数」「跳绳总跳跃次数」这两个**用户最关心的计数**在全站都不存在。
-    // 更糟的是文档与提示词四处断言「总划水次数不可得，不要索要」——
-    // 让模型对真实存在的数据装看不见。
+    // 第十类：FIT 里一直有（真实库 **349/353**），但解析器从不读取它，于是
+    // 「游泳总划水次数」「跳绳总跳跃次数」在全站都不存在，而文档四处断言不可得。
     //
-    // 标签必须随运动类型变（同一个数在不同运动里语义完全不同）：
-    //   游泳 = 总划水次数 / 跳绳 = 总跳跃次数 / 爬楼 = 总步数 / 跑步 = 步幅周期数
-    // 跑步不给这一格：步幅周期数（3352）对跑者没有语义，`步频` 已经表达了同一信息。
-    ...(activity.total_cycles != null && !running
+    // 第十一类：修好后按类型给标签，却留了 `: '总计数'` 兜底 —— 把**语义未确认**
+    // 的数字当成确定值展示。真实库两处反证：
+    //   · 力量 `r(total_cycles, 时长) = −0.118`（n=51）；同模板「核心稳定性4」
+    //     15.2min → cyc 51、28.1min → cyc 40（时长翻倍反而更少）；
+    //   · 室内有氧同名「5 分钟平板支撑挑战」出现 5 / 19 / 66 / 474。
+    //
+    // 现在只展示**两条判据都满足**的类型（结构自证 `Σlap==session` + 独立锚点）：
+    // 游泳（÷时间≈划频）、跳绳（115–150 次/分）、爬楼（14.6–29.0 步/层）。
+    // 语义唯一来源见 `app/lib/cycles.ts`；未确认 → 整格不渲染（不是 `--`，
+    // 那是「数据缺失」的信号，这里是有值但不知道该叫什么）。
+    ...(cycleLabel != null && activity.total_cycles != null
       ? [{
           value: String(Math.round(activity.total_cycles)),
-          unit: activity.activity_type === 'lap_swimming' || activity.activity_type === 'open_water'
-            ? '次划水'
-            : activity.activity_type === 'jump_rope'
-              ? '次跳跃'
-              : '次',
-          label: activity.activity_type === 'lap_swimming' || activity.activity_type === 'open_water'
-            ? '总划水次数'
-            : activity.activity_type === 'jump_rope'
-              ? '总跳跃次数'
-              : activity.activity_type === 'floor_climbing'
-                ? '总步数'
-                : '总计数',
+          unit: cycleLabel.unit,
+          label: cycleLabel.label,
         }]
       : []),
     ...(running
@@ -733,13 +732,16 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
               // 真实库 4 条游泳的 `Σlap.total_cycles == session.total_cycles`
               // 精确成立（518/518、798/798、923/923、695/695），所以这一列能对上
               // 活动级的总划水次数，用户可自证。
-              // 只对非跑步展示：跑步的 lap cycles 是步幅周期数，没有语义
-              // （`步频` 已表达同一信息）。
-              ...(!running && laps.some((l) => l.total_cycles != null)
+              //
+              // **只对 `cycleLabel` 非空的类型展示**（第十一类缺陷）：旧实现是
+              // `!running`，于是力量/室内有氧/球类也会出现一列叫「计数」的表 ——
+              // 而那些值的语义未确认（力量 `r(cyc, 时长) = −0.118`，室内有氧同名
+              // 活动出现 5/19/66/474）。列名含糊比没有列更糟。
+              ...(cycleLabel != null && laps.some((l) => l.total_cycles != null)
                 ? [{
                     key: 'cyc',
-                    label: swimming ? '划水次数' : '计数',
-                    unit: swimming ? '次' : undefined,
+                    label: swimming ? '划水次数' : cycleLabel.label.replace(/^总/, ''),
+                    unit: swimming ? '次' : cycleLabel.unit,
                   }]
                 : []),
               // 分段「时长」单位必须与单元格渲染格式一致：`formatDuration` 输出

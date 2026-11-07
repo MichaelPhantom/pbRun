@@ -1206,3 +1206,103 @@ describe('buildAnalysisMessages — 游泳 SWOLF', () => {
     expect(user.content).not.toContain('SWOLF');
   });
 });
+
+/**
+ * 第十一类缺陷：`total_cycles` 的语义白名单。
+ *
+ * 第十类缺陷把 `total_cycles` 读进了库并按类型给标签，但留了「其余 = 总计数」的
+ * 兜底 —— 把**语义未确认**的数字当确定值展示。两处反证：
+ *
+ * | 类型 | 反证 |
+ * |------|------|
+ * | 力量 | `r(cyc, 时长) = −0.118`（n=51）；同模板「核心稳定性4」15.2min→51、28.1min→40 |
+ * | 室内有氧 | 同名「5 分钟平板支撑挑战」出现 5 / 19 / 66 / 474 |
+ *
+ * 现在只输出两条判据都满足的类型（结构自证 `Σlap==session` + 独立锚点）。
+ * 语义唯一来源：`app/lib/cycles.ts`。
+ */
+describe('buildAnalysisMessages — total_cycles 语义白名单', () => {
+  test('力量训练不输出「总计数」或任何 cycles 相关行（语义未确认）', () => {
+    // 真实库 643296369「全身循环1」：cyc=436、30.5min、TE=2.1
+    const [, user] = buildAnalysisMessages(
+      fakeActivity({
+        activity_id: 643296369,
+        activity_type: 'strength_training',
+        distance: 0,
+        moving_time: 1828,
+        duration: 1828,
+        total_cycles: 436,
+        total_training_effect: 2.1,
+      }),
+      [],
+    );
+    expect(user.content).not.toContain('总计数');
+    expect(user.content).not.toContain('436');
+  });
+
+  test('室内有氧不输出 cycles（同名平板支撑出现 5/19/66/474）', () => {
+    for (const cyc of [5, 19, 66, 474]) {
+      const [, user] = buildAnalysisMessages(
+        fakeActivity({
+          activity_type: 'indoor_cardio',
+          distance: 0,
+          total_cycles: cyc,
+        }),
+        [],
+      );
+      expect(user.content).not.toContain('总计数');
+      // 不能出现「计数」「次」这类把裸值包装成确定计数的写法
+      expect(user.content).not.toContain(`总计数: ${cyc}`);
+      expect(user.content).not.toMatch(new RegExp(`(计数|次数):\\s*${cyc}`));
+    }
+  });
+
+  test('HIIT / 球类不输出 cycles（无锚点）', () => {
+    for (const t of ['hiit', 'basketball', 'table_tennis', 'badminton']) {
+      const [, user] = buildAnalysisMessages(
+        fakeActivity({ activity_type: t, total_cycles: 1685 }),
+        [],
+      );
+      expect(user.content).not.toContain('总计数');
+      expect(user.content).not.toContain('1685');
+    }
+  });
+
+  test('力量课分段不输出「N划」（旧实现 !running 兜底会给力量课写划水次数）', () => {
+    // 力量课真实库 0/51 有 lap，但即便有也不该标成「划」
+    const laps = [
+      { activity_id: 1, lap_index: 0, distance: 0, duration: 600, total_cycles: 40 },
+      { activity_id: 1, lap_index: 1, distance: 0, duration: 600, total_cycles: 50 },
+    ] as ActivityLap[];
+    const [, user] = buildAnalysisMessages(
+      fakeActivity({ activity_type: 'strength_training', distance: 0, total_cycles: 90 }),
+      laps,
+    );
+    // 只看分段行（「计划」里的「划」不算）
+    expect(user.content).not.toMatch(/\d+划/);
+    expect(user.content).not.toContain('m/划');
+  });
+
+  test('跳绳分段不输出「N划」（跳跃不是划水）', () => {
+    const laps = [
+      { activity_id: 1, lap_index: 0, distance: 0, duration: 60, total_cycles: 95 },
+    ] as ActivityLap[];
+    const [, user] = buildAnalysisMessages(
+      fakeActivity({ activity_type: 'jump_rope', distance: 0, total_cycles: 95, moving_time: 60 }),
+      laps,
+    );
+    expect(user.content).not.toContain('划');
+    expect(user.content).toContain('总跳跃次数: 95 次');
+  });
+
+  test('爬楼仍输出总步数？—— 不，AI 数据块给「楼层」不给裸计数（语义已在楼层里）', () => {
+    // 爬楼的 total_cycles 确实是步数（Σlap==session 30/30 + 14.6–29.0 步/层），
+    // 但 AI 侧的有用表达是「楼层」—— 步数对模型没有额外信息量。
+    const [, user] = buildAnalysisMessages(
+      fakeActivity({ activity_type: 'floor_climbing', total_ascent: 46, distance: 0, total_cycles: 349 }),
+      [],
+    );
+    expect(user.content).toContain('楼层（约）: 约 15 层');
+    expect(user.content).not.toContain('总计数');
+  });
+});
