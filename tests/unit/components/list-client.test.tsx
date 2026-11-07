@@ -1689,6 +1689,56 @@ describe('ListClient 活动列表 (交互/筛选/无限滚动)', () => {
       expect(screen.queryByText(/这个月只有跑步/)).not.toBeInTheDocument();
     });
 
+    /**
+     * **第三十一类：搜索生效时不能再说「这个月只有跑步」。**
+     *
+     * 这行提示的语义是「你眼前这个月**全部**都是跑步，所以库里其他运动你看不见」。
+     * 搜索「长距离」之后，页面上只有 1 条匹配的跑步 —— 那不是「这个月只有跑步」，
+     * 而是「这个筛选条件下只有跑步」。两句话的事实基础完全不同。
+     *
+     * 更严重的是 chip 的点击后果：`onTypeChange(t.type)` 只替换 `type`，
+     * **保留当前搜索词**。真实库实测（生产 2026-11-08）：
+     *
+     * | 操作 | 请求 | 结果 |
+     * |------|------|------|
+     * | 搜「长距离」 | `months?q=长距离` | 1 个月（2026-11） |
+     * | 点「力量训练 51」 | `months?type=strength_training&q=长距离` | **0 个月** |
+     *
+     * 于是页面变成「没有符合筛选条件的活动」—— 用户以为自己点错了，或以为库里
+     * 没有力量训练（实际有 51 条，只是名字里不含「长距离」）。
+     *
+     * 判别式：**一行提示的前置条件必须与它给出的动作一致**。提示说「库里还有
+     * 力量训练」，那这个入口就必须能到达那 51 条；点了之后是空页面，等于承诺落空。
+     */
+    test('搜索生效时不渲染「这个月只有跑步」提示（提示与动作必须一致）', async () => {
+      const urls: string[] = [];
+      (global.fetch as jest.Mock).mockImplementation((url: string) => {
+        urls.push(url);
+        if (url.includes('/api/activities/months')) {
+          return jsonResponse([{ monthKey: '2026-11', totalDistance: 15.3, count: 1, runDistance: 15.3, runCount: 1 }]);
+        }
+        return jsonResponse([act({ activity_id: 9301, name: '九龙坡区 - 长距离' })]);
+      });
+      renderList({
+        availableTypes: fullLibrary,
+        initialActivitiesByMonth: {
+          '2026-09': [act({ activity_id: 9300, activity_type: 'running', name: '晨跑' })],
+        },
+      });
+      // 自证：搜索前确实会显示（否则这条断言就是空断言）
+      expect(screen.getByText(/这个月只有跑步/)).toBeInTheDocument();
+
+      fireEvent.change(screen.getByLabelText('搜索活动'), { target: { value: '长距离' } });
+      await waitFor(() => {
+        expect(urls.some((u) => u.includes('q='))).toBe(true);
+      }, { timeout: 2000 });
+
+      // 搜索生效后：这行提示的事实基础已不成立
+      await waitFor(() => {
+        expect(screen.queryByText(/这个月只有跑步/)).not.toBeInTheDocument();
+      });
+    });
+
     test('点 chip → 按该类型重新拉取月度汇总（服务端过滤 + 自动展开首月）', async () => {
       (global.fetch as jest.Mock).mockImplementation((url: string) =>
         url.includes('/api/activities/months')

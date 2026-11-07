@@ -97,8 +97,9 @@ describe('docs/faq.md —— 缺陷 25 与判别式第二十问', () => {
     expect(faq).toMatch(/另一个消息层级/);
   });
 
-  test('判别式从十九句扩到三十四句', () => {
-    expect(faq).toMatch(/问三十四句/);
+  test('判别式从十九句扩到三十五句', () => {
+    expect(faq).toMatch(/问三十五句/);
+    expect(faq).not.toMatch(/问三十四句/);
     expect(faq).not.toMatch(/问十九句/);
     expect(faq).not.toMatch(/问二十句/);
     expect(faq).not.toMatch(/问二十一句/);
@@ -189,6 +190,11 @@ describe('docs/faq.md —— 缺陷 25 与判别式第二十问', () => {
   test('第三十四问存在且指向「列表头与展开是否同条件」（缺陷 43）', () => {
     expect(faq).toMatch(/^34\.\s/m);
     expect(faq).toMatch(/34\.[^\n]{0,70}条件/);
+  });
+
+  test('第三十五问存在且指向「提示的承诺与入口是否一致」（缺陷 44）', () => {
+    expect(faq).toMatch(/^35\.\s/m);
+    expect(faq).toMatch(/35\.[^\n]{0,60}入口/);
   });
 });
 

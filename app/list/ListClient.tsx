@@ -429,21 +429,50 @@ export default function ListClient({
   /**
    * 「本月只有跑步，但库里还有别的运动」时要展示的快捷入口。
    *
-   * 三个前置条件缺一不可：
+   * 四个前置条件缺一不可：
    *  1. 有全库清单（否则不知道还有哪些类型）；
    *  2. 当前没有生效的类型筛选（已筛到别的类型时用户已经知道有别的运动）；
-   *  3. 本月已加载且**全部是跑步**（有任何非跑步活动时，用户自己就能看见）。
+   *  3. **当前没有搜索词**（第三十一类缺陷，见下）；
+   *  4. 本月已加载且**全部是跑步**（有任何非跑步活动时，用户自己就能看见）。
    *
    * 为什么不是常驻 chip 行：那与下拉框重复，且在有非跑步活动的月份是噪音。
    * 只在「看起来只有跑步」时出现，才既有用又不打扰。
+   *
+   * ## 为什么搜索词也必须挡住它（第三十一类）
+   *
+   * 这行提示的语义是「你眼前这个月**全部**都是跑步，所以库里其他运动你看不见」。
+   * 搜索「长距离」之后页面上只有 1 条匹配的跑步 —— 那不是「这个月只有跑步」，
+   * 而是「这个搜索条件下只有跑步」，两句话的事实基础完全不同。
+   *
+   * 更严重的是 chip 的点击后果：`onTypeChange(t.type)` 只替换 `type`，
+   * **保留当前搜索词**。生产实测（2026-11-08）：
+   *
+   * | 操作 | 请求 | 结果 |
+   * |------|------|------|
+   * | 搜「长距离」 | `months?q=长距离` | 1 个月（2026-11） |
+   * | 点「力量训练 51」 | `months?type=strength_training&q=长距离` | **0 个月** |
+   *
+   * 页面变成「没有符合筛选条件的活动」—— 用户以为自己点错了，或以为库里没有
+   * 力量训练（实际 51 条，只是名字里不含「长距离」）。
+   *
+   * 判别式：**一行提示的前置条件必须与它给出的动作一致**。提示说「库里还有
+   * 力量训练」，那这个入口就必须能到达那 51 条；点了之后是空页面，等于承诺落空。
+   *
+   * 注意下拉框 + 搜索的组合（`type=X&q=Y`）**是对的**，不要一起去掉：
+   * 那是用户主动表达「在这个类型里搜这个词」。只有这行**自动出现**的提示
+   * 不能替用户把两个条件叠在一起。
    */
   const otherTypesHint = useMemo(() => {
     if (availableTypes.length === 0) return [] as { type: string; count: number }[];
     if (typeFilter !== 'all') return [];
+    // 用即时值而不是 `appliedFilter`：用户刚敲下第一个字时，提示的前提就已经
+    // 不成立了（数据还是旧的，但「这个月只有跑步」这句话已经不该说）。
+    // 下拉框那侧同理用即时值 `typeFilter`，两处保持一致。
+    if (searchQuery.trim() !== '') return [];
     if (expandedMonthTypes.length === 0) return [];
     if (expandedMonthTypes.some((t) => !isRunningType(t))) return [];
     return availableTypes.filter((t) => !isRunningType(t.type));
-  }, [availableTypes, typeFilter, expandedMonthTypes]);
+  }, [availableTypes, typeFilter, searchQuery, expandedMonthTypes]);
 
   return (
     <div className="flex min-w-0 flex-col gap-6">
