@@ -486,6 +486,9 @@ export async function registerTools(server: McpServer): Promise<void> {
         '基于近 N 天训练负荷计算 ACWR 急慢性负荷比与连续训练/休息天数, 并给出建议。' +
         '**合并口径**：跑步负荷 + 力量训练负荷（strength_training，按训练效应加权派生）；' +
         '里程/时长/次数仍只统计跑步（力量训练无距离语义，混入会污染均配速）。' +
+        '**不含游泳/球类/爬楼/HIIT/跳绳等其余非跑步活动**：它们没有官方 training_load 字段, ' +
+        '自制系数会让 ACWR 变成「一半官方值 + 一半估算值」的混合物, 失去可比性 —— ' +
+        '这些活动只在 list_activities / get_activity 里可见, 不参与负荷时间序列。' +
         'load 无单位 (与库内跑步 training_load 同量纲, 非 Garmin 官方 training_load_peak)。' +
         'ACWR 窗口恒为标准窗（急性 7 天/慢性 28 天）; 训练历史不足 28 天时 acwr=null' +
         '（缺失天数不按 0 负荷处理）, chronic_load_days 给出现有天数。',

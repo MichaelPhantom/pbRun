@@ -284,6 +284,33 @@ describe('/api/activities', () => {
     expect(mockDb.getActivities).not.toHaveBeenCalled();
   });
 
+  /**
+   * `type=all` 与空串必须视为「不过滤」，与 `/api/activities/months` 完全一致。
+   *
+   * 前端两个端点由同一套筛选状态驱动（月度汇总 + 展开月份的卡片），若只有 months
+   * 认得 `all`、activities 把字面量 `all` 当类型值去查，用户选「所有类型」后
+   * 月份列表正常、展开的卡片却全部消失（`activity_type = 'all'` 匹配 0 行）。
+   * 生产库实证：`activity_type = 'all'` 命中 0 条，而全库 353 条。
+   */
+  test('type=all / 空串 → 视为不过滤 (与 months 端点同语义)', async () => {
+    mockDb.getActivities.mockReturnValue({ data: [], total: 0 });
+    await activitiesGET(req('/api/activities?type=all'));
+    expect(mockDb.getActivities).toHaveBeenLastCalledWith(
+      expect.objectContaining({ type: undefined }),
+    );
+
+    await activitiesGET(req('/api/activities?type='));
+    expect(mockDb.getActivities).toHaveBeenLastCalledWith(
+      expect.objectContaining({ type: undefined }),
+    );
+
+    // 真实类型仍要透传（不能为了兼容 all 把所有值都吞掉）
+    await activitiesGET(req('/api/activities?type=strength_training'));
+    expect(mockDb.getActivities).toHaveBeenLastCalledWith(
+      expect.objectContaining({ type: 'strength_training' }),
+    );
+  });
+
   test('DB 异常 → 500', async () => {
     mockDb.getActivities.mockImplementation(() => {
       throw new Error('x');

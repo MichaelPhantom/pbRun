@@ -74,6 +74,9 @@ app/data/*.db
 app/data/*.db-*
 app/data/*.db.bak.*
 app/data/.backups/
+# 部署脚本构建期临时把 app/data 软链改名到此（见 scripts/deploy-prod.sh stash_data_link），
+# 构建失败/被强杀时会残留；不忽略会让 git status 出现噪音、误提交进仓库。
+/app/data.link.bak
 
 # e2e 夹具库 (由 scripts/testing/make-fixture-db.js 生成, CI 按需重建)
 tests/fixtures/*.db

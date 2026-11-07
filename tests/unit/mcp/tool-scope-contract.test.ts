@@ -70,6 +70,9 @@ describe('MCP tool description 必须声明统计口径', () => {
     expect(cfg!.description).toMatch(/力量训练/);
     // 必须澄清里程/次数仍只统计跑步 (否则模型会以为里程也合并了)
     expect(cfg!.description).toMatch(/只统计跑步/);
+    // 必须显式声明**其余非跑步活动不纳入** —— 否则模型看到「合并口径」会以为
+    // 游泳/球类/爬楼的负荷也在里面, 进而把 ACWR 当成「全部运动总负荷」解读。
+    expect(cfg!.description).toMatch(/不含游泳|游泳\/球类/);
   });
 
   test.each(STRENGTH_SCOPED)('%s 声明力量训练的数据边界 (无重量/次数)', (name) => {
