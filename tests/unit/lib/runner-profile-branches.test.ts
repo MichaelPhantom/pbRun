@@ -353,6 +353,45 @@ describe('formatRunnerProfile 分区省略与 PR 行', () => {
     expect(negative).toMatch(/TSB -9\.4（平衡）/);
   });
 
+  /**
+   * **第二十四类：注入 AI 的跑者画像里，跑量与负荷是两种口径，却没有任何说明。**
+   *
+   * `formatRunnerProfile` 输出的这一段会进入**每一次**活动分析的 prompt
+   * （`llm.ts` 的 `profileBlock`）。其中：
+   *
+   * | 行 | 数据源 | 口径 |
+   * |----|--------|------|
+   * | 生涯 / 近期 / 周环比 | `getStats` + `getActivities(runningOnly)` | **纯跑步** |
+   * | 负荷 CTL/ATL/TSB | `getCombinedTrainingLoads` | **跑步 + 力量** |
+   *
+   * 真实库全历史：跑步负荷 18122 / 合并 19788（差 1666，全来自力量训练）。
+   *
+   * 危害与网页上的口径缺陷不同：**模型会拿「近 28 天 8 次跑步」去解释一个
+   * 含力量课的 CTL**，然后在回答里编造「你的负荷主要来自跑量」这类因果 ——
+   * 而真实库近 28 天跑步负荷 1030 / 合并 1090（差 60，力量贡献 5.8%）。
+   */
+  test('跑者画像必须标明「负荷含力量、跑量只跑步」', () => {
+    const text = formatRunnerProfile({ ...fullProfile(), ctl: 45, atl: 40, tsb: 5, tsbLabel: null });
+    expect(text).toMatch(/含力量/);
+    // 必须同时说清跑量那一侧是跑步口径，否则模型会把两者当同一口径
+    expect(text).toMatch(/跑步/);
+  });
+
+  /**
+   * 反证：没有负荷行时**不该**出现口径说明 —— 那句只服务于负荷，留着是噪音，
+   * 而且会让模型以为跑量也含力量。
+   */
+  test('无负荷数据时不出现「含力量」说明', () => {
+    const text = formatRunnerProfile({
+      ...fullProfile(),
+      ctl: null,
+      atl: null,
+      tsb: null,
+      tsbLabel: null,
+    });
+    expect(text).not.toMatch(/含力量/);
+  });
+
   test('跑力行: 有 30 天前值才带括号与趋势词', () => {
     const base2 = fullProfile();
     expect(formatRunnerProfile({ ...base2, vdotNow: 47, vdot30dAgo: null, vdotTrend: 'up' })).toMatch(

@@ -493,4 +493,33 @@ describeIfDb('真实库：训练负荷的合并口径 vs 跑步口径', () => {
     expect(row.km).toBe(28.32);
     expect(row.n).toBe(3);
   });
+
+  /**
+   * **第二十四类：注入 AI 的跑者画像里，跑量与负荷是两种口径。**
+   *
+   * `formatRunnerProfile` 的文本会进入**每一次**活动分析的 prompt。其中
+   * 生涯/近期/周环比来自 `getStats` + `getActivities(runningOnly)`（纯跑步），
+   * 负荷来自 `getCombinedTrainingLoads`（跑步 + 力量）。
+   *
+   * 这条守卫钉住「两个口径确实不同」：全历史跑步负荷 18122 / 合并 19788
+   * （差 1666，全来自力量训练）。若哪天相等，那句说明就成了噪音。
+   */
+  test('跑者画像：全历史合并负荷 ≠ 跑步负荷（力量贡献 1666）', () => {
+    const row = db
+      .prepare(
+        `SELECT
+           ROUND(SUM(CASE WHEN ${RUN} THEN COALESCE(training_load, 0) ELSE 0 END), 0) AS runLoad,
+           ROUND(SUM(COALESCE(training_load, 0)), 0) AS combinedLoad,
+           ROUND(SUM(CASE WHEN activity_type = 'strength_training'
+                          THEN COALESCE(training_load, 0) ELSE 0 END), 0) AS strengthLoad
+         FROM activities`,
+      )
+      .get() as { runLoad: number; combinedLoad: number; strengthLoad: number };
+
+    expect(row.runLoad).toBe(18122);
+    expect(row.combinedLoad).toBe(19788);
+    expect(row.strengthLoad).toBe(1666);
+    // 合并 ≡ 跑步 + 力量（这是 CTL/ATL/TSB 的口径）
+    expect(row.combinedLoad).toBe(row.runLoad + row.strengthLoad);
+  });
 });

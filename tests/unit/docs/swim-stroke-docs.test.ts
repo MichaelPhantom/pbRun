@@ -97,8 +97,8 @@ describe('docs/faq.md —— 缺陷 25 与判别式第二十问', () => {
     expect(faq).toMatch(/另一个消息层级/);
   });
 
-  test('判别式从十九句扩到二十七句', () => {
-    expect(faq).toMatch(/问二十七句/);
+  test('判别式从十九句扩到二十八句', () => {
+    expect(faq).toMatch(/问二十八句/);
     expect(faq).not.toMatch(/问十九句/);
     expect(faq).not.toMatch(/问二十句/);
     expect(faq).not.toMatch(/问二十一句/);
@@ -107,6 +107,7 @@ describe('docs/faq.md —— 缺陷 25 与判别式第二十问', () => {
     expect(faq).not.toMatch(/问二十四句/);
     expect(faq).not.toMatch(/问二十五句/);
     expect(faq).not.toMatch(/问二十六句/);
+    expect(faq).not.toMatch(/问二十七句/);
   });
 
   test('第二十问存在且指向消息层级', () => {
@@ -147,6 +148,11 @@ describe('docs/faq.md —— 缺陷 25 与判别式第二十问', () => {
   test('第二十七问存在且指向「同页其余卡是否吃同一数据源」（缺陷 36）', () => {
     expect(faq).toMatch(/^27\.\s/m);
     expect(faq).toMatch(/27\.[^\n]{0,90}同一页/);
+  });
+
+  test('第二十八问存在且指向「数字是否进 prompt」（缺陷 37）', () => {
+    expect(faq).toMatch(/^28\.\s/m);
+    expect(faq).toMatch(/28\.[^\n]{0,90}prompt/);
   });
 });
 
