@@ -573,13 +573,15 @@ describe('buildFollowupMessages', () => {
  * 动作名/重量/次数不可得）。缺了它们，AI 只能凭时长和心率编故事。
  */
 describe('buildAnalysisMessages — 力量训练', () => {
-  const strengthSteps = JSON.stringify(
-    Array.from({ length: 14 }, (_, i) => ({
-      duration_type: 'time',
-      duration_sec: i % 2 === 0 ? 40 : 20,
-      intensity: i % 2 === 0 ? 'active' : 'rest',
-    })),
-  );
+  // 复刻真实库「核心稳定性1」（14 步，末段 rest 为 open 无时长 → 计划 400s）
+  const strengthSteps = JSON.stringify([
+    ...Array.from({ length: 6 }, () => [
+      { duration_type: 'time', duration_sec: 40, intensity: 'active' },
+      { duration_type: 'time', duration_sec: 20, intensity: 'rest' },
+    ]).flat(),
+    { duration_type: 'time', duration_sec: 40, intensity: 'active' },
+    { duration_type: 'open', duration_sec: null, intensity: 'rest' },
+  ]);
 
   const strength = () =>
     fakeActivity({
@@ -610,8 +612,8 @@ describe('buildAnalysisMessages — 力量训练', () => {
     const [, user] = buildAnalysisMessages(strength(), []);
     // 计划名（模型要能说「这堂课是核心稳定性1」）
     expect(user.content).toContain('核心稳定性1');
-    // 组结构：「40s 做 / 20s 歇 × 7」—— 这是唯一能描述课表形态的真实数据
-    expect(user.content).toContain('40s 做 / 20s 歇 × 7');
+    // 组结构：真实形态是「× 6 → 40s 连续」（末段休息 open，不是整齐的 ×7）
+    expect(user.content).toContain('40s 做 / 20s 歇 × 6 → 40s 连续');
     // 有效组数
     expect(user.content).toMatch(/有效组数: 7/);
     // 强度域（TE 0.1 → recovery）
@@ -622,10 +624,10 @@ describe('buildAnalysisMessages — 力量训练', () => {
 
   test('计划时长与实际时长必须分开 (课表是一轮模板, 不是本次实际)', () => {
     const [, user] = buildAnalysisMessages(strength(), []);
-    // 计划 420s = 7:00, 实际 3609s = 1:00:09
-    expect(user.content).toMatch(/计划时长: 7:00/);
+    // 计划 400s = 6:40, 实际 3609s = 1:00:09
+    expect(user.content).toMatch(/计划时长: 6:40/);
     expect(user.content).toMatch(/实际时长: 1:00:09/);
-    // 绝不把 420s 当成「本次练了 7 分钟」
+    // 绝不把 400s 当成「本次练了 6 分 40 秒」
     expect(user.content).not.toMatch(/移动时长: 7:00/);
   });
 

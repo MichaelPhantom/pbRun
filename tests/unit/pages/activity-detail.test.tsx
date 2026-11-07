@@ -1106,13 +1106,22 @@ describe('分段序号与最快段标签 (位置/距离派生, 不用存储键)'
  * 硬造「深蹲 80kg × 5」就是假数据。
  */
 describe('力量训练活动详情', () => {
-  const CORE_STEPS = JSON.stringify(
-    Array.from({ length: 14 }, (_, i) => ({
-      duration_type: 'time',
-      duration_sec: i % 2 === 0 ? 40 : 20,
-      intensity: i % 2 === 0 ? 'active' : 'rest',
-    })),
-  );
+  /**
+   * 复刻**真实库**「核心稳定性1」的课表（activity 652761578, 14 步）。
+   *
+   * ⚠ 末段休息是 `open`（无 `duration_sec`）—— 若夹具写成整齐的 7×(40 做 + 20 歇)，
+   * 计划时长会算成 420s、结构会折叠成「× 7」，而生产数据实际是 **400s** 与
+   * 「× 6 → 40s 连续」。夹具比生产「干净」时，缺陷在测试里被合法化
+   * （见 `docs/testing-strategy.md` §6.5）。
+   */
+  const CORE_STEPS = JSON.stringify([
+    ...Array.from({ length: 6 }, () => [
+      { duration_type: 'time', duration_sec: 40, intensity: 'active' },
+      { duration_type: 'time', duration_sec: 20, intensity: 'rest' },
+    ]).flat(),
+    { duration_type: 'time', duration_sec: 40, intensity: 'active' },
+    { duration_type: 'open', duration_sec: null, intensity: 'rest' },
+  ]);
 
   const strengthActivity = {
     ...activity,
@@ -1158,8 +1167,8 @@ describe('力量训练活动详情', () => {
     expect(within(card).getAllByText('7').length).toBe(2);
     expect(within(card).getByText('有效组数')).toBeInTheDocument();
     expect(within(card).getByText('休息段')).toBeInTheDocument();
-    // 工作:休息 = 280/140 = 2.0:1
-    expect(within(card).getByText('2.0:1')).toBeInTheDocument();
+    // 工作:休息 = 280 / 120 = 2.3:1（末段休息 open 无时长，故不是 280/140）
+    expect(within(card).getByText('2.3:1')).toBeInTheDocument();
     // 结构类型
     expect(within(card).getByText(/循环\/间歇/)).toBeInTheDocument();
     // 强度域 (TE 0.1 → recovery)
@@ -1204,10 +1213,10 @@ describe('力量训练活动详情', () => {
 
     render(await page('652761578'));
     const card = screen.getByText('力量训练分析').closest('section')!;
-    // 计划 420s = 7:00, 实际 3609s = 60:09 —— 两个数字必须分开出现。
+    // 计划 400s = 6:40, 实际 3609s = 1:00:09 —— 两个数字必须分开出现。
     // 若把计划时长当实际, 「每次练多久」会少算 8 倍。
     // 「计划 7:00」「实际 60:09」两个 <span> 必须同时存在且数字不同
-    expect(within(card).getByText(/^计划$/).parentElement?.textContent).toContain('7:00');
+    expect(within(card).getByText(/^计划$/).parentElement?.textContent).toContain('6:40');
     expect(within(card).getByText(/^实际$/).parentElement?.textContent).toContain('1:00:09');
   });
 });

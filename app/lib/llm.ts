@@ -499,8 +499,8 @@ export function buildAnalysisMessages(
   // `app/lib/strength.ts` 头注释）。
   //
   // 计划时长与实际时长必须**分两行**：课表是「一轮」模板（真实库「核心稳定性1」
-  // 计划 420s 而实际 3609s，用户做了多轮），混成一行会让模型把 7 分钟当成「本次练了
-  // 7 分钟」，进而判定「训练量过低」。FIT 无 set 消息，轮数不可得，故不推断轮数。
+  // 计划 400s 而实际 3609s，用户做了多轮），混成一行会让模型把 6 分 40 秒当成「本次练了
+  // 6 分 40 秒」，进而判定「训练量过低」。FIT 无 set 消息，轮数不可得，故不推断轮数。
   const strengthProfile = isStrengthType(activity.activity_type)
     ? buildStrengthProfile(activity)
     : null;

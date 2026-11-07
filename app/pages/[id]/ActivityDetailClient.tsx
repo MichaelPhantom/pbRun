@@ -390,7 +390,7 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
           </div>
 
           <div className="mt-3 flex flex-wrap gap-2 border-t border-border pt-3 text-[11px] text-fg-muted">
-            {/* 计划 vs 实际: 课表是「一轮」模板（420s），用户实际做了 3609s 多轮。
+            {/* 计划 vs 实际: 课表是「一轮」模板（真实库「核心稳定性1」为 400s），用户实际做了 3609s 多轮。
                 两个数字必须分开，不能把计划时长当实际时长 —— 那会让「每次练多久」少算 8 倍。 */}
             <span>
               计划 <span className="tnum text-fg-secondary">{formatDuration(strengthProfile.plannedSeconds)}</span>

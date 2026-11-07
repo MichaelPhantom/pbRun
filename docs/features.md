@@ -1051,11 +1051,15 @@ avgPaceSecPerKm: 350 }` 三个数互相矛盾（350×7=2450≠2520），而 `Wea
 #### 组结构的真实形态（不要推断轮数）
 
 `workout_steps` 每步含 `duration_sec` + `intensity`（`active`/`interval` = 工作段，
-`rest`/`recovery` = 休息段）。典型「40s 做 + 20s 歇 ×7」（14 步）。
+`rest`/`recovery` = 休息段）。真实库最常见形态是 14 步（7 个 40s 工作段 + 6 个 20s 休息段
++ 1 个 `open` 尾段休息），计划时长合计 **400s**；`describeStrengthStructure` 把它压缩成
+「40s 做 / 20s 歇 × 6 → 40s 连续」。**不要写成 ×7** —— 末段休息没有时长，不是完整的一组。
 
-**关键事实**：计划时长（如 420s）远小于实际时长（3609s）—— 课表是**「一轮」模板**，
+**关键事实**：计划时长（真实库「核心稳定性1」为 **400s**，末段 rest 是 `open` 无时长）远小于
+实际时长（3609s）—— 课表是**「一轮」模板**，
 用户做了多轮。FIT 无 `set` 消息，**真实轮数不可得**，因此画像只报课表结构本身
-（`describeStrengthStructure` 输出「40s 做 / 20s 歇 × 7」），**不推断「做了 8 轮」**。
+（`describeStrengthStructure` 输出「40s 做 / 20s 歇 × 6 → 40s 连续」—— 末段休息是 `open`
+无时长，故不是整齐的 ×7），**不推断「做了 8 轮」**。
 
 #### AI 上下文（力量课不走「非跑步」通用分支的默认值）
 
@@ -1065,9 +1069,9 @@ avgPaceSecPerKm: 350 }` 三个数互相矛盾（350×7=2450≠2520），而 `Wea
 | 注入项 | 值 | 为什么必须有 |
 |---|---|---|
 | `力量训练计划` | `workout_name` | 模型要能说「这堂课是核心稳定性1」 |
-| `组结构` | `describeStrengthStructure` 输出「40s 做 / 20s 歇 × 7」 | 唯一能描述课表形态的真实数据 |
+| `组结构` | `describeStrengthStructure` 输出「40s 做 / 20s 歇 × 6 → 40s 连续」 | 唯一能描述课表形态的真实数据 |
 | `有效组数 / 休息段 / 工作:休息` | 画像派生 | 判断课表类型与刺激性质 |
-| `计划时长 / 实际时长`（**分两行**） | 420s vs 3609s | 混成一行会让模型把 7 分钟当成本次训练量 |
+| `计划时长 / 实际时长`（**分两行**） | 6:40 vs 1:00:09 | 混成一行会让模型把 6 分 40 秒当成本次训练量 |
 | `强度域`（按 TE 判定） | `recovery/base/tempo/high` | 力量心率滞后，判强度必须看 TE |
 | 数据边界句 | 「重量与次数不可得」 | 不写，模型会「合理推断」出深蹲 80kg×5 |
 
@@ -1479,6 +1483,9 @@ AI 教练有两种**能力维度**，它们的数据单位与结论都不同，*
 | **力量训练口径（第三套）** | `app/lib/strength.ts`（画像/强度域/负荷/合并的唯一真源）、`db.getStrengthLoads`·`getStrengthSessions`·`getCombinedTrainingLoads` | `tests/unit/lib/strength.test.ts`（32 例）、`strength-merge.test.ts`（9 例：负荷相加、里程/时长/次数只取跑步、只有力量的日子保留）、`strength-summary.test.ts`（10 例）、`db-strength.test.ts`（12 例：SQL 只查 `strength_training`、分页、空值兜底） |
 | **洞察页负荷口径必须合并** | `insight-service.ts` 的 `getCombinedTrainingLoads` | `tests/unit/lib/insight-services.test.ts`（合并入口被调用、跑步口径 `getDailyLoads` 未被调用、EWMA 预热窗口不变） |
 | **力量负荷双实现一致性** | `app/lib/strength.ts`（TS）↔ `scripts/common/strength-load.js`（JS 镜像，同步脚本用） | `tests/unit/lib/strength-sync-parity.test.ts`（穷举 12×12 TE×HR、11×5 时长×域、7×7 时间基数；任一侧改阈值而另一侧没跟上 → 红灯） |
+| **力量课 AI 数据块必须注入真实可推导项** | `llm.ts` 的 `isStrengthType` 分支（计划名 / 组结构 / 有效组数·休息段·工作:休息 / 计划时长 vs 实际时长 / 强度域 / 数据边界句） | `tests/unit/lib/llm.test.ts`（5 例：含计划名与组结构、计划 6:40 与实际 1:00:09 分行、禁止编造容量、无课表不输出组结构行、跑步不出现力量专属行） |
+| **提示词不得引用数据里不存在/已新增的量** | `coach-prompts.ts` 的 `SINGLE_NON_RUNNING_PROMPT`（区分「只有力量训练有派生负荷」与「游泳/球类/爬楼不计算」；禁止编造重量次数；要求引用组结构/强度域） | `tests/unit/lib/coach-prompt-data-alignment.test.ts`（4 例：不再声称非跑步不计算负荷、要求引用派生负荷、要求引用组结构/强度域、禁止编造容量） |
+| **追问建议必须按运动类型分流** | `followup-suggestions.ts` 的 `strength` 标志 + `AiAnalysis.tsx` 接线 | `tests/unit/components/followup-suggestions.test.ts`（6 例：力量课不问心率漂移/有氧能力、改问组结构/强度域/负荷竞争、不出现「交叉训练」泛泛说法、安全兜底恒最后、`strength` 缺省行为不变） |
 | **首页「跑步天数」判定必须是 `runs>0`** | `app/page.tsx` 的 `thisMonthRuns` | `tests/unit/pages/home-page.test.tsx`（合并口径下「只做力量」的日子 `load>0` 但 `runs=0`，用 `load` 判定会误算成跑步日） |
 | **UI 不把非跑步指标当跑步指标** | `ListClient` / `ActivityDetailClient` / `RecentActivityCard` / `ActivityInsightPanel` / `ActivityTrendCharts` | `tests/unit/components/list-client.test.tsx` / `tests/unit/pages/activity-detail.test.tsx` / `tests/unit/components/recent-activity-card.test.tsx` / `tests/unit/components/activity-insight-panel.test.tsx`（非跑步不渲染「最快分段/主课均配速」卡片） / `tests/unit/components/activity-trend-charts.test.tsx`（非跑步不渲染配速/步频/步幅图） |
 | **趋势卡标题不得空承诺** | `ActivityTrendCharts.trendChartTitle` / `trendChartKinds`（组件与标题共用同一判定） | `tests/unit/components/activity-trend-charts.test.tsx`（标题只列出真的会渲染的图；无海拔数据不说「海拔 趋势」） |
