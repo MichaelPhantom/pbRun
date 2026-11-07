@@ -180,6 +180,13 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
     ...(running
       ? [{ value: activity.vdot_value != null ? activity.vdot_value.toFixed(1) : '--', label: '即时跑力' }]
       : []),
+    // Garmin 官方 VO2max。真实库 238/246 条跑步活动有值，而本地推算的
+    // `vdot_value` 只有 122/246 —— **116 条跑步活动此前「即时跑力」显示 `--`
+    // 而官方值就在库里**。两者不能互算（见 coach-prompts 的「两个跑力不能互算」），
+    // 标签必须写明「官方」而不是又一个「跑力」，否则用户会以为同一指标给了两个数。
+    ...(running && activity.garmin_vo2max != null
+      ? [{ value: activity.garmin_vo2max.toFixed(1), unit: 'ml/kg/min', label: 'Garmin VO2max' }]
+      : []),
     // 距离格: `> 0` 才渲染。`0` 表示**该运动没有距离语义**（力量训练按组、
     // 爬楼按层、HIIT/跳绳按次；真实库 97/353 条活动 distance=0），恒为 0 的
     // 格子显示 '--' 会让人以为同步失败 —— 与下方「平均功率」同一原则。
@@ -216,8 +223,35 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
       : []),
     { value: durationMinutes > 0 ? (durationMinutes % 1 === 0 ? String(Math.round(durationMinutes)) : durationMinutes.toFixed(1)) : '--', unit: durationMinutes > 0 ? '分' : undefined, label: '时长' },
     { value: activity.average_heart_rate != null ? String(Math.round(activity.average_heart_rate)) : '--', unit: activity.average_heart_rate != null ? 'bpm' : undefined, label: '平均心率' },
+    // 最大心率。真实库 **353/353** 有值，此前只有 AI 数据块用、详情页从不展示 ——
+    // 「平均 158 / 最高 176」是判断「这次有没有顶到极限」的唯一组合，只给平均值
+    // 会让用户以为整堂课都是均速均强。与平均心率成对出现，不单独占一行。
+    ...(activity.max_heart_rate != null
+      ? [{ value: String(Math.round(activity.max_heart_rate)), unit: 'bpm', label: '最大心率' }]
+      : []),
     { value: activity.training_load != null ? activity.training_load.toFixed(1) : '--', label: '训练负荷' },
+    // 训练效果（TE）。真实库 **353/353** 有值（有氧 1.5–5.0，无氧 142/353 有值）。
+    // 这是 Garmin 对整课生理刺激的官方评估，也是**非跑步唯一的强度量化手段** ——
+    // 非跑步提示词明确要求「改用训练效果（TE）+ 心率区间分布 + 热量量化强度」，
+    // 而详情页此前三项一个都不展示，模型说的数用户在页面上找不到出处。
+    ...(activity.total_training_effect != null
+      ? [{ value: activity.total_training_effect.toFixed(1), label: '有氧训练效果' }]
+      : []),
+    ...(activity.total_anaerobic_training_effect != null && activity.total_anaerobic_training_effect > 0
+      ? [{ value: activity.total_anaerobic_training_effect.toFixed(1), label: '无氧训练效果' }]
+      : []),
+    // 热量。真实库 **353/353** 有值（含全部 107 条非跑步活动）。与训练效果同一理由：
+    // 提示词让模型用它量化非跑步强度，页面上却看不到。
+    ...(activity.calories != null
+      ? [{ value: String(Math.round(activity.calories)), unit: 'kcal', label: '热量' }]
+      : []),
     { value: activity.total_ascent != null ? String(Math.round(activity.total_ascent)) : '--', unit: activity.total_ascent != null ? 'm' : undefined, label: '累计爬升' },
+    // 累计下降。真实库 **268/353** 有值（跑步 238 + 爬楼 30）。只给「累计爬升」
+    // 会漏掉下坡的离心负荷 —— 而离心收缩正是长下坡后延迟性酸痛（DOMS）的来源，
+    // 也是「爬升 300m 但下降也是 300m（折返）」与「净爬升 300m（单向）」的分水岭。
+    ...(activity.total_descent != null
+      ? [{ value: String(Math.round(activity.total_descent)), unit: 'm', label: '累计下降' }]
+      : []),
     // 海拔净高差 (max - min)。真实库 234/348 条有值（228 跑步 + 6 田径场）, 三列
     // NULL 模式完全一致。此前只有 `avg_altitude` 被 AI 用过一次, `max_altitude` /
     // `min_altitude` **零消费** —— 「这趟起伏有多大」在 UI 与 prompt 里都不存在。
@@ -248,6 +282,17 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
     // 功率体重比 / 强度因子 IF / TSS: 三项 DB 列 **0/348** 有值, 但全部可推算
     // （见 app/lib/power.ts 的实证）。旧实现按「设备从不产出」整项略去 —— 于是
     // 用户看不到「这次跑得多用力」，而 AI prompt §5 明确要求用训练负荷评估强度。
+    //
+    // **IF 与 TSS 必须连同它们的分子/分母一起给出**，否则无法自证：
+    // IF = NP ÷ FTP，TSS = 秒/3600 × IF² × 100。真实库 NP 246/246、FTP 246/246
+    // 都有值，而页面上只显示 IF 0.82 —— 用户既看不到 NP 也看不到 FTP，
+    // 「0.82 是怎么来的」无从核对（与「均配速必须能由总时长/总距离自证」同一纪律）。
+    ...(power.ftpW != null
+      ? [{ value: String(power.ftpW), unit: 'W', label: 'FTP' }]
+      : []),
+    ...(activity.normalized_power != null
+      ? [{ value: String(Math.round(activity.normalized_power)), unit: 'W', label: '标准化功率' }]
+      : []),
     ...(power.powerToWeight != null
       ? [{ value: power.powerToWeight.toFixed(2), unit: 'W/kg', label: '功率体重比' }]
       : []),
@@ -272,6 +317,13 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
     // 只用小时会把 3.5 天写成「84 小时」。
     ...(recovery
       ? [{ value: recovery.value, unit: recovery.unit, label: '建议恢复' }]
+      : []),
+    // 训练收益。真实库 **353/353** 有值（8 类：有氧效率 139 / 通用 64 / 有氧阈值 58 /
+    // VO2max 29 / 有氧基础 24 / 无氧爆发力 16 / 有氧高负荷 14 / 无氧耐力 9）。
+    // 这是 Garmin 对「这次练到了什么」的官方结论，比任何派生指标都直接；
+    // AI 数据块早已输出、详情页却从未展示。与「建议恢复」成对，构成官方结论区。
+    ...(activity.primary_benefit
+      ? [{ value: activity.primary_benefit, label: '训练收益' }]
       : []),
   ];
 

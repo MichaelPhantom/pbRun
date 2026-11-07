@@ -95,9 +95,15 @@ const activity = {
   elapsed_time: 2800,
   average_pace: 350,
   average_heart_rate: 158,
+  max_heart_rate: 176,
   vdot_value: 46.2,
   training_load: 180.5,
   total_ascent: 64.4,
+  total_descent: 61.2,
+  total_training_effect: 3.6,
+  total_anaerobic_training_effect: 0.8,
+  calories: 542,
+  garmin_vo2max: 51.4,
   average_cadence: 178,
   average_stride_length: 1.08,
   average_power: 280,
@@ -239,7 +245,7 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
     expect(screen.getByText('#1001')).toBeInTheDocument();
     expect(screen.getByText('路跑')).toBeInTheDocument();
 
-    // 概览 11 项 (含「建议恢复」)
+    // 概览指标（含「建议恢复」与 2026-11 补的官方字段）
     const overview = screen.getByText('活动概览').closest('section')!;
     for (const label of [
       '即时跑力',
@@ -253,6 +259,11 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
       '步幅',
       '平均功率',
       '建议恢复',
+      // 2026-11 补齐：全部 353/353（或 268/353）有值却零展示
+      '最大心率',
+      '有氧训练效果',
+      '热量',
+      '累计下降',
     ]) {
       expect(within(overview).getByText(label)).toBeInTheDocument();
     }
@@ -520,6 +531,85 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
     await waitFor(() => expect(screen.getByText('主课')).toBeInTheDocument());
   });
 
+  /**
+   * 概览「有值就展示」的判别式（2026-11 审计）。
+   *
+   * 这一族缺陷：字段在库里 **353/353** 有值、AI 数据块也给了模型，但详情页从不展示 ——
+   * 用户看到模型说「训练效果 3.6、消耗 542 kcal」，却在页面上找不到出处。
+   *
+   * 真实库覆盖（activities 全 353 条）：
+   * | 字段 | 覆盖 | 缺陷性质 |
+   * |------|------|----------|
+   * | `max_heart_rate` | 353/353 | 只有平均值，无法判断「有没有顶到极限」 |
+   * | `total_training_effect` | 353/353 | 非跑步唯一的强度量化手段（提示词明确要求用它） |
+   * | `calories` | 353/353 | 同上，提示词要求「TE + 区间 + 热量」量化非跑步强度 |
+   * | `total_descent` | 268/353 | 只给爬升会漏掉下坡的离心负荷 |
+   * | `garmin_vo2max` | 238/246 跑步 | 116 条跑步活动「即时跑力」为 -- 而官方值在库里 |
+   */
+  test('高覆盖官方字段必须展示: 最大心率/训练效果/热量/累计下降/Garmin VO2max', async () => {
+    render(await page('1007'));
+    const overview = screen.getByText('活动概览').closest('section')!;
+    // 最大心率与平均心率成对（158 / 176）
+    expect(within(overview).getByText('最大心率')).toBeInTheDocument();
+    expect(within(overview).getByText('176')).toBeInTheDocument();
+    // 训练效果：有氧 3.6 / 无氧 0.8（无氧为 0 时整格不渲染，见下一条）
+    expect(within(overview).getByText('有氧训练效果')).toBeInTheDocument();
+    expect(within(overview).getByText('3.6')).toBeInTheDocument();
+    expect(within(overview).getByText('无氧训练效果')).toBeInTheDocument();
+    expect(within(overview).getByText('0.8')).toBeInTheDocument();
+    // 热量
+    expect(within(overview).getByText('热量')).toBeInTheDocument();
+    expect(within(overview).getByText('542')).toBeInTheDocument();
+    expect(within(overview).getByText('kcal')).toBeInTheDocument();
+    // 累计下降（不是净高差，两者语义不同）
+    expect(within(overview).getByText('累计下降')).toBeInTheDocument();
+    expect(within(overview).getByText('61')).toBeInTheDocument();
+    // Garmin 官方 VO2max 与本地推算的「即时跑力」必须并列且标签不同
+    expect(within(overview).getByText('Garmin VO2max')).toBeInTheDocument();
+    expect(within(overview).getByText('51.4')).toBeInTheDocument();
+    expect(within(overview).getByText('即时跑力')).toBeInTheDocument();
+  });
+
+  test('无氧训练效果 = 0 时不渲染该格 (有氧课为 0 是常态, 显示 0.0 像缺数据)', async () => {
+    db.getActivityById.mockReturnValue({ ...activity, total_anaerobic_training_effect: 0 });
+    render(await page('1008'));
+    const overview = screen.getByText('活动概览').closest('section')!;
+    expect(within(overview).queryByText('无氧训练效果')).toBeNull();
+    // 有氧效果照常
+    expect(within(overview).getByText('有氧训练效果')).toBeInTheDocument();
+  });
+
+  test('缺 Garmin VO2max 的跑步活动不渲染该格, 但仍给本地推算的即时跑力', async () => {
+    // treadmill_running 6/6 全无 garmin_vo2max —— 真实库的典型形态
+    db.getActivityById.mockReturnValue({ ...activity, garmin_vo2max: null });
+    render(await page('1009'));
+    const overview = screen.getByText('活动概览').closest('section')!;
+    expect(within(overview).queryByText('Garmin VO2max')).toBeNull();
+    expect(within(overview).getByText('即时跑力')).toBeInTheDocument();
+    // 训练收益 353/353 有值（8 类），与「建议恢复」同属 Garmin 官方结论
+    expect(within(overview).getByText('训练收益')).toBeInTheDocument();
+    expect(within(overview).getByText('有氧阈值')).toBeInTheDocument();
+  });
+
+  test('非跑步活动不渲染 Garmin VO2max (官方值仅跑步产出; 室内骑行那 1 条是误写)', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'lap_swimming',
+      sport_type: '游泳',
+      sub_sport_type: '泳池游泳',
+      garmin_vo2max: 55,
+      vdot_value: null,
+    });
+    render(await page('1010'));
+    const overview = screen.getByText('活动概览').closest('section')!;
+    expect(within(overview).queryByText('Garmin VO2max')).toBeNull();
+    expect(within(overview).queryByText('55.0')).toBeNull();
+    // 但训练效果/热量/最大心率与运动类型无关, 仍然展示
+    expect(within(overview).getByText('有氧训练效果')).toBeInTheDocument();
+    expect(within(overview).getByText('热量')).toBeInTheDocument();
+    expect(within(overview).getByText('最大心率')).toBeInTheDocument();
+  });
+
   test('非整数公里 → 距离保留两位小数 (distance % 1 !== 0 侧)', async () => {
     db.getActivityById.mockReturnValue({ ...activity, distance: 8.46 });
     render(await page('1006'));
@@ -785,9 +875,45 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
     expect(within(overview).getByText('功率体重比')).toBeInTheDocument();
     expect(within(overview).getByText('4.26')).toBeInTheDocument();
     expect(within(overview).getByText('W/kg')).toBeInTheDocument();
+    // IF 与 TSS 必须能自证: IF = NP ÷ FTP (303/371 = 0.8166 → 0.82),
+    // TSS = 2201/3600 × 0.82² × 100 = 41.1 → 41。两个输入都必须出现在页面上,
+    // 否则用户只看到一个 0.82 无从核对（与「均配速可由总时长/总距离自证」同一纪律）。
+    expect(within(overview).getByText('标准化功率')).toBeInTheDocument();
+    expect(within(overview).getByText('303')).toBeInTheDocument();
+    expect(within(overview).getByText('FTP')).toBeInTheDocument();
+    expect(within(overview).getByText('371')).toBeInTheDocument();
     // 瞬时峰值功率: 437 / 292 = 1.5 倍 → 合理, 展示且标签带「瞬时」
     expect(within(overview).getByText('瞬时峰值功率')).toBeInTheDocument();
     expect(within(overview).getByText('437')).toBeInTheDocument();
+  });
+
+  test('非跑步活动不渲染 FTP/标准化功率 (非跑步 0/107 有功率), 但官方训练效果照常', async () => {
+    // 真实库非跑步活动 average_power / normalized_power 全为 NULL（0/107），
+    // power_zone_boundaries 也全是 [null×8]。这四格必须整块不渲染，而不是显示 `--`。
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'basketball',
+      sport_type: '篮球',
+      sub_sport_type: '通用',
+      name: '九龙坡区 篮球',
+      distance: 1.66581,
+      average_power: null,
+      max_power: null,
+      normalized_power: null,
+      power_zone_boundaries: '[null,null,null,null,null,null,null,null]',
+      functional_threshold_power: null,
+      user_weight: null,
+      average_cadence: 16,
+      vdot_value: null,
+    });
+    render(await page('3010'));
+    const overview = screen.getByText('活动概览').closest('section')!;
+    for (const label of ['FTP', '标准化功率', '功率体重比', '强度因子 IF', 'TSS', '瞬时峰值功率', '平均功率']) {
+      expect(within(overview).queryByText(label)).toBeNull();
+    }
+    // 与运动类型无关的官方字段仍展示（这是非跑步唯一的强度量化手段）
+    expect(within(overview).getByText('有氧训练效果')).toBeInTheDocument();
+    expect(within(overview).getByText('热量')).toBeInTheDocument();
   });
 
   test('传感器尖峰 (max_power 12.6 倍均值) 不展示, 不给模型/用户怪物数据', async () => {

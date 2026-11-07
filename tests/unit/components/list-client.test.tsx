@@ -214,6 +214,58 @@ describe('ListClient 活动列表 (交互/筛选/无限滚动)', () => {
     expect(run).toHaveTextContent("5'00''");
   });
 
+  /**
+   * 游泳卡片必须给**秒/100m**（行业口径），而不是只给时长。
+   *
+   * 旧实现 `running && formatPaceShort(a.average_pace)` 对游泳整段不渲染 ——
+   * 「游得多快」在列表页无处可看，必须逐个点进详情页。但也不能直接把
+   * `average_pace`（秒/公里，真实库泳池 1670 s/km）展示出来：量级差 10 倍
+   * 且不是游泳者的语言。
+   *
+   * 判别式：1.5 km / 2505 s = 2.1557 km/h → 360 / 2.1557 = 167.0 s/100m = 2:47。
+   */
+  test('游泳卡片展示「秒/100m」而不是秒/公里 (行业口径)', () => {
+    renderList({
+      initialActivitiesByMonth: {
+        '2026-09': [
+          act({
+            activity_type: 'lap_swimming',
+            name: '泳池',
+            distance: 1.5,
+            average_pace: 1670,
+            duration: 2505,
+            moving_time: 2505,
+          }),
+        ],
+      },
+    });
+    const swim = screen.getByRole('button', { name: /泳池/ });
+    expect(swim).toHaveTextContent('2:47/100m');
+    // 秒/公里绝不允许出现（1670s/km = 27'50''）
+    expect(swim).not.toHaveTextContent("27'50''");
+    expect(swim).not.toHaveTextContent('/km');
+  });
+
+  test('非游泳非跑步卡片不给 100m 配速 (篮球/力量没有 100m 语义)', () => {
+    renderList({
+      initialActivitiesByMonth: {
+        '2026-09': [
+          act({
+            activity_id: 2001,
+            activity_type: 'basketball',
+            name: '篮球',
+            distance: 1.66581,
+            average_pace: 1901,
+            duration: 3167,
+            moving_time: 3167,
+          }),
+        ],
+      },
+    });
+    const ball = screen.getByRole('button', { name: /篮球/ });
+    expect(ball).not.toHaveTextContent('/100m');
+  });
+
   test('非跑步活动无名称时按运动类型兜底命名 (不再一律「跑步」)', () => {
     renderList({
       initialActivitiesByMonth: {

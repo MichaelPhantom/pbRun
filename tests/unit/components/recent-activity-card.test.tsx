@@ -60,6 +60,66 @@ describe('RecentActivityCard', () => {
     expect(screen.getByText('泳池游泳')).toBeInTheDocument();
   });
 
+  /**
+   * 游泳卡片给**秒/100m**（行业口径）。旧实现非跑步整段不显示配速，
+   * 首页「最近活动」对游泳只有「时长 + 类型徽标」，看不出游得多快。
+   *
+   * 判别式（真实库 630387237）：2.05 km / 2911 s → 2.5352 km/h
+   * → 360 / 2.5352 = 142.0 s/100m = `2:22/100m`。
+   */
+  test('游泳卡片展示「秒/100m」而不是秒/公里', () => {
+    const { container } = render(
+      <RecentActivityCard
+        activity={act({
+          activity_type: 'lap_swimming',
+          name: '泳池游泳',
+          distance: 2.05,
+          duration: 3425,
+          moving_time: 2911,
+          average_pace: 1420,
+          average_speed: 2.5352112676056335,
+        })}
+      />,
+    );
+    expect(container.textContent).toContain('2:22/100m');
+    // 时间基数必须是计时器时间 (2911s)：用经过时间 3425s 会算成 2:47
+    expect(container.textContent).not.toContain('2:47/100m');
+    // 秒/公里绝不允许出现（1420s/km = 23'40''）
+    expect(container.textContent).not.toContain("23'40''");
+  });
+
+  test('缺 distance 时游泳用 average_speed 兜底 (仍给 100m 而非空白)', () => {
+    const { container } = render(
+      <RecentActivityCard
+        activity={act({
+          activity_type: 'open_water',
+          name: '公开水域',
+          distance: null as never,
+          moving_time: 0,
+          duration: 1800,
+          average_speed: 1.3362068965517242,
+        })}
+      />,
+    );
+    expect(container.textContent).toContain('4:29/100m');
+  });
+
+  test('非游泳非跑步不给 100m 配速 (篮球/力量没有 100m 语义)', () => {
+    const { container } = render(
+      <RecentActivityCard
+        activity={act({
+          activity_type: 'basketball',
+          name: '篮球',
+          distance: 1.66581,
+          moving_time: 3167,
+          duration: 3167,
+          average_speed: 1.8935636248815917,
+        })}
+      />,
+    );
+    expect(container.textContent).not.toContain('/100m');
+  });
+
   test('非跑步且无名称时按运动类型兜底命名 (不再一律「跑步」)', () => {
     render(<RecentActivityCard activity={act({ activity_type: 'basketball', name: '' })} />);
     expect(screen.getByRole('heading', { name: /篮球 2026/ })).toBeInTheDocument();
