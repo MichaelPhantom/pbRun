@@ -539,12 +539,25 @@ export default function ListClient({
                       新条件重算一遍而数据仍是旧的。
                     */}
                     {(() => {
+                      const filtered = Boolean(appliedFilter.type || appliedFilter.q);
                       const km = Number(
-                        appliedFilter.type || appliedFilter.q
-                          ? summary.totalDistance
-                          : summary.runDistance ?? summary.totalDistance,
+                        filtered ? summary.totalDistance : summary.runDistance ?? summary.totalDistance,
                       );
-                      return km > 0 ? <span>{km.toFixed(2)} 公里</span> : null;
+                      if (km > 0) return <span>{km.toFixed(2)} 公里</span>;
+                      // **没有距离语义时用时长兜底**（第七层根因）。
+                      //
+                      // 力量训练/爬楼/HIIT/跳绳的 `distance` 恒为 0，按上面的纪律
+                      // 距离块整块不渲染 —— 于是筛到这些类型时月卡只剩一个「N 次」。
+                      // 而计数不表达训练量：4 次 20 分钟和 4 次 200 分钟在月卡上
+                      // 长得一模一样。真实库 2026-09 力量课 4 次共 120 分钟、
+                      // 2026-01 爬楼 16 次共 306 分钟，原本都只显示「N 次」。
+                      //
+                      // 时长**不区分口径**（与里程不同）：所有运动的时长都是真实
+                      // 训练时间，不存在「游泳时长混进跑量」那类语义冲突。所以这里
+                      // 直接用 `totalDuration`，不需要 `runDuration` 这样的对称字段。
+                      // 缺失（旧 API 响应）时返回 null，行为与改动前一致。
+                      const sec = Number(summary.totalDuration);
+                      return sec > 0 ? <span>{formatDuration(sec)}</span> : null;
                     })()}
                     {/* 次数给全类型: 与展开后的卡片数严格一致, 另标出其中非跑步的条数 */}
                     <span>{summary.count} 次</span>

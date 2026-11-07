@@ -390,7 +390,10 @@ export function buildAnalysisMessages(
         const m = l.distance;
         // 0 距离休息段的 cycles 为 0，不输出（那是「没有划水/没有跳」，不是「0 次」）
         if (l.total_cycles > 0) {
-          // 游泳用「划」，跳绳用「跳」，爬楼用「步」—— 同一个字段三种单位
+          // 单位从白名单的**散文单位**去掉量词「次」得到：游泳「划水」、跳绳「跳跃」、
+          // 爬楼「步」（输出「55划水」「189跳跃」「307步」）。不要在这里按类型
+          // 硬编码 —— 第十一类缺陷的修法就是「单位跟着语义走」，新增一种计数运动
+          // 只需改 `cycles.ts` 的白名单。
           const unitChar = cycleSem.unit.replace(/^次/, '');
           parts.push(`${Math.round(l.total_cycles)}${unitChar}`);
           if (m != null && m > 0 && cycleSem.unit === '次划水') {

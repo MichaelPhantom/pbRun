@@ -534,6 +534,8 @@ export async function registerTools(server: McpServer): Promise<void> {
         'totalDistance 里，不要读成「这个月没运动」。' +
         'typeBreakdown 给出该月各运动类型的条数（降序, 空 activity_type 归入 running）, ' +
         '用来说明「这个月除了跑步还有什么」—— 只在未筛选时完整。' +
+        'totalDuration 是该月**全类型总时长（秒）**，时间基数为计时器时间（moving_time 优先），' +
+        '与 count 同口径 —— 力量训练/爬楼/HIIT/跳绳的 distance 恒为 0，时长是它们唯一的训练量。' +
         '可按 type（原始 activity_type 键, 如 strength_training）与 q（名称或运动类型中文名）' +
         '跨月过滤, 不匹配的月份不会出现。type 传 `all` 或留空 = 不过滤。距离单位为公里。',
       inputSchema: {

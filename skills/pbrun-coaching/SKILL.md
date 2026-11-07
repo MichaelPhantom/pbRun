@@ -20,6 +20,14 @@ description: 分析 pbRun (Garmin) 跑步数据出教练诊断报告、查最新
    （含游泳/球类/力量）。真实库 2026-08 全类型 199.60km 而跑步 197.55km，用 totalDistance
    当跑量会虚高 2.05km（1 条泳池游泳）。反过来按非跑步类型（如 `type=lap_swimming`）筛选时
    `runDistance` 恒为 0 —— 此时该类里程在 `totalDistance` 里，**不要读成「这个月没运动」**。
+   ⚠️ **力量/爬楼/HIIT/跳绳的 `distance` 恒为 0，训练量要看 `totalDuration`**（秒，全类型、
+   计时器口径）。修复前这些类型的月卡只有一个「N 次」，而 4 次 20 分钟和 4 次 200 分钟
+   长得一模一样。真实库 2026-09 力量课 4 次共 120 分钟、2026-01 爬楼 16 次共 306 分钟。
+   注意它与 `get_stats` 的 `totalDuration` **口径不同**（后者只算跑步）：全类型 25750 秒
+   vs 跑步 12150 秒是刻意的，别当成数据错误。
+   ⚠️ **`typeBreakdown` 用来说「这个月除了跑步还有什么」**（`[{type, count}]`，降序）。
+   只在**未筛选**时完整 —— 按 `type`/`q` 筛过后返回的就是被筛的那部分，「其他」不存在了。
+   解读非跑步月份时先看它，不要用 `list_activities` 首页结果推断类型构成。
 2. **能力趋势**：`get_vdot_trend groupBy=week` + `get_vdot_history`（默认 50 条，返回带 total/returned，没取全用 offset 翻）。
 3. **强度结构**：`get_hr_zone_analysis groupBy=month startDate/endDate`（返回里的 zoneRanges 基于**该跑者 MAX_HR** 的 BPM 边界，不是通用值）+ `get_pace_zone_analysis startDate/endDate`（vdot 缺省取最新活动）。
 4. **负荷/恢复**：`get_training_load_analysis days=28` → ACWR、连续训练/休息日、每日负荷。

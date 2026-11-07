@@ -1283,6 +1283,46 @@ describe('buildAnalysisMessages — total_cycles 语义白名单', () => {
     expect(user.content).not.toContain('m/划');
   });
 
+  /**
+   * **分段计数的单位必须跟着运动语义走**，且不得在调用方硬编码。
+   *
+   * 旧注释写「游泳用『划』，跳绳用『跳』，爬楼用『步』」，但代码是
+   * `cycleSem.unit.replace(/^次/, '')` —— 实际输出「划水 / 跳跃 / 步」。
+   * 注释与实现不符本身不致命，但它暴露了「没有守卫盯着真实输出」：
+   * 若有人真按注释改成「跳」，跳绳分段会变成「189跳」，而单位来源
+   * （`cycles.ts` 白名单）就不再是唯一来源了。
+   *
+   * 这里盯**用户/模型看到的字面**（分段行里的 `N<单位>`），不是变量名。
+   */
+  test('跳绳分段单位是「跳跃」（189跳跃，不是「189跳」也不是「189次」）', () => {
+    const laps = [
+      { activity_id: 1, lap_index: 0, distance: 0, duration: 99, total_cycles: 189 },
+    ] as ActivityLap[];
+    const [, user] = buildAnalysisMessages(
+      fakeActivity({ activity_type: 'jump_rope', distance: 0, total_cycles: 189, moving_time: 99 }),
+      laps,
+    );
+    expect(user.content).toContain('189跳跃');
+    // 只盯**分段行**：活动级还有一行「总跳跃次数: 189 次」，那是散文形态
+    // （带量词「次」是正确的）。全局 `not.toMatch(/189\s*次/)` 会撞上它 ——
+    // 这正是「断言要盯用户看到的那一行」的反面教材。
+    const segLine = user.content.split('\n').find((l) => l.includes('189跳跃'));
+    expect(segLine).toBeDefined();
+    expect(segLine).not.toContain('次');
+    expect(segLine).not.toContain('189跳 ');
+  });
+
+  test('爬楼分段单位是「步」（307步）', () => {
+    const laps = [
+      { activity_id: 1, lap_index: 0, distance: 0, duration: 331, total_cycles: 307 },
+    ] as ActivityLap[];
+    const [, user] = buildAnalysisMessages(
+      fakeActivity({ activity_type: 'floor_climbing', distance: 0, total_ascent: 43, total_cycles: 307 }),
+      laps,
+    );
+    expect(user.content).toContain('307步');
+  });
+
   test('跳绳分段不输出「N划」（跳跃不是划水）', () => {
     const laps = [
       { activity_id: 1, lap_index: 0, distance: 0, duration: 60, total_cycles: 95 },

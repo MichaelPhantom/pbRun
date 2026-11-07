@@ -2057,6 +2057,81 @@ describe('total_cycles 语义白名单（第十一类缺陷）', () => {
     expect(within(overview).getByText('349')).toBeInTheDocument();
   });
 
+  /**
+   * 分段表列头的**单位行**必须与标签行互补，不能重复。
+   *
+   * `DataTable` 把 `unit` 渲染成标签下方的小字（`th` 里两行）。而
+   * `cycleSemanticOf().unit` 是为卡片散文设计的（「189 次跳跃」「307 步」），
+   * 直接当表格单位就变成：
+   *
+   * | 类型 | 修复前列头 | 问题 |
+   * |------|-----------|------|
+   * | 爬楼 | 步数 / 步 | 还行（「步」是量词也是名词，勉强可读） |
+   * | 跳绳 | 跳跃次数 / 次跳跃 | 名词说两遍 |
+   * | 游泳 | 划水次数 / 次 | ✅ 但靠调用方硬编码 `swimming ? '次' : unit` 特例 |
+   *
+   * 断言盯用户看到的**字面**：`columnheader` 的可访问名会把两行拼起来，
+   * 所以爬楼必须能取到「步数 步」而不是「步数步」（`name` 按空格归一后匹配）。
+   */
+  test('跳绳分段表列头是「跳跃次数 / 次」，不是「跳跃次数 / 次跳跃」', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'jump_rope',
+      sport_type: '通用',
+      distance: 0,
+      total_cycles: 189,
+      vdot_value: null,
+    });
+    db.getActivityLaps.mockReturnValue([
+      { ...laps[0], id: 81, lap_index: 1, distance: 0, total_cycles: 189 },
+    ]);
+    render(await page('5201'));
+    const table = screen.getByRole('table');
+    const header = within(table).getByRole('columnheader', { name: /跳跃次数/ });
+    // 列头文字必须**只出现一次**「跳跃」这个名词 —— 标签里已说过，单位不该重复
+    const text = (header.textContent ?? '').replace(/\s+/g, '');
+    expect(text.match(/跳跃/g)?.length ?? 0).toBe(1);
+  });
+
+  test('爬楼分段表列头是「步数 / 步」（单位是量词，不与标签重复）', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'floor_climbing',
+      sport_type: 'floor_climbing',
+      distance: 0,
+      total_ascent: 43,
+      total_cycles: 307,
+      vdot_value: null,
+    });
+    db.getActivityLaps.mockReturnValue([
+      { ...laps[0], id: 82, lap_index: 1, distance: 0, total_cycles: 307 },
+    ]);
+    render(await page('5202'));
+    const table = screen.getByRole('table');
+    const header = within(table).getByRole('columnheader', { name: /步数/ });
+    const text = (header.textContent ?? '').replace(/\s+/g, '');
+    // 「步数」+「步」→ 出现两次「步」是正常的（量词），但不能是「步数」+「步数」
+    expect(text).toBe('步数步');
+  });
+
+  test('游泳分段表列头仍正常（不再靠调用方硬编码特例）', async () => {
+    db.getActivityById.mockReturnValue({
+      ...activity,
+      activity_type: 'lap_swimming',
+      sport_type: '游泳',
+      distance: 0.775,
+      total_cycles: 518,
+      vdot_value: null,
+    });
+    db.getActivityLaps.mockReturnValue([
+      { ...laps[0], id: 83, lap_index: 1, distance: 50, total_cycles: 41 },
+    ]);
+    render(await page('5203'));
+    const table = screen.getByRole('table');
+    const header = within(table).getByRole('columnheader', { name: /划水次数/ });
+    expect((header.textContent ?? '').replace(/\s+/g, '')).toBe('划水次数次');
+  });
+
   test('力量课分段表不出「计数」列（列名含糊比没有列更糟）', async () => {
     db.getActivityById.mockReturnValue({
       ...activity,

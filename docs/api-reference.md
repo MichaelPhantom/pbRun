@@ -133,9 +133,16 @@ GET /api/activities
 | `runDistance` / `runCount` | **只跑步**（`running` / `track_running` / `treadmill_running`，空 `activity_type` 视为跑步） | 月度「N 公里」—— 用全类型会把游泳距离加进跑量（真实库 2026-08 多 2.05km） |
 | `totalDistance` / `count` | **全类型**（含游泳/球类/力量训练） | 月度「N 次」与展开后的卡片数严格一致（真实库 2026-09 若只算跑步会显示 3 次却列出 4 张卡） |
 | `typeBreakdown` | **全类型**，按条数降序（同数按 `type` 升序） | 月卡「含 力量训练 2 · 爬楼 1」。旧实现只有「含 N 次其他」—— 用户知道还有别的运动，但**不知道是什么**，与「记录栏目只有跑步类型」是同一类观感来源 |
+| `totalDuration` | **全类型总时长（秒）**，时间基数为**计时器时间**（`moving_time > 0` 用它，否则回落 `duration`） | 月卡在**里程为 0** 时用它。力量训练/爬楼/HIIT/跳绳的 `distance` 恒为 0，时长是它们唯一的训练量 —— 修复前筛到这些类型月卡只剩「4 次」，而 4 次 20 分钟和 4 次 200 分钟长得一模一样（真实库 2026-09 力量课 4 次共 120 分钟、2026-01 爬楼 16 次共 306 分钟） |
 
 `totalDistance` 为**公里**（与 `activities.distance` 一致）。筛选非跑步类型时
 `runDistance`/`runCount` 恒为 0 —— 此时里程在 `totalDistance` 里，不要读成「这个月没运动」。
+
+`totalDuration` 与 `count` **同口径（全类型）**，但与 `getStats().totalDuration`
+**刻意不同口径**：后者带 `WHERE runningTypeClause`，只算跑步。月卡的「N 次」是全类型，
+旁边的时长必须同口径，否则「4 次」配「3:22:30」（只有 3 次跑步）会让用户以为
+第 4 次是 0 分钟。时长**不需要**像里程那样拆双口径 —— 不存在「游泳时长混进跑量」
+那种语义冲突（时长在任何运动里都是真实训练时间）。
 
 `typeBreakdown` 的元素形状为 `{ type: string; count: number }`，`type` 已按
 `COALESCE(NULLIF(activity_type, ''), 'running')` 归一（空 `activity_type` 计入
@@ -169,6 +176,7 @@ GET /api/activities/months?limit=6&offset=0&type=lap_swimming&q=游泳
       "runCount": 23,
       "totalDistance": 199.6,
       "count": 31,
+      "totalDuration": 91560,
       "typeBreakdown": [
         { "type": "running", "count": 23 },
         { "type": "strength_training", "count": 4 },

@@ -122,6 +122,55 @@ describe('cycleCountLabel —— 详情页文案的唯一来源', () => {
     });
   });
 
+  /**
+   * 表格列头与卡片文案**不是同一套单位**。
+   *
+   * 卡片是散文：「189 次跳跃」「307 步」「518 次划水」—— 单位必须自带名词，
+   * 否则「189 次」不知道在数什么。
+   *
+   * 但分段表的列头是「标签 + 单位」两行（`DataTable` 的 `unit` 渲染成标签下方
+   * 的小字），把卡片单位直接搬过去就变成「跳跃次数 / 次跳跃」「步数 / 步」——
+   * 同一个名词说两遍。真实渲染实测（修复前）：
+   *
+   * | 类型 | 列头第一行 | 列头第二行 | 用户看到 |
+   * |------|-----------|-----------|---------|
+   * | 爬楼 | 步数 | 步 | 步数 / 步 |
+   * | 跳绳 | 跳跃次数 | 次跳跃 | 跳跃次数 / 次跳跃 |
+   * | 游泳 | 划水次数 | 次 | ✅（因为详情页硬编码了 `swimming ? '次' : unit`） |
+   *
+   * 游泳那格能对，靠的是调用方一条 `swimming ?` 特例 —— 那正是本项目反复吃的
+   * 「同一概念两处实现」的亏：新增一种计数运动就得再补一条特例。
+   * 故本模块同时给出两套形态，调用方不需要任何按类型分支：
+   *  - `label` / `unit`：卡片散文用（「189 次跳跃」）；
+   *  - `lapLabel` / `lapUnit`：表格列头用（「跳跃次数」+「次」）。
+   */
+  test('lapLabel / lapUnit 是表格列头形态（不得与卡片单位重复）', () => {
+    expect(cycleSemanticOf('jump_rope')).toMatchObject({
+      lapLabel: '跳跃次数',
+      lapUnit: '次',
+    });
+    expect(cycleSemanticOf('floor_climbing')).toMatchObject({
+      lapLabel: '步数',
+      lapUnit: '步',
+    });
+    expect(cycleSemanticOf('lap_swimming')).toMatchObject({
+      lapLabel: '划水次数',
+      lapUnit: '次',
+    });
+    expect(cycleSemanticOf('open_water')).toMatchObject({
+      lapLabel: '划水次数',
+      lapUnit: '次',
+    });
+  });
+
+  test('列头单位不得包含列头标签里的名词（否则「跳跃次数 / 次跳跃」）', () => {
+    for (const t of ['jump_rope', 'floor_climbing', 'lap_swimming', 'open_water']) {
+      const sem = cycleSemanticOf(t)!;
+      // 「次」是量词，出现在「跳跃次数」里属正常；要排除的是整词重复
+      expect(sem.lapLabel.includes(sem.lapUnit) && sem.lapUnit.length > 1).toBe(false);
+    }
+  });
+
   test('未确认类型 → null（**不再有「总计数」这个兜底**）', () => {
     // 这正是缺陷本身：旧的 `: '总计数'` 兜底把语义未确认的数字当确定值展示
     for (const t of ['strength_training', 'indoor_cardio', 'hiit', 'basketball']) {

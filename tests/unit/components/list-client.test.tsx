@@ -767,6 +767,95 @@ describe('ListClient 活动列表 (交互/筛选/无限滚动)', () => {
   });
 
   /**
+   * **月卡在「没有距离语义」的运动上必须给时长** —— 第七层根因。
+   *
+   * 修完前六层（类型下拉、快捷入口、类型专属指标、月卡构成、构成截断、卡片心率）
+   * 后，筛到「力量训练」的月卡仍然只有一行「4 次」：
+   *
+   * | 筛选 | 月卡实际显示 | 真实数据 |
+   * |------|-------------|---------|
+   * | 力量训练 | `4 次` | 2026-09 共 120 分钟 |
+   * | 爬楼 | `16 次` | 2026-01 共 306 分钟 |
+   * | HIIT | `3 次` | 2025-11 共 33 分钟 |
+   * | 跳绳 | `3 次` | 2025-12 共 4 分钟 |
+   *
+   * 原因：里程为 0 时按纪律整块不渲染（那是正确的 —— 力量课没有距离语义），
+   * 但**没有替代指标**。而时长正是这些运动唯一的训练量：力量训练按分钟算，
+   * 爬楼按分钟算，没人按「层」或「次」判断这个月练了多少。
+   *
+   * 这不是「月卡该少给点信息」的取舍：跑步月卡有「49.13 公里 · 4 次」两个量，
+   * 非跑步月卡只有一个计数 —— 而计数不表达训练量（4 次 20 分钟和 4 次 200
+   * 分钟在月卡上长得一模一样）。
+   *
+   * 判别式盯用户看到的字面：筛选力量训练后月卡必须出现时长（`2:00:00`）。
+   */
+  test('月卡: 筛选无距离语义的类型时用时长兜底 (力量课 120 分钟)', () => {
+    renderList({
+      initialMonthSummaries: [
+        {
+          monthKey: '2026-09',
+          totalDistance: 0,
+          count: 4,
+          runDistance: 0,
+          runCount: 0,
+          totalDuration: 7200,
+        },
+      ],
+      initialActivitiesByMonth: {
+        '2026-09': [act({ activity_type: 'strength_training', distance: 0 })],
+      },
+      availableTypes: [{ type: 'strength_training', count: 51 }],
+    });
+    fireEvent.change(screen.getByLabelText('活动类型筛选'), { target: { value: 'strength_training' } });
+    const monthBtn = screen.getByRole('button', { name: /2026年9月/ });
+    expect(monthBtn).toHaveTextContent('4 次');
+    // 2 小时 = 2:00:00；不能只剩「4 次」这一个数字
+    expect(monthBtn).toHaveTextContent('2:00:00');
+  });
+
+  test('月卡: 未筛选且本月无跑步 (runDistance 0) 时同样给时长', () => {
+    renderList({
+      initialMonthSummaries: [
+        {
+          monthKey: '2026-09',
+          totalDistance: 0,
+          count: 4,
+          runDistance: 0,
+          runCount: 0,
+          totalDuration: 7200,
+        },
+      ],
+      initialActivitiesByMonth: {
+        '2026-09': [act({ activity_type: 'strength_training', distance: 0 })],
+      },
+      availableTypes: [{ type: 'strength_training', count: 51 }],
+    });
+    const monthBtn = screen.getByRole('button', { name: /2026年9月/ });
+    expect(monthBtn).toHaveTextContent('2:00:00');
+  });
+
+  test('月卡: 有里程时不同时挤时长 (距离已是训练量, 避免头部溢出)', () => {
+    renderList({
+      initialMonthSummaries: [
+        {
+          monthKey: '2026-09',
+          totalDistance: 33.6,
+          count: 25,
+          runDistance: 33.6,
+          runCount: 21,
+          totalDuration: 75000,
+        },
+      ],
+      initialActivitiesByMonth: { '2026-09': [act()] },
+      availableTypes: [{ type: 'running', count: 234 }],
+    });
+    const monthBtn = screen.getByRole('button', { name: /2026年9月/ });
+    expect(monthBtn).toHaveTextContent('33.60 公里');
+    // 头部已有里程这个训练量, 不再叠加时长（手机单行会溢出）
+    expect(monthBtn).not.toHaveTextContent('20:00:00');
+  });
+
+  /**
    * 月卡「含 N 次其他」徽标只在**未按类型筛选**时有意义。
    *
    * 用户选了「力量训练」后，那 4 次全都是力量训练 —— 再标「含 4 次其他」是

@@ -254,11 +254,11 @@ describe('typeMetricsOf —— 组合与边界', () => {
 
   test('普通跑步：两个字段都 null（卡片只剩时长 + 配速）', () => {
     const m = typeMetricsOf({ activity_type: 'running', total_ascent: 120, total_cycles: 5000 });
-    expect(m).toEqual({ floors: null, floorsText: null, cycles: null, cyclesLabel: null, workingSets: null });
+    expect(m).toEqual({ floors: null, floorsText: null, cycles: null, cyclesLabel: null, cyclesLapLabel: null, workingSets: null });
   });
 
   test('空对象不抛异常', () => {
     expect(() => typeMetricsOf({})).not.toThrow();
-    expect(typeMetricsOf({})).toEqual({ floors: null, floorsText: null, cycles: null, cyclesLabel: null, workingSets: null });
+    expect(typeMetricsOf({})).toEqual({ floors: null, floorsText: null, cycles: null, cyclesLabel: null, cyclesLapLabel: null, workingSets: null });
   });
 });

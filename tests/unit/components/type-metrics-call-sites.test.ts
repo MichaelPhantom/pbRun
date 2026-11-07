@@ -81,9 +81,39 @@ describe('类型专属指标：三处调用方共用 type-metrics.ts', () => {
 
   test('模块同时导出数值与文案（详情页要分开排版, 卡片要整句）', () => {
     const src = read('app/lib/type-metrics.ts');
-    for (const field of ['floors', 'floorsText', 'cycles', 'cyclesLabel', 'workingSets']) {
+    for (const field of [
+      'floors',
+      'floorsText',
+      'cycles',
+      'cyclesLabel',
+      // 表格列头形态（「跳跃次数 / 次」）。散文单位直接进 `DataTable` 会读成
+      // 「跳跃次数 / 次跳跃」—— 两套形态必须同源，故也由本模块给出。
+      'cyclesLapLabel',
+      'workingSets',
+    ]) {
       expect(src).toMatch(new RegExp(`${field}\\s*:`));
     }
+  });
+
+  /**
+   * **列头单位不得在调用方按类型分支**（第十四类缺陷的守卫）。
+   *
+   * 详情页此前写的是 `swimming ? '划水次数' : label.replace(/^总/, '')` +
+   * `swimming ? '次' : unit` —— 两条硬编码特例。它们能工作，纯粹因为游泳是
+   * 唯一「散文单位带名词、表格单位不带」的类型；新增一种计数运动就必然出错。
+   * 现在两套形态都在 `cycles.ts`，调用方零分支。
+   */
+  test('详情页的分段计数列头必须用 cyclesLapLabel，不得按类型分支', () => {
+    const src = read('app/pages/[id]/ActivityDetailClient.tsx');
+    expect(src).toMatch(/typeMetrics\.cyclesLapLabel/);
+    // 「游泳特判」的两条旧写法都不得复活。
+    // 必须先剥注释 —— 文件里保留了「旧实现这么写过」的历史说明，
+    // 不剥的话断言会把那段解释本身当成缺陷（守卫被文档骗过，是缺陷 18 的形态）。
+    const code = src
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
+    expect(code).not.toMatch(/swimming\s*\?\s*'划水次数'/);
+    expect(code).not.toMatch(/swimming\s*\?\s*'次'/);
   });
 
   /**

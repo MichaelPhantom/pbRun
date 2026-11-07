@@ -432,6 +432,48 @@ describe('db.ts 洞察查询 (真实 SQL)', () => {
   });
 
   /**
+   * **月卡时长的真 SQL 守卫**（第七层根因）。
+   *
+   * mock 测不出 `SUM` 表达式对不对：`SUM(duration)` 与
+   * `SUM(CASE WHEN moving_time > 0 THEN moving_time ELSE duration END)`
+   * 在夹具上只差几十秒，看起来都「差不多」。但全站时长口径是**计时器时间**
+   * （`pace.effectiveTimeSec` / `getStats().totalDuration` 同源）—— 月卡若用
+   * 经过时间，同一批数据在月卡与统计页会给出两个不同的时长（真实库 110/348
+   * 条活动两者不同，最多相差 7845 秒 = 2 小时 11 分）。
+   *
+   * 夹具设计：活动 4（游泳）的 `duration` 与 `moving_time` 差 100 秒，
+   * 且它 `distance = 8.2`（非零）—— 用来验证时长**不跟里程口径走**（时长是
+   * 全类型真实训练时间，不存在「游泳时长混进跑量」的语义冲突）。
+   */
+  test('月度汇总给全类型时长 (计时器口径, 与 getStats 同源)', async () => {
+    const db = await loadDb();
+    const months = db.getMonthSummaries() as {
+      monthKey: string; totalDuration: number;
+    }[];
+    const sep = months.find((m) => m.monthKey === '2026-09')!;
+    // 计时器口径: 2850 + 2500 + 6800 + 13600 = 25750
+    // 若误用经过时间: 2880 + 2520 + 6900 + 13700 = 26000（差 250 秒）
+    expect(sep.totalDuration).toBe(25750);
+
+    /**
+     * 与 `getStats` 的**差异是刻意的**，不是缺陷：
+     *
+     * | 来源 | 口径 | 该夹具值 |
+     * |------|------|---------|
+     * | `getStats` | **只跑步**（`WHERE runningTypeClause`） | 12150 = 2850+2500+6800 |
+     * | `getMonthSummaries` | **全类型** | 25750（+ 游泳 13600） |
+     *
+     * 月卡的「N 次」本来就是全类型（`count` 与展开的卡片数严格一致），
+     * 所以它旁边的时长**必须同口径** —— 否则「4 次」配「3:22:30」（只有 3 次跑步）
+     * 会让用户以为第 4 次是 0 分钟。这正是里程必须拆双口径的同一类推理，
+     * 只是时长不需要拆：不存在「游泳时长混进跑量」那种语义冲突。
+     */
+    const stats = db.getStats('total') as { totalDuration: number };
+    expect(stats.totalDuration).toBe(12150);
+    expect(sep.totalDuration - stats.totalDuration).toBe(13600); // 游泳那条
+  });
+
+  /**
    * 类型构成必须按 `count DESC, type ASC` 排序：月卡直接按数组顺序渲染，
    * 顺序不稳定会导致同一份数据两次刷新显示不同（用户以为是数据在变）。
    */

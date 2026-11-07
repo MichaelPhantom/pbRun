@@ -38,7 +38,7 @@
  *    卡片上也必须给 —— 否则 51 条力量（第二大类）依然只有「时长 + 负荷 + 徽标」。
  */
 
-import { cycleCountLabel } from '@/app/lib/cycles';
+import { cycleCountLabel, cycleLapLabel } from '@/app/lib/cycles';
 import { floorsFromAscent, formatFloors } from '@/app/lib/floors';
 import { buildStrengthProfile, isStrengthType } from '@/app/lib/strength';
 
@@ -55,6 +55,18 @@ export interface TypeMetrics {
   cycles: number | null;
   /** `total_cycles` 的完整标签（`label` + `unit`）；与 `cycles` 同生共死。 */
   cyclesLabel: { label: string; unit: string } | null;
+  /**
+   * `total_cycles` 的**分段表列头**形态（`label` + `unit`）；与 `cycles` 同生共死。
+   *
+   * 与 `cyclesLabel` 的唯一区别是单位形态：`cyclesLabel.unit` 是**散文**用的
+   * （「189 次跳跃」「307 步」），而 `DataTable` 把 `unit` 渲染成标签下方的
+   * 独立一行小字 —— 直接搬过去就读成「跳跃次数 / 次跳跃」。
+   *
+   * 详情页此前靠 `swimming ? '划水次数' : ...` + `swimming ? '次' : unit`
+   * 两条硬编码特例让游泳那格碰巧正确。**调用方不该按类型分支**，故两套形态
+   * 都在这里给出（派生仍全部来自 `cycles.ts` 的单一白名单）。
+   */
+  cyclesLapLabel: { label: string; unit: string } | null;
   /**
    * 力量课的**有效组数**（active/interval 且非循环控制步的步数）。
    *
@@ -93,6 +105,8 @@ export function typeMetricsOf(activity: TypeMetricsSource): TypeMetrics {
 
   // 总次数：语义白名单在 `cycles.ts`，这里只做「有值 + 有语义」的合取。
   const label = cycleCountLabel(activity.activity_type);
+  // 分段表列头形态（「跳跃次数 / 次」）。与散文形态同源，只是单位不带名词。
+  const lapLabel = cycleLapLabel(activity.activity_type);
   const cyclesValue =
     label != null && activity.total_cycles != null && Number.isFinite(activity.total_cycles)
       ? Math.round(activity.total_cycles)
@@ -115,6 +129,7 @@ export function typeMetricsOf(activity: TypeMetricsSource): TypeMetrics {
     cycles: cyclesValue,
     // 标签与数值同生共死：没有数值就不给标签，避免渲染出孤零零的「次划水」。
     cyclesLabel: cyclesValue == null ? null : label,
+    cyclesLapLabel: cyclesValue == null ? null : lapLabel,
     workingSets: sets > 0 ? sets : null,
   };
 }

@@ -56,10 +56,40 @@
 
 /** 一条已确认语义的 `total_cycles` 说明。 */
 export interface CycleSemantic {
-  /** 展示标签（如「总划水次数」）。 */
+  /** 概览格/卡片散文标签（如「总划水次数」）。 */
   label: string;
-  /** 展示单位（如「次划水」）。 */
+  /** 概览格/卡片散文单位（如「次划水」）。 */
   unit: string;
+  /**
+   * **分段表列头**标签（如「划水次数」）。
+   *
+   * 与 `label` 的区别只在去掉「总」字 —— 分段表说的是「这一段的划水次数」，
+   * 不是整场总数。
+   */
+  lapLabel: string;
+  /**
+   * **分段表列头**单位（如「次」）。
+   *
+   * ## 为什么必须与 `unit` 分开（第十四类缺陷）
+   *
+   * `DataTable` 把 `unit` 渲染成标签下方的**独立一行小字**，两行会被读成
+   * 「标签 + 单位」。而 `unit` 是为**散文**设计的（「189 次跳跃」「307 步」
+   * 「518 次划水」）—— 散文里没有标签，单位必须自带名词，否则「189 次」
+   * 不知道在数什么。
+   *
+   * 直接搬进表格就重复了：
+   *
+   * | 类型 | 散文（正确） | 列头（修复前） |
+   * |------|-------------|---------------|
+   * | 跳绳 | 189 次跳跃 | 跳跃次数 / **次跳跃** |
+   * | 爬楼 | 307 步 | 步数 / 步 |
+   * | 游泳 | 518 次划水 | 划水次数 / 次 ← 靠调用方 `swimming ?` 特例 |
+   *
+   * 游泳那格能对，是因为详情页写了 `unit: swimming ? '次' : typeMetrics.cyclesLabel.unit`
+   * —— 一个按类型分支的硬编码。新增一种计数运动就得再补一条特例，这正是本项目
+   * 反复吃的「同一概念两处实现」的亏。现在两套形态都在本模块，调用方零分支。
+   */
+  lapUnit: string;
   /**
    * 自证依据（**必填**）。写清「结构自证 + 独立锚点」两条证据，
    * 后续若有人想加类型，必须先在这里补出等价强度的证据。
@@ -76,24 +106,32 @@ export const CYCLE_SEMANTICS: Readonly<Record<string, CycleSemantic>> = {
   lap_swimming: {
     label: '总划水次数',
     unit: '次划水',
+    lapLabel: '划水次数',
+    lapUnit: '次',
     basis:
       'Σlap==session 4/4 精确（518/798/923/695）；total_cycles ÷ 活跃时间 ≈ FIT 划频（24.2/23.8/23.4/22.4 vs 24/24/23/22）',
   },
   open_water: {
     label: '总划水次数',
     unit: '次划水',
+    lapLabel: '划水次数',
+    lapUnit: '次',
     basis:
       '与 lap_swimming 同一 FIT 语义（sport=swimming，同为总划水次数）；真实库暂无 open_water 样本，故沿用泳池游泳的 Σlap==session 与 ÷活跃时间≈划频两条证据',
   },
   jump_rope: {
     label: '总跳跃次数',
     unit: '次跳跃',
+    lapLabel: '跳跃次数',
+    lapUnit: '次',
     basis:
       'Σlap==session 3/3 精确（189/187/193）；÷时长 = 115–150 次/分，落在跳绳常识区间 100–160',
   },
   floor_climbing: {
     label: '总步数',
     unit: '步',
+    lapLabel: '步数',
+    lapUnit: '步',
     basis:
       'Σlap==session 30/30 精确；÷楼层（total_ascent ÷ 3.048）= 14.6–29.0 步/层，与 14 级台阶约 20 步吻合',
   },
@@ -123,4 +161,17 @@ export function cycleCountLabel(
 ): { label: string; unit: string } | null {
   const sem = cycleSemanticOf(activityType);
   return sem == null ? null : { label: sem.label, unit: sem.unit };
+}
+
+/**
+ * 分段表列头的 `{ label, unit }`。**未确认类型 → `null`**（整列不渲染）。
+ *
+ * 与 `cycleCountLabel` 分开是本模块的第二套形态：散文单位（「次跳跃」）不能
+ * 当表格单位（`DataTable` 会把它渲染成标签下一行，读成「跳跃次数 / 次跳跃」）。
+ */
+export function cycleLapLabel(
+  activityType: string | null | undefined,
+): { label: string; unit: string } | null {
+  const sem = cycleSemanticOf(activityType);
+  return sem == null ? null : { label: sem.lapLabel, unit: sem.lapUnit };
 }

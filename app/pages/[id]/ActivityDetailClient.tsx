@@ -768,11 +768,18 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
               // `!running`，于是力量/室内有氧/球类也会出现一列叫「计数」的表 ——
               // 而那些值的语义未确认（力量 `r(cyc, 时长) = −0.118`，室内有氧同名
               // 活动出现 5/19/66/474）。列名含糊比没有列更糟。
-              ...(typeMetrics.cyclesLabel != null && laps.some((l) => l.total_cycles != null)
+              //
+              // 列头用 `cycleLapLabel`（**表格形态**）而不是 `cycleCountLabel`：
+              // 后者的单位是散文用的（「次跳跃」「次划水」），`DataTable` 会把
+              // 单位渲染成标签下一行，读成「跳跃次数 / 次跳跃」。旧实现靠
+              // `swimming ? '划水次数' : ...` + `swimming ? '次' : unit` 两条
+              // 硬编码特例让游泳那格碰巧正确 —— 新增一种计数运动就得出错。
+              // 现在两套形态都在 `cycles.ts`，这里零按类型分支。
+              ...(typeMetrics.cyclesLapLabel != null && laps.some((l) => l.total_cycles != null)
                 ? [{
                     key: 'cyc',
-                    label: swimming ? '划水次数' : typeMetrics.cyclesLabel.label.replace(/^总/, ''),
-                    unit: swimming ? '次' : typeMetrics.cyclesLabel.unit,
+                    label: typeMetrics.cyclesLapLabel.label,
+                    unit: typeMetrics.cyclesLapLabel.unit,
                   }]
                 : []),
               // 分段「时长」单位必须与单元格渲染格式一致：`formatDuration` 输出

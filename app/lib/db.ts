@@ -298,6 +298,14 @@ export function getMonthSummaries(
   const runDistanceExpr = hasType
     ? `SUM(CASE WHEN ${runningTypeExpr('activities')} THEN distance ELSE 0 END)`
     : 'SUM(distance)';
+  // 时长的时间基数 = **计时器时间**（`moving_time > 0` 用它，否则回落 `duration`）。
+  // 与 `pace.effectiveTimeSec` / `getStats` 的 `totalDuration` **同一口径** ——
+  // 若这里写 `SUM(duration)`，月卡时长与统计页时长会对不上（真实库 110/348 条
+  // 活动的两者不同，最多相差 7845 秒）。
+  // 时长**不区分口径**（与里程不同）：所有运动的时长都是真实训练时间，
+  // 不存在「游泳时长混进跑量」那类语义冲突。只在里程为 0 时使用。
+  const DURATION_EXPR = 'CASE WHEN moving_time > 0 THEN moving_time ELSE duration END';
+  const totalDurationExpr = `SUM(${DURATION_EXPR})`;
 
   // 过滤条件与分页 total 必须**共用同一段 WHERE**，否则 total 与 data 会不同口径
   const where: string[] = ['start_time_local IS NOT NULL', 'length(start_time_local) >= 7'];
@@ -343,7 +351,8 @@ export function getMonthSummaries(
       SUM(distance) AS totalDistance,
       COUNT(*) AS count,
       ${runDistanceExpr} AS runDistance,
-      ${runCountExpr} AS runCount
+      ${runCountExpr} AS runCount,
+      ${totalDurationExpr} AS totalDuration
     FROM activities
     ${whereClause}
     GROUP BY monthKey
@@ -355,12 +364,14 @@ export function getMonthSummaries(
     count: number;
     runDistance: number | null;
     runCount: number | null;
+    totalDuration: number | null;
   }): MonthSummary => ({
     monthKey: r.monthKey,
     totalDistance: r.totalDistance ?? 0,
     count: r.count ?? 0,
     runDistance: r.runDistance ?? 0,
     runCount: r.runCount ?? 0,
+    totalDuration: r.totalDuration ?? 0,
     typeBreakdown: [],
   });
 
