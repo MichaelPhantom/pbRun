@@ -293,8 +293,10 @@ describeIfDb('真实库：活动详情页概览格门控端到端', () => {
    * 正确输出是**整格不存在**。
    *
    * 例外（已确认为「该活动没测到」且旁边有替代指标）：
-   *  - `即时跑力`：跑步 116/247 为空，但那 116 条**全部**有 `garmin_vo2max`
+   *  - `即时跑力`：跑步三类型 124/247 为空，其中 120 条有 `garmin_vo2max`
    *    （官方 VO2max 就在同一屏），所以 `--` 是诚实的「本地推算缺输入」。
+   *    另 4 条是 `treadmill_running`，VDOT 与官方值都没有 —— 设备对跑步机不写
+   *    `garmin_vo2max`（真实库 0/8），那是「该子类型不产出」而非缺陷。
    */
   test('没有任何「整类恒为 --」的概览格（即时跑力除外，它有 Garmin 官方值兜底）', () => {
     const all = db
@@ -326,18 +328,52 @@ describeIfDb('真实库：活动详情页概览格门控端到端', () => {
    * 每一条都得有 Garmin 官方 `garmin_vo2max` 同屏兜底。否则那个 `--` 就是
    * 「该运动不产出」被错当成「这次没测到」。
    */
-  test('即时跑力显示 -- 的跑步全部有 Garmin VO2max 兜底（116/116）', () => {
-    const rows = rowsOf('running').filter((a) => a.vdot_value == null);
+  test('即时跑力显示 -- 的跑步必须有 Garmin VO2max 兜底，除非该子类型根本不产出官方值', () => {
+    // **分母必须是跑步三类型，不是 `activity_type='running'`**。
+    // 旧写法只查 `running`（233 条），于是 8 条跑步机与 6 条田径场全在视野外 ——
+    // 其中 4 条跑步机既无 VDOT 也无官方值，缺陷被「只查一种类型」掩盖。
+    const RUN = ['running', 'track_running', 'treadmill_running'];
+    const rows = RUN.flatMap((t) => rowsOf(t)).filter((a) => a.vdot_value == null);
     expect(rows.length).toBeGreaterThan(100);
-    const bad: number[] = [];
+    // **分母必须等于库里跑步三类型 vdot 为空的真实条数** —— 这条断言是本守卫的
+    // 核心：若有人把 RUN 改回 `['running']`，条数会掉到 116 而库里是 124，立刻红。
+    // （旧写法正是如此：只查 `running`，8 条跑步机与 6 条田径场全在视野外。）
+    const dbCount = (
+      db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM activities
+            WHERE vdot_value IS NULL
+              AND activity_type IN ('running','track_running','treadmill_running')`,
+        )
+        .get() as { n: number }
+    ).n;
+    expect(rows.length).toBe(dbCount);
+
+    // 先求出「哪些子类型设备根本不写 garmin_vo2max」—— 那是「不产出」，
+    // 不是「这次没测到」，不该算进兜底缺失。
+    const noOfficialType = new Set(
+      RUN.filter((t) => {
+        const all = rowsOf(t);
+        return all.length > 0 && all.every((a) => a.garmin_vo2max == null);
+      }),
+    );
+
+    const bad: Array<{ id: number; type: string }> = [];
+    let covered = 0;
     for (const a of rows) {
       const cells = overviewCellsOf(a, lapsOf(a.activity_id));
       const vdot = cells.find((c) => c.label === '即时跑力');
       if (!vdot || vdot.value !== '--') continue;
-      if (!cells.some((c) => c.label === 'Garmin VO2max' && c.value !== '--')) {
-        bad.push(a.activity_id);
+      if (cells.some((c) => c.label === 'Garmin VO2max' && c.value !== '--')) {
+        covered++;
+        continue;
+      }
+      if (!noOfficialType.has(a.activity_type)) {
+        bad.push({ id: a.activity_id, type: a.activity_type });
       }
     }
     expect(bad).toEqual([]);
+    // 兜底必须真的覆盖到绝大多数 —— 否则这条守卫靠「全是例外」也能绿。
+    expect(covered).toBeGreaterThan(rows.length * 0.9);
   });
 });

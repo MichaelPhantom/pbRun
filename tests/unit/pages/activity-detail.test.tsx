@@ -549,7 +549,7 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
    * | `total_training_effect` | 354/354 | 非跑步唯一的强度量化手段（提示词明确要求用它） |
    * | `calories` | 354/354 | 同上，提示词要求「TE + 区间 + 热量」量化非跑步强度 |
    * | `total_descent` | 269/354 | 只给爬升会漏掉下坡的离心负荷 |
-   * | `garmin_vo2max` | 239/247 跑步 | 116 条跑步活动「即时跑力」为 -- 而官方值在库里 |
+   * | `garmin_vo2max` | 239/247 跑步 | 124 条「即时跑力」为 --，其中 120 条官方值在库里（另 4 条跑步机两者皆无） |
    */
   test('高覆盖官方字段必须展示: 最大心率/训练效果/热量/累计下降/Garmin VO2max', async () => {
     render(await page('1007'));

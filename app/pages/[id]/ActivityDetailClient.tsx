@@ -230,8 +230,9 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
       ? [{ value: activity.vdot_value != null ? activity.vdot_value.toFixed(1) : '--', label: '即时跑力' }]
       : []),
     // Garmin 官方 VO2max。真实库 239/247 条跑步活动有值，而本地推算的
-    // `vdot_value` 只有 123/247 —— **116 条跑步活动此前「即时跑力」显示 `--`
-    // 而官方值就在库里**。两者不能互算（见 coach-prompts 的「两个跑力不能互算」），
+    // `vdot_value` 只有 123/247 —— **124 条「即时跑力」显示 `--`，其中 120 条
+    // 官方值就在库里**（另 4 条是跑步机，VDOT 与官方值都没有）。
+    // 两者不能互算（见 coach-prompts 的「两个跑力不能互算」），
     // 标签必须写明「官方」而不是又一个「跑力」，否则用户会以为同一指标给了两个数。
     ...(running && activity.garmin_vo2max != null
       ? [{ value: activity.garmin_vo2max.toFixed(1), unit: 'ml/kg/min', label: 'Garmin VO2max' }]
