@@ -59,7 +59,7 @@ get_pace_zone_analysis 已按该跑者 VDOT 算好各 Z1-Z5 的 target/边界配
 ## HRV (hrv_rmssd) 解读
 
 > ⚠️ **不要用绝对值判恢复状态。** 库里的 `hrv_rmssd` 是**运动过程中**的 RMSSD
-> （覆盖仅 20/353），运动 HRV 受呼吸/伪迹影响极大；Garmin 官方 HRV Status 是**隔夜
+> （覆盖仅约 6%），运动 HRV 受呼吸/伪迹影响极大；Garmin 官方 HRV Status 是**隔夜
 > 静息**测量，两者不是一回事。
 >
 > 旧阈值「>100ms 恢复好 / <60ms 需减载」在修复后的真实数据上：`>100ms` 命中

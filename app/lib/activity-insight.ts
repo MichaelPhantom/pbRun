@@ -31,7 +31,7 @@ import type {
  * 计时器时间只有 4 个整数刻度、`distance` 只有 2 位小数带来的量化噪声。
  *
  * 后果不止一个数字错：
- *  - 分段表「最快 K」徽章指到那个 4 秒尾段（真实库 8/241 条跑步活动如此）；
+ *  - 分段表「最快 K」徽章指到那个 4 秒尾段（真实库 9/247 条跑步活动如此）；
  *  - `analyzeLaps` 用「快于基准 8%」判 `work`，尾段配速偏低就被判成**主课**，
  *    于是「主课 1 段 / 主课均配速 4:39」出现在一次匀速 5:18 的慢跑上
  *    （真实库 4 条：`540880879` / `545577281` / `555458865` / `586992075`），
@@ -45,7 +45,7 @@ import type {
  * 4 s 的误差约 ±25%，15 s 约 ±7%，10 s 是两者之间能同时保住「排除尾段碎片」
  * 和「保留真实短间歇」的位置。
  *
- * 实测（241 条跑步活动）：取 10 s 只影响 8 条的最快段、清掉 4 条伪主课，
+ * 实测（247 条跑步活动）：取 10 s 只影响 9 条的最快段、清掉 4 条伪主课，
  * 且**不产生任何「无徽章」**（即总有可靠段可选）；取 15 s 会开始剔除真实间歇。
  *
  * 与 `MIN_MOVING_SPEED_MS` 一样，这是**物理量**，标识符必须带单位。
@@ -57,7 +57,7 @@ export const MIN_RELIABLE_LAP_SEC = 10;
  *
  * 时长缺失（`undefined`/`null`）时按**可信**处理 —— 宁可保留，不可因为
  * 字段没传就把整张分段表判成「无最快段」。但真实库里 `duration` 恒有值
- * （3082/3082），所以这条回退只影响测试夹具与未来的调用方。
+ * （3153/3153），所以这条回退只影响测试夹具与未来的调用方。
  */
 export function isReliableLapPace(lap: { durationSec?: number | null }): boolean {
   const d = lap.durationSec;
@@ -132,7 +132,7 @@ export interface LapInput {
    * 该 lap 的心率区间秒数（**app 5 区口径**，长度恒为 5，索引 0=Z1）。
    *
    * 由 fit-parser 从逐秒记录按 lap 时间窗推导（`_assignLapZoneSeconds`）。
-   * 设备从不写 lap 级区间数组（实测 3082/3082 空），所以这一项是**唯一**的
+   * 设备从不写 lap 级区间数组（实测 3153/3153 空），所以这一项是**唯一**的
    * 「这一段强度分布」数据源。缺失/无心率时为 null（不造「全 0」假分布）。
    */
   hrZoneSeconds?: number[] | null;
@@ -191,7 +191,7 @@ export function analyzeLaps(
 
   const roles: ActivityLapAnalysis['laps'] = laps.map((l, i) => {
     let role: ActivityLapAnalysis['laps'][number]['role'] = 'steady';
-    // **设备记录优先**（第十二类缺陷）。FIT lap `intensity` 覆盖 3058/3137（97.5%），
+    // **设备记录优先**（第十二类缺陷）。FIT lap `intensity` 覆盖 3074/3153（97.5%），
     // 它记录的是**计划意图**；下面那套配速/心率推断只能从**结果**反推 ——
     // 实测两者仅 73.2% 一致（747/1021 段），推断会错（如第一段配速快就被当成
     // 主课，而设备标的是热身）。`active` 映射为 null（只表示「在计时」），
@@ -282,7 +282,7 @@ export function analyzeLaps(
   //
   // 只在**配速可信**的段里挑：`14.32 m / 4 s` 的尾段算出来 279 s/km，
   // 会比一次 5:18 匀速跑的任何一公里都「快」，于是徽章指向一个 4 秒碎片。
-  // 真实库 8/241 条跑步活动如此（`540880879` 等）。
+  // 真实库 9/247 条跑步活动如此（`540880879` 等）。
   let bestPaceSecPerKm: number | null = null;
   let bestLapIndex: number | null = null;
   for (const l of laps) {
@@ -446,14 +446,14 @@ function zoneBreakdownFromSeconds(
  * 两条来源，**优先级明确**：
  *
  *  1. **逐秒功率推导**（首选）。`activity_records.power` 是原始输入，
- *     真实库 241/241 条跑步活动全有；推导链路与 UI 图表/AI 数据块共用同一份
+ *     真实库 247/247 条跑步活动全有；推导链路与 UI 图表/AI 数据块共用同一份
  *     `powerZoneSecondsFromSamples`，不会出现「库里的列」与「界面上的图」两个答案。
  *  2. **落库列 `activities.time_in_power_zone`**（回退）。逐秒记录可能因旧库未迁移
  *     或记录清理而缺失，此时用同步时算好的同一口径结果，而不是让整块消失。
  *
- * 为什么不用设备的 `device_time_in_power_zone`：真实库只有 33/348 有值，且数组是
- * **绝对瓦数**上限（16 套方案随 FTP 变化），按索引跨活动不可聚合 —— 与心率区间
- * 当年的 19 套边界是同一个陷阱。
+ * 为什么不用设备的 `device_time_in_power_zone`：真实库只有 39/354 有值，且数组是
+ * **绝对瓦数**上限（原始 18 套方案随 FTP 变化），按索引跨活动不可聚合 —— 与心率
+ * 区间原始 21 套边界是同一个陷阱。
  *
  * FTP 由 `resolveFtp` 解析（设备显式优先、缺失回退 `power_zone_boundaries[3]`）；
  * 解析不到时返回空数组 —— 没有阈值就没有区间可言，不猜。

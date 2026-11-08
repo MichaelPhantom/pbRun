@@ -164,7 +164,7 @@ function startGeoSelect(): { lat: string; lng: string } {
  *
  * `all` / 空串是「所有类型」的 UI 语义，不是库里存在的类型值。若把它们当类型键
  * 传进 SQL，`activity_type = 'all'` 命中 0 行 —— 用户选「所有类型」后月份列表正常、
- * 展开的卡片却全部消失。生产库 353 条活动里没有一条叫 `all`。
+ * 展开的卡片却全部消失。生产库 354 条活动里没有一条叫 `all`。
  *
  * 归一放在 `db.ts` 这一层（而不是各 API route 各写一遍）：Web 的
  * `/api/activities`、`/api/activities/months` 与 MCP 的 `list_activities`、
@@ -308,7 +308,7 @@ export function getMonthSummaries(
     : 'SUM(distance)';
   // 时长的时间基数 = **计时器时间**（`moving_time > 0` 用它，否则回落 `duration`）。
   // 与 `pace.effectiveTimeSec` / `getStats` 的 `totalDuration` **同一口径** ——
-  // 若这里写 `SUM(duration)`，月卡时长与统计页时长会对不上（真实库 110/348 条
+  // 若这里写 `SUM(duration)`，月卡时长与统计页时长会对不上（真实库 111/354 条
   // 活动的两者不同，最多相差 7845 秒）。
   // 时长**不区分口径**（与里程不同）：所有运动的时长都是真实训练时间，
   // 不存在「游泳时长混进跑量」那类语义冲突。只在里程为 0 时使用。
@@ -579,7 +579,7 @@ export function getStats(period?: 'week' | 'month' | 'year' | 'total'): StatsRes
       SUM(distance) as totalDistance,
       -- 总时长的时间基数 = **计时器时间**（与配速/区间/TSS 同一口径）。
       -- duration 是经过时间（含暂停），拿它做「总时长」会把等人的时间算成训练。
-      -- 真实库 110/348 条活动的两者不同，最多相差 7845 秒。
+      -- 真实库 111/354 条活动的两者不同，最多相差 7845 秒。
       SUM(CASE WHEN moving_time > 0 THEN moving_time ELSE duration END) as totalDuration,
 
       -- ⚠ 均配速/均心率/均步频/均步幅**不能**用 AVG(列)：
@@ -954,15 +954,15 @@ export function getPaceZoneStats(
  * ## 口径与「为什么不能按绝对瓦数聚合」
  *
  * 区间判定用 `powerZoneOf(lap.average_power, activityFtp)` —— **每个活动用自己
- * 的 FTP**。真实库 241 条有功率的跑步活动共 **14 个不同 FTP**（338–379W），
+ * 的 FTP**。真实库 247 条有功率的跑步活动共 **15 个不同 FTP**（336–379W），
  * 若直接按瓦数分桶（如「>300W 算高强度」），同一段 320W 在不同 FTP 下分属不同
- * 区间，跨活动相加得到的「Z3 时长」没有物理含义 —— 与心率区间当年 19 套边界、
- * 功率区间设备数组 16 套边界是**同一个陷阱**。
+ * 区间，跨活动相加得到的「Z3 时长」没有物理含义 —— 与心率区间原始 21 套边界、
+ * 功率区间设备数组原始 18 套边界是**同一个陷阱**。
  *
  * ## 为什么以 lap 为单位而不是逐秒
  *
- * `activity_laps.average_power` 在真实库 **2943/2962** 条跑步 lap 有值
- * （241/241 活动），而 `activity_laps.time_in_power_zone` **0/3082 全为 NULL**。
+ * `activity_laps.average_power` 在真实库 **3033/3033** 条跑步 lap 有值
+ * （247/247 活动），而 `activity_laps.time_in_power_zone` **0/3153 全为 NULL**（修复前）。
  * lap 级聚合能给出「Z3 跑了多少公里 / 多长时间」这类训练量信息，逐秒推导只能
  * 给占比（那已在活动详情页的 `powerZoneBreakdown` 里）。两者互补，不重复。
  *
@@ -1787,7 +1787,7 @@ export function getDailyLoads(startDate: string, endDate: string): TrainingLoadP
  *
  * 口径 = app 的 5 区模型 (`app/lib/hr-zones.ts`)。`activities.time_in_hr_zone` 由
  * 逐秒心率推导、长度恒为 5，故这里也固定 5 —— 旧实现按 7 元素累加，是因为当时
- * 该列存的是设备原始 7 槽数组（且 140/348 缺失、跨活动边界方案不一致）。
+ * 该列存的是设备原始 7 槽数组（且当年 140/348 缺失、跨活动边界方案不一致）。
  */
 export function getHrZoneTotals(startDate: string, endDate: string): number[] {
   const db = getDatabase();
@@ -1959,8 +1959,8 @@ export function getActivityRecordSamples(activityId: number): {
   const hasAltitude = hasRecordColumn('altitude');
   const hasTemperature = hasRecordColumn('temperature');
   // 逐秒功率: 功率区间 (`powerZoneBreakdown`) 的唯一推导来源。真实库
-  // `activity_records.power` 在 241/241 条跑步活动里全有, 而设备
-  // `time_in_power_zone` 只有 33/348 —— 不读这一列就只能依赖设备数组。
+  // `activity_records.power` 在 247/247 条跑步活动里全有, 而设备
+  // `time_in_power_zone` 只有 39/354 —— 不读这一列就只能依赖设备数组。
   const hasPower = hasRecordColumn('power');
   const altitudeExpr = hasAltitude ? 'altitude' : 'NULL AS altitude';
   const temperatureExpr = hasTemperature ? 'temperature' : 'NULL AS temperature';
@@ -2110,7 +2110,7 @@ function mapPeerRow(r: PeerActivityRow): PeerActivity {
  * ## 两种口径（必须显式区分）
  *
  * pbRun 是跑步分析工具，但 Garmin 同步会把篮球/游泳/力量训练等一并写入同一张
- * `activities` 表。生产库实测 348 条活动里只有 241 条是跑步，其余 107 条的距离、
+ * `activities` 表。生产库实测 354 条活动里只有 247 条是跑步，其余 107 条的距离、
  * 配速、步频、心率区间语义完全不同：
  *
  *  - **表现分析口径（只取跑步）**：配速/心率/步频/VDOT/心率区间/配速区间/跑姿/

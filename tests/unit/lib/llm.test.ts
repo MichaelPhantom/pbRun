@@ -87,12 +87,12 @@ describe('buildAnalysisMessages', () => {
   });
 
   /**
-   * 恢复时间 / 训练收益：Garmin 官方字段，真实库 **348/348** 全有值
+   * 恢复时间 / 训练收益：Garmin 官方字段，真实库 **354/354** 全有值
    * （recovery_time 0–5020 分钟、primary_benefit 8 类，含全部 107 条非跑步活动）。
    *
    * SYSTEM_PROMPT §5 明确要求「本次后需要多少恢复时间？」—— 但数据块此前**从不**
    * 提供该字段，模型只能凭空估算。这是「prompt 承诺、数据缺席」的缺陷：不是模型
-   * 不会答，是它拿不到。Garmin VO2max（235/348）同理：只在跑步产出（非跑步 0/107）。
+   * 不会答，是它拿不到。Garmin VO2max（239/247）同理：只在跑步产出（非跑步 0/107）。
    */
   test('恢复时间 / 训练收益 / Garmin VO2max 进入数据块 (prompt 要求的字段必须有数据)', () => {
     const [, user] = buildAnalysisMessages(
@@ -145,7 +145,7 @@ describe('buildAnalysisMessages', () => {
   /**
    * 零距离活动（力量训练/爬楼/HIIT/跳绳）不能写「距离: 0.00 km」。
    *
-   * 真实库 97/353 条活动 `distance = 0`，其中力量训练 51 条、爬楼 30 条 ——
+   * 真实库 97/354 条活动 `distance = 0`，其中力量训练 51 条、爬楼 30 条 ——
    * 这些运动**本来就没有距离语义**。写「0.00 km」会让模型按「几乎没动」解读，
    * 进而在复盘里说「本次训练量极低」，而实际是练了 1 小时的核心课。
    * 与 `/list` 卡片、仪表盘卡片、详情页概览同一纪律。
@@ -373,8 +373,8 @@ describe('buildAnalysisMessages', () => {
   });
 
   test('跑步但有不满整段的收尾段 → 标题中性化为「分段明细」(不再谎称「每公里」)', () => {
-    // 真实库 242 条跑步活动里「每段都约 1 km」只有 1 条：几乎每次跑都有
-    // `session_end` 残段（242 段里 237 段 < 950 m）。旧实现按运动类型写死
+    // 真实库 247 条跑步活动里「每段都约 1 km」只有 1 条：几乎每次跑都有
+    // `session_end` 残段（285 段里 275 段 < 950 m）。旧实现按运动类型写死
     // 「【每公里分段】」，在这些活动上就是假话。
     const laps = [
       { activity_id: 1, lap_index: 0, distance: 1000, duration: 360, average_pace: 360, average_heart_rate: 140 },
@@ -467,7 +467,7 @@ describe('buildAnalysisMessages', () => {
         moving_time: 0,
         duration: 1800,
         average_speed: 1.3362068965517242,
-        average_pace: 2694.1935483870966,
+        average_pace: 2694.1935483872966,
       }),
       [],
     );
@@ -655,7 +655,7 @@ describe('buildAnalysisMessages', () => {
    * 「按运动专项解读：游泳看每 100m 配速、力量训练看组数、球类看间歇密度」，
    * 类型名失效时模型只能靠活动名称猜，猜错就整套框架都错位。
    */
-  test('类型名不得退化成「通用」(真实库 269/348 条 sub_sport_type=通用)', () => {
+  test('类型名不得退化成「通用」(真实库 275/354 条 sub_sport_type=通用)', () => {
     const cases: Array<[string, string, string, string]> = [
       // [activity_type, sub_sport_type, sport_type, 期望出现在数据块里的类型名]
       ['basketball', '通用', 'basketball', '类型: 篮球（非跑步）'],
@@ -1029,9 +1029,9 @@ describe('游泳划频', () => {
  *
  * | 字段 | 真实库覆盖 | 语义 |
  * |------|-----------|------|
- * | `workout_feel` | **251/353** | 主观感受 0/25/50/75/100 |
- * | `workout_rpe` | **251/353** | 主观用力 1–10（Borg CR10） |
- * | `est_sweat_loss` | **349/353** | 估计出汗量（ml，设备估算） |
+ * | `workout_feel` | **252/354** | 主观感受 0/25/50/75/100 |
+ * | `workout_rpe` | **252/354** | 主观用力 1–10（Borg CR10） |
+ * | `est_sweat_loss` | **350/354** | 估计出汗量（ml，设备估算） |
  * | `pool_length` / `num_active_lengths` | **4/4**（游泳） | SWOLF 的两个输入 |
  *
  * 它们是「体感 vs 数据」对比的唯一来源 —— 客观指标说「这课很轻」，用户标了
@@ -1050,7 +1050,7 @@ describe('buildAnalysisMessages — 主观感受与出汗量', () => {
     expect(user.content).not.toContain('主观感受: 25');
   });
 
-  test('feel = 0 必须输出「很差」（14/251 条是 0，真值判断会丢掉它们）', () => {
+  test('feel = 0 必须输出「很差」（14/252 条是 0，真值判断会丢掉它们）', () => {
     const [, user] = buildAnalysisMessages(fakeActivity({ workout_feel: 0 }), []);
     expect(user.content).toContain('主观感受: 很差');
     // 绝不能因为 0 是 falsy 就整行不输出
@@ -1063,7 +1063,7 @@ describe('buildAnalysisMessages — 主观感受与出汗量', () => {
     expect(user.content).not.toContain('主观用力');
   });
 
-  test('体感与数据偏离 → 输出「体感偏离: 是」（真实库仅 1/251 命中）', () => {
+  test('体感与数据偏离 → 输出「体感偏离: 是」（真实库仅 1/252 命中）', () => {
     const [, user] = buildAnalysisMessages(
       fakeActivity({ workout_feel: 100, workout_rpe: 8 }),
       [],
@@ -1079,7 +1079,7 @@ describe('buildAnalysisMessages — 主观感受与出汗量', () => {
     expect(user.content).not.toContain('体感偏离');
   });
 
-  test('出汗量带「约」+ 速率 + 上限说明（349/353）', () => {
+  test('出汗量带「约」+ 速率 + 上限说明（350/354）', () => {
     const [, user] = buildAnalysisMessages(
       fakeActivity({ est_sweat_loss: 1794, moving_time: 6588 }),
       [],
@@ -1091,7 +1091,7 @@ describe('buildAnalysisMessages — 主观感受与出汗量', () => {
     expect(user.content).toContain('1000 ml/h');
   });
 
-  test('出汗速率绝不输出 > 1000（88/306 条已触顶, 实测 max=999）', () => {
+  test('出汗速率绝不输出 > 1000（88/342 条已触顶, 实测 max=999）', () => {
     const [, user] = buildAnalysisMessages(
       fakeActivity({ est_sweat_loss: 500, moving_time: 600 }),
       [],

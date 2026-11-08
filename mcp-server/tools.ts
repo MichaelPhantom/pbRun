@@ -79,7 +79,7 @@ export async function registerTools(server: McpServer): Promise<void> {
         '列出活动（**全类型口径**：含跑步/游泳/球类/力量训练等，非跑步活动的配速与步频语义不同，' +
         '请勿当跑步配速解读）。支持分页、类型与日期过滤。distance 为公里, 配速为秒/公里。' +
         '**distance 三态**：`null` = 未同步到；`0` = 该运动没有距离语义（力量训练按组、爬楼按层、' +
-        'HIIT/跳绳按次，真实库 97/353 条为 0），不要读成「几乎没运动」；`>0` = 正常里程。' +
+        'HIIT/跳绳按次，真实库约 27% 的活动为 0），不要读成「几乎没运动」；`>0` = 正常里程。' +
         'type 传 `all` 或留空 = 不过滤（返回全部运动）; 传具体键（如 strength_training）才筛选。' +
         '默认每页 20 条: pagination.total 为筛选后的总条数, 未取完时请用 offset 翻页 (limit 最大 100)。' +
         '**`q` 搜索同时匹配活动名称与运动类型的中文名**（与 get_month_summaries 的 `q` 同口径）: ' +
@@ -115,7 +115,7 @@ export async function registerTools(server: McpServer): Promise<void> {
       description:
         '按 activity_id 返回单条活动的完整指标。distance 为公里, 时长/配速分别为秒/秒每公里。' +
         '**distance 三态**：`null` = 未同步到；`0` = 该运动没有距离语义（力量训练按组、爬楼按层、' +
-        'HIIT/跳绳按次，真实库 97/353 条为 0），不要读成「几乎没运动」；`>0` = 正常里程。' +
+        'HIIT/跳绳按次，真实库约 27% 的活动为 0），不要读成「几乎没运动」；`>0` = 正常里程。' +
         '含 Garmin 官方指标: garmin_vo2max(官方VO2max, 区别于本地推算的 vdot_value)、' +
         'recovery_time(恢复分钟)、primary_benefit(训练收益)、' +
         'hr_zone_boundaries/power_zone_boundaries(设备区间边界 bpm/瓦, JSON 数组字符串)、' +
@@ -125,7 +125,7 @@ export async function registerTools(server: McpServer): Promise<void> {
         '长度恒为 5, 由逐秒功率推导, 可直接按索引跨活动聚合)、' +
         'device_time_in_power_zone(设备原始功率区间秒数, 绝对瓦数边界随 FTP 而变, 仅追溯用, ' +
         '不要按索引跨活动聚合)、' +
-        'functional_threshold_power(设备显式 FTP 瓦, 仅 33/348 有值; 缺省时可用 ' +
+        'functional_threshold_power(设备显式 FTP 瓦, 仅约 11% 的活动有值（带功率计才写）; 缺省时可用 ' +
         'power_zone_boundaries[3] 回退, 二者恒等)、' +
         'intensity_factor/training_stress_score/average_power_to_weight(设备从不写入, ' +
         '可由 normalized_power÷FTP、时长×IF²、average_power÷user_weight 推算, ' +
@@ -134,22 +134,22 @@ export async function registerTools(server: McpServer): Promise<void> {
         'devices(设备列表 JSON, 已脱敏)、user_weight(体重公斤, 供功率体重比推算)、' +
         'workout_name/workout_steps(课表; 多步课表完整, duration_sec 单位秒、' +
         'target_pace_sec_per_km 单位秒/公里, 均可直接使用; target_low/high 是设备原始 mm/s 仅供追溯)、' +
-        'hrv_rmssd(RMSSD 毫秒, 已拆分设备漏拍合并值; 仅 20/353 条有值, 不做跨活动对比)、' +
+        'hrv_rmssd(RMSSD 毫秒, 已拆分设备漏拍合并值; 覆盖仅约 6%, 不做跨活动对比)、' +
         'hrv_rmssd_ratio(RMSSD÷meanRR 无量纲, 运动中应 < 0.10; > 0.2 说明数据不可信)。' +
         'vdot_value 仅在 Z3+ 代表性强度段计算（取最快 Z3+ lap，否则全程 Z3+），日常轻松/恢复跑为 null；' +
         'training_load 优先 FIT 官方，缺省回退时长×心率档；' +
         'total_training_effect / total_anaerobic_training_effect 是 Garmin 官方训练效果（TE, 0–5），' +
-        '**13 类运动全覆盖（真实库 354/354）**，非跑步活动 `training_load` 普遍为 NULL，' +
+        '**13 类运动全覆盖（真实库每一条活动都有）**，非跑步活动 `training_load` 普遍为 NULL，' +
         '判强度只能靠 TE + 心率区间 + 热量；**`TE = 0` 是有效值**（代表这课基本没有训练刺激，' +
         '羽毛球 560273729 精确为 0），不要当成缺失跳过，也不要与 training_load 互相换算；' +
         '**游泳（activity_type=lap_swimming/open_water）的配速语言是秒/100m**：' +
         'average_pace 是秒/公里，每 100m 配速 = average_pace ÷ 10（÷10 只对秒/公里成立；' +
         'average_speed 是 km/h，换算要 360 ÷ 速度）；' +
-        '游泳的 average_cadence 是**划频（次/分）**不是步频（真实库 4/4 有值 44~48）；' +
+        '游泳的 average_cadence 是**划频（次/分）**不是步频（游泳活动全有值 44~48）；' +
         'total_cycles 是**绝对计数**，语义随运动而变 —— 但**只有三种类型确认了语义**：' +
-        '游泳=总划水次数（4/4 有值 518/798/923/695；自证 Σlap==session 4/4 且 ÷活跃时间≈划频 24.2 vs 24）、' +
-        '跳绳=总跳跃次数（3/3：189/187/193；÷时长 115–150 次/分）、' +
-        '爬楼=总步数（30/30；÷楼层 14.6–29.0 步/层）；' +
+        '游泳=总划水次数（游泳活动全有值，如 518/798/923/695；自证 Σlap==session 全部成立 且 ÷活跃时间≈划频 24.2 vs 24）、' +
+        '跳绳=总跳跃次数（跳绳活动全有值，如 189/187/193；÷时长 115–150 次/分）、' +
+        '爬楼=总步数（爬楼活动全有值；÷楼层 14.6–29.0 步/层）；' +
         '跑步=步幅周期数（≈ 步频÷2，对跑者无语义，不展示）；' +
         '**力量训练 / 室内有氧 / HIIT / 球类的 total_cycles 语义未确认，不要解读、不要当次数引用** ——' +
         '力量 `r(cyc, 时长) = −0.118`（n=51，同模板 15.2min→51 而 28.1min→40）、' +
@@ -163,19 +163,19 @@ export async function registerTools(server: McpServer): Promise<void> {
         '但它构成未知 —— **不要给它算每 100m 效率**（那会凭空造出一个数）。' +
         '**分段训练角色来自设备，不是配速推断**：`get_activity_laps` 返回的 lap.intensity 是 ' +
         'FIT 里设备记录的计划结构（warmup/interval/recovery/rest/cooldown/active，' +
-        '覆盖 3058/3137 段 = 97.5%）。映射：interval→主课、recovery/rest→恢复、' +
+        '覆盖约 97.5% 的分段）。映射：interval→主课、recovery/rest→恢复、' +
         'warmup→热身、cooldown→冷身；**active 只表示「这段在计时」不是主课** ' +
         '（657456825 全程 22 段都是 active，一次匀速跑），遇到 active/255/缺失请按配速自行判断。' +
-        '旧版按配速推断角色，与设备值仅 73.2% 一致（747/1021 段），典型错误是把配速偏快的' +
+        '旧版按配速推断角色，与设备值仅约 73% 一致，典型错误是把配速偏快的' +
         '首段判成「主课」而设备标的是「热身」——复盘间歇课必须以 intensity 为准。' +
-        '**主观感受 / 出汗量 / 泳池规格（真实库 251–349/353）**：' +
+        '**主观感受 / 出汗量 / 泳池规格（真实库约 71%–99% 覆盖，各自不同）**：' +
         'workout_feel 是用户主动输入的主观感受，取值 0/25/50/75/100（很差→很好），' +
-        '**0 是有效值**（14/251 条「感觉很差」），判空必须 != null；' +
+        '**0 是有效值**（约 5.6% 的活动填了「感觉很差」），判空必须 != null；' +
         'workout_rpe 是主观用力（Borg CR10 1–10，0 不是合法档），' +
         '与 workout_feel 严格反向（r=−0.856，feel 各档 RPE 均值 8.1/5.9/3.8/2.4/1.4）——' +
-        '两者偏离（feel≥75 且 RPE≥6，或 feel≤25 且 RPE≤3）仅 1/251 命中，出现即值得单独解释；' +
-        'est_sweat_loss 是**设备估算**出汗量（ml，349/353，游泳 0/4），' +
-        '内部速率上限约 1000 ml/h（88/306 条已触顶），真实出汗率可达 1500–2000 ml/h，' +
+        '两者偏离（feel≥75 且 RPE≥6，或 feel≤25 且 RPE≤3）仅约 0.4% 命中，出现即值得单独解释；' +
+        'est_sweat_loss 是**设备估算**出汗量（ml，约 99% 活动有值，游泳 0/4），' +
+        '内部速率上限约 1000 ml/h（约 26% 的活动已触顶），真实出汗率可达 1500–2000 ml/h，' +
         '**是保守下限**，补液建议按它算会偏低，引用必须带「约」；' +
         'pool_length（米，FIT scale=100 已应用，不要再 ÷100）/num_active_lengths（活跃趟数）' +
         '仅游泳有（4/4），自证：num_active_lengths × pool_length == distance×1000（4/4 精确）；' +
@@ -216,11 +216,11 @@ export async function registerTools(server: McpServer): Promise<void> {
         '是秒/公里，每 100m 配速 = `average_pace ÷ 10`（仅对秒/公里成立，不要对 km/h 做 ÷10，' +
         'km/h 换算要 360 ÷ 速度）；' +
         '`distance = 0` 的休息段没有配速语义，`average_pace` 为 null，不要读成 0。' +
-        '**`intensity` 是设备记录的分段训练角色**（FIT lap intensity，覆盖 3058/3137 = 97.5%）：' +
+        '**`intensity` 是设备记录的分段训练角色**（FIT lap intensity，覆盖约 97.5% 的分段）：' +
         'warmup→热身、interval→主课、recovery/rest→恢复、cooldown→冷身；' +
         '**`active` 只表示「这段在计时」，不是主课**（657456825 全程 22 段都是 active）；' +
         '`255`/缺失 = 设备未记录，此时才可按配速推断。' +
-        '设备值与按配速推断仅 73.2% 一致（747/1021 段），复盘间歇课以 intensity 为准。' +
+        '设备值与按配速推断仅约 73% 一致，复盘间歇课以 intensity 为准。' +
         '**`swim_stroke` 是泳姿（第十三类缺陷）**：`freestyle`/`backstroke`/`breaststroke`/`butterfly`/' +
         '`drill`/`mixed`/`im`。**session 级该字段恒 255（无效），只有本工具返回的 lap 级有真实值**' +
         '（真实库 4 条游泳 79 段里 35 段有值，含 freestyle/backstroke/breaststroke/mixed）；' +

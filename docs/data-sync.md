@@ -351,7 +351,7 @@ CREATE TABLE activities (
   distance REAL NOT NULL,                 -- 距离 (公里, 注意不是米)
   duration INTEGER NOT NULL,              -- 经过时间 = FIT total_elapsed_time (含暂停)
   moving_time INTEGER NOT NULL,           -- 计时器时间 = FIT total_timer_time (0 = 缺失)
-  elapsed_time INTEGER NOT NULL,          -- 与 duration 同值 (348/348), 见 §时间基数
+  elapsed_time INTEGER NOT NULL,          -- 与 duration 同值 (354/354), 见 §时间基数
   average_pace REAL,                      -- 配速 (秒/公里), 时间基数 = moving_time
   average_speed REAL,                     -- 速度 (公里/小时), 与 average_pace 严格互为倒数
   average_heart_rate INTEGER,
@@ -392,8 +392,9 @@ CREATE TABLE activities (
 > **区间口径** (2026-10-27 修复): `activities.time_in_hr_zone` 存**本地 5 区模型**
 > （`app/lib/hr-zones.ts`：Z1<70% / Z2<80% / Z3<87% / Z4<93% / Z5≥93% × `MAX_HR`）
 > 的各区间秒数，JSON 数组长度恒为 5，由 `activity_records` 的**逐秒心率**推导，
-> 覆盖全部活动（真实库 348/348）。设备原始 `time_in_zone` 数组另存
-> `device_time_in_hr_zone` 仅供追溯 —— 它只有 140/348 条有值，且生产库实测 **19 套**
+> 覆盖全部活动（真实库 354/354）。设备原始 `time_in_zone` 数组另存
+> `device_time_in_hr_zone` 仅供追溯 —— 它当时只有 140/348 条有值（现由 `fit-parser`
+> 逐 session 写入，已覆盖 354/354，但**覆盖变全不等于可用**），且生产库实测 **21 套原始方案**（归一后 7 套）
 > 不同边界方案，按索引跨活动相加没有物理含义。历史活动用 `npm run backfill:hr-zones`
 > 回填（幂等，备份 DB）。写入侧口径由 `scripts/common/hr-zones.js`（TS 的 CJS 镜像，
 > parity 测试守护）与 `fit-parser.js` 共同保证。
@@ -401,16 +402,16 @@ CREATE TABLE activities (
 > **功率区间同一口径**：`activities.time_in_power_zone` 存**本地 5 区 %FTP 模型**
 > （`app/lib/power-zones.ts`：Z1<65% / Z2<80% / Z3<90% / Z4<100% / Z5≥100%）的各区间
 > 秒数，JSON 数组长度恒为 5，由 `activity_records` 的**逐秒功率**推导，覆盖真实库
-> **241/241** 条有功率的活动。设备原始数组另存 `device_time_in_power_zone` 仅供追溯 ——
-> 它只有 33/348 条有值，且是**绝对瓦数**上限（实测 16 套方案随 FTP 变化），按索引跨活动
-> 相加没有物理含义。归一后 241/241 只有一套 `65/80/90/100/115 %FTP`，app 的 5 区取前
+> **247/247** 条有功率的活动。设备原始数组另存 `device_time_in_power_zone` 仅供追溯 ——
+> 它只有 39/354 条有值（只有带功率计的活动才写），且是**绝对瓦数**上限（实测 18 套原始方案随 FTP 变化），按索引跨活动
+> 相加没有物理含义。归一后 247/247 只有一套 `65/80/90/100/115 %FTP`，app 的 5 区取前
 > 4 个边界，把设备 Z5(100–115%) 与 Z6(>115%) 合并进 Z5。历史活动用
-> `npm run backfill:power-zones` 回填（幂等；**先 `ALTER` 再迁移再重算**，否则 33 条设备
+> `npm run backfill:power-zones` 回填（幂等；**先 `ALTER` 再迁移再重算**，否则 39 条设备
 > 原始数组会被重算直接覆盖）。写入侧口径由 `scripts/common/power-zones.js`（TS 的 CJS
 > 镜像，parity 测试守护）与 `fit-parser.js` 共同保证。
 >
 > **课表列** (`workout_name` / `workout_steps`): `workout_steps` 是 FIT `workout_step`
-> 消息的 JSON 数组，**多步课表不会被截断**（真实库 120/285 条 > 1 步，最多 21 步）。
+> 消息的 JSON 数组，**多步课表不会被截断**（真实库 120/289 条 > 1 步，最多 20 步）。
 > 单位按 FIT SDK 定义归一后落库：`duration_sec` 是**秒**（FIT 源 `duration_value` 是毫秒，
 > `duration_type='time'`）、`distance_m` 是**米**（源是厘米）、`target_pace_sec_per_km`
 > 是**秒/公里**（源 `custom_target_value_*` 是 mm/s，`target_type='speed'`）。
@@ -472,9 +473,9 @@ CREATE TABLE activities (
 
 | 列 | FIT 来源 | 含义 | 真实库 |
 | --- | --- | --- | --- |
-| `moving_time` | `total_timer_time` | **计时器时间**（暂停时停表） | 348/348 有值；活动级 NOT NULL（0 = 缺失） |
-| `duration` | `total_elapsed_time` | **经过时间**（含暂停，墙钟跨度） | 348/348 有值 |
-| `elapsed_time` | 同 `total_elapsed_time` | 与 `duration` **同值**（348/348） | 内部记账用 |
+| `moving_time` | `total_timer_time` | **计时器时间**（暂停时停表） | 354/354 有值；活动级 NOT NULL（0 = 缺失） |
+| `duration` | `total_elapsed_time` | **经过时间**（含暂停，墙钟跨度） | 354/354 有值 |
+| `elapsed_time` | 同 `total_elapsed_time` | 与 `duration` **同值**（354/354） | 内部记账用 |
 
 **配速 / 速度 / 所有时长聚合的时间基数 = `moving_time`**：
 
@@ -489,7 +490,7 @@ CREATE TABLE activities (
 
 > **历史缺陷（已修复）**：`fit-parser.js` 曾用 `duration` 推导配速，于是同一个活动卡片
 > 自相矛盾 —— `582132079` 6.63 km、卡片「时长」43.7 分（`moving_time`）、
-> 「平均配速」却显示 **26:19/km**（配速×距离 = 174.4 分）。真实库 251 条有配速的活动里
+> 「平均配速」却显示 **26:19/km**（配速×距离 = 174.4 分）。当时真实库 251 条有配速的活动里
 > `average_pace` **251/251 严格等于 `duration/distance`**，跑步子集 19 条偏差 >10%。
 > 回填：
 > ```bash
@@ -497,8 +498,8 @@ CREATE TABLE activities (
 > node scripts/garmin/backfill-pace.js             # 执行 (纯 DB 重算, 不读 FIT)
 > ```
 > 生产实测变更活动 **93** 行、lap **162** 行；回填后跑步活动配速×距离与 `moving_time`
-> 最大偏差 **0.0000%**，跑步 lap 的 `average_pace` 与 `average_moving_pace` **2957/2957**
-> 逐条相等。幂等：重复运行 `变更 0`；失败退出码 1。
+> 最大偏差 **0.0000%**，跑步 lap 的 `average_pace` 与 `average_moving_pace` 逐条相等
+> （现在全库 3043/3043）。幂等：重复运行 `变更 0`；失败退出码 1。
 
 #### laps 表
 
@@ -547,7 +548,7 @@ CREATE TABLE activity_laps (
   swim_stroke TEXT,                   -- 泳姿: freestyle/backstroke/breaststroke/butterfly/drill/mixed/im
                                       --   **session 级恒 255(无效), 只有 lap 级有真实值** (35/3153)
                                       --   mixed = 这一段混合了多种泳姿(真实取值), 不是「未知」
-  -- 以下 10 列真实库 0/3082 全 NULL (设备不写或 profile 无对应字段, 见
+  -- 以下 10 列真实库 0/3153 全 NULL (设备不写或 profile 无对应字段, 见
   -- docs/features.md §4.3.1)。保留在 schema 里是为了「列集合 = 代码声明」的一致性,
   -- 不是在等实现:
   --   average_pace_gap, best_pace, average_power_to_weight, max_power_to_weight,

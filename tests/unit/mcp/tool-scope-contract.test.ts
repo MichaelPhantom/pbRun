@@ -106,7 +106,7 @@ describe('MCP tool description 必须声明统计口径', () => {
   /**
    * 活动日志类工具返回的 `distance` / `distanceKm` 必须声明**三态**。
    *
-   * 真实库 97/353 条活动 `distance = 0`（力量 51、爬楼 30、室内有氧 9、HIIT/跳绳/
+   * 真实库 97/354 条活动 `distance = 0`（力量 51、爬楼 30、室内有氧 9、HIIT/跳绳/
    * 室内骑行 7）—— 这些运动本来就没有距离语义（按组/按层/按次）。模型只看到
    * `distance: 0` 会得出「这次几乎没运动」的结论，而实际是 1 小时力量课。
    *
@@ -214,7 +214,7 @@ describe('MCP tool description 必须声明统计口径', () => {
    * 功率强度字段的口径契约（2026-10-27）。
    *
    * 三个字段设备**从不写入**（`intensity_factor` / `training_stress_score` /
-   * `average_power_to_weight` 真实库 0/348），但可由 NP ÷ FTP、时长 × IF²、
+   * `average_power_to_weight` 真实库 0/354），但可由 NP ÷ FTP、时长 × IF²、
    * 平均功率 ÷ 体重推算。MCP 若不说明，模型会以为「字段为空 = 该活动没功率数据」，
    * 或把派生的 TSS 与官方 TL 当同一指标。
    */
@@ -252,17 +252,25 @@ describe('MCP tool description 必须声明统计口径', () => {
    *
    * description 必须说明三件事，否则模型会把它当可靠指标引用：
    *   ① 已拆分漏拍合并值（数字可信的前提）；
-   *   ② 仅 20/353 有值、不做跨活动对比（覆盖极低）；
+   *   ② 覆盖极低、不做跨活动对比；
    *   ③ `hrv_rmssd_ratio` 的生理区间与失效判据（自证性检验）。
+   *
+   * **第三十六类缺陷（2026-11-08）**：这条断言原来钉的是 `20/353` —— 一个
+   * **会随每次同步漂移的绝对分母**。库里进第 354 条活动时它会转红，而
+   * description 的**结论**（覆盖极低、不能跨活动比）完全没错。同一纪律已在
+   * `skill-doc-contract.test.ts` 里为 skill 定过：模型读到的文本里只写
+   * **稳定量级**，绝对计数留给文档。
    */
   test('get_activity 声明 hrv_rmssd 已拆分漏拍合并值且覆盖极低', () => {
     const desc = configs.get('get_activity')!.description ?? '';
     expect(desc).toMatch(/hrv_rmssd/);
     // ① 算法口径
     expect(desc).toMatch(/拆分.*漏拍合并/);
-    // ② 覆盖率与使用边界
-    expect(desc).toMatch(/20\/353/);
+    // ② 覆盖率（量级，不是绝对分母）与使用边界
+    expect(desc).toMatch(/覆盖仅约\s*\d+%/);
     expect(desc).toMatch(/不做跨活动对比/);
+    // 且不得再写死会漂移的绝对分母（`20/353` 这类）
+    expect(desc).not.toMatch(/hrv_rmssd[^\n]{0,60}\d+\s*\/\s*\d{3,}/);
     // ③ 无量纲自证字段
     expect(desc).toMatch(/hrv_rmssd_ratio/);
     expect(desc).toMatch(/< 0\.10/);
@@ -273,7 +281,7 @@ describe('MCP tool description 必须声明统计口径', () => {
    * 曾经把设备**配置值**当个人指标写进 description：
    * `user_weight/user_height/resting_heart_rate_fit(用户档案)`。
    *
-   * `resting_heart_rate_fit` 是手表日级配置（210/353 仅 7 个取值 42–48，同日多
+   * `resting_heart_rate_fit` 是手表日级配置（211/354 仅 7 个取值 42–48，同日多
    * 活动同值），`user_height` 全站仅 4 个取值且无任何计算引用。把它们并列成
    * 「用户档案」会让模型以为拿到了本次训练的个体化指标。
    */
@@ -427,7 +435,7 @@ describe('游泳划频的单位声明', () => {
 describe('分段角色必须声明「来自设备 intensity，不是配速推断」（第十二类缺陷）', () => {
   /**
    * 缺陷 24：详情页分段「角色」列一直按配速推断，而设备在 FIT lap 的
-   * `intensity` 里明确记录了计划意图（覆盖 3058/3137 = 97.5%）。两者只有
+   * `intensity` 里明确记录了计划意图（覆盖约 97.5% 的分段）。两者只有
    * 73.2% 一致 —— 模型若不知道这一点，会自己按配速重判主课段。
    */
   test('get_activity 声明分段角色来自设备 intensity', () => {
@@ -435,7 +443,7 @@ describe('分段角色必须声明「来自设备 intensity，不是配速推断
     expect(desc).toMatch(/intensity/);
     expect(desc).toMatch(/设备记录|来自设备/);
     expect(desc).toMatch(/不是配速推断|不是.*推断/);
-    expect(desc).toMatch(/73\.2/);
+    expect(desc).toMatch(/约\s*73%/);
   });
 
   test('get_activity 声明 active 只表示「在计时」不是主课', () => {
@@ -447,7 +455,9 @@ describe('分段角色必须声明「来自设备 intensity，不是配速推断
   test('get_activity_laps 声明 intensity 的映射与 active 陷阱', () => {
     const desc = configs.get('get_activity_laps')!.description ?? '';
     expect(desc).toMatch(/intensity/);
-    expect(desc).toMatch(/3058\/3137|97\.5%/);
+    expect(desc).toMatch(/97\.5%/);
+    // 第三十六类：不得写会随同步漂移的绝对分母（`3074/3153` 这类）
+    expect(desc).not.toMatch(/\d{3,}\s*\/\s*\d{3,}/);
     expect(desc).toMatch(/warmup/);
     expect(desc).toMatch(/interval/);
     expect(desc).toMatch(/active/);

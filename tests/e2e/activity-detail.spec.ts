@@ -82,11 +82,11 @@ test.describe('活动详情页', () => {
     await expect(page.getByRole('heading', { name: '深度分析' })).toBeVisible();
   });
 
-  test('应显示跑步动态 (触地时间/垂直摆动, 真实库 241/241 条跑步活动都有)', async ({ page }) => {
+  test('应显示跑步动态 (触地时间/垂直摆动, 真实库 247/247 条跑步活动都有)', async ({ page }) => {
     await page.goto('/pbrun/pages/900000001');
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(1200);
-    // 真实库 average_gct_balance 348/348 全为 NULL, 旧展示条件只判该字段 →
+    // 真实库 average_gct_balance 354/354 全为 NULL, 旧展示条件只判该字段 →
     // 这张卡片在生产环境从未渲染过。夹具按真实分布只写触地时间/垂直摆动。
     await expect(page.getByRole('heading', { name: '跑步动态' })).toBeVisible();
     await expect(page.getByText('触地时间')).toBeVisible();
@@ -113,7 +113,7 @@ test.describe('活动详情页', () => {
     await expect(page.getByText('瞬时峰值功率')).toBeVisible();
   });
 
-  test('概览应把「累计爬升」与「海拔净高差」分开显示 (191/234 条净高差 < 累计爬升)', async ({ page }) => {
+  test('概览应把「累计爬升」与「海拔净高差」分开显示 (196/239 条净高差 < 累计爬升)', async ({ page }) => {
     await page.goto('/pbrun/pages/900000001');
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(1000);
@@ -128,7 +128,7 @@ test.describe('活动详情页', () => {
     await expect(metric('海拔净高差').getByText('28', { exact: true })).toBeVisible();
   });
 
-  test('跑步动态应显示最高步频 (241/241 跑步活动有值)', async ({ page }) => {
+  test('跑步动态应显示最高步频 (247/247 跑步活动有值)', async ({ page }) => {
     await page.goto('/pbrun/pages/900000001');
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(1200);
@@ -141,7 +141,7 @@ test.describe('活动详情页', () => {
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(1200);
     // 夹具 1448 条逐秒记录的功率在五个区间里循环 (200/270/320/350/400W, FTP 371)
-    // → 每区各 20%。设备 time_in_power_zone 只有 33/348 有值且是绝对瓦数边界,
+    // → 每区各 20%。设备 time_in_power_zone 只有 39/354 有值且是绝对瓦数边界,
     // 故本区块只能来自逐秒功率推导 —— 若推导链路断开, 这里会整块消失。
     await expect(page.getByText('功率区间占比（Z1–Z5）')).toBeVisible();
     // FTP 是分母, 不显示的话「Z3 20%」无法换算成瓦数

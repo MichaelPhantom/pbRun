@@ -104,7 +104,7 @@ class DataValidator {
       // 时间基数 = **计时器时间**（`moving_time`），不是经过时间（见
       // `scripts/common/pace.js`）。旧校验按 `duration` 比对，等于把
       // 「配速读错了时间基数」这个缺陷锁进校验器里 —— 校验器会一直说
-      // 「251/251 正确」，而实际 93/251 条配速是错的。
+      // 「251/251 正确」，而实际 93/251 条配速是错的（当时）。
       const seconds = effectiveTimeSec(act);
       const expectedSpeed = speedKmh(act.distance, seconds);
       if (expectedSpeed == null) return;
@@ -163,7 +163,7 @@ class DataValidator {
     activities.forEach(act => {
       // average_speed (km/h) 与 average_pace (s/km) 的**时间基数都是计时器时间**
       // （`moving_time`）。旧写法用 `duration`（含暂停）比对，等于把「配速读错了
-      // 时间基数」锁进校验器 —— 校验器会一直报「251/251 正确」，而实际 93/251
+      // 时间基数」锁进校验器 —— 校验器会一直报「251/251 正确」，而实际当时 93/251
       // 条配速是错的（真实库 582132079 显示 26:19/km，实为 6:35/km）。
       const seconds = effectiveTimeSec(act);
       const expectedSpeed = speedKmh(act.distance, seconds);
@@ -605,7 +605,7 @@ class DataValidator {
     // **两种区间口径都必须查**。只查心率是半个契约：`time_in_power_zone` 同样由
     // `lap-zones.js` 的时间窗切分推导，窗口算错一样会静默失真，而功率那边没有
     // `validateHrZoneScope` 那种活动级兜底（功率区间是另一条独立推导链）。
-    // 实测生产库两种口径都健康：心率 286 条对照最大偏差 5.06%，功率 241 条
+    // 实测生产库两种口径都健康：心率 291 条对照最大偏差 5.06%，功率 247 条
     // 最大 0.99% —— 所以用同一套 15% 容差即可，不必各设一套。
     for (const [col, label] of [
       ['time_in_hr_zone', '心率'],
@@ -805,7 +805,7 @@ class DataValidator {
  * - `--strict` → warnings 也当失败（人工排查用）
  *
  * 之所以不把 warnings 也算失败：本校验器面向**真实生产库**，而生产库里
- * 「设备从不写某列」是常态（348/348 全 NULL 的列有一批）。把常态当错误，
+ * 「设备从不写某列」是常态（354/354 全 NULL 的列有一批）。把常态当错误，
  * 守卫就会被关掉，那才是真的失去保护。
  */
 async function main() {

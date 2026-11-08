@@ -14,9 +14,9 @@
  *     「设备不写」，其实是「我们读错了名字」。
  *
  * 实测 19 个死读站点、12 个不存在的字段名。其中真正有害的是：
- *  - `best_lap_time`（SDK 只有 `best_lap_index`）→ `activity_laps.best_pace` 0/3082 全 NULL；
- *  - `avg_pace_gap`（SDK 无任何 pace 字段）→ `activity_laps.average_pace_gap` 0/3082 全 NULL；
- *  - `avg_step_rate_loss` / `_percent`（SDK 无此概念）→ 活动与 lap 两处 0/348、0/3082；
+ *  - `best_lap_time`（SDK 只有 `best_lap_index`）→ `activity_laps.best_pace` 0/3153 全 NULL；
+ *  - `avg_pace_gap`（SDK 无任何 pace 字段）→ `activity_laps.average_pace_gap` 0/3153 全 NULL；
+ *  - `avg_step_rate_loss` / `_percent`（SDK 无此概念）→ 活动与 lap 两处 0/354、0/3153；
  *  - `avg_power_to_weight` / `max_power_to_weight`（SDK 无此字段）→ 同上，
  *    且已由 `app/lib/power.ts` 从平均功率 ÷ 体重正确派生，无需设备值。
  *

@@ -271,7 +271,7 @@ function recentVolume(exclude: Activity, day: string) {
  * Z1-Z5 的占比 (%)。用于判断训练结构 (80/20 原则等)。
  *
  * 口径 = app 的 5 区模型: `time_in_hr_zone` 由逐秒心率推导、长度恒为 5、覆盖全部
- * 活动（真实库 348/348），因此「缺失就跳过」在现网已不会触发，保留只是防御旧数据。
+ * 活动（真实库 354/354），因此「缺失就跳过」在现网已不会触发，保留只是防御旧数据。
  */
 function computeIntensityDist(exclude: Activity, day: string): { zone: number; pct: number }[] {
   try {

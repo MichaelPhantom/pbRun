@@ -16,7 +16,7 @@ export interface Activity {
   distance: number;                              // 距离（公里，DB 原单位；聚合接口返回米，见 db.ts 各函数）
   duration: number;                              // 经过时间 = FIT total_elapsed_time（含暂停）
   moving_time: number;                           // 计时器时间 = FIT total_timer_time（配速/统计的时间基数；0 = 缺失）
-  elapsed_time: number;                          // 经过时间（与 duration 同值，348/348）
+  elapsed_time: number;                          // 经过时间（与 duration 同值，354/354）
 
   // 配速和速度
   // **时间基数 = 计时器时间**（`moving_time` / FIT `total_timer_time`）。
@@ -37,9 +37,9 @@ export interface Activity {
   average_vertical_oscillation?: number;         // 平均垂直摆动（厘米）
   average_vertical_ratio?: number;               // 平均垂直步幅比（%）
   average_ground_contact_time?: number;          // 平均触地时间（毫秒）
-  average_gct_balance?: number;                  // 平均触地时间平衡（%）; 真实库 0/348（SDK 字段 avg_stance_time_balance, 设备不写）
-  average_step_rate_loss?: number;               // 平均步速损失（厘米/秒）; 真实库 0/348, FIT profile 无此概念
-  average_step_rate_loss_percent?: number;       // 平均步速损失百分比（%）; 真实库 0/348, FIT profile 无此概念
+  average_gct_balance?: number;                  // 平均触地时间平衡（%）; 真实库 0/354（SDK 字段 avg_stance_time_balance, 设备不写）
+  average_step_rate_loss?: number;               // 平均步速损失（厘米/秒）; 真实库 0/354, FIT profile 无此概念
+  average_step_rate_loss_percent?: number;       // 平均步速损失百分比（%）; 真实库 0/354, FIT profile 无此概念
 
   // 功率数据
   average_power?: number;                        // 平均功率（瓦）
@@ -81,7 +81,7 @@ export interface Activity {
    * 功率区间秒数（**app 5 区 %FTP 口径**，由逐秒功率推导，长度恒为 5）。
    *
    * 与 `time_in_hr_zone` 同构：可按索引跨活动聚合。设备原始数组（绝对瓦数边界，
-   * 16 套方案）另存 `device_time_in_power_zone`，仅供追溯。
+   * 原始 18 套方案 / 归一后 3 套）另存 `device_time_in_power_zone`，仅供追溯。
    */
   time_in_power_zone?: string;
   /** 设备原始功率区间秒数（绝对瓦数边界随 FTP 变化，跨活动不可比；仅追溯用）。 */
@@ -100,7 +100,7 @@ export interface Activity {
    * - 爬楼 = 总步数
    * - 球类 = 挥拍/触球动作周期数
    *
-   * 真实库覆盖 **349/353**。**不要 ×2** —— 它是绝对计数，不是步频。
+   * 真实库覆盖 **350/354**。**不要 ×2** —— 它是绝对计数，不是步频。
    */
   total_cycles?: number;
 
@@ -120,13 +120,13 @@ export interface Activity {
    * 主观感受（Garmin 活动结束后的弹窗）：0 / 25 / 50 / 75 / 100（很糟 → 很好）。
    *
    * **0 是有效值**（感觉最差），不是缺失 —— 判空必须用 `!= null`。
-   * 真实库 251/353（全部跑步 + 游泳 + 1 条室内骑行；力量/球类/爬楼不弹窗）。
+   * 真实库 252/354（全部跑步 + 游泳 + 1 条室内骑行；力量/球类/爬楼不弹窗）。
    * 自证：与 `workout_rpe` 的相关系数 −0.856（感觉越好越不累）。
    */
   workout_feel?: number;
 
   /**
-   * 主观用力程度（Borg CR10 量表 1–10）。真实库 251/353。
+   * 主观用力程度（Borg CR10 量表 1–10）。真实库 252/354。
    *
    * 与 `workout_feel` 严格反向单调：feel 0→RPE 均值 8.1、25→5.9、50→3.8、
    * 75→2.4、100→1.4。这是**唯一**由用户主动输入的数据 —— 客观指标（TE/心率）
@@ -135,9 +135,9 @@ export interface Activity {
   workout_rpe?: number;
 
   /**
-   * 估计出汗量（毫升）。真实库 349/353（除游泳 0/4）。
+   * 估计出汗量（毫升）。真实库 350/354（除游泳 0/4）。
    *
-   * ⚠️ **设备估算值，且有速率上限**：实测 88/306 条达到 999–1000 ml/h 的天花板，
+   * ⚠️ **设备估算值，且有速率上限**：实测 88/342 条有效速率达到 950+ ml/h 的天花板，
    * 而真实出汗率可达 1500–2000 ml/h。所以它是**保守下限**，展示必须带「约」。
    */
   est_sweat_loss?: number;
@@ -156,17 +156,17 @@ export interface Activity {
   /**
    * 功率区间上限边界（瓦），JSON 数组字符串，如 `"[218,267,307,338,390,4000,null,null]"`。
    *
-   * **索引 3 恒等于 FTP**：实测 16 套方案（241/241 条跑步活动）的第 4 个上界都等于
-   * 阈值功率，33 条同时有 `functional_threshold_power` 的活动逐条相等（33/33）。
-   * 这是 `app/lib/power.ts` 把 FTP 覆盖率从 33/348 提到 241/348 的依据。
+   * **索引 3 恒等于 FTP**：实测 18 套原始方案（247/247 条跑步活动）的第 4 个上界都等于
+   * 阈值功率，39 条同时有 `functional_threshold_power` 的活动逐条相等（39/39）。
+   * 这是 `app/lib/power.ts` 把 FTP 覆盖率从 39/354 提到 247/354 的依据。
    * 尾部 `null` 是未使用的槽位；`4000` 这类值是 Z5 上界哨兵。
    */
   power_zone_boundaries?: string | null;
 
   // 阈值与静息心率（FIT time_in_zone / user_profile 消息）
-  threshold_heart_rate?: number | null;           // 乳酸阈心率（bpm，140/348 有值）
+  threshold_heart_rate?: number | null;           // 乳酸阈心率（bpm，211/354 有值）
   /**
-   * 设备设置的**最大心率**（bpm，140/348 有值，188–197）。
+   * 设备设置的**最大心率**（bpm，211/354 有值，188–197）。
    *
    * **不要当作「本次最大心率」展示** —— 它是手表里的用户配置值，实测 140/140 条
    * 都等于 `hr_zone_boundaries` 的最后一个元素，且**从不小于** `max_heart_rate`
@@ -174,7 +174,7 @@ export interface Activity {
    */
   max_heart_rate_fit?: number | null;
   /**
-   * FTP 功能性阈值功率（瓦，仅 33/348 有值，338–345）。
+   * FTP 功能性阈值功率（瓦，仅 39/354 有值，336–345）。
    *
    * 多数活动设备不写该字段，但 `power_zone_boundaries[3]` 是同一数值 —— 缺失时
    * 由 `app/lib/power.ts` 的 `resolveFtp` 回退，并把来源标记为 `zone-boundary`。
@@ -231,8 +231,8 @@ export interface ActivityLap {
   // `average_pace` 与 `average_speed` 互为倒数；`average_moving_pace` 是同一
   // 口径的显式列（历史遗留的冗余列，值恒等于 `average_pace`）。
   average_pace?: number;                         // 平均配速（秒/公里，计时器时间口径）
-  average_pace_gap?: number;                     // 平均坡度调整配速（秒/公里）; 真实库 0/3082, FIT profile 无此字段
-  best_pace?: number;                            // 最佳配速（秒/公里）; 真实库 0/3082, FIT 只有 best_lap_index（索引）
+  average_pace_gap?: number;                     // 平均坡度调整配速（秒/公里）; 真实库 0/3153, FIT profile 无此字段
+  best_pace?: number;                            // 最佳配速（秒/公里）; 真实库 0/3153, FIT 只有 best_lap_index（索引）
   average_speed?: number;                        // 平均速度（公里/小时，同上口径）
   average_moving_pace?: number;                  // 平均移动配速（秒/公里）; 与 average_pace 同值（历史冗余列）
 
@@ -255,11 +255,11 @@ export interface ActivityLap {
   max_cadence?: number;                          // 最大步频（步/分钟）
   average_stride_length?: number;                // 平均步幅（米）
   average_ground_contact_time?: number;          // 平均触地时间（毫秒）
-  average_gct_balance?: number;                  // 平均触地时间平衡（%）; 真实库 0/3082（设备不写 avg_stance_time_balance）
+  average_gct_balance?: number;                  // 平均触地时间平衡（%）; 真实库 0/3153（设备不写 avg_stance_time_balance）
   average_vertical_oscillation?: number;         // 平均垂直摆动（厘米）
   average_vertical_ratio?: number;               // 平均垂直步幅比（%）
-  average_step_rate_loss?: number;               // 平均步速损失（厘米/秒）; 真实库 0/3082, FIT profile 无此概念
-  average_step_rate_loss_percent?: number;       // 平均步速损失百分比（%）; 真实库 0/3082, FIT profile 无此概念
+  average_step_rate_loss?: number;               // 平均步速损失（厘米/秒）; 真实库 0/3153, FIT profile 无此概念
+  average_step_rate_loss_percent?: number;       // 平均步速损失百分比（%）; 真实库 0/3153, FIT profile 无此概念
 
   // 坡度（%）
   avg_grade?: number;                            // 平均坡度
@@ -271,7 +271,7 @@ export interface ActivityLap {
   // 区间时间（秒），JSON 字符串
   // **口径纪律**：不带前缀的两列只装 app 5 区模型结果（长度恒 5、可按索引跨 lap 聚合），
   // 由逐秒记录按 lap 时间窗推导（见 fit-parser 的 `_assignLapZoneSeconds`）。
-  // 设备原始数组进 `device_*` 列，仅供追溯 —— 设备从不写 lap 级区间（实测 3082/3082 空）。
+  // 设备原始数组进 `device_*` 列，仅供追溯 —— 设备从不写 lap 级区间（实测 3153/3153 空）。
   time_in_hr_zone?: string;                     // 心率区间秒数（本地 5 区口径，长度恒 5）
   time_in_power_zone?: string;                  // 功率区间秒数（app 5 区 %FTP 口径，长度恒 5）
   device_time_in_hr_zone?: string;              // 设备原始心率区间秒数（不可跨 lap 聚合）
@@ -298,7 +298,7 @@ export interface ActivityLap {
    * 本段**训练角色**（FIT lap `intensity` 原值）—— 第十二类缺陷。
    *
    * 设备记录的计划结构：`warmup` / `interval` / `recovery` / `rest` /
-   * `cooldown` / `active`。覆盖真实库 **3058/3137（97.5%）**。
+   * `cooldown` / `active`。覆盖真实库 **3074/3153（97.5%）**。
    *
    * **不要直接展示这个原始值** —— 角色映射走 `app/lib/lap-intensity.ts`
    * 的 `lapRoleFromIntensity()`（`interval` → 主课、`rest`/`recovery` → 恢复、
@@ -610,7 +610,7 @@ export interface PowerZoneStat {
  * 功率区间聚合结果的参照系。
  *
  * **为什么必须显式给出参照 FTP**：区间判定用的是**每个活动各自的 FTP**
- * （真实库 241 条跑步活动有 14 个不同值，338–379W），所以跨活动聚合只能在
+ * （真实库 247 条跑步活动有 15 个不同值，336–379W），所以跨活动聚合只能在
  * **%FTP** 上做。但用户要落到具体瓦数时需要一个分母 —— 这里给出参与聚合
  * 活动的 FTP **中位数**，并明确标注是「参照」而非「本次活动 FTP」。
  */
@@ -902,7 +902,7 @@ export interface ActivityLapAnalysis {
     /**
      * 该 lap 的心率区间秒数（**app 5 区口径**，长度恒为 5，索引 0=Z1）。
      *
-     * 由逐秒记录按 lap 时间窗推导。设备从不写 lap 级区间数组（实测 3082/3082 空），
+     * 由逐秒记录按 lap 时间窗推导。设备从不写 lap 级区间数组（实测 3153/3153 空），
      * 故这是「这一段强度分布」的唯一来源。无心率数据时为 null。
      */
     hrZoneSeconds: number[] | null;
@@ -1070,8 +1070,8 @@ export interface ActivityInsightResponse {
    * 功率区间占比（**app 5 区 %FTP 口径**，由逐秒功率推导）。
    *
    * 与 `hrZoneBreakdown` 同构：长度不固定（只含非零区间），索引即 `zone-1`。
-   * 覆盖率 **241/241** 条有功率的跑步活动 —— 而设备 `time_in_power_zone` 只有
-   * 33/348 有值且是**绝对瓦数**边界（16 套方案，按索引不可跨活动聚合）。
+   * 覆盖率 **247/247** 条有功率的跑步活动 —— 而设备 `time_in_power_zone` 只有
+   * 39/354 有值且是**绝对瓦数**边界（原始 18 套 / 归一后 3 套，按索引不可跨活动聚合）。
    * 非跑步活动恒为空数组（逐秒功率 0/107）。
    */
   powerZoneBreakdown: { zone: number; seconds: number; pct: number }[];

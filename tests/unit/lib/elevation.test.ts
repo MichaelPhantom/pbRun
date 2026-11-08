@@ -3,7 +3,7 @@
  *
  * 守的核心是**一个极易被误读的语义差**：
  *
- * 真实库 **191/234** 条活动的 `max_altitude - min_altitude` **小于** `total_ascent`。
+ * 真实库 **196/239** 条活动的 `max_altitude - min_altitude` **小于** `total_ascent`。
  * 这不是数据错误，而是两个不同的量：
  *
  * - `max - min` = **净高差**（最高点减最低点；环形路线回到起点就只有几十米）
@@ -56,7 +56,7 @@ describe('elevationSpan —— 净高差（不是累计爬升）', () => {
     expect(elevationSpan({ min_altitude: 0, max_altitude: ELEVATION_SPAN_MAX_M })).not.toBeNull();
   });
 
-  test('任一列缺失返回 null（真实库 234/348 有值，三列 NULL 模式完全一致）', () => {
+  test('任一列缺失返回 null（真实库 239/354 有值，三列 NULL 模式完全一致）', () => {
     expect(elevationSpan({})).toBeNull();
     expect(elevationSpan({ min_altitude: 300 })).toBeNull();
     expect(elevationSpan({ max_altitude: 400 })).toBeNull();

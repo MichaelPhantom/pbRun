@@ -77,8 +77,8 @@ const samples = [
     max_heart_rate: 182,
     average_cadence: 182,
     average_stride_length: 0.95,
-    // 跑姿动态: 真实库 241/241 条跑步活动都有这两项, 而 average_gct_balance
-    // 348/348 全为 NULL —— 夹具必须照这个分布写, 否则详情页「跑步动态」卡片的
+    // 跑姿动态: 真实库 247/247 条跑步活动都有这两项, 而 average_gct_balance
+    // 354/354 全为 NULL —— 夹具必须照这个分布写, 否则详情页「跑步动态」卡片的
     // 渲染条件 (旧实现只判 gct_balance) 在 e2e 里永远测不到, 缺陷会一直潜伏。
     average_ground_contact_time: 241.5,
     average_vertical_oscillation: 7.4,
@@ -88,13 +88,13 @@ const samples = [
     max_cadence: 188,
     total_ascent: 25,
     total_descent: 20,
-    // 海拔三列: 真实库 234/348 有值且 NULL 模式一致（要么全有要么全无）。
+    // 海拔三列: 真实库 239/354 有值且 NULL 模式一致（要么全有要么全无）。
     // 夹具必须给全, 否则「海拔净高差」格在 e2e 里永远测不到。
     avg_altitude: 292,
     min_altitude: 284,
     max_altitude: 312,
     // 功率强度: 真实库 intensity_factor/training_stress_score/
-    // average_power_to_weight 三列 **0/348**（设备不写）, 但可由
+    // average_power_to_weight 三列 **0/354**（设备不写）, 但可由
     // normalized_power ÷ FTP、时长 × IF²、平均功率 ÷ 体重推算。
     // 夹具照真实分布: 只给输入（NP/平均功率/峰值/区间边界/体重）, 派生值必须由
     // app/lib/power.ts 现场算出来 —— 若夹具直接写死 IF/TSS, 就等于绕过了被测代码,

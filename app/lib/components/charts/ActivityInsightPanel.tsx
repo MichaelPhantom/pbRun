@@ -301,7 +301,7 @@ export function ActivityInsightPanel({ data }: { data: ActivityInsightResponse |
       </div>
 
       {/* 功率区间占比。只有跑步 + 有逐秒功率 + 能解析 FTP 才渲染:
-          真实库逐秒功率 241/241 跑步有值、0/107 非跑步, 非跑步渲染出来
+          真实库逐秒功率 247/247 跑步有值、0/107 非跑步, 非跑步渲染出来
           只会是空图。FTP 缺失时不渲染「全是 Z1」的假分布 —— 那会被读成
           「本次几乎没用力」。 */}
       {isRunning && powerZoneBars.length > 0 && (
@@ -310,7 +310,7 @@ export function ActivityInsightPanel({ data }: { data: ActivityInsightResponse |
             <p className="text-xs font-medium text-fg-secondary">{powerZoneTitle}</p>
             {ftpWatts != null && (
               // FTP 是区间的分母, 不显示的话用户无法判断「Z3 占比 44%」意味着多少瓦。
-              // 真实库 FTP 只有 33/348 是设备显式值, 其余由 power_zone_boundaries[3]
+              // 真实库 FTP 只有 39/354 是设备显式值, 其余由 power_zone_boundaries[3]
               // 回退 —— 故文案只写「FTP」而不声称「设备阈值」。
               <span className="text-[11px] text-fg-muted">FTP {ftpWatts}W</span>
             )}

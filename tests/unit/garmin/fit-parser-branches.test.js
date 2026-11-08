@@ -79,8 +79,8 @@ describe('_extractActivityData 分支', () => {
    * 配速/速度的时间基数 = **计时器时间**（`total_timer_time`），不是经过时间。
    *
    * 缺陷原状（2026-10-27 审计）：`average_pace = duration / distance`，而
-   * `duration` 存的是 `total_elapsed_time`（含暂停）。真实库 251 条有配速的
-   * 活动里 251/251 严格等于 `duration/distance`，只有 158 条等于
+   * `duration` 存的是 `total_elapsed_time`（含暂停）。当时真实库 251 条有配速的
+   * 活动里（当时）251/251 严格等于 `duration/distance`，只有 158 条等于
    * `moving_time/distance` —— 所有「暂停较多」的活动配速都是错的。
    *
    * 最刺眼的一例：`582132079` 6.63 km、卡片「时长」43.7 分（moving_time），
@@ -177,7 +177,7 @@ describe('_extractActivityData 分支', () => {
   /**
    * `total_cycles` —— 第十类缺陷（2026-11-07 真实发现）。
    *
-   * FIT session/lap 的 `total_cycles` 在真实库 **349/353** 活动里都有值，但
+   * FIT session/lap 的 `total_cycles` 在真实库 **350/354** 活动里都有值，但
    * 解析器**从不读取**它。它是三种运动的**核心计数指标**：
    *
    * | 运动 | `total_cycles` 语义 | 真实库自证 |
@@ -259,7 +259,7 @@ describe('_extractActivityData 分支', () => {
   /**
    * 主观感受（`workout_feel` / `workout_rpe`）—— 第十类缺陷第二轮。
    *
-   * **`workout_feel = 0` 是有效值**（真实库 14/251 条「感觉最糟」）。
+   * **`workout_feel = 0` 是有效值**（真实库 14/252 条「感觉最糟」）。
    * 任何 `if (feel)` 的真值判断都会静默丢掉这 14 条 —— 这是本轮最容易犯的错。
    */
   test('workout_feel = 0 必须写入（0 是「感觉很差」, 不是缺失）', () => {
@@ -294,8 +294,8 @@ describe('_extractActivityData 分支', () => {
   /**
    * 估计出汗量（`est_sweat_loss`，毫升）—— 第十类缺陷第二轮。
    *
-   * 覆盖 **349/353**（除游泳 0/4）。实测速率上限恰好 999–1000 ml/h
-   * （88/306 条达到上限），说明设备内部有 cap —— 展示必须带「约」。
+   * 覆盖 **350/354**（除游泳 0/4）。实测速率上限恰好 999–1000 ml/h
+   * （88/342 条达到上限），说明设备内部有 cap —— 展示必须带「约」。
    */
   test('est_sweat_loss: 有值 → 写入（毫升）', () => {
     expect(p._extractActivityData({ sessions: [{ est_sweat_loss: 519 }] }).est_sweat_loss).toBe(519);
@@ -313,10 +313,10 @@ describe('_extractActivityData 分支', () => {
    * 回归（2026-10-27 审计）：解析器**不得**从 session 里读 `training_load`
    * 一族的字段名 —— 它们都不在 `fit-file-parser` 的 SDK profile 里，
    * 读取恒为 null（死读）。`training_load` 的唯一来源是 `sync.js` 的
-   * `calculateTrainingLoad` 派生（实测与库内 241 条中的 237 条一致）。
+   * `calculateTrainingLoad` 派生（实测与库内 247 条几乎全部一致，仅 4 条早期遗留）。
    *
    * 真实存在的是 `training_load_peak`（uint32 原值，实测 2918977），但它与
-   * 库内 training_load（量级 ~50）**不是同一个量**：241 条活动的比值在
+   * 库内 training_load（量级 ~50）**不是同一个量**：247 条活动的比值在
    * 1.2–2.6 倍浮动、相关系数仅 0.72，除以 65536 也无一相等 —— 语义未确认，
    * 不得接线。故解析器对任何 training_load 形态的输入都应保持 undefined。
    */
@@ -350,7 +350,7 @@ describe('_extractActivityData 分支', () => {
   test('session 级心率区间只进 device 列, 不进统计列 time_in_hr_zone', () => {
     // 关键回归: 统计列 time_in_hr_zone 的口径固定为本地 5 区推导。session 级
     // 同名字段是**设备原始数组**（边界方案随固件而变），若漏进统计列，跨活动
-    // 按索引相加就失去物理含义。实测 348/348 个 FIT 的该字段全为空。
+    // 按索引相加就失去物理含义。实测 354/354 个 FIT 的该字段全为空。
     expect(p._extractActivityData({ sessions: [{ time_in_hr_zone: 'oops' }] }).time_in_hr_zone).toBeUndefined();
     expect(
       p._extractActivityData({ sessions: [{ time_in_hr_zone: [1, 2, 3] }] }).device_time_in_hr_zone,
@@ -386,7 +386,7 @@ describe('_extractLapsData 分支', () => {
    *
    * 缺陷原状：lap 用 `duration`（= `total_elapsed_time`，含暂停），于是
    * `598287817` 第 7 段 16 m / 392 s（moving_time）配速显示 **60792 s/km**
-   * —— 16.9 小时/公里。真实库 3082 个 lap 里 `average_pace` **2972/2972**
+   * —— 16.9 小时/公里。当时真实库 3082 个 lap 里 `average_pace` **2972/2972**
    * 严格等于 `duration/distance`，而 `average_moving_pace` **2972/2972**
    * 等于 `moving_time/distance`；后者才是正确口径（此前从未被 UI 消费）。
    */

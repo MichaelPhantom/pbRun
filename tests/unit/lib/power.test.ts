@@ -4,15 +4,15 @@
  * 守的是四类**真实缺陷**（每条都有真实库样本）：
  *
  *  1. `intensity_factor` / `training_stress_score` / `average_power_to_weight`
- *     三列 **0/348** 有值 —— 但输入全在（NP 241/241、FTP 241/241、体重 241/241）。
+ *     三列 **0/354** 有值 —— 但输入全在（NP 247/247、FTP 247/247、体重 247/247）。
  *     旧实现把「设备从不写入」等同于「不存在」，于是模型永远看不到强度因子。
- *  2. FTP 只有 33/348 显式有值，但 `power_zone_boundaries[3]` 恒等于 FTP
- *     （33/33 逐条相等）—— 这是把覆盖率提到 241/348 的依据。
+ *  2. FTP 只有 39/354 显式有值，但 `power_zone_boundaries[3]` 恒等于 FTP
+ *     （33/33 逐条相等）—— 这是把覆盖率提到 247/354 的依据。
  *  3. `max_power` 是逐秒瞬时峰值（548397123: 均 306W / 峰 3866W = 12.6 倍，
  *     67kg 即 57.7 W/kg，世界级场地车手冲刺也只有 20–25），不能直接展示，
  *     更不能参与任何派生。同一陷阱在 `max_speed` 上已踩过一次。
  *  4. TSS 的时间基数必须是 `moving_time`（timer time）而不是 `duration`
- *     （elapsed，含暂停；110/348 条活动两者最多差 7845 秒）。
+ *     （elapsed，含暂停；111/354 条活动两者最多差 7845 秒）。
  */
 import {
   FTP_MAX_W,
@@ -31,7 +31,7 @@ describe('resolveFtp —— 设备显式值优先，缺失回退功率区间边�
     expect(resolveFtp({ functional_threshold_power: 343 })).toEqual({ watts: 343, source: 'device' });
   });
 
-  test('设备未写时取 power_zone_boundaries[3]（真实库 241/241 的普遍路径）', () => {
+  test('设备未写时取 power_zone_boundaries[3]（真实库 247/247 的普遍路径）', () => {
     // 真实样本 536178521: [241,297,334,371,427,4000,null,null] → FTP 371
     const r = resolveFtp({ power_zone_boundaries: '[241,297,334,371,427,4000,null,null]' });
     expect(r).toEqual({ watts: 371, source: 'zone-boundary' });
@@ -46,7 +46,7 @@ describe('resolveFtp —— 设备显式值优先，缺失回退功率区间边�
   });
 
   test('越界的显式 FTP 不采信，回退区间边界', () => {
-    // 33/348 真实值域 338–345；低于 100 更像缺失（FIT 里 0 表示未设置）。
+    // 39/354 真实值域 338–345；低于 100 更像缺失（FIT 里 0 表示未设置）。
     expect(resolveFtp({ functional_threshold_power: 0, power_zone_boundaries: '[241,297,334,371,427]' })).toEqual({
       watts: 371,
       source: 'zone-boundary',
@@ -146,7 +146,7 @@ describe('peakPower —— 峰值功率只在相对均值合理时才展示', ()
   });
 
   test('传感器尖峰（>3 倍均值）判为脏数据返回 null', () => {
-    // 548397123: 3866 / 306 = 12.6 倍。真实库 241 条里 7 条超过 3 倍。
+    // 548397123: 3866 / 306 = 12.6 倍。真实库 247 条里 8 条超过 3 倍。
     expect(peakPower(3866, 306)).toBeNull();
     expect(peakPower(554, 96)).toBeNull(); // 5.77 倍
   });

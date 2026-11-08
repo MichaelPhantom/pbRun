@@ -808,7 +808,7 @@ function ActivityCard({
 
       <div className="tnum flex flex-wrap items-baseline gap-x-6 gap-y-1">
         {/*
-          距离的三种情况必须分开渲染（真实库 97/353 条活动 `distance = 0`）：
+          距离的三种情况必须分开渲染（真实库 97/354 条活动 `distance = 0`）：
           - `null`：**数据缺失** → 显示 `--`（用户需要知道这条没同步到距离）；
           - `0`：**该运动本来没有距离语义**（力量训练按组、爬楼按层、HIIT/跳绳
             按次）→ 整个距离块不渲染。旧实现 `distance != null` 判定为真，卡片

@@ -11,9 +11,9 @@
  *
  * | 字段 | 真实库 | 缺陷性质 |
  * |------|--------|----------|
- * | `cumulative_time` | 3082/3082 | 只被 `scripts/common/lap-zones.js` 用（切时间窗），UI/AI 零消费 |
- * | `lap_trigger` | 3082/3082 | 完全零消费（`session_end` 标出末尾不满整段的分段） |
- * | `average_moving_pace` | 2972/3082 | 零消费；**且修复时间基数后与 `average_pace` 逐条相等（2972/2972）** |
+ * | `cumulative_time` | 3153/3153 | 只被 `scripts/common/lap-zones.js` 用（切时间窗），UI/AI 零消费 |
+ * | `lap_trigger` | 3153/3153 | 完全零消费（`session_end` 标出末尾不满整段的分段） |
+ * | `average_moving_pace` | 3043/3153 | 零消费；**且修复时间基数后与 `average_pace` 逐条相等（3043/3043）** |
  *
  * 最后一条尤其值得记：它原本是**正确口径**（计时器时间）却从未被读，而
  * `average_pace` 是**错误口径**（经过时间）却到处被读。这次修复把 `average_pace`
@@ -48,31 +48,31 @@ const LAP_FIELD_ALLOWLIST: Record<string, string> = {
   // ---- 语义陷阱：口径冗余 ----
   // 修复配速时间基数（2026-10-27）之前，`average_pace` 用经过时间、本列用计时器
   // 时间 —— 两者含义不同。修复后 `average_pace` 也改为计时器口径，实测
-  // **2972/2972 逐条相等**，本列已无增量信息。
+  // **3043/3043 逐条相等**，本列已无增量信息。
   // 保留而不 DROP 的理由：它是**历史口径的化石**（证明「曾经有一份正确实现却没人读」），
   // 且 27 个 lap 因 `moving_time` 缺失只有 `average_pace`、没有本列 —— DROP 会
   // 让这层历史信息彻底消失。展示两个恒等的数只会让人困惑。
   average_moving_pace:
     '历史冗余列: 修复时间基数后与 average_pace 逐条相等(2972/2972), 展示重复值无增量信息',
 
-  // ---- 真实库 0/3082 全空, 写入口从不产出 ----
+  // ---- 真实库 0/3153 全空, 写入口从不产出 ----
   // 「设备根本不写」类，与 `Activity` 的同名条目同一归因：FIT profile 里没有对应字段。
-  average_pace_gap: '真实库 0/3082; FIT profile 无任何 pace/gap 字段, 设备不产此量',
-  best_pace: '真实库 0/3082; FIT 只有 best_lap_index(索引, 不是时间), 无最佳配速',
-  max_power_to_weight: '真实库 0/3082; FIT profile 无此字段, 且 max_power 是瞬时尖峰',
-  average_step_rate_loss: '真实库 0/3082; FIT profile 无「步速损失」概念',
-  average_step_rate_loss_percent: '真实库 0/3082; 同上, FIT profile 无对应字段',
-  avg_pos_grade: '真实库 0/3082, 设备从不写入',
-  avg_neg_grade: '真实库 0/3082, 设备从不写入',
-  max_pos_grade: '真实库 0/3082, 设备从不写入',
-  max_neg_grade: '真实库 0/3082, 设备从不写入',
+  average_pace_gap: '真实库 0/3153; FIT profile 无任何 pace/gap 字段, 设备不产此量',
+  best_pace: '真实库 0/3153; FIT 只有 best_lap_index(索引, 不是时间), 无最佳配速',
+  max_power_to_weight: '真实库 0/3153; FIT profile 无此字段, 且 max_power 是瞬时尖峰',
+  average_step_rate_loss: '真实库 0/3153; FIT profile 无「步速损失」概念',
+  average_step_rate_loss_percent: '真实库 0/3153; 同上, FIT profile 无对应字段',
+  avg_pos_grade: '真实库 0/3153, 设备从不写入',
+  avg_neg_grade: '真实库 0/3153, 设备从不写入',
+  max_pos_grade: '真实库 0/3153, 设备从不写入',
+  max_neg_grade: '真实库 0/3153, 设备从不写入',
   // 设备原始区间数组（绝对边界随固件/FTP 而变）—— 与活动级同一纪律: 仅供追溯。
   // app 对速度/步频**没有** 5 区模型，正确落点就是 `device_*` 前缀列。
   device_time_in_speed_zone: '设备原始速度区间秒数(app 无对应模型, 仅追溯)',
   device_time_in_cadence_zone: '设备原始步频区间秒数(app 无对应模型, 仅追溯)',
 
   // ---- 有值但当前无消费方 ----
-  // `lap_trigger` 真实库 3082/3082 有值（`distance` 1706 / `time` 870 /
+  // `lap_trigger` 真实库 3153/3153 有值（`distance` 1761 / `time` 872 /
   // `session_end` 279 / `manual` 224 / `'15'` 3）。`session_end` 标出「末尾不满整段」
   // 的分段，`'15'` 是零距离分段上的原始数字触发器。
   // 当前不展示的理由：它描述的是**手表怎么切的分段**，不是跑者的表现；而分段表
@@ -194,7 +194,7 @@ describe('ActivityLap 的每个字段都必须被消费或显式记账', () => {
   test('解析器确实覆盖到 ActivityLap 的全部字段 (防假绿)', () => {
     // **精确** 47 个字段（2026-11-07 连续新增两列：
     //  - `intensity`（第十二类缺陷）：FIT lap 的 `intensity` 一直有值
-    //    （3058/3137 = 97.5%），解析器从不读取，详情页的「角色」列反而按配速
+    //    （3074/3153 = 97.5%），解析器从不读取，详情页的「角色」列反而按配速
     //    推断 —— 实测与设备值仅 73.2% 一致，274 段判错；
     //  - `swim_stroke`（第十三类缺陷）：**session 级恒 255（无效），lap 级才有
     //    真实值**（35/79 段），旧文档写「泳姿仅 Garmin 云端可见」只对 session 级成立）。

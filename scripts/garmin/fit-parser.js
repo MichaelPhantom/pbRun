@@ -236,9 +236,9 @@ class GarminFITParser {
       // 合并所有新字段到 activityData
       Object.assign(activityData, metricsData, zoneBoundaries, devicesData, userProfile, workoutData, hrvData);
 
-      // 心率区间时长: **由逐秒心率按 app 5 区模型推导**（覆盖 348/348，而设备原始
-      // time_in_zone 只有 140/348 有值且跨活动边界方案不一致）。推导秒数与
-      // moving_time 偏差 <10% 的活动占 241/241（跑步）/ 107/107（非跑步）。
+      // 心率区间时长: **由逐秒心率按 app 5 区模型推导**（覆盖 354/354，而设备原始
+      // time_in_zone 当年只有 140/348 有值且跨活动边界方案不一致）。推导秒数与
+      // moving_time 偏差 <10% 的活动占 247/247（跑步）/ 106/107（非跑步）。
       // 设备原始数组保留在 device_time_in_hr_zone，仅供追溯。
       const zoneSecs = hrZoneSecondsFromRecords(recordsData, resolveMaxHr());
       if (zoneSecs.some((v) => v > 0)) {
@@ -247,14 +247,14 @@ class GarminFITParser {
 
       // 功率区间时长: **同样由逐秒功率按 app 5 区 %FTP 模型推导**。
       //
-      // 设备原始 `time_in_power_zone` 只有 33/348 条活动有值, 且数组是**绝对瓦数**
-      // 上限 (实测 16 套方案随 FTP 变化: [218,267,307,338,390,…] vs
+      // 设备原始 `time_in_power_zone` 只有 39/354 条活动有值, 且数组是**绝对瓦数**
+      // 上限 (实测 18 套原始方案随 FTP 变化: [218,267,307,338,390,…] vs
       // [229,282,318,353,406,…]) —— 按索引跨活动聚合得到的「Z3 秒数」没有物理含义,
-      // 与心率区间当年的 19 套边界是同一个陷阱。
+      // 与心率区间原始 21 套边界是同一个陷阱。
       //
-      // 归一成 %FTP 后 241/241 只有一套方案 65/80/90/100/115, 故可从逐秒功率
+      // 归一成 %FTP 后 247/247 只有一套方案 65/80/90/100/115, 故可从逐秒功率
       // 推导出统一口径的 5 区 (设备 Z5 100–115% 与 Z6 >115% 合并进 app Z5)。
-      // 实测 33 条同时有设备数组的活动: 逐槽偏差 <5 个百分点的有 32/33。
+      // 实测 39 条同时有设备数组的活动: 逐槽偏差 <5 个百分点的有 38/39。
       //
       // 设备原始数组保留在 `device_time_in_power_zone`, 仅供追溯。
       const ftp = resolveFtp(activityData);
@@ -267,8 +267,8 @@ class GarminFITParser {
 
       // lap 级区间秒数: 从逐秒记录按 lap 时间窗切分, 用**同一套** 5 区模型推导。
       //
-      // 为什么必须推导而不能读设备值: 实测 348 个 FIT 的 3082 个 lap **全都不写**
-      // 区间数组 (session 级也 0/348), 所以 lap 级统一列历来为空。而 lap 级区间
+      // 为什么必须推导而不能读设备值: 实测 354 个 FIT 的 3153 个 lap **全都不写**
+      // 区间数组 (session 级也 0/354), 所以 lap 级统一列历来为空。而 lap 级区间
       // 是「某一段的强度分布」, 有真实分析价值 (例如「Z4 那 3 个 lap 配速掉了吗」)。
       //
       // 口径一致性: 与活动级用同一个 `hrZoneSecondsFromRecords` /
@@ -356,11 +356,11 @@ class GarminFITParser {
     //
     // 旧实现用 `duration`（= `total_elapsed_time`，含暂停）推导，于是同一个活动
     // 卡片自相矛盾：`582132079` 6.63 km、卡片「时长」43.7 分（`moving_time`），
-    // 「平均配速」却显示 **26:19/km**（配速×距离 = 174.4 分）。真实库 251 条有配速
-    // 的活动里 251/251 严格等于 `duration/distance`，只有 158 条等于
-    // `moving_time/distance` —— 所有暂停较多的活动（跑步 19 条偏差 >10%）都错。
+    // 「平均配速」却显示 **26:19/km**（配速×距离 = 174.4 分）。修复前真实库 251 条有
+    // 配速的活动里（当时）251/251 严格等于 `duration/distance`，只有 158 条等于
+    // `moving_time/distance` —— 所有暂停较多的活动（当时跑步 19 条偏差 >10%）都错。
     //
-    // 设备自己算的 `enhanced_avg_speed` 也是计时器口径（251 条里 248 条与
+    // 设备自己算的 `enhanced_avg_speed` 也是计时器口径（当时 251 条里 248 条与
     // `distance/moving_time` 偏差 <2%），Strava/Garmin Connect 展示的同样如此。
     // 故这不是「两种口径都行」，是我们读错了自己存的列。
     //
@@ -418,7 +418,7 @@ class GarminFITParser {
       activityData.average_ground_contact_time = gct;
     }
 
-    // 触地平衡：SDK 字段是 `avg_stance_time_balance`。真实设备 348/348 都不写
+    // 触地平衡：SDK 字段是 `avg_stance_time_balance`。真实设备 354/354 都不写
     // 该字段（只有部分高阶手表 + 双传感器配置才有），所以这一列在库里恒为 NULL。
     // 保留读取是为了「设备将来写入时自动生效」，但必须用正确的字段名。
     activityData.average_gct_balance = this._safeGetFloat(session, 'avg_stance_time_balance');
@@ -432,7 +432,7 @@ class GarminFITParser {
     activityData.max_power = this._safeGetInt(session, 'max_power');
     // W/kg **不读设备字段**：FIT profile 里没有 `avg_power_to_weight` /
     // `max_power_to_weight`（读它们恒为 null，是死读）。唯一来源是
-    // `app/lib/power.ts` 的 `average_power / user_weight` 派生（241/241 可算）。
+    // `app/lib/power.ts` 的 `average_power / user_weight` 派生（247/247 可算）。
     // `powerIntensity()` 仍保留「显式值优先」的分支 —— 那是为将来真有设备
     // 写入时准备的，但当前没有任何写入路径会填这两列。
 
@@ -460,10 +460,10 @@ class GarminFITParser {
     // 曾尝试 `training_load` / `training_load_score` / `acute_training_load` 三个
     // 名字，但三者都不在 SDK profile 里（死读）。真实存在的是 `training_load_peak`
     // （uint32 原值，实测 2918977），但它与库内 `training_load`（量级 ~50）**不是
-    // 同一个量**：实测 241 条活动的比值在 1.2–2.6 倍之间浮动、相关系数仅 0.72，
+    // 同一个量**：实测 247 条活动的比值在 1.2–2.6 倍之间浮动、相关系数仅 0.72，
     // 强行除以 65536 也无一相等 —— 语义/scale 未确认，不得接线。
     // 故 training_load 统一由 `sync.js` 的 `calculateTrainingLoad` 派生（实测
-    // 与库内 241 条中的 237 条一致，另 4 条为早期版本遗留）。
+    // 与库内 247 条几乎全部一致，仅 4 条为早期版本遗留）。
 
     // 海拔（米）— session 可能无此字段，兜底从 records 计算
     activityData.avg_altitude = this._altitudeToMeters(
@@ -493,12 +493,12 @@ class GarminFITParser {
     // 区间时间（秒），存为 JSON 字符串。
     // 注意 `time_in_hr_zone` **不在这里写** —— 统计口径列只由逐秒心率推导
     // （见 parseFitFile），否则设备原始数组会漏进「可按索引跨活动聚合」的列。
-    // session 级同名字段实测 348/348 个 FIT 全为空，故它只是 device 列的兜底来源。
+    // session 级同名字段实测 354/354 个 FIT 全为空，故它只是 device 列的兜底来源。
     const sessionHrZone = this._safeGetZoneJson(session, 'time_in_hr_zone');
     if (sessionHrZone) activityData.device_time_in_hr_zone = sessionHrZone;
     // 速度/步频区间：app **没有**对应的 5 区模型（无 UI/统计消费方），设备有值就
     // 直接留作追溯 —— 但列名必须带 `device_` 前缀，否则将来有人把它当统一口径
-    // 聚合（同一陷阱：边界方案随固件而变）。实测 348/348 设备都不写。
+    // 聚合（同一陷阱：边界方案随固件而变）。实测 354/354 设备都不写。
     const sessionSpeedZone = this._safeGetZoneJson(session, 'time_in_speed_zone');
     if (sessionSpeedZone) activityData.device_time_in_speed_zone = sessionSpeedZone;
     const sessionCadenceZone = this._safeGetZoneJson(session, 'time_in_cadence_zone');
@@ -513,7 +513,7 @@ class GarminFITParser {
 
     // 总计数（`total_cycles`）—— 第十类缺陷（2026-11-07）。
     //
-    // FIT session/lap 的 `total_cycles` 在真实库 **349/353** 活动里都有值，但
+    // FIT session/lap 的 `total_cycles` 在真实库 **350/354** 活动里都有值，但
     // 解析器**从不读取**它。它是三种运动的**核心计数指标**：
     //
     // | 运动 | `total_cycles` 语义 | 真实库自证 |
@@ -553,7 +553,7 @@ class GarminFITParser {
     // 主观感受（`workout_feel` / `workout_rpe`）—— 第十类缺陷第二轮。
     //
     // 这是**唯一**由用户主动输入的数据（Garmin 活动结束后弹窗问「感觉如何/多累」），
-    // 覆盖 **251/353**（全部跑步 + 游泳 + 1 条室内骑行；力量/球类/爬楼不弹窗）。
+    // 覆盖 **252/354**（全部跑步 + 游泳 + 1 条室内骑行；力量/球类/爬楼不弹窗）。
     //
     // `workout_feel`：0 / 25 / 50 / 75 / 100（很糟 → 很好），5 档。
     // `workout_rpe`：FIT scale=10 → 解析后是 1–10 的整数（Borg CR10 量表）。
@@ -574,10 +574,10 @@ class GarminFITParser {
 
     // 估计出汗量（`est_sweat_loss`，毫升）—— 第十类缺陷第二轮。
     //
-    // 覆盖 **349/353**（除游泳 0/4 外的全部类型）。这是补液建议的直接依据，
+    // 覆盖 **350/354**（除游泳 0/4 外的全部类型）。这是补液建议的直接依据，
     // 而提示词此前只能让模型「凭时长和温度猜」。
     //
-    // **必须标注是设备估算值**：实测速率上限恰好 999–1000 ml/h（88/306 条
+    // **必须标注是设备估算值**：实测速率上限恰好 999–1000 ml/h（88/342 条
     // 达到该上限），说明设备内部有 cap；真实出汗率可达 1500–2000 ml/h。
     // 所以它是「保守下限」而不是精确值 —— 展示时写「约」。
     const sweatLoss = this._safeGetInt(session, 'est_sweat_loss');
@@ -601,7 +601,7 @@ class GarminFITParser {
   /**
    * 给每个 lap 填 `time_in_hr_zone` / `time_in_power_zone`（app 5 区口径）。
    *
-   * **为什么需要这一步**：lap 级统一列此前从来没有值 —— 设备不写（实测 3082/3082
+   * **为什么需要这一步**：lap 级统一列此前从来没有值 —— 设备不写（实测 3153/3153
    * 空），而解析器又把仅有的设备数组写错了地方（见 `_extractLapsData` 的口径注释）。
    * lap 级区间是「这段强度分布如何」的唯一数据源，跨 lap 可比的前提是**同一套
    * 5 区模型 + 按时间窗切分**。
@@ -672,7 +672,7 @@ class GarminFITParser {
 
       // Pace variations
       //
-      // `average_pace_gap` / `best_pace` 两列在库里 **0/3082 全 NULL**，原因不是
+      // `average_pace_gap` / `best_pace` 两列在库里 **0/3153 全 NULL**，原因不是
       // 设备不写，而是**读的字段名在 SDK profile 里不存在**：
       //  - `avg_pace_gap`：SDK profile 里没有任何 pace/gap 字段；
       //  - `best_lap_time`：SDK 只有 `best_lap_index`（索引，不是时间）。
@@ -724,7 +724,7 @@ class GarminFITParser {
         lapData.average_ground_contact_time = gct;
       }
 
-      // 触地平衡: SDK 字段为 `avg_stance_time_balance`（真实设备 348/348 不写）。
+      // 触地平衡: SDK 字段为 `avg_stance_time_balance`（真实设备 354/354 不写）。
       lapData.average_gct_balance = this._safeGetFloat(lap, 'avg_stance_time_balance');
 
       const vo = this._safeGetFloat(lap, 'avg_vertical_oscillation');
@@ -750,7 +750,7 @@ class GarminFITParser {
       // 一旦漏进这里，同一索引在不同活动/lap 之间就没有可比性 —— 活动级因此把
       // 设备数组单独放进 `device_time_in_hr_zone` / `device_time_in_power_zone`。
       // lap 级此前**漏做了这一步**：直接把设备数组写进统一列（潜伏缺陷，实测
-      // 348 个 FIT 的 3082 个 lap 都不写区间数组，故生产库暂未出现脏数据；
+      // 354 个 FIT 的 3153 个 lap 都不写区间数组，故生产库暂未出现脏数据；
       // 但任何写了 lap 级区间的固件都会立刻污染统一列）。现改为同样的分流。
       //
       // 统一列的 lap 级数值由 `parseFitFile` 从逐秒记录按 lap 时间窗推导
@@ -790,9 +790,9 @@ class GarminFITParser {
       // 训练角色（FIT lap `intensity`）—— 第十二类缺陷。
       //
       // 设备在 lap 里**明确记录了每段的意图**（warmup / interval / recovery /
-      // rest / cooldown / active），覆盖真实库 **3058/3137（97.5%）**。
+      // rest / cooldown / active），覆盖真实库 **3074/3153（97.5%）**。
       // 旧实现从不读它，详情页的「角色」列反而按配速推断 —— 实测与设备值
-      // 只有 **73.2% 一致**（747/1021 段），274 段判错（如 647455345 第 1 段
+      // 只有 **约 73% 一致**（会随同步小幅变化），典型判错如 647455345 第 1 段
       // 设备标「热身」而配速推断成「主课」）。
       //
       // 存**原始字符串**而不是角色枚举：角色映射属于展示层（`app/lib/lap-intensity.ts`），
@@ -1141,13 +1141,13 @@ class GarminFITParser {
       return JSON.stringify(out);
     };
     // 设备原始区间时长 → device_time_in_hr_zone。**不能直接当 time_in_hr_zone 用**：
-    // 实测 19 套不同边界（50/60/70/80/90/100%、52/62/72/82/92%、
-    // 59/73/82/87/92% of maxHR），索引含义跨活动不可比，且只有 140/348 条有值。
+    // 实测 21 套原始边界（归一后 7 套：50/60/70/80/90/100%、52/62/72/82/92%、
+    // 59/73/82/87/92% of maxHR 等），索引含义跨活动不可比，且当年只有 140/348 条有值。
     const deviceHrZoneTime = zoneSeconds(sessionZone.time_in_hr_zone);
     if (deviceHrZoneTime) result.device_time_in_hr_zone = deviceHrZoneTime;
     // 设备原始功率区间时长 → device_time_in_power_zone。**不能直接当
-    // time_in_power_zone 用**: 实测 16 套不同绝对瓦数边界 (随 FTP 变化), 索引含义
-    // 跨活动不可比, 且只有 33/348 条有值。统一口径列由逐秒功率推导 (见 parseFitFile)。
+    // time_in_power_zone 用**: 实测 18 套原始绝对瓦数边界 (随 FTP 变化), 索引含义
+    // 跨活动不可比, 且只有 39/354 条有值。统一口径列由逐秒功率推导 (见 parseFitFile)。
     const powerZoneTime = zoneSeconds(sessionZone.time_in_power_zone);
     if (powerZoneTime) result.device_time_in_power_zone = powerZoneTime;
 

@@ -52,7 +52,7 @@ export function RecentActivityCard({ activity }: { activity: Activity }) {
       </div>
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
         {/*
-          距离三态必须分开（真实库 97/353 条活动 `distance = 0`）：
+          距离三态必须分开（真实库 97/354 条活动 `distance = 0`）：
           - `null` → `--`（数据缺失，用户需要知道没同步到）
           - `0` → 不渲染（力量训练按组、爬楼按层、HIIT/跳绳按次，本来就没有
             距离语义；`formatDistance(0)` 会输出「0.00 km」，读起来像异常数据）

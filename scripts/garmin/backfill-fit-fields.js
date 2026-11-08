@@ -75,12 +75,12 @@ async function main() {
         // device_time_in_hr_zone 是设备原始数组（仅供追溯）。两者都幂等。
         'time_in_hr_zone', 'device_time_in_hr_zone',
         // 总计数（第十类缺陷 2026-11-07）：游泳=总划水/跳绳=总跳跃/爬楼=总步数。
-        // FIT 里一直有（349/353），此前解析器不读 → 全库该列不存在。
+        // FIT 里一直有（350/354），此前解析器不读 → 全库该列不存在。
         'total_cycles',
         // 泳池规格 + 主观感受 + 出汗量（第十类缺陷第二轮）：
         // pool_length/num_active_lengths 是 SWOLF 的输入（4/4）；
-        // workout_feel/workout_rpe 是唯一由用户主动输入的字段（251/353）；
-        // est_sweat_loss 是补液建议依据（349/353，设备估算值）。
+        // workout_feel/workout_rpe 是唯一由用户主动输入的字段（252/354）；
+        // est_sweat_loss 是补液建议依据（350/354，设备估算值）。
         'pool_length', 'num_active_lengths',
         'workout_feel', 'workout_rpe', 'est_sweat_loss',
       ];
@@ -117,10 +117,10 @@ async function main() {
       // 只补指定列，**不重写整个 lap**：`insertLaps` 会先 DELETE 再 INSERT，
       // 拿解析结果整体覆盖库里的 lap。而解析器不产出的列（`cumulative_time`
       // 由解析器算、但 `lap_trigger` 等历史字段可能不同）会被覆盖成 NULL ——
-      // 对已有 3137 段真实数据的库来说风险太大。
+      // 对已有 3153 段真实数据的库来说风险太大。
       // 改为按 `lap_index` 逐段 UPDATE，只动传进去的列。
       //
-      // `intensity`（第十二类缺陷）：设备记录的分段角色，覆盖 3058/3137（97.5%）。
+      // `intensity`（第十二类缺陷）：设备记录的分段角色，覆盖 3074/3153（97.5%）。
       // 详情页的「角色」列此前按配速推断，与设备值仅 73.2% 一致。
       //
       // `swim_stroke`（第十三类缺陷）：泳姿。**session 级恒 255（无效），

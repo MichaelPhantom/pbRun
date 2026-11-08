@@ -352,13 +352,15 @@ describe('CLI 脚本导入契约', () => {
 | `tests/unit/common/db-manager-schema-drift.test.js`（搬运分支） | 清理遗留列时无条件 `DROP COLUMN`：本库恰好 100% NULL，但用户从备份恢复的旧库有值时会被静默丢弃 | 「本库为空」不等于「所有库为空」；迁移不报错，丢数据无声无息 |
 | `tests/unit/mcp/tool-scope-contract.test.ts` | MCP tool description 不声明统计口径/单位 | 文案是字符串常量，没有分支 |
 | `tests/unit/scripts/pace-parity.test.ts` | TS `app/lib/pace.ts` 与 CJS `scripts/common/pace.js` 两份实现漂移 —— 写入侧按一套口径落库、UI/AI 按另一套理解 | 两套实现各自 100% 覆盖、各自「算得对」；只有**逐值比对**才发现分歧。这类漂移不报错，只让数字悄悄错开 |
-| `tests/unit/components/lap-field-consumption.test.ts` | `ActivityLap` 的 47 个字段里有值却零消费（`lap_trigger` 3082/3082、`average_moving_pace` 2972/3082） | 与 `Activity` 那份同理：字段有值即「存在」，没人读不产生未覆盖分支 |
+| `tests/unit/components/lap-field-consumption.test.ts` | `ActivityLap` 的 47 个字段里有值却零消费（`lap_trigger` 3153/3153、`average_moving_pace` 3043/3153） | 与 `Activity` 那份同理：字段有值即「存在」，没人读不产生未覆盖分支 |
 | `tests/unit/lib/db-insight-integration.test.ts` 的 `typeBreakdown` 用例 | 月卡「含 N 次其他」说了有别的运动却不说是什么；或二维聚合写错（`GROUP BY` 少了 `type` → 所有类型合成一行、漏带 WHERE 参数 → 筛游泳时构成仍显示跑步） | mock 测不出聚合形状：`mockAll` 无论 SQL 怎么写都返回预置数组。只有真 SQL + 真数据才能发现「GROUP BY monthKey 少了 type」把 4 种运动压成 1 行 |
 | `tests/unit/components/type-metrics-real-db.test.tsx` | 构造夹具上算得对，**真实库的行**却渲染不出文案（30 条爬楼全是空壳）、或反过来把语义未确认的类型渲染成「73 次」 | 单测夹具与真实数据之间隔着 354 行历史数据：夹具里 `total_cycles: 73` 是「有值就展示」的诱饵，真实库 51 条力量**全都有值**。故本守卫直接读生产库逐条渲染，断言「30 条爬楼全部有楼层」「51 条力量一条都不许出现裸次数」「234 条跑步一条都不许出现楼层」；CI 无库时 skip |
 | `tests/unit/lib/type-metrics.test.ts` | 三处调用方（`/list` 卡片 / 首页 `RecentActivityCard` / 详情页概览）各自派生「这个类型该显示什么核心指标」，漂移后每处都「算得对」 | 三处各有自己的组件测试且全绿 —— 单看任一处都自洽，只有**跨处对撞**才发现「列表有楼层、首页没有」。故派生规则抽成 `typeMetricsOf()` 单一来源，测试同时钉住两条门控（楼层只对 `floor_climbing`、`total_cycles` 只对语义白名单）与「数值单位同生共死」 |
 | `tests/unit/lib/db-time-base.test.ts` | 时长聚合（`totalDuration` / 区间表 `total_duration` / 加权权重 / VDOT 趋势）用经过时间，而配速用计时器时间 —— 同一行数据两个基数 | 两列都有值、SQL 都执行成功、类型都对；只有**同一行内对账**（区间秒数之和 vs `total_duration`）才暴露 |
 | `tests/unit/scripts/backfill-pace.test.js` | 回填脚本按错误时间基数重算（等于把旧缺陷刷成新数据）、失败却返回 0 | 正常路径下两种基数都产出「合法数字」；退出码只在异常路径分叉 |
 | `tests/unit/docs/api-route-coverage.test.ts` | 新增 API 路由未写进 README/API 文档 | 文档与代码是两棵树 |
+| `tests/unit/docs/doc-numbers-real-db.test.ts` | 文档里「真实库 N/M」的**结论型数字**已经变假（写的时候是真的，同步一条活动就过期），却没有任何红灯 | 散文里的数字不是断言：改代码不会让它变红，同步脚本也不读文档。故每条结论都从真实库现场求值再与文档比对 —— 结论真伪只能靠**重新求值**判定 |
+| `tests/unit/docs/doc-stale-counts.test.ts` | 过期分母残留在**消费面**（`app/lib/*.ts` 注释、`ActivityDetailClient.tsx`、`scripts/garmin/*.js`、`mcp-server/tools.ts`、skill 文档）里，以「现状」口吻误导下一个读者 | 注释与提示词不是可执行代码，覆盖率与运行时断言完全看不见。故对 33 个文件做静态扫描：命中过期计数即红，但带「当时/此前/修复前」的行豁免（复盘必须留证据） |
 
 纪律：**同一类缺陷第二次出现时，必须把「人眼审计」升级成机器守卫**。本节第一个
 守卫就是这样诞生的 —— 先人工发现 1 个读错的字段名，再扩成全量 introspect。
@@ -427,7 +429,7 @@ export default defineConfig({
 
 **夹具必须覆盖「展示条件所依赖的字段分布」**：2026-10-27 实测发现详情页「跑步动态」
 卡在生产环境**从未渲染过** —— 展示条件只判 `average_gct_balance`，而真实库
-**348/348 条活动该字段全为 NULL**，触地时间与垂直摆动却在 **241/241 条跑步活动**
+**354/354 条活动该字段全为 NULL**，触地时间与垂直摆动却在 **247/247 条跑步活动**
 里都有值。夹具此前完全不写这三个字段，e2e 因此永远测不到。现夹具按真实分布写入
 触地时间/垂直摆动/垂直振幅比、`gct_balance` 保持 NULL。纪律：**当一个区块用「某字段
 非空」作为展示条件时，夹具必须让该条件在真实数据下可达** —— 否则用例绿而功能死。
@@ -723,7 +725,7 @@ node scripts/testing/make-fixture-db.js /tmp/other.db   # 指定输出
   e2e 断言随即失败 —— 而业务代码完全正确。这类失败只在特定日期之后出现，极难归因。
 - 夹具必须让**展示条件可达**：例如「跑步动态」卡片的渲染条件是
   「触地平衡 / 触地时间 / 垂直摆动 / 垂直振幅比 任一非空」，而真实库里
-  `average_gct_balance` 348/348 全为 NULL、触地时间与垂直摆动 241/241 都有值 ——
+  `average_gct_balance` 354/354 全为 NULL、触地时间与垂直摆动 247/247 都有值 ——
   夹具若只写 `gct_balance`，就会造出「测试全绿但功能从未渲染」的假绿灯。
   同理，标题/文案由实际非零数据派生时（如心率区间标题），夹具要覆盖到非零区间。
 - **派生值必须由真实实现算，不能在夹具里写死**。2026-10-27 修：夹具此前把
@@ -777,12 +779,12 @@ node scripts/testing/make-fixture-db.js /tmp/other.db   # 指定输出
 
 两种口径**必须都查**：首版只查了心率，是半个契约 —— 功率区间是另一条独立推导链
 （`%FTP` 5 区），窗口错了同样静默，而且它没有活动级那种兜底。实测生产库心率
-286 条对照最大偏差 5.06%、功率 241 条最大 0.99%，故共用一套 15% 容差。
+286 条对照最大偏差 5.06%、功率 247 条最大 0.99%，故共用一套 15% 容差。
 
 另修「配速可信度」：`average_pace = 计时器时间/(distance/1000)`（时间基数见
 `docs/features.md` §1.6），分母很小时秒级取整就
 把结果推得离谱（真实库 `14.32 m / 4 s` → 279 s/km，而同一次跑其余每公里 318–331）。
-它污染的不止一个数字 —— 「最快段」徽章指到 4 秒碎片（8/241 条跑步活动），
+它污染的不止一个数字 —— 「最快段」徽章指到 4 秒碎片（9/247 条跑步活动），
 「快于基准 8%」还把碎片判成**主课**（4 条活动被告知「主课 1 段 / 主课均配速 4:39」，
 实际是匀速 5:18 慢跑）。门槛 `MIN_RELIABLE_LAP_SEC = 10` 秒，作用于 `work` 判定、
 最快段、角色基准均值三处。**为什么不用距离门槛**：库里有一批 15 秒 / 74 m 的真实

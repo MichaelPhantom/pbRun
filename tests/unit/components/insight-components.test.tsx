@@ -764,7 +764,7 @@ describe('ActivityInsightPanel', () => {
     },
     decouplingPct: 12.3,
     hrZoneBreakdown: [{ zone: 4, seconds: 1800, pct: 60 }, { zone: 3, seconds: 1200, pct: 40 }],
-    // 功率区间: 真实库 241/241 条跑步活动可由逐秒功率推导（设备数组只有 33/348）。
+    // 功率区间: 真实库 247/247 条跑步活动可由逐秒功率推导（设备数组只有 39/354）。
     powerZoneBreakdown: [
       { zone: 1, seconds: 180, pct: 6 },
       { zone: 2, seconds: 900, pct: 30 },
@@ -803,8 +803,8 @@ describe('ActivityInsightPanel', () => {
   /**
    * 功率区间占比（2026-10-27）。
    *
-   * 设备 `time_in_power_zone` 只有 **33/348** 有值且是绝对瓦数边界（16 套方案，
-   * 跨活动不可聚合）；改由逐秒功率按 %FTP 推导后覆盖 241/241。这里守住
+   * 设备 `time_in_power_zone` 只有 **39/354** 有值且是绝对瓦数边界（16 套方案，
+   * 跨活动不可聚合）；改由逐秒功率按 %FTP 推导后覆盖 247/247。这里守住
    * 「标题由实际非零区间派生 + FTP 必须可见」两条纪律。
    */
   test('功率区间占比: 标题由实际非零区间派生, 并显示 FTP', () => {

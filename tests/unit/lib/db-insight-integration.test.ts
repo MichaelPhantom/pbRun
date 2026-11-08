@@ -438,7 +438,7 @@ describe('db.ts 洞察查询 (真实 SQL)', () => {
    * `SUM(CASE WHEN moving_time > 0 THEN moving_time ELSE duration END)`
    * 在夹具上只差几十秒，看起来都「差不多」。但全站时长口径是**计时器时间**
    * （`pace.effectiveTimeSec` / `getStats().totalDuration` 同源）—— 月卡若用
-   * 经过时间，同一批数据在月卡与统计页会给出两个不同的时长（真实库 110/348
+   * 经过时间，同一批数据在月卡与统计页会给出两个不同的时长（真实库 111/354
    * 条活动两者不同，最多相差 7845 秒 = 2 小时 11 分）。
    *
    * 夹具设计：活动 4（游泳）的 `duration` 与 `moving_time` 差 100 秒，

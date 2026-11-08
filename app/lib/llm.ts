@@ -117,9 +117,9 @@ function fmtNum(v?: number | null, digits = 0, unit = ''): string {
  * 与 `fmtNum` 相同, 但**值为空时返回 null**（表示「这一项不存在, 连标签都别输出」）。
  *
  * 两种缺失必须分开处理, 否则 prompt 会常年带着一行行 `--`:
- * - **该活动没记录**（真实库偶有值, 如 `max_speed` 43/348）→
+ * - **该活动没记录**（真实库偶有值, 如 `max_speed` 49/354）→
  *   输出 `--`，模型据此知道「这次没测到」；
- * - **真实库 348/348 全为空**（`training_stress_score` / `intensity_factor` /
+ * - **真实库 354/354 全为空**（`training_stress_score` / `intensity_factor` /
  *   `average_power_to_weight` / `avg_grade`）→ 整项不输出。
  *
  * 后者写成 `--` 的代价很实在：模型每轮都看到「TSS: --  IF: --  功率体重比: --」，
@@ -361,7 +361,7 @@ export function buildAnalysisMessages(
         ? [seg, formatPace(l.average_pace, false)]
         : [seg, formatDuration(effectiveTimeSec(l) ?? 0)];
       // 分段训练角色（第十二类缺陷）。**设备记录优先**（FIT lap `intensity`，
-      // 覆盖 3058/3137 = 97.5%）；读不出才回落到配速/心率推断。
+      // 覆盖 3074/3153 = 97.5%）；读不出才回落到配速/心率推断。
       //
       // 为什么必须进数据块：间歇课复盘的核心问题是「主课段执行得怎么样、
       // 恢复段够不够」，而模型此前只能看配速序列**自己猜**哪几段是主课 ——
@@ -413,7 +413,7 @@ export function buildAnalysisMessages(
 
   const date = (activity.start_time_local || activity.start_time || '').slice(0, 10) || '--';
 
-  // 类型名必须走 `activityTypeName`: 真实库 269/348 条活动的 `sub_sport_type` 是
+  // 类型名必须走 `activityTypeName`: 真实库 275/354 条活动的 `sub_sport_type` 是
   // 「通用」（227 跑步 + 42 非跑步），它 truthy 会压过 `activity_type` —— 旧实现
   // 直接 `sub_sport_type || sport_type || label` 让 77% 的活动在 prompt 里显示
   // 「类型: 通用」，而非跑步 prompt 明确要求「按运动专项解读（游泳/力量/球类）」，
@@ -425,12 +425,12 @@ export function buildAnalysisMessages(
   //
   // 功率强度三项（FTP / IF / TSS / W·kg⁻¹）全部由 `app/lib/power.ts` **推算**：
   // 真实库里 `intensity_factor` / `training_stress_score` / `average_power_to_weight`
-  // 三列 **0/348** 有值（TSS/IF 是 Garmin Connect 云端算的，不写进 FIT），但输入
-  // 全都在：NP 241/241、`power_zone_boundaries[3]`=FTP 241/241、体重 241/241。
+  // 三列 **0/354** 有值（TSS/IF 是 Garmin Connect 云端算的，不写进 FIT），但输入
+  // 全都在：NP 247/247、`power_zone_boundaries[3]`=FTP 247/247、体重 247/247。
   // 旧实现把这三项按「数据源从不产出」整项略去 —— 于是模型永远看不到强度因子，
   // 只能靠配速猜强度；而 prompt §5 明确要求「用训练负荷评估本次强度」。
   //
-  // 与 `training_load`（库内派生的无量纲负荷分，241/241）**不是同一个东西**：
+  // 与 `training_load`（库内派生的无量纲负荷分，247/247）**不是同一个东西**：
   // TL 由「时长 × 心率区间因子」派生（`calculateTrainingLoad`），TSS 是 NP/FTP
   // 派生的自行车式训练压力。两者都输出时必须让模型能区分，否则会出现
   // 「TSS 48 但 TL 65」这种看起来自相矛盾的数字。
@@ -469,7 +469,7 @@ export function buildAnalysisMessages(
 
   // 海拔: 这里只补**净高差**（max-min）与它的成因判定; 平均海拔已在下方
   // 公共行（`平均海拔`）输出 —— 同一行再写一次「均 281m」就是重复。
-  // 真实库 191/234 条活动的净高差**小于**累计爬升 —— 不是数据错误: 净高差是
+  // 真实库 196/239 条活动的净高差**小于**累计爬升 —— 不是数据错误: 净高差是
   // 「最高点-最低点」（环形路线回到起点只有几十米），累计爬升是「每次上坡都累加」
   // （折返路线远大于净高差）。两者语义不同, 文案必须分开, 否则模型会判定数据矛盾。
   const span = elevationSpan(activity);
@@ -598,15 +598,15 @@ export function buildAnalysisMessages(
     .join('\n');
 
   // 分段标题由 `lap-label.ts` 派生（与详情页表名/徽章同一份判据）。
-  // 旧实现写死 `running ? '【每公里分段】' : '【分段明细】'` —— 而真实库 242 条
+  // 旧实现写死 `running ? '【每公里分段】' : '【分段明细】'` —— 而真实库 247 条
   // 跑步活动里「每段都约 1 km」的只有 **1 条**（几乎每次跑都有不满整段的收尾段，
-  // 242 段 session_end 里 237 段 < 950 m），所以「每公里分段」在跑步上几乎恒为假话。
+  // 全部 285 段 session_end 里 275 段 < 950 m），所以「每公里分段」在跑步上几乎恒为假话。
   const lapTitle = lapSectionTitle(laps, running);
 
   // 所有运动共有的指标行。规则：
   //  - 「该运动不产出该字段」→ 用 fmtNumIf，值为空则整项略去（整行全空则该行不输出）；
   //  - 「该运动应该有该字段，只是这次没测到」→ 用 fmtNum 保留 `--`，让模型知道缺失。
-  // 实测（348 条活动）: 平均功率/标准化功率/平均海拔/温度/训练负荷 在 107 条非跑步
+  // 实测（354 条活动）: 平均功率/标准化功率/平均海拔/温度/训练负荷 在 107 条非跑步
   // 活动中 **0/107** 有值（写入口限定跑步类型），旧实现整行输出 `--` 是纯噪音。
   const commonLines = [
     statRow([
@@ -655,19 +655,19 @@ export function buildAnalysisMessages(
     ]),
     elevationLine,
     statRow([['训练负荷', fmtNumIf(activity.training_load, 0)]]),
-    // 恢复时间 / 训练收益: Garmin 官方字段, 真实库 348/348 全有值（recovery_time
+    // 恢复时间 / 训练收益: Garmin 官方字段, 真实库 354/354 全有值（recovery_time
     // 0–5020 分钟, primary_benefit 8 类）。SYSTEM_PROMPT §5 明确要求回答「本次后
     // 需要多少恢复时间」—— 但数据块此前从不提供该字段, 模型只能凭空估算。
     // 两者都不属于「跑步专属」: 力量训练/爬楼同样有官方恢复建议。
     //
-    // 单位与 UI 同源 (`formatRecoveryTime`): 真实库 180/348 条 ≥24 小时、最长
+    // 单位与 UI 同源 (`formatRecoveryTime`): 真实库 182/354 条 ≥24 小时、最长
     // 5020 分钟 —— 统一写「分钟」会让模型输出「5020 分钟」, 与详情页的「3.5 天」
     // 成为同一指标的两个答案。
     statRow([
       ['建议恢复', recoveryLabel(activity.recovery_time)],
       ['训练收益', activity.primary_benefit || null],
     ]),
-    // Garmin 官方 VO2max（区别于本地推算的 vdot_value）。真实库 235/348 有值,
+    // Garmin 官方 VO2max（区别于本地推算的 vdot_value）。真实库 239/247 跑步有值,
     // 但**仅跑步**产出（非跑步 0/107）; treadmill_running 6/6 全为空。
     statRow([['Garmin VO2max', running ? fmtNumIf(activity.garmin_vo2max, 1, 'ml/kg/min') : null]]),
     statRow([
@@ -680,17 +680,17 @@ export function buildAnalysisMessages(
       // 此处与它同源（第四类缺陷：数据块给了模型的数字，页面上要能找到出处）。
       ['平均温度', fmtNumIf(activity.average_temperature, 1, '°C')],
     ]),
-    // 区间时间现在 348/348 全覆盖（本地 5 区口径由逐秒心率推导），标签恒有值；
+    // 区间时间现在 354/354 全覆盖（本地 5 区口径由逐秒心率推导），标签恒有值；
     // 保留 `fmtZoneTimes` 的 `--` 兜底只为旧库/异常活动（无心率记录时写入侧不落值）。
     `心率区间时间: ${fmtZoneTimes(activity.time_in_hr_zone)}`,
-    // 主观感受 / 主观用力 —— **唯一由用户主动输入**的数据（真实库 251/353）。
+    // 主观感受 / 主观用力 —— **唯一由用户主动输入**的数据（真实库 252/354）。
     //
     // 这是「体感 vs 数据」对比的唯一来源：客观指标说「这课很轻」（TE 3.4、
     // 平均心率 145），而用户标了 RPE 8，才是真正值得解释的信号。实测 251 条里
     // 只有 1 条（0.4%）偏离，说明两个字段高度自洽 —— 偏离样本才值得单独讲。
     //
     // 所有类型都输出（按字段存在性）：力量/球类不弹窗是设备行为，不是「这类运动
-    // 不该有体感」。`feel = 0` 是有效值（14/251 条「感觉很差」），
+    // 不该有体感」。`feel = 0` 是有效值（14/252 条「感觉很差」），
     // 判空必须 `!= null` —— 用真值判断会静默丢掉这 14 条。
     ...
       [feelLabel(activity.workout_feel) != null || rpeLabel(activity.workout_rpe) != null
@@ -704,7 +704,7 @@ export function buildAnalysisMessages(
             ['体感偏离', feelRpeDivergent(activity.workout_feel, activity.workout_rpe) ? '是' : null],
           ])
         : null],
-    // 估计出汗量 —— 补液建议的直接依据（真实库 349/353，除游泳 0/4）。
+    // 估计出汗量 —— 补液建议的直接依据（真实库 350/354，除游泳 0/4）。
     //
     // **必须写「约」并说明是设备估算**：实测 306 条有效速率里 88 条撞上
     // 999–1000 ml/h 的设备上限（p99=999、max=999，无一超过 1000），而真实出汗率
@@ -718,7 +718,7 @@ export function buildAnalysisMessages(
           ['估计出汗量', text],
           ['出汗速率', rate != null ? `约 ${rate} ml/h` : null],
         ]),
-        '出汗量说明: 设备估算值且内部速率上限约 1000 ml/h（88/306 条已触顶），真实出汗率可达 1500–2000 ml/h —— 它是**保守下限**，补液建议按它算会偏低。',
+        '出汗量说明: 设备估算值且内部速率上限约 1000 ml/h（约 26% 的活动已触顶），真实出汗率可达 1500–2000 ml/h —— 它是**保守下限**，补液建议按它算会偏低。',
       ];
     })(),
   ]
@@ -793,7 +793,7 @@ export function buildAnalysisMessages(
         .join('\n')
     : null;
 
-  // 距离行：零距离活动（力量训练/爬楼/HIIT/跳绳，真实库 97/353 条 `distance = 0`）
+  // 距离行：零距离活动（力量训练/爬楼/HIIT/跳绳，真实库 97/354 条 `distance = 0`）
   // 不写「0.00 km」—— 这些运动**本来就没有距离语义**，写出来模型会按「几乎没动」
   // 解读，在复盘里说「训练量极低」。缺距离（`null`）仍写 `--`，那是真的没同步到。
   // 与 `/list` 卡片、仪表盘 `RecentActivityCard`、详情页概览同一纪律。

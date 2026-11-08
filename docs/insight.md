@@ -30,7 +30,7 @@
 |------|------|-------------|
 | 跑力 | VDOT 趋势 | 每次活动的 `vdot_value`；按月聚合（**算术平均**，不按距离/时间加权 —— VDOT 是能力**估计值**不是速率）+ 最小二乘线性拟合（`slopePer30d`）；近 60 天斜率 \|·\|<0.15 判定平台期 |
 | 负荷 | ACWR | 急性(近 7 天负荷) / 慢性(近 28 天周均负荷)；`optimal` 0.8–1.3、`caution` 1.3–1.5、`risk` >1.5、`under` <0.8；**训练历史不足 28 天时 `acwr` 为空、徽标显示「历史不足」**（缺失天数不按 0 负荷处理，不编造数值） |
-| 负荷 | 强度分布 | 各活动 `time_in_hr_zone` 汇总各区间秒数占比（**本地 5 区口径，数组长度恒为 5**，由逐秒心率推导、覆盖 348/348 活动）；`lowIntensityPct` = Z1+Z2、`highIntensityPct` = Z4+Z5。页面标题由**实际非零区间**派生（`zoneRangeLabel`），不写死区间范围 |
+| 负荷 | 强度分布 | 各活动 `time_in_hr_zone` 汇总各区间秒数占比（**本地 5 区口径，数组长度恒为 5**，由逐秒心率推导、覆盖 354/354 活动）；`lowIntensityPct` = Z1+Z2、`highIntensityPct` = Z4+Z5。页面标题由**实际非零区间**派生（`zoneRangeLabel`），不写死区间范围 |
 | 周期 | 周 CTL/ATL/TSB | 由逐日负荷经 Banister EWMA（τ=42 / 7）计算，取每周期末值。**预热 = `TRAINING_LOAD_WARMUP_DAYS`（5τ=210 天，残差 <1%）**；EWMA 从 0 起递推，预热不足会让曲线前段变成一条假的「体能上涨」。序列**补零到参考日**（休息日也要走 EWMA），否则卡片显示的是最后一个训练日的疲劳。`ctl/atl/tsb` 同时进入教练上下文（「训练负荷(EWMA)」行） |
 | 周期 | 周跑量/负荷/次数 | 按 ISO 周聚合（**周键唯一实现 `date-utils.isoWeekKey`**、**聚合唯一实现 `insight.aggregateWeeklyLoad`**）。窗口由 `isoWeeksBetween(startDate, endDate)` 按**日期**判定 —— 不得用 `week >= startDate.slice(0,7)` 这类字符串比较（`'2026-W43' >= '2026-10'` 恒为真）。区间内每个周都出现（**零跑量周不省略**），被区间截断的周标 `partial`（两条序列同源）。`次数` 是**跑步次数**（SQL `COUNT(*)`），不是有数据的天数 |
 | 周期 | 峰值周 | 由 `PeriodizationInsight.peakWeek` 单点派生（与 `peakWeekKm` 同源）。**UI 不得各自对 `load.weekly` 取 max** —— 页面上训练负荷卡与周期化卡都显示峰值，各自取 max 时一张含截断周、一张只用完整周，真实库 4 个窗口会给出不同数字 |
@@ -137,14 +137,14 @@ activities / activity_laps / activity_records (SQLite)
 - **功率区间占比**（`powerZoneBreakdown` + `ftpWatts`）：本地 5 区 **%FTP** 口径
   （Z1<65% / Z2<80% / Z3<90% / Z4<100% / Z5≥100%），由 `activity_records.power`
   逐秒推导，逐秒记录缺失时回退落库的 `time_in_power_zone`（同一模型）。真实库覆盖
-  **241/241** 条有功率的活动，而设备原始数组只有 33/348 且是绝对瓦数边界
+  **247/247** 条有功率的活动，而设备原始数组只有 39/354 且是绝对瓦数边界
   （存在 `device_time_in_power_zone`，不参与展示）。非跑步恒为空数组。
   **活动级看占比，跨活动看训练量**：`/analysis` 的功率区间表与 MCP
   `get_power_zone_analysis` 走另一条路径 —— 用 `activity_laps.average_power`
-  （2943/2962 条跑步 lap 有值）按**各活动自身 FTP** 归区，得到「Z3 跑了多少公里/多久」。
+  （3033/3033 条跑步 lap 有值）按**各活动自身 FTP** 归区，得到「Z3 跑了多少公里/多久」。
   两条路径同源同一套 5 区 %FTP 模型（`app/lib/power-zones.ts`），但聚合单位不同：
   活动内逐秒只能给占比，跨活动只能给区间训练量 + 参照 FTP（`ftp_median_watts`，
-  真实库 241 条活动 14 个不同 FTP）。**参照 FTP 不是区间定义域**，UI 与 MCP 都必须
+  真实库 247 条活动 15 个不同 FTP）。**参照 FTP 不是区间定义域**，UI 与 MCP 都必须
   显式说明这一点，否则读者会把「Z2 = 228–279W」当成所有活动通用。
 - **逐秒有氧解耦**：复用 `computeDecouplingPct`。
 - **同路线对比**（`db.getPeerActivities` + `computeComparison`）：优先按路线指纹找同行历史，否则按距离分档回退；输出配速排名与相对均值的差值。

@@ -147,7 +147,7 @@ describe('activityTypeName', () => {
   // 真实库 348 条: sub_sport_type='通用' 有 269 条 (227 跑步 + 42 非跑步)。
   // 旧实现 `sub_sport_type || sport_type || label` 让 77% 的活动在 AI 数据块里
   // 显示「类型: 通用」—— 非跑步 prompt 要求「按运动专项解读」时类型名失效。
-  test('设备只写「通用」时回落到规范类型名 (269/348 条的真实情况)', () => {
+  test('设备只写「通用」时回落到规范类型名 (275/354 条的真实情况)', () => {
     expect(activityTypeName('basketball', '通用', 'basketball')).toBe('篮球');
     expect(activityTypeName('floor_climbing', '通用', 'floor_climbing')).toBe('爬楼');
     expect(activityTypeName('hiit', '通用', '通用')).toBe('HIIT');

@@ -150,9 +150,9 @@ describe('hr-zones', () => {
 
   /**
    * `hrZoneSecondsFromSamples` 是「补齐 208 条缺失区间数据」的核心：真实库
-   * `activities.time_in_hr_zone` 原先只有 140/348 条有值（设备 time_in_zone 消息
-   * 缺失），而 `activity_records` 的逐秒心率 348/348 全有。推导秒数与 moving_time
-   * 偏差 <10% 的占 241/241（跑步）/ 107/107（非跑步），故可安全补齐。
+   * `activities.time_in_hr_zone` 原先只有 140/354 条有值（设备 time_in_zone 消息
+   * 缺失），而 `activity_records` 的逐秒心率 354/354 全有。推导秒数与 moving_time
+   * 偏差 <10% 的占 247/247（跑步）/ 107/107（非跑步），故可安全补齐。
    */
   describe('hrZoneSecondsFromSamples', () => {
     test('1s 采样逐条累加, 总秒数=样本数', () => {

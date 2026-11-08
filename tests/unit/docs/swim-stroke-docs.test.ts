@@ -97,8 +97,9 @@ describe('docs/faq.md —— 缺陷 25 与判别式第二十问', () => {
     expect(faq).toMatch(/另一个消息层级/);
   });
 
-  test('判别式从十九句扩到四十句', () => {
-    expect(faq).toMatch(/问四十句/);
+  test('判别式从十九句扩到四十一句', () => {
+    expect(faq).toMatch(/问四十一句/);
+    expect(faq).not.toMatch(/问四十句/);
     expect(faq).not.toMatch(/问三十九句/);
     expect(faq).not.toMatch(/问三十八句/);
     expect(faq).not.toMatch(/问三十七句/);

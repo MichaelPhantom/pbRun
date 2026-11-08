@@ -81,7 +81,7 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
   // 游泳的配速语言是**秒/100m**（池长 25/50m），与全站其它运动的秒/公里不同量纲。
   // 判定走 `sport.isSwimmingType` 单一来源，与 AI 数据块、MCP 同源。
   const swimming = isSwimmingType(activity.activity_type);
-  // 类型名走 `activityTypeName`: 真实库 269/348 条活动 `sub_sport_type` 是「通用」,
+  // 类型名走 `activityTypeName`: 真实库 275/354 条活动 `sub_sport_type` 是「通用」,
   // 旧实现 `activityTypeLabel(activity_type)` 对篮球/爬楼/HIIT 已经正确, 但漏掉了
   // 「跑步（田径场）」这类**有价值的细节**; 而 AI 数据块此前用 `sub_sport_type` 优先
   // 反而让 77% 的活动显示「通用」。两处统一到同一函数。
@@ -95,11 +95,11 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
   const recovery = formatRecoveryTime(activity.recovery_time);
   // 功率强度（FTP / IF / TSS / W·kg⁻¹ / 瞬时峰值功率）全部由 `app/lib/power.ts` 推算。
   // 真实库 `intensity_factor` / `training_stress_score` / `average_power_to_weight`
-  // 三列 **0/348** 有值（TSS/IF 是 Garmin Connect 云端算的, 不写进 FIT），但输入齐全:
-  // NP 241/241、`power_zone_boundaries[3]`=FTP 241/241、体重 241/241。
+  // 三列 **0/354** 有值（TSS/IF 是 Garmin Connect 云端算的, 不写进 FIT），但输入齐全:
+  // NP 247/247、`power_zone_boundaries[3]`=FTP 247/247、体重 247/247。
   // 旧实现把这三项当成「设备从不产出」直接不展示 —— 用户与 AI 都看不到强度因子。
   const power = powerIntensity(activity);
-  // 海拔净高差（max-min）。注意**不是**累计爬升: 真实库 191/234 条活动的净高差
+  // 海拔净高差（max-min）。注意**不是**累计爬升: 真实库 196/239 条活动的净高差
   // 小于累计爬升（环形路线回到起点, 净高差只有几十米而累计爬升上百米）, 两者必须分开展示。
   const span = elevationSpan(activity);
   // 类型专属核心指标（楼层 / 总次数）。派生规则唯一来源 `app/lib/type-metrics.ts`
@@ -134,7 +134,7 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
   // 「混合泳姿」，但效率字段为 null（构成未知，给了就是编的）。
   const strokeGroups = swimming ? summarizeSwimStrokes(laps) : [];
   const hasAnyStroke = swimming && laps.some((l) => hasSwimStroke(l.swim_stroke));
-  // 主观感受 / RPE —— **唯一由用户主动输入**的数据（251/353）。所有类型都给：
+  // 主观感受 / RPE —— **唯一由用户主动输入**的数据（252/354）。所有类型都给：
   // 力量课不弹窗（51/51 无值），但那是设备不采集，不是我们不该展示 —— 一旦有值
   // 就必须显示。`feel = 0` 是有效值（14 条「感觉很差」），判空走 `!= null`。
   const feelText = feelLabel(activity.workout_feel);
@@ -181,7 +181,7 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
   // 分段角色映射 (lap_index → 角色), 供「分段数据」表展示。
   //
   // 角色有**两个来源**（第十二类缺陷）：
-  //  - `device`：FIT lap `intensity`，设备记录的计划意图（覆盖 3058/3137 = 97.5%）。
+  //  - `device`：FIT lap `intensity`，设备记录的计划意图（覆盖 3074/3153 = 97.5%）。
   //    它在 `laps` 里就能直接读到，**不需要等 insight 请求**。
   //  - `inferred`：`insight.lapAnalysis` 按配速/心率反推（实测与设备值仅 73.2% 一致）。
   //
@@ -204,7 +204,7 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
   //
   // `bestLapIndex` 是**存储键**（`activity_laps.lap_index`，0 基），不是展示序号。
   // 文案一律由 `app/lib/lap-label.ts` 派生 —— 旧实现写 `最快 K{bestLapIndex}`，
-  // 在 18/242 条活动上渲染出「K0」，在间歇课上渲染出与真实位置差 5 公里的
+  // 在 19/247 条活动上渲染出「K0」，在间歇课上渲染出与真实位置差 5 公里的
   // 「K11」（详见该模块头注释）。
   const serverBest = insight?.lapAnalysis;
   let bestLapIndex = -1;
@@ -229,15 +229,15 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
     ...(running
       ? [{ value: activity.vdot_value != null ? activity.vdot_value.toFixed(1) : '--', label: '即时跑力' }]
       : []),
-    // Garmin 官方 VO2max。真实库 238/246 条跑步活动有值，而本地推算的
-    // `vdot_value` 只有 122/246 —— **116 条跑步活动此前「即时跑力」显示 `--`
+    // Garmin 官方 VO2max。真实库 239/247 条跑步活动有值，而本地推算的
+    // `vdot_value` 只有 123/247 —— **116 条跑步活动此前「即时跑力」显示 `--`
     // 而官方值就在库里**。两者不能互算（见 coach-prompts 的「两个跑力不能互算」），
     // 标签必须写明「官方」而不是又一个「跑力」，否则用户会以为同一指标给了两个数。
     ...(running && activity.garmin_vo2max != null
       ? [{ value: activity.garmin_vo2max.toFixed(1), unit: 'ml/kg/min', label: 'Garmin VO2max' }]
       : []),
     // 距离格: `> 0` 才渲染。`0` 表示**该运动没有距离语义**（力量训练按组、
-    // 爬楼按层、HIIT/跳绳按次；真实库 97/353 条活动 distance=0），恒为 0 的
+    // 爬楼按层、HIIT/跳绳按次；真实库 97/354 条活动 distance=0），恒为 0 的
     // 格子显示 '--' 会让人以为同步失败 —— 与下方「平均功率」同一原则。
     // `null`（数据缺失）仍要显示 '--'，那是真的缺数据。
     ...(distanceKm > 0
@@ -272,7 +272,7 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
       : []),
     { value: durationMinutes > 0 ? (durationMinutes % 1 === 0 ? String(Math.round(durationMinutes)) : durationMinutes.toFixed(1)) : '--', unit: durationMinutes > 0 ? '分' : undefined, label: '时长' },
     { value: activity.average_heart_rate != null ? String(Math.round(activity.average_heart_rate)) : '--', unit: activity.average_heart_rate != null ? 'bpm' : undefined, label: '平均心率' },
-    // 最大心率。真实库 **353/353** 有值，此前只有 AI 数据块用、详情页从不展示 ——
+    // 最大心率。真实库 **354/354** 有值，此前只有 AI 数据块用、详情页从不展示 ——
     // 「平均 158 / 最高 176」是判断「这次有没有顶到极限」的唯一组合，只给平均值
     // 会让用户以为整堂课都是均速均强。与平均心率成对出现，不单独占一行。
     ...(activity.max_heart_rate != null
@@ -306,7 +306,7 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
     ...(activity.total_anaerobic_training_effect != null && activity.total_anaerobic_training_effect > 0
       ? [{ value: activity.total_anaerobic_training_effect.toFixed(1), label: '无氧训练效果' }]
       : []),
-    // 热量。真实库 **353/353** 有值（含全部 107 条非跑步活动）。与训练效果同一理由：
+    // 热量。真实库 **354/354** 有值（含全部 107 条非跑步活动）。与训练效果同一理由：
     // 提示词让模型用它量化非跑步强度，页面上却看不到。
     ...(activity.calories != null
       ? [{ value: String(Math.round(activity.calories)), unit: 'kcal', label: '热量' }]
@@ -337,21 +337,21 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
     ...(typeMetrics.floors != null
       ? [{ value: String(typeMetrics.floors), unit: '层', label: '楼层（约）' }]
       : []),
-    // 累计下降。真实库 **268/353** 有值（跑步 238 + 爬楼 30）。只给「累计爬升」
+    // 累计下降。真实库 **269/354** 有值（跑步 239 + 爬楼 30）。只给「累计爬升」
     // 会漏掉下坡的离心负荷 —— 而离心收缩正是长下坡后延迟性酸痛（DOMS）的来源，
     // 也是「爬升 300m 但下降也是 300m（折返）」与「净爬升 300m（单向）」的分水岭。
     ...(activity.total_descent != null
       ? [{ value: String(Math.round(activity.total_descent)), unit: 'm', label: '累计下降' }]
       : []),
-    // 海拔净高差 (max - min)。真实库 234/348 条有值（228 跑步 + 6 田径场）, 三列
+    // 海拔净高差 (max - min)。真实库 239/354 条有值（跑步 239）, 三列
     // NULL 模式完全一致。此前只有 `avg_altitude` 被 AI 用过一次, `max_altitude` /
     // `min_altitude` **零消费** —— 「这趟起伏有多大」在 UI 与 prompt 里都不存在。
-    // 注意这是**净高差不是累计爬升**: 191/234 条活动净高差小于累计爬升（环形路线
+    // 注意这是**净高差不是累计爬升**: 196/239 条活动净高差小于累计爬升（环形路线
     // 回到起点只有几十米, 而累计爬升上百米）, 两者语义不同必须分开, 标签也不许互换。
     ...(span
       ? [{ value: String(span.spanM), unit: 'm', label: '海拔净高差' }]
       : []),
-    // 平均海拔。真实库 **238/353** 有值（跑步 238；非跑步 0/107 —— 室内/球类
+    // 平均海拔。真实库 **239/354** 有值（跑步 239；非跑步 0/107 —— 室内/球类
     // 没有 GPS 海拔）。AI 数据块早就输出「平均海拔」（`fmtNumIf(avg_altitude)`），
     // 但详情页只有注释提到它、从不渲染 —— 与「最大心率」同源的第四类缺陷。
     // 它是解读「同样配速为什么更累」的基准线：重庆城区 250–300m，昆明 1890m，
@@ -359,7 +359,7 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
     ...(activity.avg_altitude != null
       ? [{ value: String(Math.round(activity.avg_altitude)), unit: 'm', label: '平均海拔' }]
       : []),
-    // 平均温度。真实库 **231/353**（跑步 231；非跑步 0/107 —— 室内活动没有
+    // 平均温度。真实库 **232/354**（跑步 232；非跑步 0/107 —— 室内活动没有
     // 环境温度）。提示词明确要求「引用环境可比段中的温度差」，数据块也给了
     // 「温度: 24.0°C」，但详情页概览此前完全没有这一格 —— 用户在 AI 复盘里
     // 读到「24°C 下心率漂移偏高」，页面上找不到温度出处。
@@ -370,7 +370,7 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
       : []),
     // 总计数（`total_cycles`）—— 第十类缺陷 + 第十一类缺陷。
     //
-    // 第十类：FIT 里一直有（真实库 **349/353**），但解析器从不读取它，于是
+    // 第十类：FIT 里一直有（真实库 **350/354**），但解析器从不读取它，于是
     // 「游泳总划水次数」「跳绳总跳跃次数」在全站都不存在，而文档四处断言不可得。
     //
     // 第十一类：修好后按类型给标签，却留了 `: '总计数'` 兜底 —— 把**语义未确认**
@@ -435,19 +435,19 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
           label: '泳姿',
         }]
       : []),
-    // 平均功率按字段存在性渲染: 真实库 241/241 条跑步活动都有功率, 107 条非跑步
+    // 平均功率按字段存在性渲染: 真实库 247/247 条跑步活动都有功率, 107 条非跑步
     // 活动全部为 NULL(0/107)。旧实现无条件渲染该格, 非跑步页会永远显示 '--' ——
     // 与「隐藏配速整列而不是显示 --」是同一原则: 一个恒为空的数据格会让人
     // 以为数据缺失/同步失败, 而不是「这项运动没有功率」。
     ...(activity.average_power != null
       ? [{ value: String(Math.round(activity.average_power)), unit: 'W', label: '平均功率' }]
       : []),
-    // 功率体重比 / 强度因子 IF / TSS: 三项 DB 列 **0/348** 有值, 但全部可推算
+    // 功率体重比 / 强度因子 IF / TSS: 三项 DB 列 **0/354** 有值, 但全部可推算
     // （见 app/lib/power.ts 的实证）。旧实现按「设备从不产出」整项略去 —— 于是
     // 用户看不到「这次跑得多用力」，而 AI prompt §5 明确要求用训练负荷评估强度。
     //
     // **IF 与 TSS 必须连同它们的分子/分母一起给出**，否则无法自证：
-    // IF = NP ÷ FTP，TSS = 秒/3600 × IF² × 100。真实库 NP 246/246、FTP 246/246
+    // IF = NP ÷ FTP，TSS = 秒/3600 × IF² × 100。真实库 NP 247/247、FTP 247/247
     // 都有值，而页面上只显示 IF 0.82 —— 用户既看不到 NP 也看不到 FTP，
     // 「0.82 是怎么来的」无从核对（与「均配速必须能由总时长/总距离自证」同一纪律）。
     ...(power.ftpW != null
@@ -465,14 +465,14 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
     ...(power.trainingStressScore != null
       ? [{ value: String(power.trainingStressScore), label: 'TSS' }]
       : []),
-    // 瞬时峰值功率。`max_power` 真实库 241/241（跑步）有值, 但它是**逐秒瞬时峰值**:
+    // 瞬时峰值功率。`max_power` 真实库 247/247（跑步）有值, 但它是**逐秒瞬时峰值**:
     // 548397123 平均 306W、峰值 3866W（12.6 倍）, 67kg 体重即 57.7 W/kg —— 世界级
     // 场地车手冲刺也只有 20–25 W/kg, 该值是传感器尖峰。`peakPower` 已过滤 >3 倍
-    // 均值的脏数据（7/241 条被剔除）, 标签必须带「瞬时」, 与 `max_speed` 同一纪律。
+    // 均值的脏数据（8/247 条被剔除）, 标签必须带「瞬时」, 与 `max_speed` 同一纪律。
     ...(power.peakPowerW != null
       ? [{ value: String(power.peakPowerW), unit: 'W', label: '瞬时峰值功率' }]
       : []),
-    // 瞬时最大速度。真实库 48/353 有值（跑步 37、游泳 4、球类 6、跑步机 1），
+    // 瞬时最大速度。真实库 49/354 有值（跑步 39、游泳 4、球类 6），
     // AI 数据块早就输出「最大速度: 28.8 km/h（设备瞬时峰值, 不代表持续能力）」，
     // 详情页此前**零展示** —— 第四类缺陷。
     // 只对跑步渲染：游泳/球类的 `max_speed` 是「划水/挥拍瞬间位移」，比值可达
@@ -481,7 +481,7 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
     ...(running && activity.max_speed != null
       ? [{ value: activity.max_speed.toFixed(1), unit: 'km/h', label: '瞬时最大速度' }]
       : []),
-    // 恢复时间 / 训练收益: Garmin 官方字段, 真实库 348/348 全有值（含全部 107 条
+    // 恢复时间 / 训练收益: Garmin 官方字段, 真实库 354/354 全有值（含全部 107 条
     // 非跑步活动 —— 力量训练/爬楼同样有官方恢复建议）。此前库里有值、AI prompt
     // 也明确要求回答「本次后需要多少恢复时间」, 但 UI 与 prompt 都没拿到。
     // 单位按量级切换 (分/小时/天): 真实库分布 0 分钟 13 条、1–59 分 3 条、
@@ -490,14 +490,14 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
     ...(recovery
       ? [{ value: recovery.value, unit: recovery.unit, label: '建议恢复' }]
       : []),
-    // 训练收益。真实库 **353/353** 有值（8 类：有氧效率 139 / 通用 64 / 有氧阈值 58 /
+    // 训练收益。真实库 **354/354** 有值（8 类：有氧效率 140 / 通用 64 / 有氧阈值 58 /
     // VO2max 29 / 有氧基础 24 / 无氧爆发力 16 / 有氧高负荷 14 / 无氧耐力 9）。
     // 这是 Garmin 对「这次练到了什么」的官方结论，比任何派生指标都直接；
     // AI 数据块早已输出、详情页却从未展示。与「建议恢复」成对，构成官方结论区。
     ...(activity.primary_benefit
       ? [{ value: activity.primary_benefit, label: '训练收益' }]
       : []),
-    // 主观感受 / 主观用力 —— **唯一由用户主动输入**的数据（真实库 251/353）。
+    // 主观感受 / 主观用力 —— **唯一由用户主动输入**的数据（真实库 252/354）。
     //
     // 这是「体感 vs 数据」对比的唯一来源：客观指标（TE 3.4 / 平均心率 145）说
     // 「这课中等」，而用户标了 RPE 8，才是真正值得解释的信号。实测 251 条里
@@ -511,7 +511,7 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
     ...(rpeText != null
       ? [{ value: `${Math.round(activity.workout_rpe!)}`, unit: '/10', label: `主观用力（${rpeText}）` }]
       : []),
-    // 估计出汗量 —— 补液建议的直接依据（真实库 349/353，除游泳 0/4）。
+    // 估计出汗量 —— 补液建议的直接依据（真实库 350/354，除游泳 0/4）。
     //
     // 文案带「约」不是措辞偏好：实测 306 条有效速率里 88 条撞上 999–1000 ml/h
     // 的设备上限（p99 = 999、max = 999，无一超过 1000），而真实出汗率可达
@@ -584,9 +584,9 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
       )}
 
       {/* 跑步动态。展示条件必须是**三项任一非空且为跑步**: 此前只判
-          `average_gct_balance`, 而真实库 348/348 条活动的 gct_balance 全为 NULL
+          `average_gct_balance`, 而真实库 354/354 条活动的 gct_balance 全为 NULL
           (该字段 Garmin 只在部分高阶手表/双传感器配置下写入), 但触地时间与垂直
-          摆动在 241/241 条跑步活动里都有值 —— 结果这张卡片在生产环境**从未渲染过**,
+          摆动在 247/247 条跑步活动里都有值 —— 结果这张卡片在生产环境**从未渲染过**,
           用户永远看不到已有的跑姿数据。非跑步活动三项全为 NULL(0/107), 但加上
           running 门控是双保险: 这三项都是跑步步态指标, 不该出现在游泳/球类页。 */}
       {(running &&
@@ -597,7 +597,7 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
           activity.max_cadence != null)) && (
         <SectionCard title="跑步动态">
           <div className="flex flex-wrap gap-3">
-            {/* 最大步频。真实库 241/241 条跑步活动有值（186–250）, 但此前**零消费**。
+            {/* 最大步频。真实库 247/247 条跑步活动有值（186–250）, 但此前**零消费**。
                 与 `max_power` 不同, 它**不是**传感器尖峰: 逐秒记录的峰值与 5 秒平滑
                 峰值几乎一致（605107962: 248 vs 247）, 说明是真实持续的高步频段。
                 唯一限制是设备把步频钳在 250 spm（6 条活动恰为 250, 全库 records
@@ -628,7 +628,7 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
               </div>
             )}
             {/* 垂直振幅比 = 垂直摆动 / 步幅: 跑步经济性的核心指标之一, 真实库
-                241/241 条跑步活动都有值(6.69–10.48%), 但此前 UI 与 AI prompt
+                247/247 条跑步活动都有值(6.69–10.48%), 但此前 UI 与 AI prompt
                 都没展示 —— 数据在库里却拿不到。 */}
             {activity.average_vertical_ratio != null && (
               <div className="rounded-lg bg-surface-2 px-3 py-2">
@@ -711,7 +711,7 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
         </SectionCard>
       )}
 
-      {/* 训练课表。数据源 `workout_steps`（FIT workout_step），真实库 285/348 条有值、
+      {/* 训练课表。数据源 `workout_steps`（FIT workout_step），真实库 289/354 条有值、
           其中 225 条跑步活动全部带 speed 目标配速区间 —— 这是「执行质量」唯一的客观
           基准，此前从未在 UI 呈现过（AI 数据块也没有）。三层解析缺陷见 app/lib/workout.ts：
           多步课表曾被压成最后一步（120 条受影响，60 条只剩冷身）、时长存的是毫秒、

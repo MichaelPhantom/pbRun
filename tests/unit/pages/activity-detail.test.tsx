@@ -116,7 +116,7 @@ const activity = {
   average_ground_contact_time: 231,
   average_vertical_oscillation: 7.4,
   average_vertical_ratio: 8.1,
-  // Garmin 官方字段: 真实库 348/348 全有值（含 107 条非跑步活动）。
+  // Garmin 官方字段: 真实库 354/354 全有值（含 107 条非跑步活动）。
   // 此前库里有值、prompt 也要求回答「本次后需要多少恢复时间」, 但 UI/prompt 都没拿到。
   recovery_time: 1454,
   primary_benefit: '有氧阈值',
@@ -355,7 +355,7 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
   });
 
   /**
-   * 徽标缺陷：真实库 269/348 条活动的 `sub_sport_type` 是「通用」。
+   * 徽标缺陷：真实库 275/354 条活动的 `sub_sport_type` 是「通用」。
    * 旧实现无条件渲染两个徽标 → 详情页出现「通用」「训练」这类**零信息**标签，
    * 而真正有意义的「田径场」反而和「通用」并列。同一条活动还会因为
    * `sport_type='跑步'` 被排除而漏掉细节。
@@ -365,7 +365,7 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
       ...activity,
       activity_type: 'basketball',
       sport_type: 'basketball', // 设备原始枚举, 未翻译
-      sub_sport_type: '通用', // 真实库 269/348 条的取值
+      sub_sport_type: '通用', // 真实库 275/354 条的取值
       name: '',
     });
     render(await page('2002'));
@@ -390,8 +390,8 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
   });
 
   /**
-   * 训练课表卡片。真实库 285/348 条活动有 `workout_steps`，225 条跑步活动全部带
-   * speed 目标配速区间 —— 这是「执行质量」唯一客观基准，此前 UI 与 AI 都没呈现。
+   * 训练课表卡片。真实库 289/354 条活动有 `workout_steps`，其中 229 条跑步活动
+   * 全部带 speed 目标配速区间 —— 这是「执行质量」唯一客观基准，此前 UI 与 AI 都没呈现。
    * 解析层三层缺陷见 app/lib/workout.ts（多步压成最后一步 / 毫秒当秒 / mm/s）。
    */
   test('训练课表: 多步课表完整展示 + 执行判定徽标', async () => {
@@ -539,17 +539,17 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
   /**
    * 概览「有值就展示」的判别式（2026-11 审计）。
    *
-   * 这一族缺陷：字段在库里 **353/353** 有值、AI 数据块也给了模型，但详情页从不展示 ——
+   * 这一族缺陷：字段在库里 **354/354** 有值、AI 数据块也给了模型，但详情页从不展示 ——
    * 用户看到模型说「训练效果 3.6、消耗 542 kcal」，却在页面上找不到出处。
    *
-   * 真实库覆盖（activities 全 353 条）：
+   * 真实库覆盖（activities 全 354 条）：
    * | 字段 | 覆盖 | 缺陷性质 |
    * |------|------|----------|
-   * | `max_heart_rate` | 353/353 | 只有平均值，无法判断「有没有顶到极限」 |
-   * | `total_training_effect` | 353/353 | 非跑步唯一的强度量化手段（提示词明确要求用它） |
-   * | `calories` | 353/353 | 同上，提示词要求「TE + 区间 + 热量」量化非跑步强度 |
-   * | `total_descent` | 268/353 | 只给爬升会漏掉下坡的离心负荷 |
-   * | `garmin_vo2max` | 238/246 跑步 | 116 条跑步活动「即时跑力」为 -- 而官方值在库里 |
+   * | `max_heart_rate` | 354/354 | 只有平均值，无法判断「有没有顶到极限」 |
+   * | `total_training_effect` | 354/354 | 非跑步唯一的强度量化手段（提示词明确要求用它） |
+   * | `calories` | 354/354 | 同上，提示词要求「TE + 区间 + 热量」量化非跑步强度 |
+   * | `total_descent` | 269/354 | 只给爬升会漏掉下坡的离心负荷 |
+   * | `garmin_vo2max` | 239/247 跑步 | 116 条跑步活动「即时跑力」为 -- 而官方值在库里 |
    */
   test('高覆盖官方字段必须展示: 最大心率/训练效果/热量/累计下降/Garmin VO2max', async () => {
     render(await page('1007'));
@@ -573,7 +573,7 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
     expect(within(overview).getByText('Garmin VO2max')).toBeInTheDocument();
     expect(within(overview).getByText('51.4')).toBeInTheDocument();
     expect(within(overview).getByText('即时跑力')).toBeInTheDocument();
-    // 平均海拔 238/353、平均温度 231/353 —— 数据块给了模型，页面也必须有出处。
+    // 平均海拔 239/354、平均温度 232/354 —— 数据块给了模型，页面也必须有出处。
     // 海拔是「同配速为什么更累」的基准线（重庆 250–300m vs 昆明 1890m）；
     // 温度是提示词要求引用的「环境可比」输入。
     expect(within(overview).getByText('平均海拔')).toBeInTheDocument();
@@ -581,7 +581,7 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
     expect(within(overview).getByText('平均温度')).toBeInTheDocument();
     expect(within(overview).getByText('24.5')).toBeInTheDocument();
     expect(within(overview).getByText('°C')).toBeInTheDocument();
-    // 瞬时最大速度 48/353（跑步 37）—— AI 数据块给了模型，页面必须有出处。
+    // 瞬时最大速度 49/354（跑步 39）—— AI 数据块给了模型，页面必须有出处。
     // 标签必须带「瞬时」：这不是可持续能力（与 max_power 同一纪律）。
     expect(within(overview).getByText('瞬时最大速度')).toBeInTheDocument();
     expect(within(overview).getByText('28.8')).toBeInTheDocument();
@@ -603,7 +603,7 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
     const overview = screen.getByText('活动概览').closest('section')!;
     expect(within(overview).queryByText('Garmin VO2max')).toBeNull();
     expect(within(overview).getByText('即时跑力')).toBeInTheDocument();
-    // 训练收益 353/353 有值（8 类），与「建议恢复」同属 Garmin 官方结论
+    // 训练收益 354/354 有值（8 类），与「建议恢复」同属 Garmin 官方结论
     expect(within(overview).getByText('训练收益')).toBeInTheDocument();
     expect(within(overview).getByText('有氧阈值')).toBeInTheDocument();
   });
@@ -855,7 +855,7 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
    * 而不是显示 `--`。
    *
    * 与「平均功率」同一原则（见上一条测试）：一个恒为空的数据格会让人以为数据
-   * 缺失/同步失败，而不是「这项运动没有距离语义」。真实库 97/353 条活动
+   * 缺失/同步失败，而不是「这项运动没有距离语义」。真实库 97/354 条活动
    * `distance = 0`，其中 51 条力量训练、30 条爬楼。
    *
    * 注意与 `distance = null`（数据缺失）区分：那种情况仍显示 `--`。
@@ -1254,7 +1254,7 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
   /**
    * 主观感受 / 主观用力 / 估计出汗量（第十类缺陷第二轮）。
    *
-   * `workout_feel` / `workout_rpe` 是**唯一由用户主动输入**的数据（251/353）。
+   * `workout_feel` / `workout_rpe` 是**唯一由用户主动输入**的数据（252/354）。
    * 两格都按**字段存在性**渲染，不按运动类型门控 —— 力量/球类不弹窗是设备
    * 行为，不是「这类运动不该有体感」。跑步必须显示（233/233 有值）。
    */
@@ -1273,7 +1273,7 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
     expect(within(overview).getByText('6')).toBeInTheDocument();
   });
 
-  test('feel = 0 必须渲染「很差」（14/251 条是 0, 真值判断会丢掉它们）', async () => {
+  test('feel = 0 必须渲染「很差」（14/252 条是 0, 真值判断会丢掉它们）', async () => {
     db.getActivityById.mockReturnValue({
       ...activity,
       activity_type: 'running',
@@ -1317,7 +1317,7 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
     expect(within(overview).getByText('良好')).toBeInTheDocument();
   });
 
-  test('估计出汗量带「约」（设备估算值, 349/353）', async () => {
+  test('估计出汗量带「约」（设备估算值, 350/354）', async () => {
     db.getActivityById.mockReturnValue({
       ...activity,
       activity_type: 'running',
@@ -1350,9 +1350,9 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
    * **可推算却从未推算** 缺陷族在详情页的呈现（2026-10-27）。
    *
    * `intensity_factor` / `training_stress_score` / `average_power_to_weight`
-   * 三列真实库 **0/348** 有值（TSS/IF 是 Garmin Connect 云端算的，不写进 FIT），
+   * 三列真实库 **0/354** 有值（TSS/IF 是 Garmin Connect 云端算的，不写进 FIT），
    * 旧实现因此整项不渲染 —— 用户看不到「这次跑得多用力」。输入其实全在：
-   * NP 241/241、`power_zone_boundaries[3]`=FTP 241/241、体重 241/241。
+   * NP 247/247、`power_zone_boundaries[3]`=FTP 247/247、体重 247/247。
    */
   test('跑步概览展示推算的 FTP/IF/TSS/功率体重比', async () => {
     db.getActivityById.mockReturnValue({
@@ -1541,7 +1541,7 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
     expect(within(overview).queryByText('3866')).toBeNull();
   });
 
-  test('海拔净高差与累计爬升分开呈现 (191/234 条净高差 < 累计爬升)', async () => {
+  test('海拔净高差与累计爬升分开呈现 (196/239 条净高差 < 累计爬升)', async () => {
     db.getActivityById.mockReturnValue({
       ...activity,
       min_altitude: 435,
@@ -1559,7 +1559,7 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
     expect(within(overview).getByText('76')).toBeInTheDocument();
   });
 
-  test('缺 max_altitude/min_altitude 时不渲染海拔净高差 (234/348 有值)', async () => {
+  test('缺 max_altitude/min_altitude 时不渲染海拔净高差 (239/354 有值)', async () => {
     db.getActivityById.mockReturnValue({ ...activity, avg_altitude: 300, total_ascent: 50, max_altitude: null, min_altitude: null });
     render(await page('3004'));
     const overview = screen.getByText('活动概览').closest('section')!;
@@ -1576,7 +1576,7 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
   });
 
   test('只有 max_cadence 无跑姿三项时, 跑步动态卡仍渲染 (渲染条件不能只靠单一罕见字段)', async () => {
-    // 真实库 average_gct_balance 348/348 全为 NULL; 若渲染条件只判它就永远不渲染。
+    // 真实库 average_gct_balance 354/354 全为 NULL; 若渲染条件只判它就永远不渲染。
     db.getActivityById.mockReturnValue({
       ...activity,
       average_gct_balance: null,
@@ -1699,9 +1699,9 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
     expect(screen.queryByText(/配速 趋势/)).toBeNull();
   });
 
-  test('gct_balance 缺失但有触地时间/垂直摆动 → 跑步动态仍渲染(真实库 348/348 全是这种)', async () => {
-    // 真实库实测: average_gct_balance 348/348 全为 NULL, 而触地时间与垂直摆动
-    // 在 241/241 条跑步活动中都有值。旧展示条件只判 gct_balance, 导致这张卡片
+  test('gct_balance 缺失但有触地时间/垂直摆动 → 跑步动态仍渲染(真实库 354/354 全是这种)', async () => {
+    // 真实库实测: average_gct_balance 354/354 全为 NULL, 而触地时间与垂直摆动
+    // 在 247/247 条跑步活动中都有值。旧展示条件只判 gct_balance, 导致这张卡片
     // 在生产环境从未渲染过 —— 已有的跑姿数据用户永远看不到。
     db.getActivityById.mockReturnValue({
       ...activity,
@@ -1784,7 +1784,7 @@ describe('app/pages/[id]/ActivityDetailClient.tsx 渲染', () => {
 /**
  * 分段「主要区间」列 —— lap 级区间秒数的唯一展示位。
  *
- * 背景：lap 级 `time_in_hr_zone` 历来 0/3082 全 NULL（设备不写 lap 级区间数组），
+ * 背景：lap 级 `time_in_hr_zone` 历来 0/3153 全 NULL（设备不写 lap 级区间数组），
  * 现由 fit-parser 从逐秒记录按 lap 时间窗推导（app 5 区口径、长度恒 5）。但
  * 「算了不展示」本身就是本项目的一类缺陷 —— 没有这一列，推导出来的 lap 级
  * 区间就永远不会被任何人看到。
@@ -1933,10 +1933,10 @@ describe('最快分段以服务端为准 (不重复实现)', () => {
  * | 位置 | 旧文案 | 真实库后果 |
  * |------|--------|-----------|
  * | `#` 列 | `lap.lap_index` | 表格第一行显示 **0** |
- * | 徽章 | `最快 K{bestLapIndex}` | **18/242** 条跑步活动渲染成 `最快 K0` |
+ * | 徽章 | `最快 K{bestLapIndex}` | **19/247** 条跑步活动渲染成 `最快 K0` |
  * | 徽章（间歇课） | 同上 | `650375691`（8.31km/16 段）写 `最快 K11`，而该段真实位置是 **5.81–6.81km** |
  *
- * `K{n}` 这个写法本身也在撒谎：真实库跑步 lap 只有 **57.8%**（1714/2967）落在
+ * `K{n}` 这个写法本身也在撒谎：真实库跑步 lap 只有 **56.0%**（1765/3153）落在
  * 950–1050 m，时间切段的间歇课可以有 0.08 km 的段。故只在「每段都约 1 km」时
  * 保留紧凑写法，否则改用累计距离区间（与 `llm.ts` 的分段行同一写法）。
  */

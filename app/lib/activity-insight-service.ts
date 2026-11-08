@@ -224,8 +224,8 @@ export function getActivityInsight(activityId: number): ActivityInsightResponse 
     hrZoneJson: activity.time_in_hr_zone,
     // 逐秒功率缺失时回退到同步时算好的同一口径列（不是设备原始数组）。
     powerZoneJson: activity.time_in_power_zone,
-    // 功率区间所需的 FTP 来源。设备显式 FTP 只有 33/348, 但
-    // `power_zone_boundaries[3]` 恒等于 FTP（33/33 逐条相等）→ 241/241 可解析。
+    // 功率区间所需的 FTP 来源。设备显式 FTP 只有 39/354, 但
+    // `power_zone_boundaries[3]` 恒等于 FTP（39/39 逐条相等）→ 247/247 可解析。
     activity: {
       functional_threshold_power: activity.functional_threshold_power ?? null,
       power_zone_boundaries: activity.power_zone_boundaries ?? null,

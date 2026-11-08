@@ -131,13 +131,13 @@ describe('buildAnalysisMessages 的空值/坏数据兜底', () => {
    * 「该活动没记录」与「数据源从不产出」是两种缺失, 处理方式必须不同。
    *
    * 真实库实测 (348 条活动):
-   *   average_gct_balance        0/348   ← Garmin 需双传感器, 从不写入
-   *   training_stress_score      0/348   ← TSS 是 Connect 云端算的, 不在 FIT 里
-   *   intensity_factor           0/348
-   *   average_power_to_weight    0/348
-   *   avg_grade                  0/348
+   *   average_gct_balance        0/354   ← Garmin 需双传感器, 从不写入
+   *   training_stress_score      0/354   ← TSS 是 Connect 云端算的, 不在 FIT 里
+   *   intensity_factor           0/354
+   *   average_power_to_weight    0/354
+   *   avg_grade                  0/354
    * 而 average_vertical_oscillation / ground_contact_time / vertical_ratio 都是
-   * 241/241（跑步活动全有）。
+   * 247/247（跑步活动全有）。
    *
    * 前一类若仍写成 `TSS: --  IF: --`, 模型每轮都看到它们, 就会把篇幅花在
    * 「建议补齐 TSS/IF/功率计数据」——而这些字段没有任何写入方, 建议永远无法执行。
@@ -179,8 +179,8 @@ describe('buildAnalysisMessages 的空值/坏数据兜底', () => {
    *
    * `intensity_factor` / `training_stress_score` / `average_power_to_weight` 三列
    * 真实库 **0/348** 有值（TSS/IF 是 Garmin Connect 云端算的，不写进 FIT），旧实现
-   * 因此按「数据源从不产出」整项略去 —— 但输入全都在：NP 241/241、
-   * `power_zone_boundaries[3]`=FTP 241/241、体重 241/241。结果是模型永远看不到
+   * 因此按「数据源从不产出」整项略去 —— 但输入全都在：NP 247/247、
+   * `power_zone_boundaries[3]`=FTP 247/247、体重 247/247。结果是模型永远看不到
    * 强度因子，只能靠配速猜强度，而 SYSTEM_PROMPT §5 明确要求「用训练负荷评估强度」。
    */
   test('显式 IF/TSS 列为空时，由 NP ÷ FTP 推算并输出', () => {
@@ -267,7 +267,7 @@ describe('buildAnalysisMessages 的空值/坏数据兜底', () => {
   /**
    * 海拔净高差 vs 累计爬升 —— 两个语义不同的量，文案必须分开。
    *
-   * 真实库 **191/234** 条活动的净高差**小于**累计爬升（环形路线回到起点只有几十米，
+   * 真实库 **196/239** 条活动的净高差**小于**累计爬升（环形路线回到起点只有几十米，
    * 而累计爬升上百米）。若数据块只给「海拔 76m」而另给「累计爬升 194m」，
    * 模型会判定数据矛盾并要求核对设备。
    */
@@ -313,7 +313,7 @@ describe('buildAnalysisMessages 的空值/坏数据兜底', () => {
     expect(content).toContain('单向爬升');
   });
 
-  test('缺 max_altitude/min_altitude 时整行不输出 (234/348 有值)', () => {
+  test('缺 max_altitude/min_altitude 时整行不输出 (239/354 有值)', () => {
     const [, user] = buildAnalysisMessages({ ...sparse, avg_altitude: 300, total_ascent: 50 } as Activity, []);
     const content = user.content as string;
     expect(content).toContain('平均海拔: 300m');

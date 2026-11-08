@@ -118,10 +118,10 @@ class DatabaseManager {
         -- 泳池规格（游泳 SWOLF 的两个输入；真实库 4/4）
         pool_length INTEGER,                          -- 池长（米，25/50；FIT scale=100 已应用）
         num_active_lengths INTEGER,                   -- 活跃趟数（不含池边休息；× pool_length == distance）
-        -- 主观感受（唯一由用户主动输入的字段；真实库 251/353）
+        -- 主观感受（唯一由用户主动输入的字段；真实库 252/354）
         workout_feel INTEGER,                         -- 主观感受 0/25/50/75/100（很糟→很好）
         workout_rpe INTEGER,                          -- 主观用力程度 1–10（Borg CR10）
-        -- 估计出汗量（真实库 349/353；设备估算值，速率上限约 1000ml/h）
+        -- 估计出汗量（真实库 350/354；设备估算值，速率上限约 1000ml/h）
         est_sweat_loss INTEGER,                       -- 估计出汗量（毫升）
         vdot_value REAL,                              -- VDOT 跑力值
         training_load INTEGER,                        -- 训练负荷
@@ -175,7 +175,7 @@ class DatabaseManager {
       ['hr_zone_boundaries', 'TEXT'],                // 心率区间上限边界（bpm）
       ['power_zone_boundaries', 'TEXT'],             // 功率区间上限边界（瓦）
       ['time_in_power_zone', 'TEXT'],                // 各功率区间停留秒数（app 5 区 %FTP 口径，由逐秒功率推导）
-      ['device_time_in_power_zone', 'TEXT'],         // 设备原始功率区间秒数（绝对瓦数边界，16 套方案，跨活动不可比；仅供追溯）
+      ['device_time_in_power_zone', 'TEXT'],         // 设备原始功率区间秒数（绝对瓦数边界，原始 18 套/归一 3 套，跨活动不可比；仅供追溯）
       ['device_time_in_hr_zone', 'TEXT'],            // 设备原始心率区间秒数（边界方案随固件而变，跨活动不可比；仅供追溯）
       ['device_time_in_speed_zone', 'TEXT'],         // 设备原始速度区间秒数（app 无对应模型，仅追溯）
       ['device_time_in_cadence_zone', 'TEXT'],       // 设备原始步频区间秒数（app 无对应模型，仅追溯）
@@ -301,7 +301,7 @@ class DatabaseManager {
         --                        由逐秒心率按 lap 时间窗推导，长度恒为 5。
         --   time_in_power_zone = app 5 区 %FTP（Z1<65/Z2<80/Z3<90/Z4<100/Z5>=100），
         --                        由逐秒功率按 lap 时间窗推导，长度恒为 5。
-        -- 设备从不写 lap 级区间数组（实测 3082/3082 lap 为空），device_* 列只为
+        -- 设备从不写 lap 级区间数组（实测 3153/3153 lap 为空），device_* 列只为
         -- 将来真有固件写入时留出正确的落点 —— 绝不能落进上面的统一列。
         time_in_hr_zone TEXT,                          -- 心率区间秒数（本地 5 区口径，长度恒 5）
         time_in_power_zone TEXT,                       -- 功率区间秒数（app 5 区 %FTP 口径，长度恒 5）
@@ -320,7 +320,7 @@ class DatabaseManager {
         total_cycles INTEGER,                         -- 总计数（游泳=本段划水次数/跳绳=本段跳跃次数）
         -- 训练角色（FIT lap intensity）：warmup/interval/recovery/rest/cooldown/active。
         -- **设备记录的计划结构**，不是按配速推断的（第十二类缺陷 2026-11-07）。
-        -- 覆盖 3058/3137 lap（97.5%）；active 只表示「在计时」不表示主课。
+        -- 覆盖 3074/3153 lap（97.5%）；active 只表示「在计时」不表示主课。
         intensity TEXT,
         -- 泳姿（FIT lap swim_stroke）：freestyle/backstroke/breaststroke/butterfly/
         -- drill/mixed/im。**session 级恒 255（无效），只有 lap 级有真实值**
@@ -516,7 +516,7 @@ class DatabaseManager {
    * 按 `lap_index` 只更新**指定列**（回填专用）。
    *
    * 为什么不复用 `insertLaps`：那是「先 DELETE 再整体 INSERT」，拿解析结果
-   * 覆盖库里的 lap。解析器不产出的列会被写成 NULL —— 对已有 3137 段真实数据
+   * 覆盖库里的 lap。解析器不产出的列会被写成 NULL —— 对已有 3153 段真实数据
    * 的库风险太大。本方法只动传入的列，幂等且不碰其它字段。
    *
    * @param {number} activityId

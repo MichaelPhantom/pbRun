@@ -75,9 +75,9 @@ const ACTIVITY_FIELD_ALLOWLIST: Record<string, string> = {
   updated_at: 'DB 更新时间戳, 与训练无关',
   // 时区偏移由 start_time_local 的语义承载, 用户看的是本地时间本身。
   start_tz_offset_min: '派生自 start_time_local, 展示分钟偏移对用户无意义',
-  // elapsed_time 恒等于 duration（真实库 348/348 相等, 因为 FIT 的
+  // elapsed_time 恒等于 duration（真实库 354/354 相等, 因为 FIT 的
   // total_elapsed_time 就是写进 duration 的那一列）—— 展示两个相同的数只会让人困惑。
-  elapsed_time: '真实库 348/348 恒等于 duration, 展示重复值无增量信息',
+  elapsed_time: '真实库 354/354 恒等于 duration, 展示重复值无增量信息',
 
   // ---- 仅用于查询/聚类的索引列 ----
   // 路线签名的三个派生列: 供 routeShapeSimilarity 粗筛/相似度计算, 不是用户指标。
@@ -108,45 +108,45 @@ const ACTIVITY_FIELD_ALLOWLIST: Record<string, string> = {
   // `resolveMaxHr()`（`.env MAX_HR`）本地重算，跨活动可比。直接展示 21 套
   // 不同边界只会让「Z3 是多少 bpm」每次都不一样。
   hr_zone_boundaries:
-    '设备原始区间边界(21 套方案随固件/设置而变), app 5 区走 resolveMaxHr 本地重算, 展示会破坏跨活动可比性',
+    '设备原始区间边界(21 套原始方案/归一后 7 套, 随固件/设置而变), app 5 区走 resolveMaxHr 本地重算, 展示会破坏跨活动可比性',
   // `user_height` 真实库仅 4 个取值（1.75/1.76/1.78/null），全站无任何 BMI/体表面积
-  // 计算引用它。展示一个 352/353 恒定不变的身高对单次训练解读零信息量。
+  // 计算引用它。展示一个 353/354 恒定不变的身高对单次训练解读零信息量。
   user_height: '真实库身高档案仅 4 个取值(1.75/1.76/1.78/null), 无 BMI/体表面积计算引用, 单次训练解读零信息量',
-  // `resting_heart_rate_fit` 是**手表日级配置值**：210/353 有值但只有 7 个不同取值
+  // `resting_heart_rate_fit` 是**手表日级配置值**：211/354 有值但只有 7 个不同取值
   // （42–48），同一天多条活动同值，与「本次训练」无关。它更不是「本次静息心率」。
   resting_heart_rate_fit:
-    '设备日级静息心率配置值(210/353 仅 7 个取值, 同日多活动同值), 不是本次训练指标',
+    '设备日级静息心率配置值(211/354 仅 7 个取值, 同日多活动同值), 不是本次训练指标',
   // `hrv_rmssd` / `hrv_rmssd_ratio` 已修好算法（拆分漏拍合并值，见
-  // `scripts/garmin/fit-parser.js` 的 `_extractHrv`），但覆盖只有 20/353（5.7%），
+  // `scripts/garmin/fit-parser.js` 的 `_extractHrv`），但覆盖只有 20/354（5.7%），
   // 且运动中 HRV 本身受呼吸/伪迹影响大 —— 它不是可靠的单次训练指标。
   // Garmin 官方 HRV Status 是**隔夜**测量，不能用本值替代或类比。
   // 因此保留在库里（供未来「HRV 趋势」专项使用），但不进 UI/AI 数据块。
   hrv_rmssd:
-    '真实库仅 20/353 有值, 运动中 HRV(RMSSD) 受呼吸/伪迹影响, 非可靠单次训练指标; 官方 HRV Status 是隔夜测量',
+    '真实库仅 20/354 有值, 运动中 HRV(RMSSD) 受呼吸/伪迹影响, 非可靠单次训练指标; 官方 HRV Status 是隔夜测量',
   hrv_rmssd_ratio:
-    '真实库仅 20/353 有值, RMSSD/meanRR 是无量纲自证字段(运动中应 <0.10), 同上不做单次展示',
+    '真实库仅 20/354 有值, RMSSD/meanRR 是无量纲自证字段(运动中应 <0.10), 同上不做单次展示',
 
-  // ---- 真实库 0/348 全空, 写入口从不产出 ----
+  // ---- 真实库 0/354 全空, 写入口从不产出 ----
   // 这些字段属于「设备/平台根本不写」类, 展示只会是永久 `--` 噪音。
   // 与 `fmtNumIf` 的整项略去纪律一致（见 docs/features.md §1.2 缺失两类）。
-  average_step_rate_loss: '真实库 0/348; FIT profile 无「步速损失」概念, 设备根本不产此量',
-  average_step_rate_loss_percent: '真实库 0/348; 同上, FIT profile 无对应字段',
-  max_power_to_weight: '真实库 0/348; FIT profile 无此字段, 且 max_power 是瞬时尖峰, 用它算 W/kg 会产出怪物数据',
-  avg_pos_grade: '真实库 0/348, 设备从不写入',
-  avg_neg_grade: '真实库 0/348, 设备从不写入',
-  max_pos_grade: '真实库 0/348, 设备从不写入',
-  max_neg_grade: '真实库 0/348, 设备从不写入',
+  average_step_rate_loss: '真实库 0/354; FIT profile 无「步速损失」概念, 设备根本不产此量',
+  average_step_rate_loss_percent: '真实库 0/354; 同上, FIT profile 无对应字段',
+  max_power_to_weight: '真实库 0/354; FIT profile 无此字段, 且 max_power 是瞬时尖峰, 用它算 W/kg 会产出怪物数据',
+  avg_pos_grade: '真实库 0/354, 设备从不写入',
+  avg_neg_grade: '真实库 0/354, 设备从不写入',
+  max_pos_grade: '真实库 0/354, 设备从不写入',
+  max_neg_grade: '真实库 0/354, 设备从不写入',
   // 注: `time_in_speed_zone` / `time_in_cadence_zone` 两条已于 2026-10-27 删除 ——
   // 这两列**已被 `_initDatabase` 从 schema 里 DROP**（app 无对应 5 区模型，设备原始
   // 数组的正确落点是 `device_*` 前缀列）。账本里留着不存在的列，等于账本本身失真：
   // 下一个人会以为「库里还有这两列、只是没展示」。守卫见下方
   // 「allowlist 的每个键都必须仍是真实列」。
   // 功率区间: 已由逐秒功率按 app 5 区 %FTP 模型统一到 `time_in_power_zone`
-  // （241/241 覆盖, 长度恒为 5, 可按索引跨活动聚合）。设备原始数组另存
-  // `device_time_in_power_zone`（绝对瓦数边界, 16 套方案）—— 与
+  // （247/247 覆盖, 长度恒为 5, 可按索引跨活动聚合）。设备原始数组另存
+  // `device_time_in_power_zone`（绝对瓦数边界, 原始 18 套/归一 3 套）—— 与
   // `device_time_in_hr_zone` 同一纪律: 仅供追溯, 不进 UI/AI。
-  device_time_in_power_zone: '设备原始功率区间秒数(绝对瓦数边界随 FTP 而变, 16 套方案), 仅供追溯',
-  device_time_in_hr_zone: '设备原始心率区间秒数(边界方案随固件而变, 19 套方案), 仅供追溯',
+  device_time_in_power_zone: '设备原始功率区间秒数(绝对瓦数边界随 FTP 而变, 原始 18 套/归一 3 套), 仅供追溯',
+  device_time_in_hr_zone: '设备原始心率区间秒数(边界方案随固件而变, 21 套原始/归一 7 套), 仅供追溯',
   device_time_in_speed_zone: '设备原始速度区间秒数(app 无对应模型, 仅追溯)',
   device_time_in_cadence_zone: '设备原始步频区间秒数(app 无对应模型, 仅追溯)',
 };
@@ -438,13 +438,13 @@ describe('ActivityInsightResponse 的每个字段都必须被消费', () => {
  *
  * | 字段 | 真实库 | 缺陷性质 |
  * |------|--------|----------|
- * | `intensity_factor` | 0/348 有值 | **可推算却从未推算**（NP/FTP 全在） |
- * | `training_stress_score` | 0/348 | 同上 |
- * | `average_power_to_weight` | 0/348 | 同上（体重 241/241） |
- * | `functional_threshold_power` | 33/348 | 缺失可回退 `power_zone_boundaries[3]` |
- * | `max_altitude` / `min_altitude` | 234/348 | 完全零消费 |
- * | `max_cadence` | 247/348 | 完全零消费 |
- * | `max_power` | 241/241 | 零消费（且是瞬时尖峰, 需过滤后才能展示） |
+ * | `intensity_factor` | 0/354 有值 | **可推算却从未推算**（NP/FTP 全在） |
+ * | `training_stress_score` | 0/354 | 同上 |
+ * | `average_power_to_weight` | 0/354 | 同上（体重 247/247） |
+ * | `functional_threshold_power` | 39/354 | 缺失可回退 `power_zone_boundaries[3]` |
+ * | `max_altitude` / `min_altitude` | 239/354 | 完全零消费 |
+ * | `max_cadence` | 247/354 | 完全零消费 |
+ * | `max_power` | 247/247 | 零消费（且是瞬时尖峰, 需过滤后才能展示） |
  *
  * 消费方定义：所有渲染/序列化/喂给模型的代码 —— `app/**` + `mcp-server/**`。
  * 不包含 `types.ts` 自身（那是声明不是消费）。
@@ -544,8 +544,8 @@ describe('Activity 的每个字段都必须被消费或显式记账', () => {
   test('解析器确实覆盖到 Activity 的全部字段 (防假绿)', () => {
     // **精确** 78 个字段（2026-11-07 新增 5 个 —— 第十类缺陷第二轮：
     // `pool_length` / `num_active_lengths`（游泳 SWOLF 的输入，4/4）、
-    // `workout_feel` / `workout_rpe`（唯一由用户主动输入的数据，251/353）、
-    // `est_sweat_loss`（补液建议依据，349/353）。FIT 里一直有，解析器从不读。
+    // `workout_feel` / `workout_rpe`（唯一由用户主动输入的数据，252/354）、
+    // `est_sweat_loss`（补液建议依据，350/354）。FIT 里一直有，解析器从不读。
     // 用等号而不是 >=: 新增一列就必须在这里显式确认「它要么被消费、要么进
     // allowlist 并写明理由」, 否则守卫会随着 types.ts 的扩张而悄悄放宽
     // （>= 的旧写法正是这样埋下假绿的）。同步修改: docs/features.md §1.5 标题字段数。
