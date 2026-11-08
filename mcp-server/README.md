@@ -5,7 +5,7 @@
 - **传输**: stdio (本地 AI 客户端直连, 无端口/认证)
 - **DB**: 只读访问 `app/data/activities.db` (SQLite WAL, 与 Next.js + cron 写入无冲突)
 - **依赖复用**: 直接 import `app/lib/{db,types,vdot-pace}.ts` (无 Next.js 依赖)
-- **目录**: `index.ts` 入口 / `tools.ts` 19 个 tool / `analysis.ts` 纯逻辑 (可单测)
+- **目录**: `index.ts` 入口 / `tools.ts` 20 个 tool / `analysis.ts` 纯逻辑 (可单测)
 
 ## 构建与运行
 

@@ -7,6 +7,8 @@
  * 只有跑步，却推断「用户几乎不运动」）。这类缺陷不会报错、不会让测试变红，只在
  * 模型输出里显形，所以必须用测试把声明钉住。
  */
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { registerTools } from '../../../mcp-server/tools';
 
 /** 捕获每个 tool 的配置（含 description）。 */
@@ -511,5 +513,39 @@ describe('泳姿必须声明「lap 级才有真实值，session 级恒 255」（
     const desc = configs.get('get_activity')!.description ?? '';
     expect(desc).not.toMatch(/泳姿.*未入库/);
     expect(desc).not.toMatch(/泳姿仅 Garmin 云端可见/);
+  });
+});
+
+/**
+ * **工具数量必须与文档一致**（第三十六类的同一形态：散文里的计数没有信号）。
+ *
+ * 真实踩到：`tools.ts` 已注册 20 个 tool，而 `README.md` 与
+ * `mcp-server/README.md` 还写着 19 —— 加了 `get_activity_types` 之后没人回头改。
+ * 数字写错不会让任何测试变红，只会让第一次接入的人以为少了一个能力。
+ *
+ * 反向也守：文档写多于实际同样算错（读者会去找一个不存在的 tool）。
+ */
+describe('文档声明的 tool 数量必须与 registerTools 实际注册数一致', () => {
+  const root = path.resolve(__dirname, '../../..');
+  // 注意：不能在 describe 体里读 `configs.size` —— `beforeAll` 还没跑，那时是 0。
+  const actual = (): number => configs.size;
+
+  test('实际注册数与期望的 20 一致（新增/删除 tool 时同步本断言与文档）', () => {
+    expect(actual()).toBe(20);
+  });
+
+  test.each([
+    ['README.md', /(\d+)\s*个 tools?/g],
+    ['mcp-server/README.md', /tools\.ts`?\s*(\d+)\s*个 tool/g],
+    ['docs/README.md', /(\d+)\s*个 tools/g],
+    ['docs/features.md', /(\d+)\s*个 tools/g],
+  ])('%s 里的 tool 数量等于实际注册数', (file, pattern) => {
+    const text = fs.readFileSync(path.join(root, file), 'utf8');
+    const claims = Array.from(text.matchAll(pattern)).map((m) => Number(m[1]));
+    expect({ file, claims }).not.toEqual({ file, claims: [] });
+    expect({ file, wrong: claims.filter((n) => n !== actual()) }).toEqual({
+      file,
+      wrong: [],
+    });
   });
 });
