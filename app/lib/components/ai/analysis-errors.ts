@@ -20,7 +20,10 @@ export function friendlyAnalysisError(
     return '分析超时（上游长时间无响应），请稍后重试或切换模型';
   }
   if (status === 429) {
-    return '模型暂受限流，请稍后重试或切换其他模型';
+    // 服务端限流（速率/并发，coach-rate-limit.ts）会给出具体可操作文案
+    // （「请求过于频繁」/「已有分析正在进行」）；上游网关 429 透传的文案
+    // 也在此列。优先展示服务端文案 —— 对服务端限流来说「切换模型」是误导。
+    return serverError?.trim() || '模型暂受限流，请稍后重试或切换其他模型';
   }
   if (status === 502 || status === 503) {
     return `分析通道故障${serverError ? `（${serverError}）` : ''}，建议切换其他模型后重试（非思考模型更稳，如 Gemini 3.5 Flash Lite）${tail}`;

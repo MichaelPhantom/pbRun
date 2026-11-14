@@ -25,6 +25,13 @@ describe('friendlyAnalysisError', () => {
     expect(friendlyAnalysisError(429)).toContain('限流');
   });
 
+  test('429 优先透传服务端具体文案（服务端限流 ≠ 上游限流，「切换模型」是误导）', () => {
+    expect(friendlyAnalysisError(429, 'AI 请求过于频繁，请稍后再试')).toBe('AI 请求过于频繁，请稍后再试');
+    expect(friendlyAnalysisError(429, '已有 AI 分析正在进行，请等待当前分析完成或点击停止')).toContain('正在进行');
+    // 上游 429 透传文案同样原样展示
+    expect(friendlyAnalysisError(429, '模型暂受限流，请稍后重试或切换其他模型')).toContain('切换其他模型');
+  });
+
   test('其他错误原样透传服务端文案', () => {
     expect(friendlyAnalysisError(404, 'Activity not found')).toBe('Activity not found');
   });
