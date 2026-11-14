@@ -3,20 +3,26 @@
  * 回填 VDOT / training_load（新口径）
  * - **仅跑步类型**（running / track_running / treadmill_running，缺类型视为 running）：
  *   VDOT 与 training_load 都是跑步口径指标，非跑步活动（游泳/球类/力量训练）一律不写
- * - VDOT 仅 Z3+ 代表性强度（最快 Z3+ lap，否则全程 Z3+ 才计），日常轻松跑置 null（不把训练平均强度当能力）
+ * - VDOT 仅 Z3+ 代表性强度（**先筛 Z3+ 再取最快 lap**，否则全程 Z3+ 才计），
+ *   日常轻松跑置 null（不把训练平均强度当能力）。选择语义唯一实现：
+ *   `scripts/common/vdot-segment.js`（第三十七类缺陷修复）
  * - training_load 优先 FIT 官方（fit-parser 已提取），缺省才自定义
  * - clamp %VO2max 已在 calculator 内
+ * - 写库前先备份 DB → `.bak.<timestamp>`（与其余 backfill-* 同一纪律；可回滚）
  * 用法：node scripts/garmin/backfill-vdot.js [--dry-run] [--limit N]
  */
 require('dotenv').config();
 const path = require('path');
 const fs = require('fs').promises;
+const fsSync = require('fs');
 const DatabaseManager = require('../common/db-manager');
 const GarminFITParser = require('./fit-parser');
 const VDOTCalculator = require('../common/vdot-calculator');
 const { effectiveTimeSec } = require('../common/pace');
+const { selectRepresentativeSegment } = require('../common/vdot-segment');
 
 const FIT_CACHE_DIR = path.join(process.cwd(), '.cache', 'fit');
+const DB_PATH = path.join(process.cwd(), 'app', 'data', 'activities.db');
 
 async function main() {
   const args = process.argv.slice(2);
@@ -31,6 +37,15 @@ async function main() {
     process.exit(1);
   }
   const calc = new VDOTCalculator(maxHr, restingHr);
+  // 写库前备份（与 backfill-hr-zones / backfill-lap-zones 等同一纪律）。
+  // 旧实现是唯一不备份的回填脚本 —— 而它恰恰会**清空**旧 VDOT（needClear 分支），
+  // 口径改坏时没有回滚点。dry-run 不写库也不备份。
+  if (!dryRun) {
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const bakPath = `${DB_PATH}.bak.${ts}`;
+    fsSync.copyFileSync(DB_PATH, bakPath);
+    console.log(`已备份 DB → ${bakPath}`);
+  }
   const db = new DatabaseManager('app/data/activities.db');
   const parser = new GarminFITParser();
 
@@ -68,7 +83,6 @@ async function main() {
       // 这类伪能力值。缺 activity_type 视为 running（旧库兼容，与 app/lib/sport.ts 一致）。
       const runnableTypes = ['running', 'treadmill_running', 'track_running'];
       const isRunningActivity = runnableTypes.includes(activityRow.activity_type || 'running');
-      let seg = null;
       const wholeHr = activityRow.average_heart_rate ?? parsed.activity?.average_heart_rate;
       const wholeDist = parsed.activity?.distance ?? activityRow.distance;
       // **时间基数 = 计时器时间**（与配速/VDOT/训练负荷同一口径）。
@@ -79,19 +93,14 @@ async function main() {
         moving_time: parsed.activity?.moving_time ?? activityRow.moving_time,
         duration: parsed.activity?.duration ?? activityRow.duration,
       }) ?? 0;
+      let seg = null;
       if (isRunningActivity) {
-        if (Array.isArray(laps) && laps.length > 0) {
-          const cands = laps.filter(l => l.distance > 400 && (effectiveTimeSec(l) ?? 0) > 30 && l.average_heart_rate && l.average_pace);
-          if (cands.length > 0) {
-            const best = cands.reduce((a, b) => (a.average_pace < b.average_pace ? a : b));
-            if (calc.isRepresentativeEffort(best.average_heart_rate)) seg = { d: best.distance, t: effectiveTimeSec(best) ?? best.duration };
-            else if (wholeHr && calc.isRepresentativeEffort(wholeHr)) seg = { d: (wholeDist || 0) * 1000, t: wholeDur || 0 };
-          } else if (wholeHr && calc.isRepresentativeEffort(wholeHr)) {
-            seg = { d: (wholeDist || 0) * 1000, t: wholeDur || 0 };
-          }
-        } else if (wholeHr && calc.isRepresentativeEffort(wholeHr)) {
-          seg = { d: (wholeDist || 0) * 1000, t: wholeDur || 0 };
-        }
+        // 选择语义唯一实现（第三十七类缺陷：先筛 Z3+ 再取最快，不是取最快再检查）。
+        seg = selectRepresentativeSegment({
+          laps,
+          whole: { distanceKm: wholeDist, timeSec: wholeDur, avgHr: wholeHr },
+          isRepresentativeEffort: (hr) => calc.isRepresentativeEffort(hr),
+        });
       }
 
       let newVdot = null;

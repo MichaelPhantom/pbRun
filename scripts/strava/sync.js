@@ -13,6 +13,7 @@ const path = require('path');
 const VDOTCalculator = require('../common/vdot-calculator');
 const DatabaseManager = require('../common/db-manager');
 const { effectiveTimeSec } = require('../common/pace');
+const { selectRepresentativeSegment } = require('../common/vdot-segment');
 const { log, logSection, formatDuration, persistEnvVar } = require('../common/utils');
 
 // Colors for output
@@ -237,27 +238,18 @@ class StravaSync {
 
     // VDOT：仅 Z3+ 代表性强度才计算（与 garmin 侧一致，日常轻松跑跳过）
     //
-    // 时间基数统一走 `effectiveTimeSec`：Strava 侧 `duration` 本身就等于
-    // `moving_time`（`fetcher.py` 把 moving_time 写进两列），但口径必须**只有
-    // 一个实现** —— 否则哪天 Strava 改了字段映射，VDOT 会与展示的配速分叉。
+    // 选择语义与时间基数都走唯一实现：`vdot-segment.js`（先筛 Z3+ 再取最快，
+    // 第三十七类缺陷）+ `effectiveTimeSec`（计时器时间）。Strava 侧 `duration`
+    // 本身就等于 `moving_time`（`fetcher.py` 把 moving_time 写进两列），但口径
+    // 必须**只有一个实现** —— 否则哪天 Strava 改了字段映射，VDOT 会与展示的
+    // 配速分叉。
     const wholeSec = effectiveTimeSec(data) ?? 0;
     if (this.vdotCalculator && data.average_heart_rate) {
-      let seg = null;
-      if (Array.isArray(data.laps) && data.laps.length > 0) {
-        const cands = data.laps.filter(l => l.distance > 400 && (effectiveTimeSec(l) ?? 0) > 30 && l.average_heart_rate && l.average_pace);
-        if (cands.length > 0) {
-          const best = cands.reduce((a, b) => (a.average_pace < b.average_pace ? a : b));
-          if (this.vdotCalculator.isRepresentativeEffort(best.average_heart_rate)) {
-            seg = { d: best.distance, t: effectiveTimeSec(best) ?? best.duration };
-          } else if (this.vdotCalculator.isRepresentativeEffort(data.average_heart_rate)) {
-            seg = { d: data.distance * 1000, t: wholeSec };
-          }
-        } else if (this.vdotCalculator.isRepresentativeEffort(data.average_heart_rate)) {
-          seg = { d: data.distance * 1000, t: wholeSec };
-        }
-      } else if (this.vdotCalculator.isRepresentativeEffort(data.average_heart_rate)) {
-        seg = { d: data.distance * 1000, t: wholeSec };
-      }
+      const seg = selectRepresentativeSegment({
+        laps: data.laps,
+        whole: { distanceKm: data.distance, timeSec: wholeSec, avgHr: data.average_heart_rate },
+        isRepresentativeEffort: (hr) => this.vdotCalculator.isRepresentativeEffort(hr),
+      });
       if (seg) {
         activityData.vdot_value = this.vdotCalculator.calculateVdotFromPace(seg.d, seg.t);
       }

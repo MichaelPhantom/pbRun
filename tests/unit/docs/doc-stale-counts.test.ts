@@ -89,6 +89,7 @@ const SOURCES = [
   'scripts/garmin/backfill-power-zones.js',
   'scripts/garmin/validate-data.js',
   'scripts/common/db-manager.js',
+  'scripts/common/vdot-segment.js',
   'scripts/testing/make-fixture-db.js',
   // —— MCP 与 skill（模型读的文本，第三十六类明确要求只写量级）——
   'mcp-server/tools.ts',

@@ -376,6 +376,24 @@ describe('_syncActivity', () => {
     expect(mockCalc.calculateVdotFromPace).toHaveBeenCalledWith(10000, 3600);
   });
 
+  test('VDOT 回归（第三十七类）: 最快 lap 是 Z2、较慢 lap 是 Z3+ → 取 Z3+ 段', async () => {
+    mockFs.readFile.mockResolvedValue(Buffer.from('FIT'));
+    mockCalc.isRepresentativeEffort.mockImplementation((hr) => hr >= 160);
+    mockParseFitFile.mockResolvedValueOnce({
+      activity: { average_heart_rate: 150, distance: 10, duration: 3600 },
+      laps: [
+        { distance: 1000, duration: 280, average_heart_rate: 140, average_pace: 280 },
+        { distance: 1000, duration: 300, average_heart_rate: 170, average_pace: 300 },
+      ],
+      records: [],
+    });
+    const sync = new GarminSync({ source: 'cdp' });
+    await sync._syncActivity(activity(), '/tmp/dir');
+    // 旧实现: 最快段(280)非 Z3+ 且全程(150)非 Z3+ → 整条漏算。
+    // 契约「最快且为 Z3+」→ 取 pace 300 的 Z3+ 段。
+    expect(mockCalc.calculateVdotFromPace).toHaveBeenCalledWith(1000, 300);
+  });
+
   test('VDOT: 无 lap 但全程代表性 → 全程; 非跑步类型不计算', async () => {
     mockFs.readFile.mockResolvedValue(Buffer.from('FIT'));
     mockParseFitFile.mockResolvedValueOnce({

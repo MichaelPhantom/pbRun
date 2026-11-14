@@ -288,6 +288,22 @@ describe('transformActivityData', () => {
     expect(mockCalc.calculateVdotFromPace).toHaveBeenCalledWith(10000, 3000);
   });
 
+  test('VDOT 回归（第三十七类）: 最快 lap 是 Z2、较慢 lap 是 Z3+ → 取 Z3+ 段', () => {
+    const s = new StravaSync({});
+    mockCalc.isRepresentativeEffort.mockImplementation((hr) => hr >= 160);
+    s.transformActivityData(
+      activityJson({
+        average_heart_rate: 150, // 全程也非 Z3+
+        laps: [
+          { distance: 1000, duration: 280, average_heart_rate: 140, average_pace: 280 },
+          { distance: 1000, duration: 300, average_heart_rate: 170, average_pace: 300 },
+        ],
+      }),
+    );
+    // 旧实现会整条漏算；契约「最快且为 Z3+」→ 取 pace 300 的 Z3+ 段。
+    expect(mockCalc.calculateVdotFromPace).toHaveBeenCalledWith(1000, 300);
+  });
+
   test('VDOT: 无 laps / 无候选 lap / 无心率 → 相应跳过', () => {
     const s = new StravaSync({});
     s.transformActivityData(activityJson());

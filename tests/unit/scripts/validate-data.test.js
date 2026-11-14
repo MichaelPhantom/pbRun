@@ -79,6 +79,12 @@ function wireDb(overrides = {}) {
     lapZonePowerActivityRows: [
       { activity_id: 1, time_in_power_zone: JSON.stringify([300, 1500, 1200, 600, 0]) },
     ],
+    // VDOT 代表段口径: 默认全程 Z2（轻松跑）且库里无值 → 干净。
+    // lap 夹具 (lapsOfActivity) 无 average_heart_rate → 不构成候选, 走全程分支。
+    vdotRows: [
+      { activity_id: 1, distance: 10, moving_time: 3600, duration: 3700, average_heart_rate: 140, vdot_value: null },
+    ],
+    nonRunVdotRows: [],
     // 库里实际的列（默认与声明一致 → 无漂移）
     dbColumns: {
       activities: ['activity_id', 'name', 'device_time_in_speed_zone'],
@@ -99,6 +105,14 @@ function wireDb(overrides = {}) {
     if (/SELECT DISTINCT activity_id/.test(q)) return make(cfg.activitiesWithLaps);
     if (/WHERE activity_id = \?\s+ORDER BY lap_index/s.test(q)) return make(cfg.lapsOfActivity);
     if (/SELECT distance as total_distance FROM activities WHERE activity_id = \?/.test(q)) return make(cfg.activityTotal);
+    // VDOT 代表段口径: 必须先于泛化匹配 —— 非跑步门控查询含 NOT IN,
+    // 会被 orphanedLaps 分支误接。
+    if (/SELECT activity_id, distance, moving_time, duration, average_heart_rate, vdot_value/.test(q)) {
+      return make(cfg.vdotRows);
+    }
+    if (/vdot_value IS NOT NULL\s+AND activity_type NOT IN/.test(q)) {
+      return make(cfg.nonRunVdotRows);
+    }
     // 顺序敏感: 范围检查的 SQL 里也含 `activity_type IS NULL`（跑步类型集合的旧库
     // 兼容分支），所以必须先匹配「MIN(...) + COUNT(*)」再匹配泛化的 IS NULL。
     if (/MIN\(/.test(q) && /COUNT\(\*\) as count/.test(q)) return make(cfg.rangeStats);
@@ -131,6 +145,8 @@ function wireDb(overrides = {}) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // VDOT 口径守卫用 resolveMaxHr()；钉住环境值, 不依赖本机 .env。
+  process.env.MAX_HR = '190';
   jest.spyOn(console, 'log').mockImplementation(mockLog);
 });
 
@@ -667,5 +683,85 @@ describe('main() 退出码契约', () => {
       mockDb.prepare = origPrepare;
       errSpy.mockRestore();
     }
+  });
+});
+
+describe('VDOT 代表段口径守卫（第三十七类缺陷）', () => {
+  const VDOTCalculator = require('../../../scripts/common/vdot-calculator');
+  const calc = new VDOTCalculator(190, 50);
+
+  test('有代表段却漏算 → issue（真实库 32 条的形态）', async () => {
+    // 全程 Z3+（170/190=89%），模型应产出 VDOT，库里却是 NULL
+    const expected = calc.calculateVdotFromPace(10000, 3600);
+    expect(expected).not.toBeNull();
+    wireDb({
+      vdotRows: [
+        { activity_id: 1, distance: 10, moving_time: 3600, duration: 3700, average_heart_rate: 170, vdot_value: null },
+      ],
+    });
+    const v = new DataValidator();
+    await v.validate();
+    expect(v.issues.map((i) => i.message).join(' | ')).toMatch(/有 Z3\+ 代表段但 vdot_value 为 NULL/);
+  });
+
+  test('先筛 Z3+ 再取最快：最快 lap 是 Z2 也不许漏算（回归）', async () => {
+    // lap0 最快但 Z2(140)，lap1 较慢但 Z3(170) → 代表段存在。
+    // 旧实现「取最快再检查」会判无代表段 → 本守卫必须报漏算。
+    wireDb({
+      vdotRows: [
+        { activity_id: 1, distance: 10, moving_time: 3600, duration: 3700, average_heart_rate: 145, vdot_value: null },
+      ],
+      lapsOfActivity: [
+        { lap_index: 0, distance: 1000, moving_time: 280, duration: 280, average_heart_rate: 140, average_pace: 280 },
+        { lap_index: 1, distance: 1000, moving_time: 300, duration: 300, average_heart_rate: 170, average_pace: 300 },
+      ],
+    });
+    const v = new DataValidator();
+    await v.validate();
+    expect(v.issues.map((i) => i.message).join(' | ')).toMatch(/有 Z3\+ 代表段但 vdot_value 为 NULL/);
+  });
+
+  test('无代表段却有值 → issue（伪能力值/陈旧值）', async () => {
+    wireDb({
+      vdotRows: [
+        { activity_id: 1, distance: 10, moving_time: 3600, duration: 3700, average_heart_rate: 130, vdot_value: 42 },
+      ],
+    });
+    const v = new DataValidator();
+    await v.validate();
+    expect(v.issues.map((i) => i.message).join(' | ')).toMatch(/无 Z3\+ 代表段但 vdot_value 非 NULL/);
+  });
+
+  test('值与模型输出不一致 → issue（口径漂移）', async () => {
+    const expected = calc.calculateVdotFromPace(10000, 3600);
+    wireDb({
+      vdotRows: [
+        { activity_id: 1, distance: 10, moving_time: 3600, duration: 3700, average_heart_rate: 170, vdot_value: expected + 5 },
+      ],
+    });
+    const v = new DataValidator();
+    await v.validate();
+    expect(v.issues.map((i) => i.message).join(' | ')).toMatch(/与当前模型输出不一致/);
+  });
+
+  test('非跑步活动有 VDOT → issue（写入口门控失效）', async () => {
+    wireDb({ nonRunVdotRows: [{ activity_id: 99 }] });
+    const v = new DataValidator();
+    await v.validate();
+    expect(v.issues.map((i) => i.message).join(' | ')).toMatch(/非跑步活动 vdot_value 非 NULL/);
+  });
+
+  test('干净数据 → ✓ 且无 issue', async () => {
+    const expected = calc.calculateVdotFromPace(10000, 3600);
+    wireDb({
+      vdotRows: [
+        { activity_id: 1, distance: 10, moving_time: 3600, duration: 3700, average_heart_rate: 170, vdot_value: expected },
+      ],
+    });
+    const v = new DataValidator();
+    await v.validate();
+    expect(v.issues).toEqual([]);
+    const out = mockLog.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(out).toContain('VDOT 与代表段模型一致');
   });
 });

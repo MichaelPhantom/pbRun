@@ -14,6 +14,7 @@ const GarminFITParser = require('./fit-parser');
 const VDOTCalculator = require('../common/vdot-calculator');
 const DatabaseManager = require('../common/db-manager');
 const { effectiveTimeSec } = require('../common/pace');
+const { selectRepresentativeSegment } = require('../common/vdot-segment');
 const { calculateStrengthLoad } = require('../common/strength-load');
 
 /** FIT 缓存目录，避免重复拉取 */
@@ -414,31 +415,27 @@ class GarminSync {
     }
 
     // VDOT：仅在“代表性强度”时段计算（避免把恢复/有氧慢跑平均强度当成能力值）
-    // 取 laps 中最快且为 Z3+ 的段为代表；无合适 lap 且全程也非 Z3+ 则跳过
+    // 取 laps 中最快且为 Z3+ 的段为代表；无合适 lap 且全程也非 Z3+ 则跳过。
+    // 选择语义的唯一实现是 `scripts/common/vdot-segment.js`（第三十七类缺陷：
+    // 旧实现「取最快再检查是否 Z3+」，最快段是心率未起来的第一公里时，
+    // 后面真正的 Z3+ 段被整体丢掉 —— 真实库 32 条跑步因此漏算跑力）。
     //
     // **时间基数 = 计时器时间**（与配速同一口径，见 `scripts/common/pace.js`）。
     // VDOT 是配速的函数，若这里用 `duration`（含暂停）而展示的配速用
     // `moving_time`，就会出现「页面配速 6:35/km、VDOT 却按 26:19/km 算」的
-    // 自相矛盾 —— 真实库 121 条有 VDOT 的跑步活动里 25 条偏差 >2%。
+    // 自相矛盾 —— 当时真实库 121 条有 VDOT 的跑步活动里 25 条偏差 >2%。
     const runnableTypes = ['running', 'treadmill_running', 'track_running'];
     const wholeSec = effectiveTimeSec(activityData) ?? 0;
     if (this.vdotCalculator && runnableTypes.includes(activityData.activity_type) && activityData.average_heart_rate) {
-      let seg = null;
-      if (Array.isArray(lapsData) && lapsData.length > 0) {
-        const cands = lapsData.filter(l => l.distance > 400 && (effectiveTimeSec(l) ?? 0) > 30 && l.average_heart_rate && l.average_pace);
-        if (cands.length > 0) {
-          const best = cands.reduce((a, b) => (a.average_pace < b.average_pace ? a : b));
-          if (this.vdotCalculator.isRepresentativeEffort(best.average_heart_rate)) {
-            seg = { d: best.distance, t: effectiveTimeSec(best) ?? best.duration, hr: best.average_heart_rate };
-          } else if (this.vdotCalculator.isRepresentativeEffort(activityData.average_heart_rate)) {
-            seg = { d: (activityData.distance || 0) * 1000, t: wholeSec, hr: activityData.average_heart_rate };
-          }
-        } else if (this.vdotCalculator.isRepresentativeEffort(activityData.average_heart_rate)) {
-          seg = { d: (activityData.distance || 0) * 1000, t: wholeSec, hr: activityData.average_heart_rate };
-        }
-      } else if (this.vdotCalculator.isRepresentativeEffort(activityData.average_heart_rate)) {
-        seg = { d: (activityData.distance || 0) * 1000, t: wholeSec, hr: activityData.average_heart_rate };
-      }
+      const seg = selectRepresentativeSegment({
+        laps: lapsData,
+        whole: {
+          distanceKm: activityData.distance,
+          timeSec: wholeSec,
+          avgHr: activityData.average_heart_rate,
+        },
+        isRepresentativeEffort: (hr) => this.vdotCalculator.isRepresentativeEffort(hr),
+      });
       if (seg) {
         const vdot = this.vdotCalculator.calculateVdotFromPace(seg.d, seg.t);
         activityData.vdot_value = vdot;

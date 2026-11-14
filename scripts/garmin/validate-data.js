@@ -6,8 +6,12 @@
 
 const Database = require('better-sqlite3');
 const path = require('path');
+require('dotenv').config();
 const DatabaseManager = require('../common/db-manager');
 const { effectiveTimeSec, speedKmh, paceSecPerKm } = require('../common/pace');
+const { resolveMaxHr } = require('../common/hr-zones');
+const VDOTCalculator = require('../common/vdot-calculator');
+const { selectRepresentativeSegment } = require('../common/vdot-segment');
 
 /**
  * 人类瞬时速度合理上限 (km/h)。跑步世界纪录约 44 km/h, 球类挥拍/击球峰值也在此量级;
@@ -78,6 +82,7 @@ class DataValidator {
     this.validateRelationships();
     this.validateHrZoneScope();
     this.validateLapZoneScope();
+    this.validateVdotScope();
     this.validateSchemaDrift();
 
     // Summary
@@ -690,6 +695,93 @@ class DataValidator {
   }
 
   /**
+   * VDOT 代表段口径验证（第三十七类缺陷的机器守卫）。
+   *
+   * ## 为什么需要
+   *
+   * `vdot_value` 的契约是「 laps 中**最快且为 Z3+** 的段；无合适 lap 且全程
+   * 也非 Z3+ 则为 NULL」。旧实现「取最快再检查是否 Z3+」让真实库 32/249 条
+   * 跑步漏算跑力 —— 而这种漏算**不报错**：页面上只是少一个数字，趋势图照常
+   * 渲染。与 lap 区间同理，必须有一条能自动抓出「该有却没有 / 不该有却有 /
+   * 值与模型输出不一致」的例行校验。
+   *
+   * ## 判据（全部走唯一实现 `vdot-segment.js` + `vdot-calculator.js`）
+   *
+   * - 有代表段且模型产出非 NULL，库里却是 NULL → **判错**（漏算）
+   * - 无代表段（或模型产出 NULL），库里却有值 → **判错**（伪能力值/陈旧值）
+   * - 两侧都有值但不相等（>0.05）→ **判错**（口径漂移，如 MAX_HR 改后未回填）
+   * - 非跑步活动有值 → **判错**（写入口门控失效）
+   *
+   * MAX_HR 走 `resolveMaxHr`（与区间回填同一来源）；本脚本入口已加载 dotenv。
+   */
+  validateVdotScope() {
+    log('\n10. VDOT 代表段口径验证', 'cyan');
+
+    const maxHr = resolveMaxHr();
+    const calc = new VDOTCalculator(maxHr, parseInt(process.env.RESTING_HR || '0', 10));
+    const isRep = (hr) => calc.isRepresentativeEffort(hr);
+
+    const rows = this.db.prepare(`
+      SELECT activity_id, distance, moving_time, duration, average_heart_rate, vdot_value
+      FROM activities
+      WHERE activity_type IN ('running','track_running','treadmill_running')
+    `).all();
+    const lapStmt = this.db.prepare(`
+      SELECT distance, moving_time, duration, average_heart_rate, average_pace
+      FROM activity_laps WHERE activity_id = ? ORDER BY lap_index
+    `);
+
+    const missing = [];
+    const stale = [];
+    const drifted = [];
+    for (const row of rows) {
+      const seg = selectRepresentativeSegment({
+        laps: lapStmt.all(row.activity_id),
+        whole: {
+          distanceKm: row.distance,
+          timeSec: effectiveTimeSec(row) ?? 0,
+          avgHr: row.average_heart_rate,
+        },
+        isRepresentativeEffort: isRep,
+      });
+      const expected = seg ? calc.calculateVdotFromPace(seg.d, seg.t) : null;
+      const actual = row.vdot_value;
+      if (expected != null && actual == null) missing.push(row.activity_id);
+      else if (expected == null && actual != null) stale.push(row.activity_id);
+      else if (expected != null && actual != null && Math.abs(expected - actual) > 0.05) {
+        drifted.push(`${row.activity_id}(${actual} vs ${expected})`);
+      }
+    }
+
+    const nonRun = this.db.prepare(`
+      SELECT activity_id FROM activities
+      WHERE vdot_value IS NOT NULL
+        AND activity_type NOT IN ('running','track_running','treadmill_running')
+    `).all();
+
+    if (missing.length === 0 && stale.length === 0 && drifted.length === 0 && nonRun.length === 0) {
+      log(`  ✓ VDOT 与代表段模型一致 (MAX_HR=${maxHr}, ${rows.length} 条跑步, 非跑步门控正常)`, 'green');
+      return;
+    }
+    if (missing.length > 0) {
+      log(`  ✗ 有代表段却漏算 VDOT: ${missing.length} 条 (${missing.slice(0, 5).join(', ')})`, 'red');
+      this.addIssue('VDOT 口径', `${missing.length} 条跑步有 Z3+ 代表段但 vdot_value 为 NULL（跑 backfill:vdot 修复）`);
+    }
+    if (stale.length > 0) {
+      log(`  ✗ 无代表段却有 VDOT: ${stale.length} 条 (${stale.slice(0, 5).join(', ')})`, 'red');
+      this.addIssue('VDOT 口径', `${stale.length} 条跑步无 Z3+ 代表段但 vdot_value 非 NULL（跑 backfill:vdot 清空）`);
+    }
+    if (drifted.length > 0) {
+      log(`  ✗ VDOT 与模型输出不一致: ${drifted.length} 条 (${drifted.slice(0, 5).join(', ')})`, 'red');
+      this.addIssue('VDOT 口径', `${drifted.length} 条跑步 vdot_value 与当前模型输出不一致（MAX_HR 变更后需 backfill:vdot）`);
+    }
+    if (nonRun.length > 0) {
+      log(`  ✗ 非跑步活动有 VDOT: ${nonRun.length} 条 (${nonRun.slice(0, 5).map(r => r.activity_id).join(', ')})`, 'red');
+      this.addIssue('VDOT 口径', `${nonRun.length} 条非跑步活动 vdot_value 非 NULL（写入口门控失效）`);
+    }
+  }
+
+  /**
    * schema 漂移验证（2026-10-27 新增）。
    *
    * ## 为什么需要
@@ -714,7 +806,7 @@ class DataValidator {
    *   但说明迁移没清理；若它是旧口径的统一列则可能是口径陷阱）
    */
   validateSchemaDrift() {
-    log('\n10. schema 漂移验证', 'cyan');
+    log('\n11. schema 漂移验证', 'cyan');
 
     for (const table of ['activities', 'activity_laps']) {
       const declared = DatabaseManager.declaredColumns(table);

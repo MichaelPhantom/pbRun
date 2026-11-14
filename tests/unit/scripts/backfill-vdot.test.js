@@ -8,7 +8,8 @@
  * 失败计数与退出码。
  */
 const mockFs = { readdir: jest.fn() };
-jest.mock('fs', () => ({ promises: mockFs }));
+const mockCopyFileSync = jest.fn();
+jest.mock('fs', () => ({ promises: mockFs, copyFileSync: mockCopyFileSync }));
 
 const mockDb = {
   getAllActivityIds: jest.fn(),
@@ -117,6 +118,19 @@ describe('代表性强度段判定', () => {
     await main();
     // 最快 = pace 280 的那段
     expect(mockCalc.calculateVdotFromPace).toHaveBeenCalledWith(1000, 280);
+  });
+
+  test('回归（第三十七类）：最快 lap 是 Z2、较慢 lap 是 Z3+ → 取 Z3+ 段而非全程', async () => {
+    lapsStmt.all.mockReturnValue([
+      { distance: 1000, duration: 280, average_heart_rate: 140, average_pace: 280 },
+      { distance: 1000, duration: 300, average_heart_rate: 170, average_pace: 300 },
+    ]);
+    mockCalc.isRepresentativeEffort.mockImplementation((hr) => hr >= 150);
+    setArgs([]);
+    await main();
+    // 旧实现会因最快段(280)非 Z3+ 而退回全程(10000, 3600)；
+    // 契约是「最快且为 Z3+」→ 必须取 pace 300 的 Z3+ 段。
+    expect(mockCalc.calculateVdotFromPace).toHaveBeenCalledWith(1000, 300);
   });
 
   test('lap 非代表性但全程心率代表性 → 退回全程距离(km→m)', async () => {
@@ -358,5 +372,26 @@ describe('dry-run 与计数', () => {
     setArgs([]);
     await main();
     expect(mockDb.close).toHaveBeenCalled();
+  });
+});
+
+describe('写库前备份（与其余 backfill-* 同一纪律）', () => {
+  test('正常执行 → 先 copyFileSync 备份到 .bak.<timestamp> 再开库', async () => {
+    setArgs([]);
+    await main();
+    expect(mockCopyFileSync).toHaveBeenCalledTimes(1);
+    const [src, dest] = mockCopyFileSync.mock.calls[0];
+    expect(src.endsWith('app/data/activities.db')).toBe(true);
+    expect(dest).toMatch(/activities\.db\.bak\.\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}$/);
+    // 备份必须先于任何写库动作
+    expect(mockCopyFileSync.mock.invocationCallOrder[0])
+      .toBeLessThan(mockDb.updateActivityFields.mock.invocationCallOrder[0]);
+  });
+
+  test('dry-run → 不备份、不写库', async () => {
+    setArgs(['--dry-run']);
+    await main();
+    expect(mockCopyFileSync).not.toHaveBeenCalled();
+    expect(mockDb.updateActivityFields).not.toHaveBeenCalled();
   });
 });
