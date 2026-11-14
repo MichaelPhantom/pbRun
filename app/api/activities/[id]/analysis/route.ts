@@ -20,6 +20,7 @@ import {
   type ChatMessage,
 } from '@/app/lib/llm';
 import { runCoachStream } from '@/app/lib/coach-stream';
+import { coachRateLimitKey } from '@/app/lib/coach-rate-limit';
 import { DEFAULT_MODEL, resolveRequestedModel } from '@/app/lib/model-curation';
 import { buildRunnerProfile, formatRunnerProfile } from '@/app/lib/runner-profile';
 import { buildActivityContextBlock } from '@/app/lib/activity-coach-context-service';
@@ -78,5 +79,6 @@ export async function POST(
     model,
     messages,
     clientSignal: request.signal,
+    rateLimitKey: coachRateLimitKey(request.headers),
   });
 }

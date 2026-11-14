@@ -16,6 +16,7 @@
  */
 import { NextResponse } from 'next/server';
 import { buildAnalysisRequestBody, type ChatMessage } from '@/app/lib/llm';
+import { admitCoachRequest } from '@/app/lib/coach-rate-limit';
 
 /** 拿到响应头的上限 (超过视为上游不可达/挂死)。 */
 export const HEADERS_TIMEOUT_MS = 120_000;
@@ -33,6 +34,8 @@ export interface CoachStreamParams {
   maxTokens?: number;
   /** 客户端断开信号 (NextRequest.signal); 用于中止上游生成。 */
   clientSignal?: AbortSignal | null;
+  /** 限流 key（客户端 IP，见 coach-rate-limit.ts）; 缺省 'local'。 */
+  rateLimitKey?: string;
   /** 测试注入口, 生产用默认值。 */
   headersTimeoutMs?: number;
   firstByteTimeoutMs?: number;
@@ -56,13 +59,21 @@ function isRetryable(o: Outcome): boolean {
   return o.kind === 'headers-timeout' || o.kind === 'first-byte-timeout' || o.kind === 'network';
 }
 
-/** 把已读出的首块与后续流拼成一条连续 ReadableStream (保持背压)。 */
+/** 把已读出的首块与后续流拼成一条连续 ReadableStream (保持背压)。
+ * `onFinally` 在流结束（完成/取消/出错）时恰好调用一次 —— 用于释放限流并发槽。 */
 function pipeFrom(
   first: Uint8Array | undefined,
   reader: ReadableStreamDefaultReader<Uint8Array>,
+  onFinally?: () => void,
 ): ReadableStream<Uint8Array> {
   let primed = !!first && first.length > 0;
   const primedChunk = first;
+  let finalized = false;
+  const finalize = () => {
+    if (finalized) return;
+    finalized = true;
+    onFinally?.();
+  };
   return new ReadableStream<Uint8Array>({
     async pull(controller) {
       if (primed) {
@@ -73,16 +84,19 @@ function pipeFrom(
       try {
         const { done, value } = await reader.read();
         if (done) {
+          finalize();
           controller.close();
           return;
         }
         if (value) controller.enqueue(value);
       } catch (err) {
+        finalize();
         controller.error(err);
       }
     },
     cancel(reason) {
       // 客户端中断/组件卸载: 级联到上游, 停止继续生成
+      finalize();
       return reader.cancel(reason);
     },
   });
@@ -204,10 +218,21 @@ function errorResponse(o: Failure): Response {
 }
 
 /**
- * 执行一次教练 SSE 请求: 主模型 → 必要时回退 auto → 透传上游流。
+ * 执行一次教练 SSE 请求: 准入控制 → 主模型 → 必要时回退 auto → 透传上游流。
  * 返回值可直接作为路由的 Response。
+ *
+ * 准入控制（速率 + 并发，见 coach-rate-limit.ts）是两个端点共用的第一道闸：
+ * 被拒 → 429 + Retry-After；通过则占用一个并发槽，流结束/失败时释放。
  */
 export async function runCoachStream(p: CoachStreamParams): Promise<Response> {
+  const admission = admitCoachRequest(p.rateLimitKey ?? 'local');
+  if (!admission.admitted) {
+    return NextResponse.json(
+      { error: admission.error },
+      { status: 429, headers: { 'Retry-After': String(admission.retryAfterSec) } },
+    );
+  }
+
   let outcome = await openAttempt(p, p.model);
   let fellBack = false;
 
@@ -226,7 +251,10 @@ export async function runCoachStream(p: CoachStreamParams): Promise<Response> {
     }
   }
 
-  if (outcome.kind !== 'stream') return errorResponse(outcome);
+  if (outcome.kind !== 'stream') {
+    admission.release();
+    return errorResponse(outcome);
+  }
 
   const headers: Record<string, string> = {
     'Content-Type': 'text/event-stream; charset=utf-8',
@@ -240,5 +268,5 @@ export async function runCoachStream(p: CoachStreamParams): Promise<Response> {
     headers['X-Model-Requested'] = p.model;
     headers['X-Model-Used'] = 'auto';
   }
-  return new Response(pipeFrom(outcome.first, outcome.reader), { headers });
+  return new Response(pipeFrom(outcome.first, outcome.reader, admission.release), { headers });
 }

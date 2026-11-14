@@ -9,6 +9,7 @@ import {
   type GlobalCoachContext,
 } from '@/app/lib/llm';
 import { runCoachStream } from '@/app/lib/coach-stream';
+import { coachRateLimitKey } from '@/app/lib/coach-rate-limit';
 import { DEFAULT_MODEL, resolveRequestedModel } from '@/app/lib/model-curation';
 import { formatInsightForCoach, formatZoneStructureForCoach } from '@/app/lib/insight-coach';
 import {
@@ -157,5 +158,6 @@ export async function POST(request: NextRequest) {
     messages,
     maxTokens: 4500,
     clientSignal: request.signal,
+    rateLimitKey: coachRateLimitKey(request.headers),
   });
 }

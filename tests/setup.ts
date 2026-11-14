@@ -1,6 +1,12 @@
 // 全局测试配置
 import '@testing-library/jest-dom';
 
+// AI 教练限流默认关闭：单测验证的是出流策略（看门狗/回退/断开），不是准入
+// 控制；模块级限流状态会跨用例泄漏。限流本身由 coach-rate-limit.test.ts
+// 显式设 env 验证。e2e/生产不受影响（走真实 env 默认值 20 次/60s、并发 2）。
+process.env.COACH_RATE_LIMIT ??= '0';
+process.env.COACH_MAX_CONCURRENT ??= '0';
+
 // jsdom 环境缺 Node 22 Web Streams (zip.js 依赖 ReadableStream/WritableStream/TransformStream)
 if (typeof (globalThis as any).TransformStream === 'undefined') {
   const web = require('node:stream/web');

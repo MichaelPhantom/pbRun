@@ -6,6 +6,11 @@
 ## [Unreleased]
 
 ### Added
+- **AI 教练服务端限流**（features.md §4.2 待办落地）：`app/lib/coach-rate-limit.ts`
+  速率（每客户端 IP 滑动窗口，默认 20 次/60s）+ 并发（全局默认 2 个流）双闸门，
+  收敛在两个教练端点唯一共用的出流层 `runCoachStream`；超限 429 + `Retry-After`，
+  流结束/失败/客户端取消都释放并发槽（幂等）。阈值走 env，0 = 关闭对应闸门。
+  守卫：`coach-rate-limit.test.ts`（15 例，含出流层接线与槽位不泄漏）。
 - **VDOT 代表段口径的例行校验**（第三十七类缺陷的机器守卫）：`validate-data.js` 第 10 项
   `validateVdotScope` —— 按唯一实现 `vdot-segment.js` 现场求值，四条判据：有代表段却漏算 /
   无代表段却有值 / 与模型输出漂移（如 MAX_HR 改档后未回填）/ 非跑步门控失效。
@@ -191,6 +196,12 @@
   避免同一条路线的 5K 与 30K 直接对比。详情 UI 的 ±25% fallback 不变。
 
 ### Fixed
+- **e2e 构建在本机永远起不来**：`e2e-build.sh` 缺 deploy-prod.sh 同款防护 ——
+  构建在受限 cgroup（opencode.service 1.5G）内被 memcg OOM kill（137），
+  且 2 核机器 Turbopack PostCSS worker 必超时。现经 `systemd-run --user --scope`
+  挪入 user.slice + Turbopack 失败清半成品回退 webpack（`PB_BUILD_WEBPACK=1`
+  可直接 webpack）；入口统一 export `XDG_RUNTIME_DIR`。`.tsconfig.e2e.bak`
+  备份哨兵纳入 .gitignore（SIGKILL 时 trap 不执行会残留）。
 - **「最快且为 Z3+」被实现成「取最快再检查 Z3+」—— 32 条跑步静默漏算跑力**（第三十七类缺陷）：
   VDOT 代表段选择的契约（三处调用方注释 + `vdot-calculation.md`）写的是「取 laps 中**最快且为
   Z3+** 的段」，实现却是先取最快、再检查它是否 Z3+。最快段常常是心率还没起来的第一公里（Z2），

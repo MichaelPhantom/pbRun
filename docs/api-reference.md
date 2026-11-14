@@ -979,6 +979,7 @@ freellm provider 一致 —— 详见[可用模型列表](#17-可用模型列表
 - `Content-Type: text/event-stream`
 - 模型回退时附加 `X-Model-Fallback: 1` / `X-Model-Requested` / `X-Model-Used`
 - 未配置凭证（缺 `FREELLMAPI_KEY`）时返回 `503`
+- 速率/并发超限返回 `429` + `Retry-After`（两个教练端点同口径，见「HTTP 状态码」）
 
 ### 14. 活动详情深挖
 
@@ -1175,7 +1176,17 @@ GET /api/llm/models
 | 200 | 成功 | 请求成功 |
 | 400 | 请求错误 | 参数格式错误 |
 | 404 | 未找到 | 活动不存在 |
+| 429 | AI 教练限流 | 速率/并发超限，带 `Retry-After` 头（见下） |
 | 500 | 服务器错误 | 数据库连接失败 |
+
+**AI 教练端点的 429 契约**（`POST /api/insight/coach` 与
+`POST /api/activities/{id}/analysis` 共用，唯一实现 `app/lib/coach-rate-limit.ts`）：
+
+- 速率闸门：每客户端 IP（`x-forwarded-for` 首跳 / `x-real-ip`，直连回落 `local`）
+  滑动窗口默认 20 次/60s → `{ "error": "AI 请求过于频繁，请稍后再试" }`
+- 并发闸门：全局默认 2 个进行中的流 → `{ "error": "已有 AI 分析正在进行，请等待当前分析完成或点击停止" }`
+- 两者都附 `Retry-After` 秒数；阈值走 env（`COACH_RATE_LIMIT` /
+  `COACH_RATE_WINDOW_SEC` / `COACH_MAX_CONCURRENT`，0 = 关闭对应闸门）
 
 ### 常见错误
 
