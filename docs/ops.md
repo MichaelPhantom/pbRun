@@ -146,6 +146,8 @@ Error [TurbopackInternalError]: Failed to write app endpoint /page
 > **本机（2 核）建议直接设 `PB_BUILD_WEBPACK=1`**：实测 Turbopack 在这台机器上
 > **每次都超时**（冷缓存 100% 复现，已连续 6 次），先失败一次再回退等于每次白等
 > 1–2 分钟。CI 是 4 核，`npm run build` 走 Turbopack 正常，不需要改。
+> `scripts/testing/e2e-build.sh` 已内置同一套防护（scope + webpack 回退），
+> 本机跑 `npm run test:e2e` 同样建议 `PB_BUILD_WEBPACK=1`。
 
 ### 2.2 两类“校验器本身写错”的部署陷阱
 
