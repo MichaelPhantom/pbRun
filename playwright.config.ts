@@ -43,12 +43,16 @@ export default defineConfig({
     },
   ],
   // e2e 用「生产构建 + 夹具库」启动, 与真实产物一致且自包含:
-  //  1) 无 DB 时生成夹具库 (scripts/testing/make-fixture-db.js)
+  //  1) **每次**生成夹具库 (scripts/testing/make-fixture-db.js) —— 夹具日期是
+  //     相对「今天」的偏移 (daysAgo), 旧实现只在文件缺失时生成, 本地夹具一旦
+  //     生成便永不刷新: 跨周/跨月后「本周统计」「本月列表」全部断言失效
+  //     (2026-11-14 实测: 11-05 生成的夹具让 stats/list 三引擎红)。CI 每次
+  //     全新 checkout 无此问题, 本地必须同口径。生成器先删旧文件, 幂等。
   //  2) 构建到隔离目录 .next-e2e (DIST_DIR), 避免与开发/生产 .next 冲突
   //  3) DB_PATH 指向夹具库, next start 提供服务
   webServer: {
     command: [
-      '[ -f tests/fixtures/activities.db ] || node scripts/testing/make-fixture-db.js',
+      'node scripts/testing/make-fixture-db.js',
       'bash scripts/testing/e2e-build.sh',
       'DIST_DIR=.next-e2e DB_PATH="$(pwd)/tests/fixtures/activities.db" next start -p 3000 -H 127.0.0.1',
     ].join(' && '),

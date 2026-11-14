@@ -42,7 +42,7 @@ const localStamp = (d, hhmm) => {
   return `${y}-${m}-${day}T${hhmm}:00`;
 };
 
-/** 每次活动的「几天前」+ 本地时刻。顺序: 阈值 2d / 长距离 4d / 基础 7d / 恢复 12d / 基础 14d。 */
+/** 每次活动的「几天前」+ 本地时刻。顺序: 阈值 2d / 长距离 4d / 基础 7d / 阈值 12d / 恢复 14d。 */
 const SAMPLE_OFFSETS = [
   { days: 2, time: '20:00', utc: '12:00' },
   { days: 4, time: '17:00', utc: '09:00' },
@@ -250,10 +250,15 @@ function makeFixtureDb(outPath = process.argv[2] || DEFAULT_OUT_PATH) {
     // 让配速荒谬的那种段（`598287817` 第 7 段 16 m / 392 s）。夹具若各段
     // duration == moving_time，那么「显示 duration 还是 moving_time」在 e2e 里
     // 完全测不出来。
-    { average_heart_rate: 131, average_cadence: 186, average_power: 232, duration: 457, moving_time: 457 },
-    { average_heart_rate: 170, average_cadence: 188, average_power: 298, duration: 280, moving_time: 280 },
-    { average_heart_rate: 178, average_cadence: 188, average_power: 305, duration: 275, moving_time: 245 },
-    { average_heart_rate: 141, average_cadence: 184, average_power: 240, duration: 436, moving_time: 436 },
+    //
+    // `total_ascent`/`total_descent`: 真实库跑步 lap 普遍有值（设备写海拔），
+    // 且与 session 级可加总。夹具若全 NULL，分段表「爬升」列按第三十四类门控
+    // 整列不渲染 —— e2e 的爬升列断言就永远测不到（2026-11-08 起 CI 红灯根因）。
+    // 分摊保持 Σlap == session（25m / 20m），与真实数据同构。
+    { average_heart_rate: 131, average_cadence: 186, average_power: 232, duration: 457, moving_time: 457, total_ascent: 8, total_descent: 6 },
+    { average_heart_rate: 170, average_cadence: 188, average_power: 298, duration: 280, moving_time: 280, total_ascent: 6, total_descent: 5 },
+    { average_heart_rate: 178, average_cadence: 188, average_power: 305, duration: 275, moving_time: 245, total_ascent: 7, total_descent: 6 },
+    { average_heart_rate: 141, average_cadence: 184, average_power: 240, duration: 436, moving_time: 436, total_ascent: 4, total_descent: 3 },
   ];
   // 距离 1 km/段, 配速由计时器时间推导（与生产同一条路径）
   for (const l of lapDefs) {

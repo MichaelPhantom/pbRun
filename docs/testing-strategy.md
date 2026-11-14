@@ -373,13 +373,21 @@ describe('CLI 脚本导入契约', () => {
 
 E2E 采用**自包含**方式：Playwright 的 `webServer` 会
 
-1. 生成夹具数据库 `tests/fixtures/activities.db`（`scripts/testing/make-fixture-db.js`，
-   真实 schema + 5 条确定性样本，**时间相对今天生成**，含同路线活动以触发多张对比表）；
+1. **每次运行都重新生成**夹具数据库 `tests/fixtures/activities.db`
+   （`scripts/testing/make-fixture-db.js`，真实 schema + 5 条确定性样本，
+   **时间相对今天生成**，含同路线活动以触发多张对比表）；
 2. 构建到隔离产物目录 `.next-e2e`（`scripts/testing/e2e-build.sh`，并处理本机 `app/data` 软链）；
 3. 以 `DB_PATH` 指向夹具库、`next start` 起服务（生产产物，非 dev）。
 
-故 CI 无需真实数据库即可运行全部 e2e；本地用 `npm run test:e2e`（默认三浏览器项目，
-CI 只跑 chromium）。
+故 CI 无需真实数据库即可运行全部 e2e；本地用 `npm run test:e2e`（四项目：
+chromium / firefox / webkit / Mobile Chrome；CI 矩阵跑 chromium / firefox / webkit）。
+
+> **夹具必须每次重建，不能「存在即复用」**：夹具日期是相对生成日的偏移，
+> 旧实现 `[ -f ... ] || 生成` 让本地夹具一旦生成便永不刷新 —— 跨周/跨月后
+> 「本周统计」「本月列表」断言全部失效（2026-11-14 实测：11-05 生成的夹具
+> 让 stats/list 在 chromium 与 Mobile Chrome 上红，而 CI 每次全新 checkout
+> 重建夹具所以一直绿 —— 本地与 CI 的夹具新鲜度不同口径，缺陷只在本地显形）。
+> 生成器先删旧文件再建，幂等且秒级，每次重建与 CI 同口径。
 
 **playwright.config.ts（关键部分）**
 ```typescript
@@ -392,11 +400,12 @@ export default defineConfig({
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
     { name: 'firefox', use: { ...devices['Desktop Firefox'] } },
+    { name: 'webkit', use: { ...devices['Desktop Safari'] } },
     { name: 'Mobile Chrome', use: { ...devices['Pixel 5'] } },
   ],
   webServer: {
     command: [
-      '[ -f tests/fixtures/activities.db ] || node scripts/testing/make-fixture-db.js',
+      'node scripts/testing/make-fixture-db.js',
       'bash scripts/testing/e2e-build.sh',
       'DIST_DIR=.next-e2e DB_PATH="$(pwd)/tests/fixtures/activities.db" next start -p 3000 -H 127.0.0.1',
     ].join(' && '),
@@ -728,6 +737,9 @@ node scripts/testing/make-fixture-db.js /tmp/other.db   # 指定输出
   `average_gct_balance` 354/354 全为 NULL、触地时间与垂直摆动 247/247 都有值 ——
   夹具若只写 `gct_balance`，就会造出「测试全绿但功能从未渲染」的假绿灯。
   同理，标题/文案由实际非零数据派生时（如心率区间标题），夹具要覆盖到非零区间。
+  **反向也成立**：列按「整组全 NULL 则不渲染」门控时（第三十四类：分段表爬升列），
+  夹具若全 NULL，该列在 e2e 里永远不出现，断言它的用例必红 —— 跑步 lap 的
+  `total_ascent`/`total_descent` 必须给值（按段分摊、Σlap == session，与真实数据同构）。
 - **派生值必须由真实实现算，不能在夹具里写死**。2026-10-27 修：夹具此前把
   `activities.time_in_hr_zone` 写死成 `[10,30,1200,250,800]`，同时逐秒记录只到
   200 秒（4 段 lap 累计 1448 秒）。于是

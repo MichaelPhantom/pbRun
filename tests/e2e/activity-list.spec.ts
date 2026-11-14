@@ -23,7 +23,7 @@ test.describe('活动列表页', () => {
 
   test('应展示活动条目 (夹具 5 条)', async ({ page }) => {
     // 夹具时间相对「今天」生成 (偏移见 make-fixture-db.js: 阈值 2d/长距离 4d/
-    // 基础 7d/恢复 12d/基础 14d), 列表按月分组且为**手风琴**设计 —— 同一时刻
+    // 基础 7d/阈值 12d/恢复 14d), 列表按月分组且为**手风琴**设计 —— 同一时刻
     // 只展开一个月组 (默认展开最近一月)。跨月后 (如 2026-11-05) 老活动落在
     // 折叠的上月分组里, 条目不在 DOM (2026-11-05 CI 三引擎失败的根因)。
     // 因此: 先算出每条活动所在月, 确保该月组展开, 再断言条目可见。
@@ -33,12 +33,12 @@ test.describe('活动列表页', () => {
       const btn = page.getByRole('button', { name: label });
       if ((await btn.getAttribute('aria-expanded')) !== 'true') await btn.click();
     };
-    // 阈值跑 (2d, 最新一条; 另一条同名 12d) / 长距离 (4d) / 恢复跑 (12d)
+    // 阈值跑 (2d, 最新一条; 另一条同名 12d) / 长距离 (4d) / 恢复跑 (14d)
     await ensureMonthExpanded(2);
     await expect(page.getByText('两江新区 - 乳酸阈值').first()).toBeVisible();
     await ensureMonthExpanded(4);
     await expect(page.getByText('渝中区 - 长距离跑')).toBeVisible();
-    await ensureMonthExpanded(12);
+    await ensureMonthExpanded(14);
     await expect(page.getByText('九龙坡区 - 恢复')).toBeVisible();
   });
 

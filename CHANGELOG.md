@@ -196,6 +196,13 @@
   避免同一条路线的 5K 与 30K 直接对比。详情 UI 的 ±25% fallback 不变。
 
 ### Fixed
+- **e2e 夹具日期老化 + 爬升列门控未同步夹具 —— main 上 e2e 自 11-08 起红**：
+  ① webServer 旧实现「夹具存在即复用」，本地夹具（11-05 生成）永不刷新，跨周后
+  「本周统计 18.6km」「本月列表条目」断言全部失效（CI 每次重建所以绿，本地必红）——
+  改为**每次运行重建**，与 CI 同口径；② 第三十四类把分段表爬升列改为「整组 lap
+  全 NULL 则不渲染」，但夹具 lap 爬升全 NULL 且 e2e 仍断言该列 —— 夹具补
+  `total_ascent`/`total_descent`（按段分摊、Σlap == session，与真实跑步数据同构）。
+  testing-strategy.md 同步更新（含 webkit 项目与三引擎 CI 矩阵的过期描述）。
 - **e2e 构建在本机永远起不来**：`e2e-build.sh` 缺 deploy-prod.sh 同款防护 ——
   构建在受限 cgroup（opencode.service 1.5G）内被 memcg OOM kill（137），
   且 2 核机器 Turbopack PostCSS worker 必超时。现经 `systemd-run --user --scope`
