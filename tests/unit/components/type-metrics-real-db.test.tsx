@@ -8,20 +8,23 @@
  *
  * `type-metrics.test.ts` 用的是构造夹具（`{ activity_type: 'floor_climbing',
  * total_ascent: 46 }`）。它证明的是「给定这些输入，函数算得对」，但不证明
- * **真实库里那些行**（含 30 条爬楼、3 条跳绳、4 条游泳、51 条力量、234 条跑步）
- * 都能产出可读文案。两者之间的差距正是本项目反复踩的坑：
+ * **真实库里那些行**（爬楼/跳绳/游泳/力量/跑步各类型）都能产出可读文案。
+ * 两者之间的差距正是本项目反复踩的坑：
  *
  * | 曾在单测里全绿 | 真实库上却是 |
  * |---------------|-------------|
- * | 「`total_cycles > 0` 就展示」 | 力量 51/51 都有值但语义未知 → 全是编造 |
- * | 「有 `total_ascent` 就派生楼层」 | 234 条跑步里 194 条有爬升 → 山地跑变「约 64 层」 |
+ * | 「`total_cycles > 0` 就展示」 | 当时力量 51/51 都有值但语义未知 → 全是编造 |
+ * | 「有 `total_ascent` 就派生楼层」 | 当时 234 条跑步里 194 条有爬升 → 山地跑变「约 64 层」 |
  *
  * 故本守卫**直接读生产库**，逐条渲染 `RecentActivityCard` 并断言：
  *
- *  1. 30 条爬楼**全部**产出「约 N 层」（不许有一条空壳）；
- *  2. 3 条跳绳 / 4 条游泳**全部**产出「N 次跳跃 / N 次划水」；
- *  3. 51 条力量**一条都不许**出现次数类标签（语义未确认）；
- *  4. 234 条跑步**一条都不许**出现楼层或次数（步幅周期数无意义）。
+ *  1. 爬楼**全部**产出「约 N 层」（不许有一条空壳）；
+ *  2. 跳绳 / 游泳**全部**产出「N 次跳跃 / N 次划水」；
+ *  3. 力量**一条都不许**出现次数类标签（语义未确认）；
+ *  4. 跑步**一条都不许**出现楼层或次数（步幅周期数无意义）。
+ *
+ * **计数不钉死**（第三十六类纪律）：条数随每次同步漂移，契约是「每一行都
+ * 满足行为」，不是「恰好 N 行」。各断言只要求子集非空（前提自证）。
  *
  * CI 无生产库时 skip（与 `skill-doc-contract.test.ts` 同一约定）。
  */
@@ -66,7 +69,7 @@ describeIfDb('真实库：类型专属核心指标端到端', () => {
    * 这是本轮缺陷的核心：修之前 30 条卡片只有「时长 + 徽标」，用户点开
    * 「爬楼」看到 30 个空壳，自然觉得「这些活动没记录什么」。
    */
-  test('30 条爬楼全部渲染「约 N 层」', () => {
+  test('爬楼全部渲染「约 N 层」', () => {
     const rows = rowsOf('floor_climbing');
     expect(rows.length).toBeGreaterThan(0);
     const missing = rows
@@ -82,14 +85,14 @@ describeIfDb('真实库：类型专属核心指标端到端', () => {
     }
   });
 
-  test('30 条爬楼也全部渲染「N 步」（Σlap==session 30/30）', () => {
+  test('爬楼也全部渲染「N 步」（Σlap==session 逐条自证）', () => {
     const missing = rowsOf('floor_climbing')
       .filter((a) => !/\d+ 步/.test(textOf(a)))
       .map((a) => a.activity_id);
     expect(missing).toEqual([]);
   });
 
-  test('3 条跳绳全部渲染「N 次跳跃」（真实库 189/187/193）', () => {
+  test('跳绳全部渲染「N 次跳跃」（真实库 189/187/193）', () => {
     const rows = rowsOf('jump_rope');
     expect(rows.length).toBeGreaterThan(0);
     for (const a of rows) {
@@ -97,7 +100,7 @@ describeIfDb('真实库：类型专属核心指标端到端', () => {
     }
   });
 
-  test('4 条游泳全部渲染「N 次划水」（真实库 518/798/923/695）', () => {
+  test('游泳全部渲染「N 次划水」（真实库 518/798/923/695）', () => {
     const rows = rowsOf('lap_swimming');
     expect(rows.length).toBeGreaterThan(0);
     for (const a of rows) {
@@ -106,12 +109,12 @@ describeIfDb('真实库：类型专属核心指标端到端', () => {
   });
 
   /**
-   * **51 条力量一条都不许出现次数类标签** —— 语义未确认。
+   * **力量一条都不许出现次数类标签** —— 语义未确认。
    *
    * 判别式不能只查「73 次」：兜底标签可能写成「总计数 / 其他 / 杂项」，
    * 故断言的是**整类文案**（以及裸数字 + 次数单位的组合）。
    */
-  test('51 条力量训练无任何次数类标签（语义未确认, 不兜底）', () => {
+  test('力量训练无任何次数类标签（语义未确认, 不兜底）', () => {
     const rows = rowsOf('strength_training');
     expect(rows.length).toBeGreaterThan(0);
     const bad = rows
@@ -131,15 +134,15 @@ describeIfDb('真实库：类型专属核心指标端到端', () => {
   });
 
   /**
-   * **力量课的有效组数**（第二大类 51 条，49 条有课表）。
+   * **力量课的有效组数**（第二大类，多数有课表）。
    *
    * 这是 `total_cycles` 被否掉之后**仍然可展示**的指标 —— 来自 `workout_steps`
-   * 的组结构，不是设备计的数字。若不做这一格，51 条力量在卡片上依然只有
+   * 的组结构，不是设备计的数字。若不做这一格，力量课在卡片上依然只有
    * 「时长 + 负荷 + 徽标」，用户看不出「这堂课做了几组」。
    */
-  test('49 条有课表的力量训练全部渲染「N 组」', () => {
+  test('有课表的力量训练全部渲染「N 组」', () => {
     const rows = rowsOf('strength_training');
-    expect(rows.length).toBe(51);
+    expect(rows.length).toBeGreaterThan(0);
     const withSteps = rows.filter((a) => {
       try {
         const parsed = JSON.parse(String(a.workout_steps ?? '[]'));
@@ -148,15 +151,15 @@ describeIfDb('真实库：类型专属核心指标端到端', () => {
         return false;
       }
     });
-    // 真实库 49/51 有课表（544549643 / 564776703 两条没有）
-    expect(withSteps.length).toBe(49);
+    // 前提自证：有课表子集非空（具体条数随同步漂移，不钉死）
+    expect(withSteps.length).toBeGreaterThan(0);
     const missing = withSteps
       .filter((a) => !/\d+ 组/.test(textOf(a)))
       .map((a) => a.activity_id);
     expect(missing).toEqual([]);
   });
 
-  test('2 条无课表的力量训练不渲染「0 组」（没课表 ≠ 没做组）', () => {
+  test('无课表的力量训练不渲染「0 组」（没课表 ≠ 没做组）', () => {
     const rows = rowsOf('strength_training').filter((a) => {
       try {
         const parsed = JSON.parse(String(a.workout_steps ?? '[]'));
@@ -165,19 +168,20 @@ describeIfDb('真实库：类型专属核心指标端到端', () => {
         return true;
       }
     });
-    expect(rows.length).toBe(2);
+    // 前提自证：无课表子集非空（真实库 544549643 / 564776703 两条没有）
+    expect(rows.length).toBeGreaterThan(0);
     for (const a of rows) {
       expect(textOf(a)).not.toContain('0 组');
     }
   });
 
   /**
-   * **234 条跑步一条都不许出现楼层** —— 194 条有爬升，山地跑会全变楼层。
+   * **跑步一条都不许出现楼层** —— 多数跑步有爬升，山地跑会全变楼层。
    *
    * 这是最容易漏的一条：真实库有爬升的跑步占多数，若不按类型门控，
    * 首页「最近活动」里 5 条跑步会有 4 条显示「约 N 层」。
    */
-  test('234 条跑步无楼层、无次数（爬升不是楼层, 步幅周期数无意义）', () => {
+  test('跑步无楼层、无次数（爬升不是楼层, 步幅周期数无意义）', () => {
     const rows = rowsOf('running');
     expect(rows.length).toBeGreaterThan(100);
     const bad = rows

@@ -79,7 +79,7 @@ export default function StatsClient({ data, pr, period, currentVdot, coachRange 
           第十八类缺陷：这九格**全部**是跑步口径（`getStats()` 的 SQL 带
           `runningTypeClause`，见 `db.ts:595`），但一个字都没说。首页「本月概览」
           的「训练负荷」来自 `getCombinedTrainingLoads`（跑步 + 力量），真实库
-          2026-08 两处分别是 1715 与 2004，差 289（17%），却共用一个名字。
+          2026-08 两处分别是 1655 与 1944，差 289（17%），却共用一个名字。
           一句话覆盖九格 —— 不必逐格标注。
         */}
         <div className="mb-3 text-[11px] leading-relaxed text-fg-muted">{STATS_SCOPE_HINT}</div>

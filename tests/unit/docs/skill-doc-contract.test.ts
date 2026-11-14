@@ -371,9 +371,32 @@ describe('skill 的 total_cycles 语义白名单', () => {
     expect(skill).toMatch(/只有三种|三种确认|只有下面三种/);
   });
 
-  test('skill 必须点名力量训练的反证（r = −0.118）', () => {
+  test('skill 必须点名力量训练的反证（r 与真实库一致）', () => {
     expect(skill).toMatch(/力量训练/);
-    expect(skill).toMatch(/-0\.118|−0\.118/);
+    // r(total_cycles, 时长) 会随每条新力量课漂移 —— 真值从库里现场求，
+    // 不钉死某个小数（与「力量课硬边界覆盖率」同一判据）。
+    if (hasProdDb) {
+      const rows = query<{ c: number; t: number }>(
+        "SELECT total_cycles AS c, moving_time AS t FROM activities " +
+          "WHERE activity_type='strength_training' AND total_cycles IS NOT NULL AND moving_time > 0",
+      );
+      const n = rows.length;
+      const mc = rows.reduce((a, r) => a + r.c, 0) / n;
+      const mt = rows.reduce((a, r) => a + r.t, 0) / n;
+      let cov = 0;
+      let vc = 0;
+      let vt = 0;
+      for (const r of rows) {
+        cov += (r.c - mc) * (r.t - mt);
+        vc += (r.c - mc) ** 2;
+        vt += (r.t - mt) ** 2;
+      }
+      const r = cov / Math.sqrt(vc * vt);
+      const mag = Math.abs(r).toFixed(3).replace('.', '\\.');
+      expect(skill).toMatch(new RegExp(`[-−]${mag}`));
+    } else {
+      expect(skill).toMatch(/-0\.088|−0\.088/);
+    }
     // 同模板时长翻倍反而更少 —— 这是最直观的反证
     expect(skill).toMatch(/15\.2|28\.1/);
   });
@@ -457,21 +480,21 @@ describe('skill 的「训练负荷」口径（第十八类缺陷）', () => {
   });
 
   /** 两个口径的具体差值 —— 让模型知道「不一样」是设计而非 bug。 */
-  test('skill 必须点名两处的真实差值（1715 / 2004）', () => {
-    expect(skill).toMatch(/1715/);
-    expect(skill).toMatch(/2004/);
+  test('skill 必须点名两处的真实差值（1655 / 1944）', () => {
+    expect(skill).toMatch(/1655/);
+    expect(skill).toMatch(/1944/);
   });
 
   /**
    * **年度数字必须区分「2026 全年」与「全历史」** —— 本轮曾把全历史的
-   * 18122 / 19788 误写成「2026 全年」（实际 15668 / 17171）。两个数都
+   * 17730 / 19492 误写成「2026 全年」（实际 15337 / 16936）。两个数都
    * 「看起来像年负荷」，抄错后代码与文档会一致地错，没有任何测试能发现。
    */
-  test('skill 的年度数字必须是 2026 全年 15668/17171（不是全历史 18122/19788）', () => {
-    expect(skill).toMatch(/15668/);
-    expect(skill).toMatch(/17171/);
+  test('skill 的年度数字必须是 2026 全年 15337/16936（不是全历史 17730/19492）', () => {
+    expect(skill).toMatch(/15337/);
+    expect(skill).toMatch(/16936/);
     // 「2026 全年」后面不得跟全历史的数字
-    expect(skill).not.toMatch(/2026\s*全年[^\n]{0,30}18122/);
+    expect(skill).not.toMatch(/2026\s*全年[^\n]{0,30}17730/);
   });
 
   /**
@@ -494,16 +517,16 @@ describe('skill 的「训练负荷」口径（第十八类缺陷）', () => {
        FROM activities
        WHERE start_time_local LIKE '2026-08%'`,
     )[0];
-    // 真实库 2026-08：跑步 1715 vs 合并 2004
-    expect(Math.round(row.runLoad)).toBe(1715);
-    expect(Math.round(row.allLoad)).toBe(2004);
+    // 真实库 2026-08：跑步 1655 vs 合并 1944
+    expect(Math.round(row.runLoad)).toBe(1655);
+    expect(Math.round(row.allLoad)).toBe(1944);
   });
 
   /**
    * **第二十类：九格的差值来源不是同一个类型。**
    *
    * 旧提示只写「不含力量训练」，但累计爬升的差 1312m 全来自**爬楼**
-   * （力量 51 条爬升合计恒为 0）。模型若照旧文案解释，会让用户去力量卡
+   * （力量 53 条爬升合计恒为 0）。模型若照旧文案解释，会让用户去力量卡
    * 里找那 1312m —— 永远找不到。
    */
   test('skill 必须声明「爬升差值来自爬楼，不是力量」', () => {
@@ -519,8 +542,8 @@ describe('skill 的「训练负荷」口径（第十八类缺陷）', () => {
    * 负荷卡：急性/慢性合并、峰值周跑量跑步。
    * 周期化卡：负荷与 CTL/ATL/TSB 合并、跑量与次数跑步。
    *
-   * 模型若把两张卡当成同一口径，会答「跑量 28.32km 对应负荷 256」——
-   * 而 256 里含 60 点力量负荷，与那 28.32km 无关。
+   * 模型若把两张卡当成同一口径，会答「跑量 28.32km 对应负荷 254」——
+   * 而 254 里含 60 点力量负荷，与那 28.32km 无关。
    */
   /**
    * **第二十四类：跑者画像（注入 AI）也是两种口径。**
@@ -529,8 +552,8 @@ describe('skill 的「训练负荷」口径（第十八类缺陷）', () => {
    */
   test('skill 必须声明「跑者画像的负荷含力量、跑量只跑步」', () => {
     expect(skill).toMatch(/跑者画像/);
-    expect(skill).toMatch(/18122/);
-    expect(skill).toMatch(/19788/);
+    expect(skill).toMatch(/17730/);
+    expect(skill).toMatch(/19492/);
     // 必须点明「别拿跑量解释含力量的 CTL」
     expect(skill).toMatch(/CTL[^\n]{0,60}力量|力量[^\n]{0,60}CTL/);
   });
@@ -538,8 +561,8 @@ describe('skill 的「训练负荷」口径（第十八类缺陷）', () => {
   /**
    * **第二十五类：洞察页 AI 上下文里同一行也是两种口径。**
    *
-   * `周训练量 28.3km/2:46:46/3次/256TL` —— km/次数纯跑步、256TL 含力量
-   * （同周跑步仅 196）。模型会算出「85 TL/km」这种无意义密度。
+   * `周训练量 28.3km/2:46:46/3次/254TL` —— km/次数纯跑步、254TL 含力量
+   * （同周跑步仅 194）。模型会算出「85 TL/km」这种无意义密度。
    */
   test('skill 必须声明「洞察 AI 上下文的 TL 含力量、km 只跑步」', () => {
     expect(skill).toMatch(/全局训练指标/);
@@ -550,7 +573,7 @@ describe('skill 的「训练负荷」口径（第十八类缺陷）', () => {
   /**
    * **第二十六类：同一段 prompt 里两个「训练负荷」口径相反。**
    *
-   * 【全局训练指标】合并（4958）vs 【区间环比】跑步（4550）。
+   * 【全局训练指标】合并（4865）vs 【区间环比】跑步（4457）。
    */
   /**
    * **第二十七类：展示日期必须走业务时区（固定 +480）。**
@@ -594,8 +617,8 @@ describe('skill 的「训练负荷」口径（第十八类缺陷）', () => {
 
   test('skill 必须声明「区间环比块的训练负荷是跑步口径」', () => {
     expect(skill).toMatch(/区间环比/);
-    expect(skill).toMatch(/4550/);
-    expect(skill).toMatch(/4958/);
+    expect(skill).toMatch(/4457/);
+    expect(skill).toMatch(/4865/);
     // 必须点明「一个含力量、一个不含」
     expect(skill).toMatch(/含力量[^\n]{0,40}不含|不含[^\n]{0,40}含力量/);
   });
@@ -603,8 +626,8 @@ describe('skill 的「训练负荷」口径（第十八类缺陷）', () => {
   test('skill 必须声明「周期化卡的负荷含力量、跑量与次数只跑步」', () => {
     expect(skill).toMatch(/周期化/);
     // 真实库数字必须点名，否则模型无法自证
-    expect(skill).toMatch(/256/);
-    expect(skill).toMatch(/196/);
+    expect(skill).toMatch(/254/);
+    expect(skill).toMatch(/194/);
     // 必须点出「跑量与次数只跑步」这个与负荷相反的方向
     expect(skill).toMatch(/跑量[^\n]{0,30}次数[^\n]{0,40}(只|纯)跑步|跑量与次数是纯跑步/);
   });

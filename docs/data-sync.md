@@ -411,7 +411,7 @@ CREATE TABLE activities (
 > 镜像，parity 测试守护）与 `fit-parser.js` 共同保证。
 >
 > **课表列** (`workout_name` / `workout_steps`): `workout_steps` 是 FIT `workout_step`
-> 消息的 JSON 数组，**多步课表不会被截断**（真实库 120/289 条 > 1 步，最多 20 步）。
+> 消息的 JSON 数组，**多步课表不会被截断**（真实库 123/293 条 > 1 步，最多 20 步）。
 > 单位按 FIT SDK 定义归一后落库：`duration_sec` 是**秒**（FIT 源 `duration_value` 是毫秒，
 > `duration_type='time'`）、`distance_m` 是**米**（源是厘米）、`target_pace_sec_per_km`
 > 是**秒/公里**（源 `custom_target_value_*` 是 mm/s，`target_type='speed'`）。
@@ -544,9 +544,9 @@ CREATE TABLE activity_laps (
   average_temperature REAL,
   total_cycles INTEGER,               -- 总计数: 游泳=本段划水/跳绳=本段跳跃/爬楼=本段步数
   intensity TEXT,                     -- 设备记录的分段角色: warmup/interval/recovery/rest/cooldown/active
-                                      --   覆盖 3074/3153 (97.5%); active 只表示「在计时」, 不是主课
+                                      --   覆盖 3099/3178 (97.5%); active 只表示「在计时」, 不是主课
   swim_stroke TEXT,                   -- 泳姿: freestyle/backstroke/breaststroke/butterfly/drill/mixed/im
-                                      --   **session 级恒 255(无效), 只有 lap 级有真实值** (35/3153)
+                                      --   **session 级恒 255(无效), 只有 lap 级有真实值** (35/3178)
                                       --   mixed = 这一段混合了多种泳姿(真实取值), 不是「未知」
   -- 以下 10 列真实库 0/3153 全 NULL (设备不写或 profile 无对应字段, 见
   -- docs/features.md §4.3.1)。保留在 schema 里是为了「列集合 = 代码声明」的一致性,

@@ -373,17 +373,17 @@ export async function registerTools(server: McpServer): Promise<void> {
         '（running/track_running/treadmill_running），游泳/球类/力量训练/爬楼不计入。' +
         'totalDistance 为米, totalDuration 为秒。' +
         '⚠️ **各指标的「差值来源」不是同一个类型**: totalTrainingLoad 的差全部来自力量' +
-        '(真实库全历史 1666, 爬楼 0); 而 **totalAscent 的差 1312m 全部来自爬楼**' +
-        '(力量训练 51 条爬升合计恒为 0); totalDistance 的差 11.9km 来自游泳/球类。' +
+        '(真实库全历史 1762, 爬楼 0); 而 **totalAscent 的差 1312m 全部来自爬楼**' +
+        '(力量训练 53 条爬升合计恒为 0); totalDistance 的差 11.9km 来自游泳/球类。' +
         '用户拿 Garmin 总爬升与本工具对比时, 多出来的是爬楼, 不是力量。' +
         '⚠️ **totalTrainingLoad 是纯跑步负荷, 不是合并负荷** —— 与 ' +
         'get_training_load_analysis 的合并口径（跑步 + 力量）不同: 真实库 2026-08 ' +
-        '这里 1715 而合并口径 2004（差 289 / 17%）、2026 全年 15668 vs 17171（差 1503）。两个口径都对, ' +
+        '这里 1655 而合并口径 1944（差 289 / 17%）、2026 全年 15337 vs 16936（差 1599）。两个口径都对, ' +
         '**算 ACWR/CTL/TSB 必须用 get_training_load_analysis 的合并值**, 不要拿本工具的 ' +
         'totalTrainingLoad 去算; 反过来也不要因为两者不等就判定数据错误。' +
         '⚠️ **averageVDOT 是「该周期内」的算术平均**, 与网站 `/stats` 九格里的「当前跑力」' +
-        '**不是一回事** —— 后者固定取最近一周（真实库近 7 天 40.3 / 2026 全年均值 39.6 / ' +
-        '全历史 39.3）。要看某个周期的跑力水平用本工具的 averageVDOT, 要看「现在有多强」用 ' +
+        '**不是一回事** —— 后者固定取最近一周（真实库近 7 天 40.1 / 2026 全年均值 37.9 / ' +
+        '全历史 37.7）。要看某个周期的跑力水平用本工具的 averageVDOT, 要看「现在有多强」用 ' +
         'get_vdot_trend 的最新点。',
       inputSchema: {
         period: PERIOD_ENUM.optional().describe('统计周期 (默认 total)'),

@@ -13,9 +13,9 @@
  * | `/analysis` 负荷图 | `getCombinedTrainingLoads` | 跑步 + 力量 |
  * | `/stats` | `getStats`（带 `runningTypeClause`） | 纯跑步 |
  *
- * 真实库逐月差值：2026-08 跑步 1715 vs 合并 2004（+289 / 17%）、
- * 2026-02 1727 vs 2025（+298 / 17%）、2026 全年 15668 vs 17171（+1503）、
- * 全历史 18122 vs 19788（+1666）。
+ * 真实库逐月差值：2026-08 跑步 1655 vs 合并 1944（+289 / 17%）、
+ * 2026-02 1649 vs 2026-01 1350（+299）、2026 全年 15337 vs 16936（+1599）、
+ * 全历史 17730 vs 19492（+1762）。
  *
  * ## 为什么必须查真实库
  *
@@ -60,7 +60,7 @@ describeIfDb('真实库：训练负荷的合并口径 vs 跑步口径', () => {
   /**
    * 逐月三值：跑步负荷 / 力量负荷 / 合并负荷。
    *
-   * 力量负荷不能只取 `training_load`：库里 51 条力量课有值（2026-11-07 起按 TE
+   * 力量负荷不能只取 `training_load`：库里 53 条力量课有值（2026-11-07 起按 TE
    * 派生），但派生口径在 `strength.ts`。这里直接查库里的 `training_load`，
    * 因为 `getStrengthLoads` 也优先读它（`strengthLoadOf` 走同一份 profile）。
    * 若两者不一致，`strength-merge.test.ts` 会先红。
@@ -89,8 +89,8 @@ describeIfDb('真实库：训练负荷的合并口径 vs 跑步口径', () => {
   /**
    * **合并值 ≡ 跑步 + 力量**（逐月）。
    *
-   * 这是首页 hint 能自证的基础：用户拿「训练负荷 2004」减「力量负荷 289」
-   * 必须正好得到 `/stats` 上的「训练负荷 1715」。
+   * 这是首页 hint 能自证的基础：用户拿「训练负荷 1944」减「力量负荷 289」
+   * 必须正好得到 `/stats` 上的「训练负荷 1655」。
    */
   test('逐月：合并负荷 ≡ 跑步负荷 + 力量负荷', () => {
     const bad = months
@@ -147,14 +147,14 @@ describeIfDb('真实库：训练负荷的合并口径 vs 跑步口径', () => {
   });
 
   /**
-   * **2026 全年：合并 − 跑步 = 力量负荷（15668 vs 17171，差 1503）**。
+   * **2026 全年：合并 − 跑步 = 力量负荷（15337 vs 16936，差 1599）**。
    *
-   * ⚠️ 这里精确钉住数字，是因为本轮曾把**全历史**的 18122 / 19788 / +1666
+   * ⚠️ 这里精确钉住数字，是因为本轮曾把**全历史**的 17730 / 19492 / +1762
    * 误写成「2026 全年」—— 两者相差 2454 / 2617，看起来都「合理」，只有
    * 逐字核对才发现。文档、skill、MCP 描述里引用的每一个数字都必须有对应的
    * 机器断言，否则抄错一次就会扩散到三处交付面。
    */
-  test('2026 全年：合并 − 跑步 = 力量负荷（15668 / 17171 / +1503）', () => {
+  test('2026 全年：合并 − 跑步 = 力量负荷（15337 / 16936 / +1599）', () => {
     const row = db
       .prepare(
         `SELECT
@@ -166,20 +166,20 @@ describeIfDb('真实库：训练负荷的合并口径 vs 跑步口径', () => {
          WHERE start_time_local LIKE '2026%'`,
       )
       .get() as { runLoad: number; strengthLoad: number; allLoad: number };
-    expect(Math.round(row.runLoad)).toBe(15668);
-    expect(Math.round(row.strengthLoad)).toBe(1503);
-    expect(Math.round(row.allLoad)).toBe(17171);
+    expect(Math.round(row.runLoad)).toBe(15337);
+    expect(Math.round(row.strengthLoad)).toBe(1599);
+    expect(Math.round(row.allLoad)).toBe(16936);
     // 差值 ≡ 力量负荷（合并口径只加 load）
-    expect(Math.round(row.allLoad - row.runLoad)).toBe(1503);
+    expect(Math.round(row.allLoad - row.runLoad)).toBe(1599);
   });
 
   /**
-   * **全历史**是另一组数（18122 / 19788 / +1666），与 2026 全年**不是**一回事。
+   * **全历史**是另一组数（17730 / 19492 / +1762），与 2026 全年**不是**一回事。
    *
    * 这条单独钉住，正是为了拦住「把全历史当年度」这类事实错误 —— 两个数
    * 都「看起来像年负荷」，抄错后文档与代码会一致地错，没有任何测试能发现。
    */
-  test('全历史：18122 / 19788 / +1666（与 2026 全年是不同数字）', () => {
+  test('全历史：17730 / 19492 / +1762（与 2026 全年是不同数字）', () => {
     const row = db
       .prepare(
         `SELECT
@@ -188,11 +188,11 @@ describeIfDb('真实库：训练负荷的合并口径 vs 跑步口径', () => {
          FROM activities`,
       )
       .get() as { runLoad: number; allLoad: number };
-    expect(Math.round(row.runLoad)).toBe(18122);
-    expect(Math.round(row.allLoad)).toBe(19788);
-    expect(Math.round(row.allLoad - row.runLoad)).toBe(1666);
+    expect(Math.round(row.runLoad)).toBe(17730);
+    expect(Math.round(row.allLoad)).toBe(19492);
+    expect(Math.round(row.allLoad - row.runLoad)).toBe(1762);
     // 两个数必须不同 —— 若哪天相等，说明某处查询条件写错了
-    expect(Math.round(row.runLoad)).not.toBe(15668);
+    expect(Math.round(row.runLoad)).not.toBe(15337);
   });
 
   /**
@@ -316,7 +316,7 @@ describeIfDb('真实库：训练负荷的合并口径 vs 跑步口径', () => {
    *
    * `STATS_SCOPE_HINT` 旧文案只写「不含力量训练」。但用户拿 Garmin 上的总爬升
    * 减 `/stats` 的爬升，差的 1312m 全在**爬楼**里 —— 去力量卡永远找不到
-   * （51 条力量训练爬升合计恒为 0）。
+   * （53 条力量训练爬升合计恒为 0）。
    *
    * 这条守卫同时钉两件事：
    *  1. 爬升差值确实非零且量级显著（否则提示可以不提）；
@@ -339,9 +339,9 @@ describeIfDb('真实库：训练负荷的合并口径 vs 跑步口径', () => {
       )
       .get() as { runAsc: number; allAsc: number; strengthAsc: number; floorAsc: number };
 
-    // 真实库：跑步 7853 / 全类型 9165 / 差 1312
-    expect(Math.round(row.runAsc)).toBe(7853);
-    expect(Math.round(row.allAsc)).toBe(9165);
+    // 真实库：跑步 7943 / 全类型 9255 / 差 1312
+    expect(Math.round(row.runAsc)).toBe(7943);
+    expect(Math.round(row.allAsc)).toBe(9255);
     expect(Math.round(row.allAsc - row.runAsc)).toBe(1312);
 
     // 关键反证：力量训练爬升**精确为 0**，1312 全部来自爬楼
@@ -369,7 +369,7 @@ describeIfDb('真实库：训练负荷的合并口径 vs 跑步口径', () => {
       .get() as { runLoad: number; strengthLoad: number; floorLoad: number };
 
     // 负荷：差值全部来自力量，爬楼贡献精确为 0
-    expect(Math.round(row.strengthLoad)).toBe(1666);
+    expect(Math.round(row.strengthLoad)).toBe(1762);
     expect(row.floorLoad).toBe(0);
     // 反过来：爬升差值全部来自爬楼，力量贡献精确为 0（见上一条）
     // —— 两句合起来证明「只写『不含力量训练』会让爬升的差值无处解释」
@@ -462,7 +462,7 @@ describeIfDb('真实库：训练负荷的合并口径 vs 跑步口径', () => {
    * | CTL/ATL/TSB | `computeTrainingLoads` | **跑步 + 力量** |
    *
    * 这条守卫钉住「同一周里两个口径确实不同」：ISO 周 2026-W43
-   * （10-19..10-25）合并负荷 256 / 跑步负荷 196（差 60，全来自力量），
+   * （10-19..10-25）合并负荷 254 / 跑步负荷 194（差 60，全来自力量），
    * 而同一周的跑量 28.32km 与次数 3 都是纯跑步。
    *
    * 若哪天两者相等（该周没有力量课），hint 的必要性就消失 —— 本测试会红，
@@ -485,8 +485,8 @@ describeIfDb('真实库：训练负荷的合并口径 vs 跑步口径', () => {
 
     // 合并负荷 = 跑步 + 力量（这是周期化表 tl 列的口径）
     expect(Math.abs(row.tlAll - (row.tlRun + row.sl))).toBeLessThan(0.01);
-    expect(row.tlAll).toBe(256);
-    expect(row.tlRun).toBe(196);
+    expect(row.tlAll).toBe(254);
+    expect(row.tlRun).toBe(194);
     expect(row.sl).toBe(60);
 
     // 跑量与次数是纯跑步口径（合并规则只加 load，distance/runs 保留跑步值）
@@ -501,10 +501,10 @@ describeIfDb('真实库：训练负荷的合并口径 vs 跑步口径', () => {
    * 生涯/近期/周环比来自 `getStats` + `getActivities(runningOnly)`（纯跑步），
    * 负荷来自 `getCombinedTrainingLoads`（跑步 + 力量）。
    *
-   * 这条守卫钉住「两个口径确实不同」：全历史跑步负荷 18122 / 合并 19788
-   * （差 1666，全来自力量训练）。若哪天相等，那句说明就成了噪音。
+   * 这条守卫钉住「两个口径确实不同」：全历史跑步负荷 17730 / 合并 19492
+   * （差 1762，全来自力量训练）。若哪天相等，那句说明就成了噪音。
    */
-  test('跑者画像：全历史合并负荷 ≠ 跑步负荷（力量贡献 1666）', () => {
+  test('跑者画像：全历史合并负荷 ≠ 跑步负荷（力量贡献 1762）', () => {
     const row = db
       .prepare(
         `SELECT
@@ -516,9 +516,9 @@ describeIfDb('真实库：训练负荷的合并口径 vs 跑步口径', () => {
       )
       .get() as { runLoad: number; combinedLoad: number; strengthLoad: number };
 
-    expect(row.runLoad).toBe(18122);
-    expect(row.combinedLoad).toBe(19788);
-    expect(row.strengthLoad).toBe(1666);
+    expect(row.runLoad).toBe(17730);
+    expect(row.combinedLoad).toBe(19492);
+    expect(row.strengthLoad).toBe(1762);
     // 合并 ≡ 跑步 + 力量（这是 CTL/ATL/TSB 的口径）
     expect(row.combinedLoad).toBe(row.runLoad + row.strengthLoad);
   });
@@ -526,13 +526,13 @@ describeIfDb('真实库：训练负荷的合并口径 vs 跑步口径', () => {
   /**
    * **第二十五类：注入洞察页 AI 的【全局训练指标】里，`周训练量` 同一行两种口径。**
    *
-   * `formatInsightForCoach` 输出的 `2026-W43 28.3km/2:46:46/3次/256TL`：
-   * km / 时长 / 次数是纯跑步，`256TL` 是跑步 + 力量。模型会把它们当成同一件事
+   * `formatInsightForCoach` 输出的 `2026-W43 28.3km/2:46:46/3次/254TL`：
+   * km / 时长 / 次数是纯跑步，`254TL` 是跑步 + 力量。模型会把它们当成同一件事
    * 的三个侧面，算出「85 TL/km」这种无意义密度。
    *
    * 这条守卫钉住 ISO 周 2026-W43 的两侧数字，证明说明的必要性。
    */
-  test('洞察教练上下文：2026-W43 合并负荷 256 ≠ 跑步 196，而跑量/次数只算跑步', () => {
+  test('洞察教练上下文：2026-W43 合并负荷 254 ≠ 跑步 194，而跑量/次数只算跑步', () => {
     const row = db
       .prepare(
         `SELECT
@@ -545,8 +545,8 @@ describeIfDb('真实库：训练负荷的合并口径 vs 跑步口径', () => {
       )
       .get() as { tlAll: number; tlRun: number; km: number; n: number };
 
-    expect(row.tlAll).toBe(256);
-    expect(row.tlRun).toBe(196);
+    expect(row.tlAll).toBe(254);
+    expect(row.tlRun).toBe(194);
     expect(row.km).toBe(28.32);
     expect(row.n).toBe(3);
     // 若两者相等，「85 TL/km」的误读就不会发生，说明也无必要
@@ -563,7 +563,7 @@ describeIfDb('真实库：训练负荷的合并口径 vs 跑步口径', () => {
    * | 【全局训练指标】 | `getCombinedTrainingLoads` | **跑步 + 力量** |
    * | 【区间环比】 | `getPeriodStats`（带 `runningTypeClause`） | **纯跑步** |
    *
-   * 真实库近 90 天（2026-08-11 ~ 11-08）：跑步负荷 4550 / 合并 4958
+   * 真实库近 90 天（2026-08-11 ~ 11-08）：跑步负荷 4457 / 合并 4865
    * （差 408，8.2%）。同一段上下文里两个「训练负荷」，模型无法判断信哪个。
    *
    * 若哪天两者相等（区间内没有力量课），说明的必要性消失 —— 本测试会红，
@@ -582,8 +582,8 @@ describeIfDb('真实库：训练负荷的合并口径 vs 跑步口径', () => {
       )
       .get() as { runLoad: number; combinedLoad: number; strengthLoad: number };
 
-    expect(row.runLoad).toBe(4550);
-    expect(row.combinedLoad).toBe(4958);
+    expect(row.runLoad).toBe(4457);
+    expect(row.combinedLoad).toBe(4865);
     expect(row.strengthLoad).toBe(408);
     expect(row.combinedLoad).toBe(row.runLoad + row.strengthLoad);
   });

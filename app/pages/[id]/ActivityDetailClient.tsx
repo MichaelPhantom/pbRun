@@ -229,16 +229,16 @@ export default function ActivityDetailClient({ activity, laps, records, track, p
     ...(running
       ? [{ value: activity.vdot_value != null ? activity.vdot_value.toFixed(1) : '--', label: '即时跑力' }]
       : []),
-    // Garmin 官方 VO2max。真实库 239/247 条跑步活动有值，而本地推算的
-    // `vdot_value` 只有 123/247 —— **124 条「即时跑力」显示 `--`，其中 120 条
-    // 官方值就在库里**（另 4 条是跑步机，VDOT 与官方值都没有）。
+    // Garmin 官方 VO2max。真实库 241/249 条跑步活动有值，而本地推算的
+    // `vdot_value` 只有 156/249 —— **93 条「即时跑力」显示 `--`，其中 91 条
+    // 官方值就在库里**（另 2 条是跑步机，VDOT 与官方值都没有）。
     // 两者不能互算（见 coach-prompts 的「两个跑力不能互算」），
     // 标签必须写明「官方」而不是又一个「跑力」，否则用户会以为同一指标给了两个数。
     ...(running && activity.garmin_vo2max != null
       ? [{ value: activity.garmin_vo2max.toFixed(1), unit: 'ml/kg/min', label: 'Garmin VO2max' }]
       : []),
     // 距离格: `> 0` 才渲染。`0` 表示**该运动没有距离语义**（力量训练按组、
-    // 爬楼按层、HIIT/跳绳按次；真实库 97/354 条活动 distance=0），恒为 0 的
+    // 爬楼按层、HIIT/跳绳按次；真实库 99/358 条活动 distance=0），恒为 0 的
     // 格子显示 '--' 会让人以为同步失败 —— 与下方「平均功率」同一原则。
     // `null`（数据缺失）仍要显示 '--'，那是真的缺数据。
     ...(distanceKm > 0

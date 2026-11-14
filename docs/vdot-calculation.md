@@ -158,6 +158,23 @@ Daniels VDOT 仅对**比赛/近全力**成绩有意义。本项目不再用每�
 1. 优先取 laps 中**最快且为 Z3+ 的段**为代表；无合适 lap 且全程也非 Z3+ 则该次 `vdot_value` 置 `null`
 2. `training_load` 优先取 FIT 官方（`training_load`/`training_load_score`），缺省才回退时长×心率档
 
+**选择语义的唯一实现是 `scripts/common/vdot-segment.js`**（`selectRepresentativeSegment`），
+Garmin 同步 / Strava 同步 / 历史回填三条生产路径共用，例行校验
+（`validate-data.js` 的 `validateVdotScope`）按同一口径复核。
+
+> **第三十七类缺陷（已修）**：契约写的是「**最快且为 Z3+**」，旧实现却是
+> 「取**最快**的段，再检查它是否 Z3+」—— 两回事。最快段常常是心率还没起来的
+> 第一公里（Z2），旧实现会因为它不是 Z3+ 而把后面所有真正的 Z3+ 段一起丢掉，
+> 再退回全程均值；全程也非 Z3+ 时整条活动**静默漏算**。真实库 249 条跑步里
+> 32 条因此没有跑力（如 `549651785` 渐进跑：最快 K3 心率 147/Z2，而 K11 以
+> 3:50/km、心率 168/Z3 收尾 —— 真正的代表段是 K11）。修复 = **先筛 Z3+ 再取最快**，
+> 回填后 32 条新增、3 条数值修正、0 条丢失。守卫：
+> `tests/unit/common/vdot-segment.test.js`（13 例，含顺序回归）+
+> `validate:data` 第 10 项（漏算/伪值/口径漂移/非跑步门控四条判据）。
+> 同轮修复：`backfill-vdot.js` 补上写库前备份（此前是唯一不备份的回填脚本）、
+> `package.json` 注册 `backfill:vdot` 入口（此前脚本存在但无 npm 入口，
+> 导致 MAX_HR 190→194 与时间基数修复后 66 条训练负荷长期未重算）。
+
 ### 有效性验证
 
 - `%VO2max` clamp 至 `[0.8, 1.0]`，<11.5 min 的短活动与超长活动均可给出 VDOT（原逻辑 >1.0 时 `null`）

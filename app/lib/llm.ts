@@ -667,7 +667,7 @@ export function buildAnalysisMessages(
       ['建议恢复', recoveryLabel(activity.recovery_time)],
       ['训练收益', activity.primary_benefit || null],
     ]),
-    // Garmin 官方 VO2max（区别于本地推算的 vdot_value）。真实库 239/247 跑步有值,
+    // Garmin 官方 VO2max（区别于本地推算的 vdot_value）。真实库 241/249 跑步有值,
     // 但**仅跑步**产出（非跑步 0/107）; treadmill_running 6/6 全为空。
     statRow([['Garmin VO2max', running ? fmtNumIf(activity.garmin_vo2max, 1, 'ml/kg/min') : null]]),
     statRow([

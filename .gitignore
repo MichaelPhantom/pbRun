@@ -12,6 +12,8 @@
 
 # testing
 /coverage
+# e2e-build.sh 的 tsconfig 备份哨兵（正常由 trap 还原，SIGKILL 时可能残留）
+/.tsconfig.e2e.bak
 
 # next.js
 /.next/

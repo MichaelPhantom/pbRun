@@ -335,7 +335,7 @@ GET /api/activities/{id}
     把 50m 的 75 折成 37 会远低于任何真实 25m 值（转身与蹬壁在长池里被摊薄）。
     ⚠️ 时间基数必须是**活跃 lap 的计时器时间之和**，不是活动级 `moving_time`
     （后者含池边休息，599287904 有 804s，会把 SWOLF 从 58 抬到 84）。
-- **分段训练角色（`activity_laps.intensity`，覆盖 3074/3153 = 97.5%）**：
+- **分段训练角色（`activity_laps.intensity`，覆盖 3099/3178 = 97.5%）**：
   设备在 FIT lap 里记录的**计划意图**，不是按配速推断的。DB 存**原始字符串**，
   角色映射属于展示层（`app/lib/lap-intensity.ts:lapRoleFromIntensity`）：
 
@@ -355,7 +355,7 @@ GET /api/activities/{id}
   结构自证：`warmup` 恒在索引 0、`cooldown` 恒在末段（9/9 完美）。
 - `hr_zone_boundaries` / `power_zone_boundaries` / `devices` / `workout_steps` /
   `route_cells` / `route_bounds` 均为 **JSON 字符串**，需自行 `JSON.parse`。
-- `workout_steps` 是**多步**课表（真实库 120/289 条 > 1 步，最多 20 步）。
+- `workout_steps` 是**多步**课表（真实库 123/293 条 > 1 步，最多 20 步）。
   `duration_sec` 已从 FIT 原始**毫秒**换算为**秒**；`target_pace_sec_per_km`
   已从 FIT 原始 **mm/s** 换算为**秒/公里**，且 `fast` 恒为更小的数值。
   `target_low/high` 保留设备原始值，**仅用于追溯，不要直接当配速用**。

@@ -1,7 +1,7 @@
 /**
  * 活动详情页**概览格**的真实库端到端守卫（第十五、十六类缺陷）。
  *
- * ## 缺陷一（第十五类）：训练负荷对 56 条非跑步活动恒显示 `--`
+ * ## 缺陷一（第十五类）：训练负荷对非跑步活动恒显示 `--`
  *
  * 项目早就定下纪律（`docs/features.md` §「活动数据块的『缺失』分两类」）：
  *
@@ -12,7 +12,7 @@
  *
  * AI 数据块严格执行了（`fmtNumIf` + `statRow` 整项略去），但详情页概览写的是
  * `{ value: activity.training_load != null ? ... : '--', label: '训练负荷' }`
- * —— 无条件渲染。真实库 354 条实证：
+ * —— 无条件渲染。当时真实库 354 条实证：
  *
  * | 类型 | 条数 | `training_load` 有值 |
  * |------|------|---------------------|
@@ -20,19 +20,20 @@
  * | strength_training | 51 | 51/51（按 TE 派生） |
  * | 爬楼/室内有氧/游泳/篮球/HIIT/跳绳/乒乓/羽毛球/室内骑行 | 56 | **0/56** |
  *
- * 于是 56 条活动（占非跑步 120 条的 47%）在详情页永远挂着一个「-- 训练负荷」，
+ * 于是当时 56 条活动（占非跑步 120 条的 47%）在详情页永远挂着一个「-- 训练负荷」，
  * 与「平均功率」在 107 条非跑步活动上永远 `--` 是同一类噪音：用户会读成同步失败。
  *
  * ## 为什么单测之外还要这一层
  *
  * `activity-detail.test.tsx` 的夹具是我手写的。它证明「给定 `activity_type` 与
- * `training_load`，门控算得对」，但不证明**真实库那 354 行**都能正确渲染 ——
+ * `training_load`，门控算得对」，但不证明**真实库每一行**都能正确渲染 ——
  * 若真实库存在一个夹具没覆盖的类型（例如 `open_water`），单测全绿而生产仍漏。
  *
- * 故本守卫直接读生产库，逐条渲染 `ActivityDetailClient` 并断言：
+ * 故本守卫直接读生产库，逐条渲染 `ActivityDetailClient` 并断言（条数不钉死，
+ * 契约是「每一行都满足」，不是「恰好 N 行」——第三十六类纪律）：
  *
- *  1. 56 条非跑步活动（9 类）**一条都不许**出现「训练负荷」；
- *  2. 247 条跑步 + 51 条力量**全部**出现「训练负荷」，且数值与库里一致；
+ *  1. 9 类非跑步活动**一条都不许**出现「训练负荷」；
+ *  2. 跑步 + 力量**全部**出现「训练负荷」，且数值与库里一致；
  *  3. 反向自证：这些活动仍必须展示「时长 / 平均心率」（不能为了修一格把整块删了）。
  *
  * CI 无生产库时 skip（与 `type-metrics-real-db.test.tsx` 同一约定）。
@@ -143,7 +144,7 @@ describeIfDb('真实库：活动详情页概览格门控端到端', () => {
   afterAll(() => db.close());
 
   /**
-   * 9 类非跑步活动共 56 条 —— **一条都不许**出现「训练负荷」。
+   * 9 类非跑步活动 —— **一条都不许**出现「训练负荷」。
    *
    * 这是本缺陷的核心：修之前它们全部渲染「-- 训练负荷」。
    */
@@ -167,7 +168,7 @@ describeIfDb('真实库：活动详情页概览格门控端到端', () => {
     expect(bad.map((x) => ({ id: x.id, training_load: x.tl }))).toEqual([]);
   });
 
-  test('56 条非跑步活动的 training_load 在库里确实全为 NULL（守卫前提自证）', () => {
+  test('9 类非跑步活动的 training_load 在库里确实全为 NULL（守卫前提自证）', () => {
     const types = [
       'floor_climbing', 'indoor_cardio', 'lap_swimming', 'basketball',
       'hiit', 'jump_rope', 'table_tennis', 'badminton', 'indoor_cycling',
@@ -179,12 +180,12 @@ describeIfDb('真实库：活动详情页概览格门控端到端', () => {
          FROM activities WHERE activity_type IN (${placeholders})`,
       )
       .get(...types) as { n: number; withTl: number };
-    expect(row.n).toBe(56);
+    expect(row.n).toBeGreaterThan(0);
     expect(row.withTl).toBe(0);
   });
 
   /**
-   * 跑步三类型 247 条**全部**必须有「训练负荷」，且数值与库里一致。
+   * 跑步三类型**全部**必须有「训练负荷」，且数值与库里一致。
    *
    * 反向守卫：只把「不产出」删掉、把「产出」也一起删了，是最容易发生的
    * 过度修正。断言数值可自证（`60` → 渲染 `60.0`）。
@@ -199,7 +200,7 @@ describeIfDb('真实库：活动详情页概览格门控端到端', () => {
         .map((a) => a.activity_id);
       expect(missing).toEqual([]);
 
-      // 抽查 3 条数值（全量逐条断言会渲染 247 次，太慢）
+      // 抽查 3 条数值（全量逐条断言渲染太慢）
       for (const a of rows.slice(0, 3)) {
         expect(a.training_load).not.toBeNull();
         expect(overviewTextOf(a, lapsOf(a.activity_id))).toContain(
@@ -209,9 +210,9 @@ describeIfDb('真实库：活动详情页概览格门控端到端', () => {
     },
   );
 
-  test('力量训练 51 条全部有「训练负荷」（按 TE 派生，51/51）', () => {
+  test('力量训练全部有「训练负荷」（按 TE 派生，逐条自证）', () => {
     const rows = rowsOf('strength_training');
-    expect(rows.length).toBe(51);
+    expect(rows.length).toBeGreaterThan(0);
     const missing = rows
       .filter((a) => !overviewTextOf(a, lapsOf(a.activity_id)).includes('训练负荷'))
       .map((a) => a.activity_id);
@@ -221,10 +222,10 @@ describeIfDb('真实库：活动详情页概览格门控端到端', () => {
   /**
    * 反向自证：删掉一格不能把整块删了。
    *
-   * 「时长 / 平均心率」与运动类型无关（真实库 354/354 都有值），
-   * 56 条非跑步活动也必须照常展示 —— 否则就是「为了修一格把整块删了」。
+   * 「时长 / 平均心率」与运动类型无关（真实库逐条都有值），
+   * 非跑步活动也必须照常展示 —— 否则就是「为了修一格把整块删了」。
    */
-  test('56 条非跑步活动仍展示「时长」与「平均心率」（不是把整块删了）', () => {
+  test('非跑步活动仍展示「时长」与「平均心率」（不是把整块删了）', () => {
     const types = [
       'floor_climbing', 'indoor_cardio', 'lap_swimming', 'basketball',
       'hiit', 'jump_rope', 'table_tennis', 'badminton', 'indoor_cycling',
@@ -246,25 +247,26 @@ describeIfDb('真实库：活动详情页概览格门控端到端', () => {
   /**
    * 第十六类缺陷：`累计爬升` 无条件渲染 `--`，而同页 `累计下降` 按字段门控。
    *
-   * 真实库 354 条里两个字段的 NULL 模式**完全一致**（both_null = 85、mismatch = 0）：
-   * 室内运动（力量 51 / 室内有氧 9 / 跑步机 7 / 游泳 4 / HIIT 3 / 跳绳 3 /
-   * 室内骑行 1 / 乒乓 2 / 羽毛球 1）与 1 条无 GPS 的跑步全都成对为空。
-   * 修之前这 85 条页面上只剩一个孤零零的「-- 累计爬升」，读起来像同步失败。
+   * 真实库里两个字段的 NULL 模式**完全一致**（mismatch = 0）：室内运动
+   * （力量 / 室内有氧 / 跑步机 / 游泳 / HIIT / 跳绳 / 室内骑行 / 乒乓 / 羽毛球）
+   * 与无 GPS 的跑步全都成对为空。修之前这些条目的页面上只剩一个孤零零的
+   * 「-- 累计爬升」，读起来像同步失败。
    *
-   * 本守卫**同时**断言两个方向：
-   *   1. `total_ascent` 为 NULL 的 85 条 → 概览里**不许**出现「累计爬升」；
-   *   2. 有值的 269 条 → **必须**出现，且数值与库一致（防止过度修正把整格删了）。
+   * 本守卫**同时**断言两个方向（条数不钉死，随同步漂移的是规模不是契约）：
+   *   1. `total_ascent` 为 NULL 的行 → 概览里**不许**出现「累计爬升」；
+   *   2. 有值的行 → **必须**出现，且数值与库一致（防止过度修正把整格删了）。
    */
-  test('total_ascent 为 NULL 的 85 条不出现「累计爬升」，有值的 269 条必须出现且数值一致', () => {
+  test('total_ascent 为 NULL 不出现「累计爬升」，有值的必须出现且数值一致', () => {
     const all = db
       .prepare('SELECT * FROM activities ORDER BY activity_id')
       .all() as Activity[];
-    expect(all.length).toBe(354);
+    expect(all.length).toBeGreaterThan(0);
 
     const nulls = all.filter((a) => a.total_ascent == null);
     const withValues = all.filter((a) => a.total_ascent != null);
-    expect(nulls.length).toBe(85);
-    expect(withValues.length).toBe(269);
+    // 前提自证：两个子集都非空（否则守卫退化为恒真）
+    expect(nulls.length).toBeGreaterThan(0);
+    expect(withValues.length).toBeGreaterThan(0);
 
     // 前提自证：两个字段必须成对缺失（否则「累计下降」的门控口径不适用）
     const mismatch = all.filter(
@@ -277,7 +279,7 @@ describeIfDb('真实库：活动详情页概览格门控端到端', () => {
       .map((a) => ({ id: a.activity_id, type: a.activity_type }));
     expect(wrong).toEqual([]);
 
-    // 抽查 3 条有值的（全量 269 次渲染太慢），数值必须与库一致
+    // 抽查 3 条有值的（全量渲染太慢），数值必须与库一致
     for (const a of withValues.slice(0, 3)) {
       const text = overviewTextOf(a, lapsOf(a.activity_id));
       expect(text).toContain('累计爬升');
@@ -293,10 +295,10 @@ describeIfDb('真实库：活动详情页概览格门控端到端', () => {
    * 正确输出是**整格不存在**。
    *
    * 例外（已确认为「该活动没测到」且旁边有替代指标）：
-   *  - `即时跑力`：跑步三类型 124/247 为空，其中 120 条有 `garmin_vo2max`
+   *  - `即时跑力`：跑步三类型里 vdot 为空的行，绝大多数有 `garmin_vo2max`
    *    （官方 VO2max 就在同一屏），所以 `--` 是诚实的「本地推算缺输入」。
-   *    另 4 条是 `treadmill_running`，VDOT 与官方值都没有 —— 设备对跑步机不写
-   *    `garmin_vo2max`（真实库 0/8），那是「该子类型不产出」而非缺陷。
+   *    例外是 `treadmill_running` —— 设备对跑步机不写 `garmin_vo2max`
+   *    （真实库 0/8），那是「该子类型不产出」而非缺陷。
    */
   test('没有任何「整类恒为 --」的概览格（即时跑力除外，它有 Garmin 官方值兜底）', () => {
     const all = db
@@ -330,14 +332,23 @@ describeIfDb('真实库：活动详情页概览格门控端到端', () => {
    */
   test('即时跑力显示 -- 的跑步必须有 Garmin VO2max 兜底，除非该子类型根本不产出官方值', () => {
     // **分母必须是跑步三类型，不是 `activity_type='running'`**。
-    // 旧写法只查 `running`（233 条），于是 8 条跑步机与 6 条田径场全在视野外 ——
-    // 其中 4 条跑步机既无 VDOT 也无官方值，缺陷被「只查一种类型」掩盖。
+    // 旧写法只查 `running`，于是跑步机与田径场全在视野外 —— 其中跑步机
+    // 既无 VDOT 也无官方值，缺陷被「只查一种类型」掩盖。
     const RUN = ['running', 'track_running', 'treadmill_running'];
     const rows = RUN.flatMap((t) => rowsOf(t)).filter((a) => a.vdot_value == null);
-    expect(rows.length).toBeGreaterThan(100);
-    // **分母必须等于库里跑步三类型 vdot 为空的真实条数** —— 这条断言是本守卫的
-    // 核心：若有人把 RUN 改回 `['running']`，条数会掉到 116 而库里是 124，立刻红。
-    // （旧写法正是如此：只查 `running`，8 条跑步机与 6 条田径场全在视野外。）
+    // **分母必须宽于单查 running** —— 这条断言是本守卫的核心：若有人把 RUN
+    // 改回 `['running']`，rows 会恰好等于 running-only 的空值数，立刻红。
+    // 不钉绝对条数（第三十六类纪律）：VDOT 口径改进/新同步都会让空值数漂移，
+    // 但「三类型 ⊋ 单类型」这个包含关系永远成立。
+    const runningOnlyNull = (
+      db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM activities
+            WHERE vdot_value IS NULL AND activity_type = 'running'`,
+        )
+        .get() as { n: number }
+    ).n;
+    expect(rows.length).toBeGreaterThan(runningOnlyNull);
     const dbCount = (
       db
         .prepare(

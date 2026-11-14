@@ -334,15 +334,19 @@ describe('DashboardPage 力量训练展示', () => {
   test('当月力量训练卡: 次数/时长/组数/最近计划名', async () => {
     render(await DashboardPage());
     expect(screen.getByText('力量训练')).toBeInTheDocument();
+    // **查询必须限定在力量卡内**：裸 getByText('14') 会撞上训练状态卡的
+    // ATL 值（EWMA 随参考日漂移，某天恰好也是 14）—— 页面级文本查询对
+    // 纯数字断言天然有歧义，StatCard 的数值必须用 within(card) 定位。
+    const card = screen.getByText('力量训练').closest('section')!;
     // 当月 2 次 (上月那条不计入)
-    expect(screen.getByText('本月次数')).toBeInTheDocument();
-    expect(screen.getByText('2')).toBeInTheDocument();
+    expect(within(card).getByText('本月次数')).toBeInTheDocument();
+    expect(within(card).getByText('2')).toBeInTheDocument();
     // 总时长 1800 × 2 = 3600s = 60 分钟
-    expect(screen.getByText('60')).toBeInTheDocument();
+    expect(within(card).getByText('60')).toBeInTheDocument();
     // 有效组数 7 × 2 = 14
-    expect(screen.getByText('14')).toBeInTheDocument();
+    expect(within(card).getByText('14')).toBeInTheDocument();
     // 最近一次计划名 (倒序第一条)
-    expect(screen.getByText('全身循环1')).toBeInTheDocument();
+    expect(within(card).getByText('全身循环1')).toBeInTheDocument();
   });
 
   test('口径声明: 力量卡必须说明「无重量/次数」的数据边界', async () => {

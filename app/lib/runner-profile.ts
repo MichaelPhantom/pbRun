@@ -370,7 +370,7 @@ export function formatRunnerProfile(profile: RunnerProfile): string {
     // 第二十四类缺陷：这一段会进入**每一次**活动分析的 prompt，而同一段文本里
     // 跑量与负荷是两种口径 —— 生涯/近期/周环比走 `getStats` 与
     // `getActivities(runningOnly)`（纯跑步），负荷走 `getCombinedTrainingLoads`
-    // （跑步 + 力量）。真实库全历史跑步负荷 18122 / 合并 19788（差 1666）。
+    // （跑步 + 力量）。真实库全历史跑步负荷 17730 / 合并 19492（差 1762）。
     //
     // 不标注的后果比网页更严重：模型会拿「近 28 天 8 次跑步」去解释一个含力量课
     // 的 CTL，然后在回答里编造「你的负荷主要来自跑量」这类因果。
