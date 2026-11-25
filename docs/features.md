@@ -25,7 +25,7 @@
 | 统计 | `/stats?period=` | `getStats` / `getPersonalRecords`（跑步口径，见 §1.1） | 汇总 AI，周/月/年/全部映射 | ✅ |
 | 汇总 AI 对话 | `POST /api/insight/coach` | `insight-service.ts` → `formatInsightForCoach` | 区间指标 + 跑者画像 + 趋势 | ✅ |
 | 模型目录 | `GET /api/llm/models` | `model-curation.ts` 固定白名单 | — | ✅ |
-| MCP Server | `mcp-server/`（stdio） | 20 个 tools 复用 `app/lib/db.ts` 与活动深挖服务 | `get_activity_comparables` 直接返回当次可比 `contextText` | ✅ |
+| MCP Server | `mcp-server/`（stdio） | 21 个 tools 复用 `app/lib/db.ts` 与活动深挖服务 | `get_activity_comparables` 直接返回当次可比 `contextText` | ✅ |
 | 力量训练 | 首页卡片 / 分析页卡片 / 活动详情「力量训练分析」/ MCP `get_strength_sessions`·`get_strength_loads` | `app/lib/strength.ts`（纯函数：画像 + 负荷 + 合并），`db.getStrengthLoads/getStrengthSessions/getCombinedTrainingLoads` | 结构化画像（计划名/组数/工作休息比/强度域） | ✅ |
 | 数据同步 | `scripts/garmin` / `scripts/strava` | FIT/GPX → SQLite，VDOT 计算 | — | ✅ |
 
@@ -2339,7 +2339,7 @@ AI 教练有两种**能力维度**，它们的数据单位与结论都不同，*
 | **游泳每 100m 配速换算单一来源** | `app/lib/pace.ts`（`paceSecPer100m` = `360 ÷ 速度(km/h)`、`formatPacePer100m` = `2:22`） | `tests/unit/lib/pace-group.test.ts`（真实库 4 条游泳逐一验算并与 `average_pace ÷ 10` 交叉校验；`÷10` 旧公式反向断言；null/0/负数/非有限 → null；秒补零与 359.6→6:00） |
 | **提示词不得让模型自己做单位换算** | `coach-prompts.ts` 的游泳条目（引用数据块「每 100m 配速」行 + 写明 `360 ÷ 速度`）+ `llm.ts` 非跑步分支产出该行 | `tests/unit/lib/coach-prompt-data-alignment.test.ts`（不得含 `÷10 即秒/100m`、必须含「每 100m 配速」与 `360`、数据块真的产出 `2:22/100m`）+ `tests/unit/lib/llm.test.ts`（游泳有该行且用计时器时间、缺 distance 用 average_speed 兜底、两者皆缺整行不输出、非游泳不输出） |
 | **筛选参数归一单一来源** | `db.normalizeTypeFilter`（`all`/空串/空白 → 不过滤）+ `db.normalizeQueryFilter`（纯空白 → 不过滤） | `tests/unit/lib/db-insight-integration.test.ts`（两个归一函数单点定义；`q='' / ' ' / '\t'` 与不过滤逐月相等；`' 游泳 '` 仍命中） |
-| **MCP tool description 必须声明统计口径** | `mcp-server/tools.ts`（10 个表现分析工具写「跑步口径」、3 个活动日志工具写「全类型口径」、1 个合并口径工具同时声明「负荷合并 + 里程/次数只统计跑步」、2 个力量工具声明数据边界） | `tests/unit/mcp/tool-scope-contract.test.ts`（逐项断言口径措辞、`list_activities` 不再自称「列出跑步活动」、`get_activity_comparables` 声明 `running=false` 时配速派生字段为 `null`、`get_activity_types` 声明「先调本工具再按类型筛选」、20 个工具均有非空 title/description） |
+| **MCP tool description 必须声明统计口径** | `mcp-server/tools.ts`（10 个表现分析工具写「跑步口径」、3 个活动日志工具写「全类型口径」、1 个合并口径工具同时声明「负荷合并 + 里程/次数只统计跑步」、2 个力量工具声明数据边界） | `tests/unit/mcp/tool-scope-contract.test.ts`（逐项断言口径措辞、`list_activities` 不再自称「列出跑步活动」、`get_activity_comparables` 声明 `running=false` 时配速派生字段为 `null`、`get_activity_types` 声明「先调本工具再按类型筛选」、21 个工具均有非空 title/description） |
 | **力量训练口径（第三套）** | `app/lib/strength.ts`（画像/强度域/负荷/合并的唯一真源）、`db.getStrengthLoads`·`getStrengthSessions`·`getCombinedTrainingLoads` | `tests/unit/lib/strength.test.ts`（32 例）、`strength-merge.test.ts`（9 例：负荷相加、里程/时长/次数只取跑步、只有力量的日子保留）、`strength-summary.test.ts`（10 例）、`db-strength.test.ts`（12 例：SQL 只查 `strength_training`、分页、空值兜底） |
 | **洞察页负荷口径必须合并** | `insight-service.ts` 的 `getCombinedTrainingLoads` | `tests/unit/lib/insight-services.test.ts`（合并入口被调用、跑步口径 `getDailyLoads` 未被调用、EWMA 预热窗口不变） |
 | **力量负荷双实现一致性** | `app/lib/strength.ts`（TS）↔ `scripts/common/strength-load.js`（JS 镜像，同步脚本用） | `tests/unit/lib/strength-sync-parity.test.ts`（穷举 12×12 TE×HR、11×5 时长×域、7×7 时间基数；任一侧改阈值而另一侧没跟上 → 红灯） |

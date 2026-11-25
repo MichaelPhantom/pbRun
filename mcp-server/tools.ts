@@ -27,6 +27,7 @@ import {
   getLatestVdot,
   getActivityTrack,
   getDailyDistances,
+  getDailyWellness,
 } from '../app/lib/db';
 import { getActivityInsight } from '../app/lib/activity-insight-service';
 import { buildActivityContextBlock } from '../app/lib/activity-coach-context-service';
@@ -708,5 +709,41 @@ export async function registerTools(server: McpServer): Promise<void> {
       assertDateRange(args.startDate, args.endDate, 'get_strength_loads');
       return getStrengthLoads(args.startDate, args.endDate);
     })
+  );
+
+  await server.registerTool(
+    'get_daily_wellness',
+    {
+      title: '每日健康快照 (静息心率 / HRV / 睡眠 / Body Battery)',
+      description:
+        '按天返回 Garmin 健康快照: 静息心率(当日与 7 日均值) / 夜间 HRV 与 HRV 状态 / ' +
+        '睡眠时长与睡眠分期 / 日间压力 / Body Battery / 全天步数。' +
+        '**这张表按天采集, 休息日也有值** —— 与 `activities` 表里的 resting_heart_rate_fit 字段是两回事' +
+        '(那个只在训练日有值, 覆盖率约 61%), 判断「基线是否上移 / 是否生病 / 是否恢复」必须用本工具。' +
+        '单位: 睡眠一律**秒**; restingHr7dAvg 是 Garmin 的 7 日均值, 单日 restingHeartRate 噪声大(±5) ' +
+        '不可单独下结论。hrvStatus 取值 BALANCED / LOW / UNBALANCED / HIGH, 连续 LOW 通常对应' +
+        '生病/过度训练。返回 {data,days,requestedRange,empty,hint,averages,hrvStatusCounts}; ' +
+        '未采集过时 empty=true 并给出采集命令。',
+      inputSchema: {
+        startDate: z.string().describe('开始日期 YYYY-MM-DD (本地日期)'),
+        endDate: z.string().describe('结束日期 YYYY-MM-DD (本地日期)'),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(400)
+          .optional()
+          .describe('只返回区间内最近 N 天 (默认全量), 不影响 averages 的计算窗口'),
+      },
+    },
+    (args) =>
+      run(() => {
+        assertDateRange(args.startDate, args.endDate, 'get_daily_wellness');
+        return getDailyWellness({
+          startDate: args.startDate,
+          endDate: args.endDate,
+          limit: args.limit,
+        });
+      })
   );
 }

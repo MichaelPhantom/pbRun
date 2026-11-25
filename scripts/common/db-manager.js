@@ -456,6 +456,52 @@ class DatabaseManager {
       CREATE INDEX IF NOT EXISTS idx_records_activity_id
       ON activity_records(activity_id)
     `);
+
+    // daily_wellness: Garmin 每日健康快照（**按天**，与当天有无训练无关）
+    //
+    // 为什么不能复用 activities.resting_heart_rate_fit：那个字段来自活动 FIT 的
+    // user_profile 消息，**只有训练日才有值**（真实库 225/368 ≈ 61%），休息日/生病日
+    // 整段空白。2026-10 的流感窗口就是因为这个盲区，导致「静息心率基线」结论无法落地。
+    // 采集口径见 scripts/garmin/wellness-cdp.js，归一化见 wellness-transform.js。
+    //
+    // 单位：睡眠一律**秒**（与 activities.duration 同口径）；心率 bpm；HRV 毫秒。
+    // 未采集到 = NULL，**不用 0 代替**（0 是有效值，如 total_steps）。
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS daily_wellness (
+        calendar_date TEXT PRIMARY KEY,              -- 本地日历日 YYYY-MM-DD（Garmin calendarDate）
+        resting_heart_rate INTEGER,                  -- 静息心率（bpm，Garmin 当日报值）
+        resting_hr_7d_avg INTEGER,                   -- 静息心率 7 日均值（趋势用这个，单日噪声大）
+        min_heart_rate INTEGER,                      -- 全天最低心率
+        max_heart_rate INTEGER,                      -- 全天最高心率（含训练）
+        sleeping_seconds INTEGER,                    -- 睡眠时长（秒）
+        sleep_score INTEGER,                         -- 睡眠综合分 0-100
+        sleep_deep_seconds INTEGER,                  -- 深睡（秒）
+        sleep_rem_seconds INTEGER,                   -- REM（秒）
+        sleep_light_seconds INTEGER,                 -- 浅睡（秒）
+        sleep_awake_seconds INTEGER,                 -- 夜间清醒（秒）
+        sleep_avg_stress INTEGER,                    -- 睡眠期间平均压力
+        sleep_avg_heart_rate INTEGER,                -- 睡眠期间平均心率
+        sleep_spo2_avg REAL,                         -- 睡眠平均血氧（%）
+        sleep_respiration_avg REAL,                  -- 睡眠平均呼吸率（次/分）
+        avg_stress_level INTEGER,                    -- 全天平均压力
+        max_stress_level INTEGER,                    -- 全天最高压力
+        body_battery_at_wake INTEGER,                -- 起床时 Body Battery（0-100）
+        body_battery_lowest INTEGER,                 -- 全天最低
+        body_battery_highest INTEGER,                -- 全天最高
+        total_steps INTEGER,                         -- 全天步数
+        total_distance_meters INTEGER,               -- 全天移动距离（米）
+        active_kilocalories INTEGER,                 -- 活动消耗（kcal）
+        hrv_last_night_avg INTEGER,                  -- 昨夜 HRV 均值（ms）
+        hrv_weekly_avg INTEGER,                      -- HRV 周均值（ms）
+        hrv_last_night_5min_high INTEGER,            -- 昨夜 5 分钟最高 HRV（ms）
+        hrv_status TEXT,                             -- BALANCED / LOW / UNBALANCED / HIGH
+        hrv_baseline_low INTEGER,                    -- 个人基线区间下界（ms）
+        hrv_baseline_high INTEGER,                   -- 个人基线区间上界（ms）
+        hrv_feedback TEXT,                           -- Garmin 反馈短语（英文枚举）
+        source TEXT NOT NULL DEFAULT 'garmin-cdp',   -- 采集通道
+        fetched_at TEXT NOT NULL                     -- 采集时刻（ISO 8601）
+      )
+    `);
   }
 
   upsertActivity(activityData) {
@@ -679,6 +725,69 @@ class DatabaseManager {
   getActivityCount() {
     const stmt = this.db.prepare('SELECT COUNT(*) as count FROM activities');
     return stmt.get().count;
+  }
+
+  /**
+   * 批量 upsert 每日健康快照。以 `calendar_date` 为主键，重复采集会覆盖旧值
+   * （Garmin 会回填/修正最近几天的睡眠与 HRV，覆盖是正确行为）。
+   *
+   * 只写入**表里声明过**的列，未知键直接忽略 —— 与 `upsertActivity` 的自由拼接不同：
+   * 健康数据来自外部 JSON，键名不可控，白名单比「按对象键拼 SQL」安全。
+   *
+   * @param {object[]} rows normalizeDailyWellness() 的返回值
+   * @returns {number} 写入行数
+   */
+  upsertDailyWellness(rows) {
+    if (!Array.isArray(rows) || rows.length === 0) return 0;
+
+    const columns = [
+      'calendar_date',
+      'resting_heart_rate', 'resting_hr_7d_avg', 'min_heart_rate', 'max_heart_rate',
+      'sleeping_seconds', 'sleep_score', 'sleep_deep_seconds', 'sleep_rem_seconds',
+      'sleep_light_seconds', 'sleep_awake_seconds', 'sleep_avg_stress',
+      'sleep_avg_heart_rate', 'sleep_spo2_avg', 'sleep_respiration_avg',
+      'avg_stress_level', 'max_stress_level',
+      'body_battery_at_wake', 'body_battery_lowest', 'body_battery_highest',
+      'total_steps', 'total_distance_meters', 'active_kilocalories',
+      'hrv_last_night_avg', 'hrv_weekly_avg', 'hrv_last_night_5min_high',
+      'hrv_status', 'hrv_baseline_low', 'hrv_baseline_high', 'hrv_feedback',
+      'source', 'fetched_at',
+    ];
+
+    const placeholders = columns.map(() => '?').join(', ');
+    const updateClause = columns
+      .filter((c) => c !== 'calendar_date')
+      .map((c) => `${c} = excluded.${c}`)
+      .join(', ');
+
+    const stmt = this.db.prepare(`
+      INSERT INTO daily_wellness (${columns.join(', ')})
+      VALUES (${placeholders})
+      ON CONFLICT(calendar_date) DO UPDATE SET ${updateClause}
+    `);
+
+    let written = 0;
+    const insertMany = this.db.transaction((items) => {
+      for (const row of items) {
+        if (!row || !row.calendar_date) continue;
+        const values = columns.map((c) => (row[c] === undefined ? null : row[c]));
+        stmt.run(...values);
+        written++;
+      }
+    });
+    insertMany(rows);
+    return written;
+  }
+
+  /** 读取 [startDate, endDate] 内的健康快照，按日期正序。 */
+  getDailyWellnessRange(startDate, endDate) {
+    return this.db
+      .prepare(
+        `SELECT * FROM daily_wellness
+         WHERE calendar_date >= ? AND calendar_date <= ?
+         ORDER BY calendar_date`
+      )
+      .all(startDate, endDate);
   }
 
   close() {

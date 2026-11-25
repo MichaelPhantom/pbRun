@@ -364,8 +364,8 @@ describe('MCP tool description 必须声明统计口径', () => {
     expect(desc).not.toMatch(/VDOT/);
   });
 
-  test('工具总数与文档一致 (20 个: 15 基础 + 3 AI + 2 力量训练)', () => {
-    expect(configs.size).toBe(20);
+  test('工具总数与文档一致 (21 个: 15 基础 + 3 AI + 2 力量训练 + 1 健康)', () => {
+    expect(configs.size).toBe(21);
   });
 
   /**
@@ -530,8 +530,8 @@ describe('文档声明的 tool 数量必须与 registerTools 实际注册数一�
   // 注意：不能在 describe 体里读 `configs.size` —— `beforeAll` 还没跑，那时是 0。
   const actual = (): number => configs.size;
 
-  test('实际注册数与期望的 20 一致（新增/删除 tool 时同步本断言与文档）', () => {
-    expect(actual()).toBe(20);
+  test('实际注册数与期望的 21 一致（新增/删除 tool 时同步本断言与文档）', () => {
+    expect(actual()).toBe(21);
   });
 
   test.each([

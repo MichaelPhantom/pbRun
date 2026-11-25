@@ -57,6 +57,14 @@ description: 分析 pbRun (Garmin) 跑步数据出教练诊断报告、查最新
    小于目标就判「无纪录」。所以 `durationSeconds = null` 是**事实**（这个周期真没跑够），
    不是「约等于没到」；不要用「他跑过 21.09km 所以半马有成绩」去补一个数。
 7. **深度课表复盘**（挑一次高质量快课做，可选但出报告很加分）：`get_activity activityId` + `get_activity_laps`（分段）+ `get_activity_records`（逐秒）+ `get_activity_track`（轨迹/海拔剖面）。
+8. **恢复基线**（只要问题涉及「累不累 / 该不该上强度 / 是不是生病 / 基线有没有漂」，**必须**做，且优先于主观判断）：`get_daily_wellness startDate endDate`（默认最近 28 天）。
+   ⚠️ **不要用 `activities.resting_heart_rate_fit` 判基线**：它来自活动 FIT 的 `user_profile`，**只有训练日才有值**（真实库 225/368 ≈ 61%），休息日/生病日全空——正是最需要看的那几天。
+   ⚠️ **单日静息心率噪声 ±5**，趋势只看 `restingHr7dAvg`；HRV 看 `hrvWeeklyAvg` + `hrvStatus`，**连续 ≥3 天 LOW** 才算信号，单日 UNBALANCED 不写进结论。
+   ⚠️ 该工具返回 `empty: true` 时不要当成「一切正常」：说明这台机器的 `daily_wellness` 还没采集，先 `npm run sync:wellness`（需要已登录 connect.garmin.cn 的 CDP 页签）。
+8. **恢复基线（问「是不是累了 / 该不该上强度 / 是不是生病了」必做）**：`get_daily_wellness startDate endDate`（默认取最近 21~28 天）。
+   ⚠️ **不要用 `activities.resting_heart_rate_fit` 判基线** —— 它只在训练日有值（覆盖率约 61%），休息日与生病日全空，正是最该看的窗口。按天口径在 `daily_wellness`。
+   ⚠️ **单日静息心率有 ±5 拍噪声**，趋势用 `restingHr7dAvg`；**HRV 用 `hrvWeeklyAvg` + `hrvStatus`**，连续 ≥3 天 `LOW` 才算信号。
+   ⚠️ 若返回 `empty: true`，说明这台机器的库还没采集过健康数据：先跑 `npm run sync:wellness`（需要已登录的 connect.garmin.cn 页签），不要拿「没有数据」当「数据正常」。
 
 ## 快速查看最新数据（「看看/同步最新跑步数据」类轻量请求）
 
@@ -110,6 +118,7 @@ description: 分析 pbRun (Garmin) 跑步数据出教练诊断报告、查最新
 - `get_activity` 里 `workout_steps`（课表）、`hr_zone_boundaries`/`power_zone_boundaries`、`devices`、`workout_name` 等是 **JSON 字符串字段**，需自行 parse。
 - get_activity 还提供官方指标：`garmin_vo2max`（官方值，区别于本地推算的 vdot_value）、`threshold_heart_rate`、`recovery_time`、`primary_benefit`、`user_weight`（公斤，供功率体重比）。这些是教练画像的好料，一次抓齐。
 - ⚠️ **不要拿 `user_height` / `resting_heart_rate_fit` / `hr_zone_boundaries` 当个人指标**：前两者是**设备配置快照**（`resting_heart_rate_fit` 覆盖约六成活动、仅 7 个取值 42–48，同一天多条活动同值；`user_height` 全库只有 3 个取值且无任何计算引用），`hr_zone_boundaries` 是设备原始边界（21 套方案随固件而变）。app 的心率区间一律走 `resolveMaxHr()` 本地重算，跨活动才可比。
+  **要按天看静息心率 / HRV / 睡眠 / Body Battery，用 `daily_wellness`（`get_daily_wellness`）**，它按天采集、休息日也有值；`resting_heart_rate_fit` 只作历史旁证，不作基线。
 - ⚠️ **`hrv_rmssd` 不要用来判断单次训练的恢复状态**（详见下节「HRV 的正确用法」）。
 - ⚠️ **日期/时间一律是业务时区（固定 +480，Asia/Shanghai），不是 UTC 也不是本机时区**。
   `achievedAt` / `longestRunDate` / `start_time` 都是带 `Z` 的 UTC ISO，但**展示日期必须走
@@ -472,7 +481,23 @@ SWOLF = 单趟用时（秒） + 单趟划水次数
 
 ## HRV 的正确用法（2026-11 修订，旧口径会让每次活动都判「需减载」）
 
-### 先说结论：`hrv_rmssd` 不是单次训练指标
+### 0. 先分清两个 HRV（这个搞错，结论必然错）
+
+| 字段 | 出处 | 语义 | 能不能判恢复 |
+|------|------|------|-------------|
+| `daily_wellness.hrv_last_night_avg` / `hrv_status` | Garmin **HRV Status**（隔夜静息） | 夜间 RMSSD 均值 + 个人基线区间 | ✅ **这才是判恢复的口径** |
+| `activities.hrv_rmssd` | 活动 FIT `hrv` 消息（**运动中**） | 运动过程中的 RR 变异 | ❌ 只能看同人同期相对趋势 |
+
+**优先级：能拿到 `get_daily_wellness` 就一定用它。** `hrv_status` 连续 `LOW` 是最硬的
+「生病 / 过度训练」信号（真实案例：2026-10-25 ~ 11-01 连续 8 天 LOW，同期静息心率
+44.9 → 47.0、Body Battery 起床值 86.7 → 67.3，而活动 FIT 的 `resting_heart_rate_fit`
+因为那几天**没有训练**完全看不到）。
+
+`hrv_status` 取 `BALANCED` / `LOW` / `UNBALANCED` / `HIGH`。**单日 `UNBALANCED` 不必
+报警，连续 ≥3 天 `LOW` 才值得写进报告。** `hrv_weekly_avg` 比 `hrv_last_night_avg`
+稳，趋势判断用周均值。
+
+### 再说 `hrv_rmssd`：它不是单次训练指标
 
 库里的 `hrv_rmssd` 是**运动过程中**由 FIT `hrv` 消息算出的 RMSSD，**只覆盖约 6% 的活动**。
 运动中的 HRV 受呼吸频率、运动伪迹、漏拍影响极大，**不能用来判断「今天恢复得好不好」**。
@@ -494,6 +519,25 @@ Garmin 官方的 HRV Status 是**隔夜静息测量**，与这个字段**不是�
 
 实际分布是 1.2–34.0ms（中位数约 20ms），因为这是**运动中**的测量值。按旧阈值，模型会对
 每一条活动都输出「HRV 偏低、建议减载」——这不是保守，是**系统性错误结论**。
+
+### 0. 先分清两个 HRV（这个搞错，结论必然错）
+
+| 字段 | 口径 | 数据源 | 用途 |
+|------|------|--------|------|
+| `daily_wellness.hrv_status` / `hrv_last_night_avg` | **隔夜静息** | Garmin HRV Status（`hrv-service`） | ✅ 判恢复 / 生病 / 过度训练 |
+| `activities.hrv_rmssd` | **运动中** | 活动 FIT `hrv` 消息 | ⚠️ 只能看同人同期相对趋势 |
+
+**有 `daily_wellness` 时，优先用它；`hrv_rmssd` 只在健康表缺口时作为辅助。**
+
+`hrv_status` 取值 `BALANCED` / `LOW` / `UNBALANCED` / `HIGH`。经验规则：
+- **连续 ≥3 天 `LOW`** → 视为明确信号（生病 / 负荷过载），配合 `restingHr7dAvg` 上移与
+  `bodyBatteryAtWake` 下降一起看；
+- 单日 `UNBALANCED` → 不足以写进结论；
+- `hrv_weekly_avg` 比 `lastNightAvg` 稳，趋势判断用周均值。
+
+真实案例（2026-10）：10/25~11/01 连续 **8 天 LOW**，周均值 83.8 → 72.5，同时
+静息心率 7 日均值 45 → 48、起床 Body Battery 87 → 67。而同一窗口 `activities` 表里
+**没有任何一行**（那几天没训练），只看活动数据会完全错过这次生病。
 
 ### 字段口径（引用时必须带上）
 

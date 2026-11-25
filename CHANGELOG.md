@@ -6,6 +6,21 @@
 ## [Unreleased]
 
 ### Added
+- **每日健康数据（wellness）独立管线 + MCP 工具**（原先只有活动，健康字段是盲区）：
+  - `scripts/garmin/wellness-cdp.js` + `npm run sync:wellness`：走本机 CDP 里**已登录的
+    connect.garmin.cn**，采集 `usersummary` / `hrv-service` / `dailySleepData` 三个只读端点
+    （静息心率 当日+7 日均值 / 夜间 HRV + HRV Status 与个人基线 / 睡眠分期与睡眠分 / 日间压力 /
+    Body Battery / 步数）。并发上限 3（实测 6 会触发限流），内置退避重试，同日覆盖式 upsert。
+  - `daily_wellness` 表（按天，**休息日也有值**）+ `app/lib/db.ts` 的 `getDailyWellness()` +
+    MCP 工具 `get_daily_wellness`（第 21 个 tool）。
+  - 归一化是纯函数 `scripts/garmin/wellness-transform.js`，钉住单位纪律：**睡眠存秒**、
+    **缺失存 NULL 不存 0**、非法日期直接抛错。守卫：`wellness-transform.test.js`（19 例）、
+    `db-manager-wellness.test.js`（9 例）、`daily-wellness.test.ts`（5 例，真实 SQL）、
+    `wellness-cdp.test.js`（25 例，假 CDP 端到端）。
+  - 解决的真实问题：`activities.resting_heart_rate_fit` 来自活动 FIT 的 `user_profile`，
+    **只在训练日有值**（覆盖率约 61%）。2026-10-25~11-01 那次流感窗口正因为那几天没训练，
+    整段空白 —— 换成按天表后可直接看到 HRV Status 连续 8 天 `LOW`、静息心率 7 日均值 45→48、
+    起床 Body Battery 87→67。skill 的 HRV 章节据此改写为「两个 HRV 分清用」。
 - **AI 教练服务端限流**（features.md §4.2 待办落地）：`app/lib/coach-rate-limit.ts`
   速率（每客户端 IP 滑动窗口，默认 20 次/60s）+ 并发（全局默认 2 个流）双闸门，
   收敛在两个教练端点唯一共用的出流层 `runCoachStream`；超限 429 + `Retry-After`，

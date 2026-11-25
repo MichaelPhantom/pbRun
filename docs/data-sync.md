@@ -29,6 +29,46 @@
 > 国际区与国区账号无法互通 API（国区 garminconnect 库不可用），故国区用户需使用 `local` 或 `cdp` 源。
 > Strava 渠道只拉活动列表 + 流数据并自行生成 GPX（无原始 FIT），字段覆盖弱于 Garmin（见 [Strava 集成设计](strava-integration-design.md)）。
 
+### 每日健康数据（wellness，独立于活动的第三条通道）
+
+**活动不等于健康。** 活动 FIT 里那个 `user_profile.resting_heart_rate` 只是手表用户档案的
+一个快照字段，**只在有训练的日子才有值**（真实库 225/368 ≈ 61%）。休息日、生病日、比赛前一天
+——恰恰是最需要看基线的窗口——整段空白。2026-10 的流感就是被这个盲区掩盖了近两周。
+
+所以每日健康数据走**独立通道**，按天采集，与当天是否训练无关：
+
+| 端点 | 内容 |
+|------|------|
+| `gc-api/usersummary-service/usersummary/daily/{displayName}?calendarDate=` | 静息心率（当日 / 7 日均值）、全天最高最低心率、步数、压力、Body Battery、当天睡眠总时长 |
+| `gc-api/hrv-service/hrv/{date}` | 夜间 HRV 均值、HRV 周均值、个人基线区间、**HRV Status**（BALANCED / LOW / UNBALANCED / HIGH） |
+| `gc-api/wellness-service/wellness/dailySleepData/{displayName}?date=` | 睡眠分期（深/浅/REM/清醒）、睡眠综合分、睡眠期平均心率 / 压力 / 血氧 / 呼吸率 |
+
+> ⚠️ **这条通道只能走 CDP，不能走 `local` 导出。** 导出目录里只有活动 FIT，
+> wellness 数据从未写进 FIT。`sync.js --source local` 无论跑多少次都补不出这些字段。
+
+```bash
+# 最近 30 天（默认）
+npm run sync:wellness
+
+# 指定区间回填（例：把流感窗口补齐）
+npm run sync:wellness -- --from 2026-10-15 --to 2026-11-05
+
+# 只看不写
+node scripts/garmin/wellness-cdp.js --days 7 --dry-run --json
+```
+
+**前置条件**：CDP 浏览器（默认 `http://127.0.0.1:9994`）里有**已登录**的
+`connect.garmin.cn` 页签。脚本从页面里读 `csrf-token` 与 cookie，自动探测 `displayName`，
+只发 GET，不改任何云端数据。
+
+**工程纪律（都在代码里钉住，别绕过）**：
+
+- **睡眠一律存秒**（与 `activities.duration` 同口径），小时/分钟只在展示层换算；
+- **缺失写 NULL，不写 0** —— `total_steps = 0` 是有效值，与「没采到」是两件事；
+- **并发上限 3**：实测 6 会触发限流（大量 403/429），脚本内置退避重试；
+- **同日重复采集覆盖**：Garmin 会回填/修正最近几天的睡眠与 HRV，覆盖才是正确行为；
+- 归一化是纯函数（`scripts/garmin/wellness-transform.js`），单测覆盖单位与空值边界。
+
 ### 本机（u2）实际生效的渠道
 
 生产库（`app/data/activities.db`，353 条 / 2025-11-05 ~ 2026-11-05）当前**只由 Garmin 国区 `local` 源写入**，链路是 cft/garmin 的 `sync_cn_daily.sh`：
@@ -580,6 +620,53 @@ CREATE TABLE records (
   FOREIGN KEY (activity_id) REFERENCES activities(activity_id)
 );
 ```
+
+#### daily_wellness 表
+
+Garmin 每日健康快照（**按天**，与当天有无训练无关）。由 `scripts/garmin/wellness-cdp.js` 写入，
+读取入口是 MCP 工具 `get_daily_wellness` / `app/lib/db.ts` 的 `getDailyWellness()`。
+
+```sql
+CREATE TABLE daily_wellness (
+  calendar_date TEXT PRIMARY KEY,              -- 本地日历日 YYYY-MM-DD
+  resting_heart_rate INTEGER,                  -- 静息心率（当日）
+  resting_hr_7d_avg INTEGER,                   -- 静息心率 7 日均值（趋势看这个）
+  min_heart_rate INTEGER,
+  max_heart_rate INTEGER,
+  sleeping_seconds INTEGER,                    -- 睡眠时长（**秒**）
+  sleep_score INTEGER,                         -- 0-100
+  sleep_deep_seconds INTEGER,
+  sleep_rem_seconds INTEGER,
+  sleep_light_seconds INTEGER,
+  sleep_awake_seconds INTEGER,
+  sleep_avg_stress INTEGER,
+  sleep_avg_heart_rate INTEGER,
+  sleep_spo2_avg REAL,
+  sleep_respiration_avg REAL,
+  avg_stress_level INTEGER,
+  max_stress_level INTEGER,
+  body_battery_at_wake INTEGER,                -- 起床时 0-100
+  body_battery_lowest INTEGER,
+  body_battery_highest INTEGER,
+  total_steps INTEGER,
+  total_distance_meters INTEGER,
+  active_kilocalories INTEGER,
+  hrv_last_night_avg INTEGER,                  -- 夜间 HRV（ms）
+  hrv_weekly_avg INTEGER,                      -- HRV 周均值（ms）
+  hrv_last_night_5min_high INTEGER,
+  hrv_status TEXT,                             -- BALANCED / LOW / UNBALANCED / HIGH
+  hrv_baseline_low INTEGER,
+  hrv_baseline_high INTEGER,
+  hrv_feedback TEXT,
+  source TEXT NOT NULL DEFAULT 'garmin-cdp',
+  fetched_at TEXT NOT NULL
+);
+```
+
+**为什么单独成表**：`activities.resting_heart_rate_fit` 只在训练日有值（覆盖率约 61%），
+休息日全空。判断「基线是否上移 / 是否生病 / 是否恢复完成」必须用这张按天表。
+
+**单位纪律**：睡眠全部是**秒**；心率 bpm；HRV 毫秒；缺失是 `NULL` 不是 `0`。
 
 #### 统计类分析（实时计算）
 

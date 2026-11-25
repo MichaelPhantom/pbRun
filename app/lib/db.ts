@@ -1661,7 +1661,166 @@ export function getDailyDistances(year: number): { date: string; km: number }[] 
   return rows.map((r) => ({ date: r.date, km: r.km ?? 0 }));
 }
 
-/** 活动路线 GeoJSON-ish 轨迹 (track 列, 由 backfill-tracks.js 回填)。无 GPS 返回 null。 */
+/** 每日健康快照（daily_wellness 表，由 scripts/garmin/wellness-cdp.js 采集）。 */
+export interface DailyWellnessRow {
+  calendar_date: string;
+  resting_heart_rate: number | null;
+  resting_hr_7d_avg: number | null;
+  min_heart_rate: number | null;
+  max_heart_rate: number | null;
+  sleeping_seconds: number | null;
+  sleep_score: number | null;
+  sleep_deep_seconds: number | null;
+  sleep_rem_seconds: number | null;
+  sleep_light_seconds: number | null;
+  sleep_awake_seconds: number | null;
+  sleep_avg_stress: number | null;
+  sleep_avg_heart_rate: number | null;
+  sleep_spo2_avg: number | null;
+  sleep_respiration_avg: number | null;
+  avg_stress_level: number | null;
+  max_stress_level: number | null;
+  body_battery_at_wake: number | null;
+  body_battery_lowest: number | null;
+  body_battery_highest: number | null;
+  total_steps: number | null;
+  total_distance_meters: number | null;
+  active_kilocalories: number | null;
+  hrv_last_night_avg: number | null;
+  hrv_weekly_avg: number | null;
+  hrv_last_night_5min_high: number | null;
+  hrv_status: string | null;
+  hrv_baseline_low: number | null;
+  hrv_baseline_high: number | null;
+  hrv_feedback: string | null;
+  source: string;
+  fetched_at: string;
+}
+
+export interface DailyWellnessResult {
+  data: DailyWellnessRow[];
+  /** 区间天内实际有数据的天数（用于判断「缺采」而不是「没运动」）。 */
+  days: number;
+  /** 区间首尾日期（便于核对翻页/时区）。 */
+  requestedRange: { startDate: string; endDate: string };
+  /** 该表是否还未采集过（表缺失或全空），true 时 data 恒为空。 */
+  empty: boolean;
+  hint?: string;
+  /** 区间均值（只对有心率/HRV 的天求平均，缺失日不参与）。 */
+  averages: {
+    restingHeartRate: number | null;
+    restingHr7dAvg: number | null;
+    hrvLastNightAvg: number | null;
+    hrvWeeklyAvg: number | null;
+    bodyBatteryAtWake: number | null;
+    sleepHours: number | null;
+    avgStressLevel: number | null;
+  };
+  /** HRV 状态分布，如 { BALANCED: 20, LOW: 3 }。 */
+  hrvStatusCounts: Record<string, number>;
+}
+
+function avgOrNull(values: Array<number | null>): number | null {
+  const nums = values.filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
+  if (nums.length === 0) return null;
+  const mean = nums.reduce((s, v) => s + v, 0) / nums.length;
+  return Math.round(mean * 10) / 10;
+}
+
+/**
+ * 读取每日健康快照。
+ *
+ * 与 `activities.resting_heart_rate_fit` 的区别（千万不要混用）：
+ * 后者来自活动 FIT 的 user_profile，**只有训练日才有值**，休息日整段空白；
+ * 本表按天采集，**休息日也有值**——判断「基线是否上移」「是否生病」必须看本表。
+ *
+ * 若表尚未创建（还没跑过 `npm run sync:wellness`），返回 `empty: true` + hint，
+ * 而不是抛错 —— MCP 工具在未采集的库上也要能给出可行动的解释。
+ */
+export function getDailyWellness(params: {
+  startDate: string;
+  endDate: string;
+  limit?: number;
+}): DailyWellnessResult {
+  const { startDate, endDate } = params;
+  const db = getDatabase();
+  const requestedRange = { startDate, endDate };
+  const emptyBase: DailyWellnessResult = {
+    data: [],
+    days: 0,
+    requestedRange,
+    empty: true,
+    averages: {
+      restingHeartRate: null,
+      restingHr7dAvg: null,
+      hrvLastNightAvg: null,
+      hrvWeeklyAvg: null,
+      bodyBatteryAtWake: null,
+      sleepHours: null,
+      avgStressLevel: null,
+    },
+    hrvStatusCounts: {},
+  };
+
+  let rows: DailyWellnessRow[];
+  try {
+    rows = db
+      .prepare(
+        `SELECT * FROM daily_wellness
+         WHERE calendar_date >= ? AND calendar_date <= ?
+         ORDER BY calendar_date`
+      )
+      .all(startDate, endDate) as DailyWellnessRow[];
+  } catch (e) {
+    if (/no such table/i.test((e as Error).message)) {
+      return {
+        ...emptyBase,
+        hint: 'daily_wellness 表不存在：先运行 npm run sync:wellness（需要已登录的 connect.garmin.cn 页签）。',
+      };
+    }
+    throw e;
+  }
+
+  if (rows.length === 0) {
+    return {
+      ...emptyBase,
+      hint: `区间 ${startDate} → ${endDate} 没有健康数据：运行 npm run sync:wellness -- --from ${startDate} --to ${endDate}`,
+    };
+  }
+
+  const limit = params.limit && params.limit > 0 ? params.limit : undefined;
+  const data = limit ? rows.slice(-limit) : rows;
+
+  const hrvStatusCounts: Record<string, number> = {};
+  for (const r of rows) {
+    if (!r.hrv_status) continue;
+    hrvStatusCounts[r.hrv_status] = (hrvStatusCounts[r.hrv_status] ?? 0) + 1;
+  }
+
+  return {
+    data,
+    days: rows.length,
+    requestedRange,
+    empty: false,
+    averages: {
+      restingHeartRate: avgOrNull(rows.map((r) => r.resting_heart_rate)),
+      restingHr7dAvg: avgOrNull(rows.map((r) => r.resting_hr_7d_avg)),
+      hrvLastNightAvg: avgOrNull(rows.map((r) => r.hrv_last_night_avg)),
+      hrvWeeklyAvg: avgOrNull(rows.map((r) => r.hrv_weekly_avg)),
+      bodyBatteryAtWake: avgOrNull(rows.map((r) => r.body_battery_at_wake)),
+      sleepHours: (() => {
+        const v = avgOrNull(rows.map((r) => r.sleeping_seconds));
+        return v === null ? null : Math.round((v / 3600) * 100) / 100;
+      })(),
+      avgStressLevel: avgOrNull(rows.map((r) => r.avg_stress_level)),
+    },
+    hrvStatusCounts,
+  };
+}
+
+/**
+ * 活动路线 GeoJSON-ish 轨迹 (track 列, 由 backfill-tracks.js 回填)。无 GPS 返回 null。
+ */
 export function getActivityTrack(activityId: number): ActivityTrack | null {
   const db = getDatabase();
   const row = db

@@ -21,6 +21,7 @@
     "sync:garmin": "node scripts/garmin/sync.js",
     "sync:garmin:cn": "node scripts/garmin/sync.js --source local",
     "sync:garmin:cdp": "node scripts/garmin/sync.js --source cdp",
+    "sync:wellness": "node scripts/garmin/wellness-cdp.js",
     "sync:strava": "node scripts/strava/sync.js",
     "auth:strava": "python scripts/strava/oauth_helper.py",
     "build:mcp": "tsc -p mcp-server/tsconfig.json",
