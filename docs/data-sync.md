@@ -69,6 +69,17 @@ node scripts/garmin/wellness-cdp.js --days 7 --dry-run --json
 - **同日重复采集覆盖**：Garmin 会回填/修正最近几天的睡眠与 HRV，覆盖才是正确行为；
 - 归一化是纯函数（`scripts/garmin/wellness-transform.js`），单测覆盖单位与空值边界。
 
+**接入每日 cron（生产实际在跑的方式）**：`cft/garmin/sync_cn_daily.sh` 的**阶段 2.5**
+已经串进来，配置纪律是：
+
+| 决策 | 取值 | 理由 |
+|------|------|------|
+| 触发条件 | **无论有无新增活动都跑** | 休息日也有健康数据，不能挂在 `NEW_FIT > 0` 分支下 |
+| 回看窗口 | **14 天**（`WELLNESS_DAYS` 可覆盖） | Garmin 会回填/修正最近几天，只采当天会留下永久空洞 |
+| 失败处理 | **非致命**：WARN + 企微告警，`rc` 不变 | 活动是主数据，不能因为健康通道挂了就触发整轮自愈重跑 |
+| 新鲜度自检 | 采集后查 `MAX(calendar_date)`，**滞后 ≥3 天告警** | 「表非空但过期」是最难发现的失真 |
+| CDP 端点 | 复用阶段 0.5 解析出的 `$CDP`（主 9994 / 备 9995） | 与活动导出走同一条已校验的通道 |
+
 ### 本机（u2）实际生效的渠道
 
 生产库（`app/data/activities.db`，353 条 / 2025-11-05 ~ 2026-11-05）当前**只由 Garmin 国区 `local` 源写入**，链路是 cft/garmin 的 `sync_cn_daily.sh`：

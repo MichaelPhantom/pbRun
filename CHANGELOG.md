@@ -6,6 +6,13 @@
 ## [Unreleased]
 
 ### Added
+- **wellness 接入每日 cron（生产闭环）**：`cft/garmin/sync_cn_daily.sh` 新增**阶段 2.5**，
+  与活动同步共用同一把 flock、同一份脱敏日志、同一套企微告警。四条纪律写死在脚本注释里：
+  **① 无论有无新增活动都跑**（健康数据按天，休息日也有）；**② 固定回看 14 天**（Garmin 会
+  回填修正最近几天，只采当天会留永久空洞）；**③ 非致命**（WARN + 告警，退出码不变，避免
+  健康通道故障触发整轮自愈重跑）；**④ 采集后做新鲜度自检**（`MAX(calendar_date)` 滞后 ≥3 天
+  即告警）——「表非空但过期」是最难发现的失真。新增 `--no-wellness` 开关与
+  `SUMMARY ... wellness_days=<n> wellness_last=<date>` 机器可读摘要。
 - **每日健康数据（wellness）独立管线 + MCP 工具**（原先只有活动，健康字段是盲区）：
   - `scripts/garmin/wellness-cdp.js` + `npm run sync:wellness`：走本机 CDP 里**已登录的
     connect.garmin.cn**，采集 `usersummary` / `hrv-service` / `dailySleepData` 三个只读端点
